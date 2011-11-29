@@ -1,0 +1,178 @@
+.Form 'Создание Аттестатов на вещевое довольствие'
+.Ard
+.F 'Nul'
+
+.begin
+        RunInterface ('Intfc');
+end.
+.endform
+
+
+interface Intfc;
+
+  create view
+  as select * from
+  REQSFO
+, PersCard
+, KatMC
+, KatMBP
+, PersSFO
+, PersSpec
+, AttrVal
+, synonym GroupSFO GroupSFO_n
+, GroupSFO
+Where (( KatMBP.cMC          == KatMC.nRec ))
+;
+
+var
+  Handle  : longint;
+  _path   : string;
+  kod_dbf, name_dbf  : string;
+  k,i: integer;
+  FIO, FIO_do, MC : string;
+  Date_in : date;
+  Kol, Summa, iznos_proc, iznos_summa : double;
+  Srok       : double;
+  Spec_nrec  : comp;
+  MBPin_nrec : comp;
+  MBP_nrec   : comp;
+
+HandleEvent
+  cmInit :
+    {
+// для удаления всей ране внесённой спецодежды
+UpDate GroupSFO set GroupSFO.UV := 'Ц';
+UpDate KatMBP set KatMBP.cGroupMC := KatMC.cGroupMC, KatMBP.KodGr := KatMC.kGroupMC;
+Delete all PersSFO;
+Delete all REQSFO;
+Delete AttrVal Where
+AttrVal.cAttrNam  = comp(17) or AttrVal.cAttrNam  = comp(18);
+
+
+    set _path := 'C:\New_Nalichie31102008.dbf'
+    StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Просмотрено: 0',1576);
+    Handle := DBFOpen(_path,stOpen);
+
+
+    if (DBFGetFirst(Handle) = tsok)
+     Do
+      {
+        NextVisual();
+        K:=K+1;
+        SetVisualHeader('Просмотрено: ' + String(k));
+
+        FIO          := '';
+        MC           := '';
+        Date_in      := date(01,01,1991);
+        Kol          := 0;
+        Summa        := 0;
+        iznos_proc   := 0;
+        iznos_summa  := 0;
+        MBPin_nrec   := comp(0);
+        MBP_nrec     := comp(0);
+
+         FIO         := string(DBFGetFieldValue(Handle,'FIO_dbf'));
+         MC          := string(DBFGetFieldValue(Handle,'MC_dbf'));
+         Date_in     := StrToDate(string(DBFGetFieldValue(Handle,'Date_dbf')), 'YYYYMMDD');
+         Kol         := double(DBFGetFieldValue(Handle,'Kol_dbf'));
+         Summa       := double(DBFGetFieldValue(Handle,'Summa_dbf'));
+         iznos_proc  := double(DBFGetFieldValue(Handle,'IZ_PROC_DB'));
+         iznos_summa := double(DBFGetFieldValue(Handle,'IZ_SUMMA_D'));
+         MBPin_nrec  := comp(DBFGetFieldValue(Handle,'NREC_IN'));
+         MBP_nrec    := comp(DBFGetFieldValue(Handle,'NREC_MBP'));
+
+        if (Getfirst LSCHET   where ((FIO         == LSCHET.TABN))      = tsOK)
+        {
+        if (Getfirst PersCard where ((LSchet.nRec == PERSCARD.CLSCHET)) = tsOK)
+          {
+          if (FIO <> FIO_do)
+                {
+                ClearBuffer(#REQSFO);
+                REQSFO.REQNOM    := i;
+                REQSFO.FRMDATE   := date(31, 10, 2008);
+                REQSFO.CPERSCARD := PersCard.nRec;
+                REQSFO.CLSCHET   := LSchet.nRec;
+                REQSFO.CPODR     := PERSCARD.CPODR;
+                REQSFO.cMOL      := PERSCARD.cMol;
+                REQSFO.STATUS    := word(5);
+
+                if (insert current REQSFO = tsOK) {inc(i);}
+                }
+
+          if (GetFirst KatMBP where ((MBP_nRec  == KatMBP.nRec)) = tsOK)
+            {
+  Srok      := 0;
+  Spec_nrec := comp(0);
+
+          if (GetFirst GroupSFO where (( KatMBP.cGroupMC == GroupSFO.cGroupMC)) = tsOK)
+              {
+          if (GetFirst PersNorm where ((     PersCard.nRec       ==  PersNorm.cPersCard )) = tsOK )
+          {
+          if (GetFirst PersSpec where ((     PersCard.NRec       ==  PersSpec.cPersCard
+                                         and PersNorm.NRec       ==  PersSpec.cPersNorm
+                                         and GroupSFO.nRec       ==  PersSpec.cGroupSFO  (noindex)
+                                          )) = tsOK)
+                                                      {
+                                                      Srok      := PersSpec.Srok;
+                                                      Spec_nrec := PersSpec.nRec;
+
+                                                    PersSpec.GivKol     := Kol;
+                                                    PersSpec.EMPTCLOSED := 1;
+                                                    if (update current PersSpec = tsok) {}
+                                                      }
+          }
+          
+            ClearBuffer(#PERSSFO);
+            PERSSFO.CPERSCARD := PersCard.nRec;
+            PERSSFO.CMBPMOVE  := REQSFO.nRec;
+            PERSSFO.CGROUPSFO := GroupSFO.nRec;
+            PERSSFO.CKATMBP   := MBP_nRec;
+
+            PERSSFO.EXPLDATE  := date_in;
+            PERSSFO.GIVEDATE  := date_in;
+            PersSFO.Srok      := Srok;
+            PERSSFO.OPERDATE  := date_in;
+            PERSSFO.EndDATE   := Add_Months(date_in, Srok);
+            PERSSFO.GIVENOM   := REQSFO.REQNOM;
+
+            PERSSFO.DocKol    := Kol;
+            PERSSFO.CurKol    := Kol;
+            PERSSFO.ZeroKol   := 1;
+
+            PersSFO.cPersSpec := Spec_nrec;
+            PersSFO.CDOCMBPIN := MBPin_nrec;
+            PersSFO.CCURMBPIN := MBPin_nrec;
+
+
+                if (insert current PERSSFO = tsok) {
+                                                    ClearBuffer(#AttrVal);
+                                                    AttrVal.wTable    := word(4008);
+                                                    AttrVal.cRec      := PERSSFO.nRec;
+                                                    AttrVal.cAttrNam  := comp(17);
+                                                    AttrVal.vDouble   := Summa;
+
+                                                    if (insert current AttrVal = tsok) {}
+                                                    
+                                                    ClearBuffer(#AttrVal);
+                                                    AttrVal.wTable    := word(4008);
+                                                    AttrVal.cRec      := PERSSFO.nRec;
+                                                    AttrVal.cAttrNam  := comp(18);
+                                                    AttrVal.vDouble   := iznos_proc;
+
+                                                    if (insert current AttrVal = tsok) {}
+                                                   }
+             }
+            }
+           }
+          }
+
+      FIO_do := FIO;
+      }
+      while (DBFGetNext(Handle) = tsok)
+    StopVisual('',0);
+    message('Просмотрено: ' + String(k)+'; Вставлено: '+string(i));
+    DBFClose(Handle);
+    CloseInterFace(cmdefault);
+    }
+  end;
+end.
