@@ -1,0 +1,933 @@
+
+//
+// Различные Windows для каталога материальных ценностей (МЦ)
+//
+
+
+!===============================================================================
+#doc
+Окно параметров тиражирования
+#end
+Window wiSetSomeCopyRec 'Параметры тиражирования' Gray, DoAccept, EscClose;
+  show at (12,11,60,14);
+Screen scSetSomeCopyRec ('',,sci1EnEsc)
+  NoTableNavigation;
+Fields
+  vlSomeCopy_Kol          : noProtect;
+  vlSomeCopy_MaskRecalc   : noProtect;
+<<
+
+ Количество создаваемых МЦ .@@@@@@@@
+  [.] Пересчитать расчетные поля по формулам шаблона МЦ`
+>>
+end; // screen
+HandleEvent
+cmInit :
+  {
+    SetFieldVisible(#vlSomeCopy_MaskRecalc, if (KatMC.cMaskMC = 0, FALSE, TRUE));
+  }
+end;
+end; // window
+//******************************************************************************
+
+Window wiGetParKPM 'Выберите категорию матценностей для фильтра' Gray, DoAccept, EscClose;
+  show at (12,11,75,16);
+Screen scGetParKind ('',,sci1EnEsc)
+  NoTableNavigation;
+Fields
+  wKind ('Категория МЦ',,sci13Esc) :
+             [LIST
+                0  'Все',
+                1  'Покупная',
+                2  'Собственного производства',
+//              3  'Обобщенная',
+                4  'Фантомная',
+                5  'Субподрядная'], Protect;
+  wPrMat ('Признак МЦ',,sci13Esc) :
+             [LIST
+              0 'Все',
+              1 'Материал',
+              2 'ДСЕ',
+              3 'Инструмент, оснастка'], Protect;
+<<
+
+ Категория матценностей      .@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Характеристика матценностей .@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+>>
+end; // screen
+HandleEvent
+
+cmCancel:
+  {
+    wKind  := 0;
+    wPrMat := 0;
+
+    PutCommand(cmDefault);
+  }
+
+end;
+end; // window
+
+
+//******************************************************************************
+
+!===============================================================================
+#doc
+Окна ввода начало кода группы МЦ для фильтра по группе мц
+#end
+Window wiGetPartGroup 'Введите начало кода группы МЦ' ( , hcNastr_LocMCFiltrKodGr, ) Gray, DoAccept, EscClose;
+  show at (12,11,68,14);
+Screen scGetPartGroup ('Введите начало кода группы МЦ', hcNastr_LocMCFiltrKodGr, sci1EnEsc)
+  NoTableNavigation;
+Fields
+  sPartKodGr : noProtect;
+<<
+
+ Введите начало кода группы .@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen
+end; // window
+!===============================================================================
+
+!###############################################################################
+#doc
+Окно редактирования матценности
+#end
+window wKatMC 'Редактирование матценности' escclose;
+  show at (,,100,25);
+
+Screen Scr000 (,hcOkatalM1MC,sci178Esc);
+  show at(,,,6);
+table KatMC;
+Fields
+  KatMC.Name    ('Наименование МЦ') :
+    {Font = {BackColor = if (KatMC.Name = '',ColorNeed,0)}};
+  KatED.Name    ('Учетная единица измерения',,sci1378Esc):
+    {Font = {BackColor = if (KatMc.cEd = 0,ColorNeed,0)}};
+  KatMC.BarKod  ('Номенклатурный номер',,sci1378Esc);
+<<
+`Наименование МЦ`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Учетная единица`.@@@@@@@@@@@@@@@      `Номенклатурный номер/бар-код`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end;
+
+#ifdef Kachestvo1
+Screen Scr000_Kachestvo (,hcOkatalM1MC,sci178Esc);
+  show at(,,,6);
+table KatMC;
+Fields
+  KatMC.Name    ('наименование МЦ') :
+    {Font = {BackColor = if (KatMC.Name = '',ColorNeed,0)}};
+  KatED.Name    ('учетная единица измерения',,sci1378Esc):
+    {Font = {BackColor = if (KatMc.cEd = 0,ColorNeed,0)}};
+  KatMC.BarKod        ('номенклатурный номер, должен быть уникальным',,sci1378Esc);
+  sBarKod2      : skip;
+  KatMC.BarKod2 (,,sci178Esc) : NoProtect;
+  KatMC.wQualityControl ('Контроль качества'): NoProtect;
+  KatMC.wIntervalQC     ('Периодичность контроля качества (в днях)'): NoProtect;
+buttons
+  cmValue19,,, 'Тесты качества';
+  cmValue18,,, 'Формула';
+<<
+
+`Наименование МЦ`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Учетная единица`.@@@@@@@@@@@@@@@      `Номенклатурный номер/бар-код`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                                        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ [.] Контроль качества` `Периодичность контроля` .@@@@@
+                                   <. Тесты качества .>  <.     Формулы    .>
+>>
+end;
+#end
+
+TabbedSheet TOP tshMain
+  show at (,7,,);
+
+Screen scKatMC 'Основная' (,hcOkatalM1MC,sci178Esc);
+  show at (,,,);
+table KatMC;
+Fields
+  GroupMC.KOD   ('Код группы МЦ',,sci1378Esc) : protect;
+  GroupMC.Name  ('Наименование группы МЦ',,sci1378Esc) : protect;
+  GrNal.Kod ('Код группы налогов',,sci1378Esc) : protect;
+  GrNal.Name ('Наименование группы налогов',,sci1378Esc) : protect;
+  ExistOtp : skip,centered,{font={italic=true}};
+  ExistDopEd : skip,centered,{font={italic=true}};
+buttons
+  cmDoRedakt,,, 'Вызов редактирования каталога отпускных единиц измерения для данной матценности';
+  cmValue7,,,   'Вызов редактирования набора дополнительных единиц измерения для данной МЦ';
+<<
+
+`Группа`  .@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Налоги`  .@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+          <.       ~О~тпускные единицы        .>      <.~Д~ополнительные единицы измерения.>
+
+            .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+>>
+end; //screen
+
+Screen scKatMC_Sklad 'Складской учет' (,hcOkatalM1MC,sci178Esc);
+  show at (,,,);
+table KatMC;
+bevel b01 {2, 0, 35, 3, bsRaised, bsBox};
+bevel b02 {2, 2, 35, 7, bsLowered, bsFrame};
+
+bevel b03 {38, 0, 67, 3, bsRaised, bsBox};
+bevel b04 {38, 2, 67, 7, bsLowered, bsFrame};
+
+bevel b05 {70, 0, 98, 3, bsRaised, bsBox};
+bevel b06 {70, 2, 98, 7, bsLowered, bsFrame};
+
+bevel b07 {2, 9, 35, 12, bsRaised, bsBox};
+bevel b08 {2, 11, 35, 16, bsLowered, bsFrame};
+
+bevel b09 {62,  9, 98, 12, bsRaised, bsBox};
+bevel b10 {62, 11, 98, 16, bsRaised, bsFrame};
+Fields
+  KatMC.Massa       ('масса матценности')                                     : [15.5],
+      {Font = {BackColor = if (KatMC.Massa < 0,ColorError,0)}};
+  //------------------------------------------------------------------------------
+  sGetTune('McUsl.EdIzmVes')                                                  : [ 5], skip;
+  //------------------------------------------------------------------------------
+  KatMC.SizeX       ('линейные единицы измерения матценности')                : [15.5],
+      {Font = {BackColor = if (KatMC.SizeX < 0,ColorError,0)}};
+  //------------------------------------------------------------------------------
+  sGetTune('McUsl.EdIzmLine')                                                 : [ 5], skip;
+  //------------------------------------------------------------------------------
+  KatMC.mTara       ('масса тары')                                            : [15.5];
+  //------------------------------------------------------------------------------
+  sGetTune('McUsl.EdIzmVes')                                                  : [ 5], skip;
+  //------------------------------------------------------------------------------
+  KatMC.SizeY       ('линейные единицы измерения тары')                       : [15.5],
+      {Font = {BackColor = if (KatMC.SizeY < 0,ColorError,0)}};
+  //------------------------------------------------------------------------------
+  sGetTune('McUsl.EdIzmLine')                                                 : [ 5], skip;
+  //------------------------------------------------------------------------------
+  KatMC.Volume      ('объем')                                                 : [15.5];
+  //------------------------------------------------------------------------------
+  sGetTune('McUsl.EdIzmVolume')                                               : [ 5], skip;
+  //------------------------------------------------------------------------------
+  fBrutto           ('масса матценности вместе с тарой')                      : [15.5], NoProtect;
+  //------------------------------------------------------------------------------
+  sGetTune('McUsl.EdIzmVes')                                                  : [ 5], skip;
+  //------------------------------------------------------------------------------
+  KatMC.SizeZ       ('линейные единицы измерения матценности вместе с тарой') : [15.5],
+      {Font = {BackColor = if (KatMC.SizeZ < 0,ColorError,0)}};
+  //------------------------------------------------------------------------------
+  sGetTune('McUsl.EdIzmLine')                                                 : [ 5], skip;
+  //------------------------------------------------------------------------------
+  KlResHr.Name     ('ссылка на ресурс хранения',,sci1378Esc);
+  //------------------------------------------------------------------------------
+  KatMC.ZapasMin   ('Минимальный нормативный запас')                          : [10.3];
+  //------------------------------------------------------------------------------
+  TekMC.KolAKT                                                                : [10.3], skip,
+      {Font = {Bold = true}};
+  //------------------------------------------------------------------------------
+  KatMC.ZapasMax   ('Максимальный нормативный запас')                         : [10.3];
+  //------------------------------------------------------------------------------
+  TekMC.Reserve                                                               : [10.3], skip,
+      {Font = {Bold = true}};
+  //------------------------------------------------------------------------------
+  Svobodno                                                                    : [10.3], skip,
+      {Font = {Bold = true}};
+<<
+
+                Вес                          Линейные размеры                    Объем
+
+  `нетто` .@@@@@@@@@@@@@@@@ .@@@@@     `X`.@@@@@@@@@@@@@@@@ .@@@@@
+  `тара`  .@@@@@@@@@@@@@@@@ .@@@@@     `Y`.@@@@@@@@@@@@@@@@ .@@@@@      .@@@@@@@@@@@@@@@@@ .@@@@@
+  `брутто`.@@@@@@@@@@@@@@@@ .@@@@@     `Z`.@@@@@@@@@@@@@@@@ .@@@@@
+
+
+  `Ресурс хранения`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+       Нормативные запасы                                          Текущие остатки на предприятии
+
+   `минимальный` .@@@@@@@@@@                                    НАЛИЧИЕ     .@@@@@@@@@@@@@@@@@@
+   `максимальный`.@@@@@@@@@@                                    РЕЗЕРВ      .@@@@@@@@@@@@@@@@@@
+                                                                СВОБОДНО    .@@@@@@@@@@@@@@@@@@
+>>
+end; //screen
+
+
+Screen scKatMC_Torg 'Торговля' (,hcOkatalM1MC,sci178Esc);
+  show at (,,,);
+table KatMC;
+
+bevel b11 {2, 0, 57, 10, bsRaised, bsBox};
+
+bevel b13 {70, 0, 98, 3, bsRaised, bsBox};
+bevel b14 {70, 2, 98, 7, bsLowered, bsFrame};
+
+Fields
+  KatMC.CenaMC   ('Заводская(контрактная) цена МЦ в нац.ден.единице') : [14.5];
+  KatMC.VHODON   ('Входящий процент надбавки для заводской(контрактной) цены'):[5.2];
+  KatMC.MaxProcN ('Процент оптовой надбавки по умолчанию (к продаже)'):[5.2];
+  KatMC.MaxON    ('Максимальный процент оптовой надбавки'): [6.2];
+  KatMC.Bonus_pr ('Процент скидки/надбавки за возврат тары'):[10.5];
+  KatMC.MaxRN    ('Максимальный процент розничной надбавки'): [6.2];
+  KatMC.NormUb   ('Нормативный процент естественной убыли'):[10.5];
+  KatMC.MaxORN   ('Максимальная сумма процентов оптовой и розничной надбавки'): [6.2];
+  KatMC.ClassGr  ('Класс груза (коэффициент для взимания сбора за доставку)');
+  KatMC.DefGodnDays  ('Срок хранения МЦ в днях')  : [10];
+  wgmo               ('Содержит ГМО') : NoProtect;
+  KatMC.DefGodnHours ('Срок хранения МЦ в часах') : [10];
+  Usluga         : skip;
+  ExistCellVal   : skip,centered,{font={italic=true}};
+buttons
+  cmValue5,,,   'Вызов справочника единиц подвижного состава для данной матценности';
+<<
+
+   `Заводская(контрактная) цена`          .@@@@@@@@@@@@                   Предельные % надбавки
+   `Входящий процент надбавки`                 .@@@@@@@
+   `Процент оптовой надбавки по умолчанию`     .@@@@@@@                `оптовой`    .@@@@@@@@@@
+   `Процент скидки/надбавки за возврат МЦ-тары`.@@@@@@@                `розничной`  .@@@@@@@@@@
+   `Нормативный % убыли`                       .@@@@@@@                `сумма`      .@@@@@@@@@@
+   `Класс груза`                               .@@@@@@@
+   `Срок годности в днях`                      .@@@@@@@                [.] Содержит ГМО`
+   `Срок годности в часах`                     .@@@@@@@
+
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                              <.     ~Е~диницы подвижного состава     .>
+
+                            .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+>>
+end; //screen
+
+Screen scKatMC_Manuf 'Производство' (,hcOkatalM1MC,sci178Esc);
+table KatMC;
+Fields
+  KatMC.PricePU ('Заводская цена МЦ в нац.ден.единице') : [14.5];
+  KatMC.wPlanLevel ('Уровень планирования');
+  TypeMC.Name   ('Тип матценности',,sci1378Esc):protect;
+  KatMC.PrMat   ('Признак',,sci1378Esc): [LIST 'Материал','ДСЕ','Инструмент, оснастка'], protect;
+  KatMC.Gost    ('Гост') : NoProtect;
+  KatMC.Obozn   ('Конструкторское обозначение');
+  KatPodr.Name  ('Цех-изготовитель',,sci1378Esc):protect;
+  if (LNT_ContourName= 'K_UFZ' or LNT_ContourName= 'K_CTRL' or
+      LNT_ContourName= 'K_TEP' or LNT_ContourName= 'K_TPP'  or
+      LNT_ContourName= 'K_MANUF','Производственная единица',''),skip;
+  KatOtpEd2.Name  ('Производственная единица',,sci1378Esc): protect;
+  KatMC.PolZak  ('Рассчитывать потребность'): NoProtect;
+  StZatr.Name  ('Статья затрат',,sci1378Esc): protect;
+  if((KatMC.Kind = 0),'Элемент затрат','') : skip;
+  KaElem.Name  ('Элемент затрат',,sci1378Esc): protect;
+<<
+
+`Плановая цена`          .@@@@@@@@@@@@@@@@@@@@                  `Уровень планирования` .@@@@@@@@@@
+
+`Тип матценности`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Характеристика`         .@@@@@@@@@@@@@@@@@@@@
+`ГОСТ`                   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ Конструкторское
+ обозначение             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Цех-изготовитель        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+! Основной техпроцесс        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@
+!                          [.] Является отходом`
+ .@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                          [.] Не рассчитывать потребность`
+
+`Статья затрат`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+>>
+end; //screen scKatMC_Manuf
+
+//
+// НЕ ВСТАВЛЯТЬ СЮДА ОБРАБОТЧИК ПАНЕЛИ - ОНИ ВСЕ В KatMC_h.vpp
+//
+
+Embedded scNalDrag 'Драгметаллы' interface iNaldrag;
+end;
+
+Browse SpComplBrw  'Составляющие комплекта' (,hcOkatalIKomplMC,sci1378Esc);
+  show at (,,,);
+  table SpMC;
+Fields
+  KatMC3.Name 'Наимен. составляющей комплекта': [36], protect,
+    {Font = {BackColor = if (SpMC.cMC = 0,ColorNeed,0)}};
+  KatMC3.BarKOd 'Номен. номер': [16], protect,
+    {Font = {BackColor = if (SpMC.cMC = 0,ColorNeed,0)}};
+  SpMC.Kol 'Количество'(,,sci178Esc) : [14], [prSignsInKol], NoAutoSize,
+    {Font = {BackColor = if (SpMC.Kol < 0.000001,ColorError,0)}};
+  KatEd3.Abbr 'Уч.Ед': [5], skip,NoAutoSize;
+  AttrValP.vDouble  '% стоимости'('% стоимости МЦ в стоимости комплекта',,sci178Esc) : [7,2], noprotect,NoAutoSize;
+end; // browse
+
+Browse SpComplBrw1 'Составляющие комплекта' (,hcOkatalIKomplMC,sci1378Esc);
+  show at (,,,);
+  table SpMC;
+Fields
+  KatMC3.Name 'Наимен. составляющей комплекта': [33], protect,
+    {Font = {BackColor = if (SpMC.cMC = 0,ColorNeed,0)}};
+  KatMC3.BarKOd 'Номен. номер': [12], protect,
+    {Font = {BackColor = if (SpMC.cMC = 0,ColorNeed,0)}};
+  SpMC.Kol 'Количество'(,,sci178Esc) : [14], [prSignsInKol],
+    {Font = {BackColor = if (SpMC.Kol < 0.000001,ColorError,0)}};
+  KatEd3.Abbr 'Уч.Ед': [5], skip,NoAutoSize;
+  SpMC.ProcSeb 'Процент'('Процент списания себестоимости(используется в производстве)',,sci178Esc) : [6.2],
+    {Font = {BackColor = if (SpMC.ProcSeb > 100,ColorError,0)}};
+  SpMC.ProcMC 'Коэфф.'('Коэффициент расхода материалов(используется в производстве)',,sci178Esc) : [6.2],
+    {Font = {BackColor = if (SpMC.ProcMC < 0.000001,ColorError,0)}};
+end; // browse
+
+//Составляющие обобщенной МЦ
+Browse SpComplBrw2 'Составляющие семейства' ('Составляющие обобщенной МЦ',hcOkatalIKomplMC,sci1378Esc);
+  show at (,,,);
+  table SpMC;
+Fields
+  KatMC3.Name 'Наимен. составляющей': [36], protect,
+    {Font = {BackColor = if (SpMC.cMC = 0,ColorNeed,0)}};
+  KatMC3.BarKOd 'Номен. номер': [16], protect,
+    {Font = {BackColor = if (SpMC.cMC = 0,ColorNeed,0)}};
+  SpMC.Kol  '% входимости'(,,sci178Esc) : [8,3],NoAutoSize;
+/*  SpMC.tPer 'Период действия' : [14],
+           [LIST
+               5  'год       ',
+               4  'полугодие ',
+               3  'квартал   ',
+               2  'месяц     ',
+               1  'неделя    ',
+               0  'день      ' ], Protect;
+*/
+end; // browse
+
+Embedded scKAU 'Аналитика' interface;// динамически грузится fGetHashAn;
+ show at (,,,);
+ Cache=slave;
+end;
+
+#ifdef Kachestvo1
+Embedded scKachestvo 'Качество' interface;
+ show at (,,,);
+ Cache=slave;
+end;
+#end
+
+#ifdef __VarNameMCU__
+Embedded scVarName 'Варианты наименования' interface;// динамически грузится fVarNameMCU;
+ show at (,,,);
+ Cache=slave;
+end;
+#end
+
+
+Text MemoID = TxtMemo AllMemo.Mem 'Примечание';
+
+end; //TabbedSheet
+//------------------------------------------------------------------------------
+
+Panel pnKatMC;   // in window
+  table KatMC;
+
+//******************************************************************************
+handleevent
+
+cmPositionChanged:
+  if GetFirst AttrValG = tsOk
+    wgmo := word(AttrValG.vDouble)
+  else
+    wgmo := 0;
+
+cmCheckField:
+  case CurField of
+      #wgmo :
+        {
+          If GetFirst AttrNamG <> tsOk
+            {
+              clearbuffer(#AttrNamG);
+              AttrNamG.wTable := coKatMC;
+              AttrNamG.Name   := 'содержит ГМО';
+              insert current AttrNamG;
+            }
+
+          if GetFIrst AttrValG <> tsOk
+            {
+              clearbuffer(#AttrValG);
+              AttrValG.wTable   := coKatMC;
+              AttrValG.cRec     := KatMC.NRec;
+              AttrValG.cAttrNam := AttrNamG.NRec;
+              insert current AttrValG;
+            }
+     
+          if AttrValG.vDouble = 0
+            AttrValG.vDouble := 1
+          else
+            AttrValG.vDouble := 0;
+
+          update current AttrValG;
+        }
+
+     #KatMC.NormUb :
+       if (KatMC.NormUb <> 0) Set KatMC.cUsl := comp(0);
+
+     #KatMC.DefGodnHours:
+       {
+         var iTime : longint;
+         var iMin  : longint;
+         var iDay  : longint;
+
+         iTime := Hour(KatMC.DefGodnHours);
+         iMin  := Minute(KatMC.DefGodnHours);
+
+         if (iTime >= 24)
+           {
+             iDay := longint(Round(iTime/24));
+             set KatMC.DefGodnDays := KatMC.DefGodnDays + iDay;
+             set KatMC.DefGodnHours := Time(iTime - (iDay*24), iMin, 0, 0);
+           }
+       }
+  end;
+end;
+end
+
+//******************************************************************************
+HandleEvent
+
+cmInit:
+{
+  if GetFirst AttrValG = tsOk
+    wgmo := word(AttrValG.vDouble)
+  else
+    wgmo := 0;
+
+  IsOpenEditWin := True;
+
+ if(LNT_ContourName<> 'K_UFZ' and LNT_ContourName<> 'K_CTRL' and
+    LNT_ContourName<> 'K_TEP' and LNT_ContourName<> 'K_TPP'  and
+    LNT_ContourName<> 'K_MANUF')
+   SetFieldVisible(#KatOtpEd2.Name, FALSE);
+
+  SetFormat(ID_scKatMC);
+  SelectFormat(ID_Scr000);
+  SelectField (#KatMC.Name);
+  RefreshASUPKomplektFormat;
+
+}
+
+cmDeleteRelated :
+{
+  IF ( Katmc.cUsl <> 0 )
+   IF (Message('Удалить привязку к услуге?', YesNo) = Yes)
+     set Katmc.cUsl := 0;
+}
+
+cmPick:  //В MyPick не нужно это вставлять, потому как не будет определять #KaRet.Name и др.??!!!
+ {
+ ClearAllEvents;
+ if (Not IsEditMyRecords(1)) {Abort; Exit;}
+ case CurField of
+   #KatMC.NormUb: if (RunInterface('GetUsl',Katmc.cUsl) <> cmCancel)
+                    Set KatMC.NormUb:= 0;
+   #TypeMC.Name :
+    {
+     tmpMC_comp1 := KatMC.cType;
+     if (RunInterface(GetTypMC,tmpMC_comp1,word(0)) <> cmCancel)
+      {
+       // перенаследуем признаки выбранного Типа для МЦ
+       //
+       //KatMC.PreUtil := TypeMC.PreUtil;
+       set KatMC.cType := tmpMC_comp1;
+
+       if (KatMC.Kind <> TypeMC.Kind)
+         set KatMC.Kind := TypeMC.Kind;
+
+       if (KatMC.cStZatr = comp(0))
+         if (KatMC.cStZatr <> TypeMC.cStZatr)
+           set KatMC.cStZatr := TypeMC.cStZatr;
+
+       if (KatMC.cKaElem = comp(0))
+         if (KatMC.cKaElem <> TypeMC.cKaElem)
+           set KatMC.cKaElem := TypeMC.cKaElem;
+
+       LastTypeMC := KatMC.cType;
+       RefreshASUPKomplektFormat;
+      }
+    }
+//   #KaRet.Name : {
+//     var SaveRet1: comp;
+//     SaveRet1 := KatMC.Ret1;
+//     if (RunInterface(iKaRetSel, SaveRet1, byte(1)) <> cmCancel) {
+//       if (SaveRet1 = KatMC.Ret2) KaRetPickError else set KatMC.Ret1 := SaveRet1;
+//     }
+//   }
+//   #KaRetNoUse.Name: {
+//     var SaveRet2: comp;
+//     SaveRet2 := KatMC.Ret2;
+//     if (RunInterface(iKaRetSel, SaveRet2, byte(1)) <> cmCancel) {
+//       if (SaveRet2 = KatMC.Ret1) KaRetPickError else set KatMC.Ret2 := SaveRet2;
+//     }
+//   }
+//   #KatMarsh.Name: RunInterface(iTPM, KatMC.cTech, 1, 1, cgKAU_KatMC, KatMC.nRec, 0, 0);
+//   #PrDiv: if (KatMC.Divide = 0) set KatMC.Divide := 1 else set KatMC.Divide := 0;
+   #KatPodr.Name: RunInterface(GetAnyPodr, KatMC.cDep, 0);
+//   #prPreutil : set KatMC.Preutil :=  not KatMC.Preutil;
+   #KatOtpEd2.Name :
+    {
+      if (RunInterface(GetOtpEd,KatMC.NRec,comp(-12345),word(1)) <> cmCancel) {};
+      ReReadRecord(#KatOtpEd2);
+    }
+   #MaskMC.Name:
+    {
+     tmpMC_comp1 := KatMC.cMaskMC;
+     if (RunInterface(GetMaskMC,tmpMC_comp1) <> cmCancel)
+      if (tmpMC_comp1 <> KatMC.cMaskMC)
+       if (GetFirst MaskMC where ((tmpMC_comp1 == MaskMC.NRec)) = tsOk)
+        {
+         var Buf : TKatMC;
+         Buf := TKatMC(KatMC.buffer);
+         fObjMC.CopyMaskFields(Buf,TMaskMC(MaskMC.buffer),0,True);
+         KatMC.buffer := type$KatMC(Buf);
+
+         //--попытаемся удалить последний номер Бар-кода,
+         //--если он был вычислен по системному алгоритму
+         If ((TmpBarKod <> '')and(TmpBarKod <> KatMC.BarKod))
+           DelDefaultBarKod;
+         //----------------------------------------------
+
+         if (isNew)
+          {
+           SetModifCurMC;
+           if (Not UpdateTable) Exit;
+          }
+         set KatMC.cMaskMC := tmpMC_comp1;
+         if (GetFirst MaskMC <> tsOk) {};
+         set KatMC.cSloj := MaskMC.cSloj;
+
+         //Создаем нулевой HashAn
+         fGetHashAn.PosChangeInKonteinerNonVisual(KatMC.cSloj, comp(0));
+         set KatMC.cHashAn := fGetHashAn.ReturnHashAn;
+
+         RefreshASUPKomplektFormat;
+         PutCommand(cmValue26);
+        }
+    }
+ end; //case
+ MyPick;
+ }
+
+cmChangeTabbedSheetFormat :
+ {
+   if Target  = scNalDrag
+     iNalDrag.SetNalDragParams(3, KatMC.Nrec , (RecordExists SpOrder <> tsOk) OR boGetTune('Pick.ChangeDrag'));
+ }
+
+cmSetTabbedSheetFormat : //
+ {
+   if (IsOpenEditWin)   //если открыто окно редактирования МЦ
+    {
+     if (CurTabInWindow(ID_wKatMC) = ID_scKAU) //если  в этом окне текущая панель по аналитикам
+       if (Not fGetHashAn.IsEditRecord) //если небыло изменений значений аналитик для текущей записи
+         fGetHashAn.PosChangeInKonteiner(KatMC.cSloj, KatMC.cHashAn); //перересуем значения аналитик
+#ifdef Kachestvo1
+     if (CurTabInWindow(ID_wKatMC) = ID_scKachestvo) //если  в этом окне текущая панель по Качеству
+      {
+       FValpokaz.PosChangeInKonteiner(coKatMC, KatMC.NRec);
+       SetFormat(Scr000_Kachestvo)
+      }
+     else
+      {
+       SetFormat(Scr000)
+      }
+#end
+
+#ifdef __VarNameMCU__
+  if boGetTune('McUsl.VarNameMC_IsUse')
+    if (CurTabInWindow(ID_wKatMC) = ID_scVarName) //если текущая вкладка "варианты наименования"
+      fVarNameMCU.PosChangeInKonteiner(KatMC.NRec);
+#end
+    }
+ }
+
+
+cmOpenSearch : {Stop; PutCommand(cmPick);}
+
+
+cmValue6: RunInterface(KatKoffEU,comp(KatMC.NREC),word(0));
+
+
+cmValue3 :
+  RefreshASUPKomplektFormat;
+
+cmValue2 :
+  if (isMyUpdateTable)
+   {};//надо бы восстановить
+   // RunWindowModal(wSpKatMC);
+
+#ifdef Kachestvo1
+cmValue19 :
+  if (isMyUpdateTable)
+    RunInterFace('Valtest',KatMC.NRec,word(coKatmc),comp(1),comp(0),word(0),word(0));
+
+cmValue18 :
+  if (isMyUpdateTable)
+    RunInterFace('ExKachvo',KatMC.nRec,word(coKatMC));
+#end
+cmDoRedakt:
+  if (KatMC.cEd = 0)
+    message(''#3'Перед редактированием отпускных единиц нужно задать '+
+                'учетную единицу !!!',CancelButton+Warning);
+  else
+  if (isMyUpdateTable)
+   {
+     if (RunInterface(GetOtpEd,KatMC.NRec,comp(-12345),word(1)) <> cmCancel) {};
+     if (GetFirst katotped <> tsOK) {};
+     SelectField(#KlResHr.Name);
+     ReScanPanel(#KatMC);
+   }
+
+cmValue7:
+  if (isMyUpdateTable)
+   {
+     if (RunInterface('GetDopEd',KatMC.NRec,word(1),comp(0)) <> cmCancel) {};
+     if (GetFirst SpDopEd <> tsOK) {};
+     ReScanPanel(#KatMC);
+   }
+
+cmValue4:
+  ChkDiffBar;
+
+cmValue12 :
+  NewPrices;
+
+
+cmValue13 :
+ {
+  SelectField(#GroupMC.KOD);
+  PutCommand(cmPick);
+ };
+
+cmValue14 :
+  ShowAllEdIzm;
+
+cmAlt1 :
+  MakeSomeCopyMC;
+
+cmSaveDoc :
+  if (isMyUpdateTable)
+    RunInterface(GTekOst, KatMC.NRec,
+                 Comp(0), Comp(0), Comp(0),Comp(0),Comp(0));
+
+cmValue11 :
+  CheckUchEds;
+
+cmValue10:
+  if (isMyUpdateTable)
+    CheckEdIzm;
+
+cmPickClass:
+  case CurTable of
+   #KatMC: if ((isMyUpdateTable) and (KatMC.NRec <> 0))
+             RunInterface(ExClassifier, word(coKatMC), KatMC.NRec);
+   #SpMC:  if ((isMyUpdateTable) and (SpMC.NRec <> 0))
+             RunInterface(ExClassifier, word(coSpMC), SpMC.NRec);
+  end;
+
+cmPickAttr:
+  case CurTable of
+   #KatMC: if ((isMyUpdateTable) and (KatMC.NRec <> 0))
+             RunInterface(Attribute, word(coKatMC), KatMC.NRec);
+   #SpMC:  if ((isMyUpdateTable) and (SpMC.NRec <> 0))
+             RunInterface(Attribute, word(coSpMC), SpMC.NRec);
+  end;
+
+cmPrintDoc :
+  PrintMyDoc;
+
+cmPlansNo :
+  PrintByExtClass;
+
+cmValue34 :
+  PrintOneMyDoc;
+
+cmValue20 : OpenAllMoveMC;
+
+cmValue21 :
+  RunForm(MCPartyCena);
+
+cmValue22 :
+  if (isMyUpdateTable)
+    RunInterface('SkidPrim',cgRecordView,1000,0
+                           ,comp(0),comp(0),comp(0),comp(0)
+                           ,word(1),comp(0),KatMC.NRec,word(0));
+
+cmDone :
+ {
+  //если текущая панель по аналитикам, что бы прошел апдейт
+  if (CurTabInWindow(ID_wKatMC) = ID_scKAU)
+   {
+    SetFormat(scKatMC);
+    SelectFormat(scKatMC);
+    OutCurAnalitMC;
+   }
+
+  if (isModified)
+    if (Not isMyUpdateTable) {Abort; Exit;}
+  if (pMC <> 0) PutCommand(cmClose);
+
+  IsOpenEditWin := False;
+ }
+
+cmShowAll :
+  if (isMyUpdateTable)
+    RunInterface(GSaldDat,cur_date,
+                 word(0),
+                 KatMC.NRec,
+                 comp(-1),comp(-1),comp(-1),comp(0));
+
+cmHotKeys :
+ {
+   DisAnCommHotKey(0,True);
+   DisAnCommHotKey(1,(KatMC.cMaskMC=0));
+   DisAnCommHotKey(2,False);
+
+   PutHotCommand(RunDynMenu(#AddComp('L_MCU')'mnuKatMC1;SEPARATOR;'
+                          + #AddComp('L_MCU')'mnuKatMC2'));
+ }
+//#ifdef DEI_CAPACITY
+cmAttrib :
+  if (isMyUpdateTable)
+     RunInterface('GetCapacity',
+                             word(0),
+                             word(2),
+                             comp(0),
+                             KatMC.Nrec,
+                             date(0,0,0),
+                             time(0,0,0,0),
+                             double(0),
+                             double(0),
+                             false,
+                             word(0),
+                             comp(0)
+                             );
+//#end
+
+
+cmXchangeMCSetup :
+   RunInterface(IXCMC,cgKau_KatMC,KatMC.NRec,0,0,0,2,0);
+
+
+cmValue5 :
+  if (isMyUpdateTable)
+   {
+    if ( RunInterface( GetCellVal, KatMC.NRec, Comp(0), word(0), word(1) ) <> cmOk ) {};
+    RescanPanel(#KatMC);
+   }
+
+
+
+
+cmInsert :
+  case CurTable of
+    #SpMC: SelectField(#KatMC3.Name);
+    #KatMC: if Not InsertMcNastr(True) {Abort; Stop; Exit;}
+  end;
+
+
+cmValue23: //Установка фильтров по аналитикам
+  if (RunInterface(GetFilterKAU,word(1411),CurFilAn) <> cmCancel) SetFiltrKAU;
+
+
+cmValue24: //Обновляет расчетные поля KatMC по формулам Шаблона МЦ.
+  RecalcMaskField;
+
+cmValue25 : ProcessInsertMC;
+
+cmValue18 :
+{
+  PrintDragMetMC;
+}
+//Для позиционирования на встроенном интерфейсе после выбора Шаблона
+cmValue26:
+ {
+  IsNeedWin_KAU := False;
+  SetFormat(ID_scKAU);
+  SelectFormat(ID_scKAU);
+  GoToCurAnalitMC;
+  fGetHashAn.PosChangeInKonteiner(KatMC.cSloj, KatMC.cHashAn); //перерисуем значения аналитик
+  IsNeedWin_KAU := True;
+ }
+
+//Принудительная модификация записи
+cmValue29:
+ {
+  SetModifCurMC;
+ }
+
+cmValue30 :
+ {
+  CheckGroupDog;
+ }
+
+cmSwitchFormat :
+ {
+  //для отслеживания событий вход/выход из контейнера по Аналитикам
+  //при пользовательской навигации по Вкладкам
+  if (IsNeedWin_KAU)
+   {
+    IsNeedWin_KAU := False;
+    if (FocusedFormat = ID_scKAU) OutCurAnalitMC;
+    if (Target        = ID_scKAU) GoToCurAnalitMC;
+    IsNeedWin_KAU := True;
+   }
+
+  if   (Target = ID_SpComplBrw)
+    or (Target = ID_SpComplBrw1)
+    {
+     if (Not isMyUpdateTable) {Abort; Exit;}
+    }
+
+  // проверка составляют ли составляющие комплекта 100% от стоимости МЦ
+  if ((FocusedFormat = ID_SpComplBrw) and (Target <> ID_SpComplBrw))
+    {
+      var Proc : double; Proc := 0;
+
+      PushPos(#SpMC);
+
+      _loop SpMC 
+        Proc := Proc + AttrValP.vDouble;
+        
+      PopPos(#SpMC);
+
+      if (ABS(Proc - 100) > 0.00001)
+        Message(''#3'Общая стоимость составляющих комплекта составляет ' +
+                DoubleToStr(Proc, '[|-]3666.899') + '% от стоимости МЦ!', CancelButton+Warning);
+    }
+ }
+
+//#ifdef _KauReffKatMC_
+cmKauReff:
+ if (isMyUpdateTable)
+  {
+   iKaureff.Exec(coKatMC, KatMC.NRec, if(IsEditMyRecords(0),True,False));
+   RedrawPanel(tnKatMC);
+  }
+//#end
+
+cmInsertEditKN:
+{
+  RunInterface('iKPNForOneObj_RB', cgKau_KatMC, KatMC.Nrec, KatMC.Name);
+}
+
+cmValue28 : GroupEdit;
+
+cmValue35: //Привязка тмц к складу
+  MCtoSkl;
+
+cmValue40:
+  {
+    Var MCUsl : comp;
+
+    MCUsl := KatMC.nRec;
+
+    RunInterface('PricesOtherInfo', MCUsl, comp(0), word(0));
+  }
+
+end; // HandleEvent
+end; // window

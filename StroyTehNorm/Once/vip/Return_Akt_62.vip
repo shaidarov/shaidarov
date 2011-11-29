@@ -1,0 +1,62 @@
+
+Interface "Return_Akt_62";
+
+create view
+  as select * from
+  Dogovor
+, KatSopr
+, SpSopr
+  where  (( 0             << Dogovor.Summa      (noindex)
+        and Dogovor.nRec  == KatSopr.cDogovor
+        and KatSopr.nRec  == SpSopr.cSopr
+        and SpSopr.nRec   == SpDocNal.cSpDoc    (noindex)
+        and coGetTune('Nalog.cNalogNDS')
+                          == SpDocNal.cNalog
+
+          ))
+;
+
+var
+ All_Sopr : double;
+
+HandleEvent
+  cmInit : {
+      _Loop Dogovor {
+
+        All_Sopr := 0;
+
+          _Loop KatSopr {
+                if (1 = KatSopr.VhodNal ) {        // Налоги входят
+                      _Loop SpSopr {
+                        All_Sopr := All_Sopr + SpSopr.KolFact * SpSopr.rPrice;
+                        }
+                  } else {
+                        _Loop SpSopr {
+                          All_Sopr := All_Sopr + SpSopr.KolFact * SpSopr.rPrice + SpDocNal.Summa;
+                          }
+                    }
+            }
+
+            If ( Dogovor.Summa <= All_Sopr and All_Sopr < Dogovor.Summa + 2 )   // поправка на округление
+              {
+               Dogovor.cNote  := 62;                      //  статус "закрытый по отгрузкам"    ЧУДЕСА!!!!!!!! в реальной базе проставляется 61. вообщем изменил nRec в базе, а здесь так оставил
+               Dogovor.Status :=  4;
+
+               If (UpDate current Dogovor <> tsOK) {};
+              }
+        }
+  }
+  end;
+
+end.
+
+
+.Form 'Возврат статуса договоров по Акта до 2009 года'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('Return_Akt_62');
+end.
+
+.endform
+

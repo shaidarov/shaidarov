@@ -1,0 +1,1052 @@
+
+Panel paSpDog
+
+Table SpDocs ;
+
+HandleEvent // Panel paSpDog;
+cmSetDefault :
+  {
+    SetDefaultSpDog;
+//------------------------------------------------------------------------------
+
+    MySetFieldSpDocs;
+
+    SetFieldVisible(#SpDocs.dFrom,     FALSE);
+    SetFieldVisible(#SpDocs.dTo,       FALSE);
+    SetFieldVisible(#SpDocs.NumPeriod, FALSE);
+    SetFieldVisible(#SpDocs.KolPeriod, FALSE);
+
+//------------------------------------------------------------------------------
+    if ( KatVidD.Direct = 1 )
+      oLinkMTR2Spec.SetVal(word(coSpDocs), SpDocs.nRec, coGetTune('CelUchForModul.SELL'));
+    else
+      if ( KatVidD.Direct = 2 )
+        oLinkMTR2Spec.SetVal(word(coSpDocs), SpDocs.nRec, coGetTune('CelUchForModul.BUY'));
+
+    oLinkMTR2Spec.SelFormat(false);
+  }
+cmSetCurfield :
+ {
+   OldKolDEI := SpDocs.Kol;
+ }
+
+cmPick :
+  {
+    if NOT EditDogPosEnabled(false, true)
+      {
+        abort;
+        exit;
+      }
+
+    CASE CurField OF
+      #OtvPodr.Name :
+        {
+          if RunInterface('GetCO', word(cgiPick), comp(0),
+                          comp(0), SpDocs.cOtvPodr) <> cmCancel
+            set SpDocs.cOtvPodr := SpDocs.cOtvPodr;
+        }
+      #OtvPodr2.Name :
+        {
+          if RunInterface('GetCO', word(cgiPick), comp(0),
+                          comp(0), SpDocs.cPlatPodr) <> cmCancel
+            set SpDocs.cPlatPodr := SpDocs.cPlatPodr;
+        }
+      #SpShipment.Name :
+        {
+          if (RunInterface('GetShipment',SpDocs.cShipment) <> cmCancel )
+            if (GetFirst SpShipment = tsOk )
+              {
+                set SpDocs.cTipOtg  := SpShipment.cTipOtg ;
+                set SpDocs.cWayMove := SpShipment.cWayMove ;
+              }
+        }
+      #SpTipOtg.Name :
+        {
+          if (RunInterface('GetTipOtg',SpDocs.cTipOtg)<>cmCancel)
+            set SpDocs.cTipOtg := SpDocs.cTipOtg ;
+        }
+      #SpWayMove.Name :
+        {
+          if (RunInterface('GetWayMove',SpDocs.cWayMove)<>cmCancel)
+            set SpDocs.cWayMove := SpDocs.cWayMove ;
+        }
+      #ValDogovor, #SpVal.SimvolV :
+        { // выбор единицы измерения
+          if (Dogovor.dValCurse <> date(0,0,0))
+            tword := RunInterface(GetValKod,SpDocs.cVal) ;
+          else
+            tword := RunInterface('GetDCCurse',
+                                Dogovor.dValCurse,
+                                SpDocs.cVal,
+                                Dogovor.dValCurse,
+                                double(1.0)) ;
+          if (tword<>cmCancel)
+            set SpDocs.cVal := SpDocs.cVal ;
+        }
+      #GrNal.Name :
+        {
+          bChangeRec := true;
+
+          if (RunInterface('GetGrNal',SpDocs.cGrNal,if(SpDocs.PrMC=1,1,2))<>cmCancel)
+            {
+              SpDocs.ManualTax  := 0;
+              set SpDocs.cGrNal := SpDocs.cGrNal;
+//Удаление налогов перед их пересчетом
+              delete safe SpDocNal;
+              if (Updatetable) {};
+              oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+              RereadRecord(#SpDocs);
+              RereadRecord(#SpDocNal);
+            }
+        }
+      #SpDocs.PrMC :
+        {
+          if (SpDocs.cMCUsl <> 0) or (SpDocs.cGrMCUsl <> 0) Abort;
+        }
+      #KatOtpEd.Abbr :
+        {
+          var Koef : double; Koef := KatOtpEd.Koef;
+
+          if ( SpDocs.cMCUSL = 0 )
+            Exit;
+
+          if ( RunInterface('GetOtpEd', SpDocs.cMCUSL, SpDocs.cOtpEd, SpDocs.PrMC) = cmCancel )
+            Exit;
+
+          bChangeRec := true;
+
+          set SpDocs.cOtpEd := SpDocs.cOtpEd;
+
+          set SpDocs.Kol := SpDocs.Kol * Koef / KatOtpEd.Koef;
+
+          if ( ( KatOtpEd.Diskret = 1) AND not f_KolEqual(SpDocs.Kol, trunc(SpDocs.Kol)) )
+            set SpDocs.Kol := trunc(SpDocs.Kol) + 1;
+
+          if ( ( SpDocs.Period > 0 ) AND ( SpDocs.NumPeriod > 0 ) )
+            {
+              SpDocs.KolPeriod := SpDocs.Kol / SpDocs.NumPeriod;
+
+              if ( ( KatOtpEd.Diskret = 1 ) AND not f_KolEqual(SpDocs.KolPeriod, trunc(SpDocs.KolPeriod)) )
+                {
+                  Message('Количество за период не может быть дробным!'#13
+                        + 'Отпускная единица измерения является неделимой', OkButton);
+
+                  set SpDocs.KolPeriod := trunc(SpDocs.KolPeriod);
+                  set SpDocs.Kol       := SpDocs.KolPeriod * SpDocs.NumPeriod;
+
+                  Abort;
+                  Exit;
+                }
+            }
+
+          if not f_KolIsZero(SpDocs.Kol)
+            set SpDocs.Price := DogRound_P(SpDocs.cVal <> 0, SpDocs.Summa / SpDocs.Kol);
+
+          oSpDocs.Ch_KolSpDocs(SpDocs.nRec, SpDocs.Kol, SpDocs.cOtpEd);
+          oSpDocs.SpDocs_UpDate_UpDoc(SpDocs.nRec, SpDocs.Kol, SpDocs.cOtpEd, FALSE);
+
+          if ( OldKolDEI <> SpDocs.Kol )
+            {
+              oSpDocs.UpdateDEIKolSpDocs(SpDocs.Buffer,2,OldKolDEI,SpDocs.Kol,0,SpDocs.TiDK);
+              OldKolDEI := SpDocs.Kol
+            }
+
+          Updatetable;
+
+          oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+
+          RereadRecord(#SpDocNal);
+        }
+
+      #SpDogGrName :
+        {
+          bChangeRec := true;
+
+          if (Dogovor.cDogovor <> 0)
+            {
+              if ((DogOwner.SpecStatus = 0) and bSpec)
+                PutCommand(cmValFld6)
+              else
+                PutHotCommand(RunMenu('mnuDogovorSpSoglPick'));
+            }
+          else
+            {
+              GetKatGroupMCUsl;
+            }
+        }
+      #SpDogName :
+        {
+          bChangeRec := true;
+
+          if (Dogovor.cDogovor <> 0)
+            {
+              if ((DogOwner.SpecStatus = 0) and bSpec)
+                PutCommand(cmValFld3)
+              else
+                PutHotCommand(RunMenu('mnuDogovorSpSogl'));
+            }
+          else
+            {
+//              case Dogovor.Direct of
+//              2,4:
+//                GetKatMCUsl;
+//              else
+//                GetPriceSpDog;     // выбор из прайс-листа
+//              end;
+
+              case wGetTune('STN.Sp_Dog') of
+              0:
+                GetKatMCUsl;
+              else
+                GetPriceSpDog;     // выбор из прайс-листа
+              end;
+            }
+        }
+!---------------------------------------------------------------------------
+
+      #UpPosName, #UpPosGrName :
+      {
+         if (RunInterface(GetDogovorMC, Dogovor.nRec,
+                                    Dogovor.TiDk,
+                                    if (SpDocs.PrMC = 2, word(1), word(5)),
+                                    SpDocs.Direct,
+                                    SpDocs.cSpMC) <> cmCancel)
+         {
+        oMTRFun.CopySpecMTR(coSpDocs, SpDocs2.nRec, coSpDocs, SpDocs.nRec);
+
+        UpDateTable;
+        ReReadRecord(#SpDocs);
+        }
+      }
+
+!---------------------------------------------------------------------------
+      #SpDocs.Kol :
+       {
+         var forPrice,            // Для установки точности в классах точности
+             forSumma : word;
+
+         bChangeRec := true;
+
+         if (SpDocs.PrMC =1 ) // пока только для МЦ
+         {
+           if (OldKolDEI <> SpDocs.Kol)
+            {
+              oSpDocs.UpdateDEIKolSpDocs(SpDocs.Buffer,2,OldKolDEI,SpDocs.Kol,0,SpDocs.TiDK);
+            }
+
+           RunInterface('KolDopEd',
+                         word(coSpDocs),     // coTable,  код таблицы спецификации
+                         SpDocs.NRec,        // cRec,     ссылка на спецификацию
+                         2,                  // wTipKol,  тип количества
+                         'Ввод количества',  // sTitle,   заголовок интерфейса по шаблону: "Ввод количества ..."
+                         SpDocs.cMCUSL,      // cMCUsl,   NRec МЦ/услуги
+                         SpDocs.PrMC,        // PrMC,     1- МЦ, 2 - услуга, 3 - группа МЦ, 4 - группа услуг
+                         SpDocs.Price,       // Price,    цена за 1-у отпускную единицу
+                         2,                  // forPrice, кол-во знаков после запятой в цене
+                         2,                  // forSumma, кол-во знаков после запятой в стоимости
+                         Dogovor.cVal,       // cVal,     валюта переданной цены
+                         SpDocs.cOtpEd,      // cOtpEd,   ссылка на отпускную единицу измерения
+                         SpDocs.Kol,         // fKol      количество в отпускных единицах (возвращаемый параметр)
+                         longint(1),
+                         SpDocs.TiDk
+                       );
+           OldKolDEI := SpDocs.Kol;
+           if (Updatetable) {};
+           oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+           RereadRecord(#SpDocNal);
+           ProcessCommand(cmCheckField);
+           Stop;
+         }
+       }
+
+#ifdef __Realting__
+      #rltObjName :
+      {
+        if not UpdateTable Exit;
+        var oRltInfo : RltFuncs;
+        var wVidObj  : word;
+        var pObj     : comp;
+        oRltInfo.DoLinkRltObj2SpDocs(Dogovor.nRec, comp(0), SpDocs.nRec, Dogovor.dBeg, wVidObj, pObj);
+        ReReadRecord(#SpDocs);
+      }
+#end
+    #SmetaMy,
+    #SmetaSpMy:
+      {
+        RunInterface(iVSmeta, SpDocs.nRec, word(coSpDocs));
+        ReReadRecord(#SpDocs);
+      }
+  //--------------
+      #SaldTune.Name
+    , #vsKau1
+    , #vsKau2
+    , #vsKau3
+    , #vsKau4
+    , #vsKau5
+    , #vsKau6
+    , #vsKau7
+    , #vsKau8
+    , #vsKau9
+    , #vsKau10 :
+        {
+          PutCommand(cmIerarchy);
+        }
+
+#ifdef __TVEL__
+      #NormaName:
+      {var varcBaseDoc, varcKatDSNor : comp;
+       var varKolNorm, varKolGP_Norm, varKolNorm_Wrk : double;
+       var varListPick : word;
+
+       if ( SpDocs.PrMC = 5 )
+          {
+           varcBaseDoc  := -1;
+           varcKatDSNor := SpDocs.cNorma;
+           varListPick := 0;
+           if (RunInterface('M_DVS::DsNormRed', varcBaseDoc, varcKatDSNor, 1, varKolNorm, varListPick) <> cmCancel )
+              {
+               SpDocs.cNorma := varcKatDSNor;
+               set SpDocs.PrNorma := toKatDSNor;
+
+               if UpdateTable
+                 if ( Message('Добавить в спецификацию позиции из выбранной нормы в качестве давальческого сырья?', Confirmation + YesNo) = cmYes )
+                   {
+   		    varKolNorm_Wrk := 1;
+		    if (GetFirst DsgOtpr where((varcKatDSNor        ==     DsgOtpr.cKatDSNor       and
+                                                SpDocs.cMCUsl       ==     DsgOtpr.cMc)) = tsOK)
+    		       {
+			varKolGP_Norm  := fEdIzm.ConvertToSecondEd(DsGOtpr.Kol, DsGOtpr.cED, SpDocs.cOtpEd);
+			varKolNorm_Wrk := SpDocs.Kol/varKolGP_Norm;
+		       }
+
+                    _loop DsNorm where((varcKatDSNor     ==      DsNorm.cKatDSNor))
+                       {
+                        ClearBuffer(#SpDocs2);
+
+                        SpDocs2.PrMC   := 4;
+                        SpDocs2.cMCUsl := DSNorm.cMC;
+                        SpDocs2.cOtpEd := DSNorm.cEd;
+                        SpDocs2.Kol    := DSNorm.Kol;
+
+			SpDocs2.Kol    := (DSNorm.Kol + (DSNorm.Kol*(DSNorm.NormP/100)))*varKolNorm_Wrk;
+                        fEdIzm.CheckKolDiskret(SpDocs2.Kol, SpDocs2.cOtpEd, true, false);
+
+                        oDogFuns.InitSpDogBuf(SpDocs2.Buffer, Dogovor.Buffer);
+
+                        SpDocs2.PrNorma := SpDocs.PrNorma;
+                        SpDocs2.cNorma  := SpDocs.cNorma;
+
+                        oSpDocs.insert_current_SpDocs(SpDocs2.BufferP);
+                       }
+                    RereadRecord(#SpDocs);
+                   }
+              }
+          }
+      }
+#end
+#ifdef __NIOKR__
+     #Principal.Name:
+       RunInterface('GetKatOr', SpDocs.cMCUsl, comp(0), false, comp(0), comp(0));
+     #PlatFor.Name:
+       RunInterface('GetKatOr', SpDocs.cGrMCUsl, comp(0), false, comp(0), comp(0));
+     #IspPol.Name:
+       RunInterface('GetKatOr', SpDocs.cUKS, comp(0), false, comp(0), comp(0));
+#end
+    END ;
+
+    SetSelectSpDogFileds ;
+    oLinkMTR2Spec.SelFormat(IsValid(#SpDocs));
+
+    ReScanPanel(#SpDocs) ;
+  }
+
+cmDelOnProtect :
+  {
+    if NOT EditDogPosEnabled(false, true)
+      {
+        abort;
+        Exit;
+      }
+
+    CASE CurField OF
+      #OtvPodr.Name :
+        {
+          set SpDocs.cOtvPodr := 0;
+        }
+      #OtvPodr2.Name :
+        {
+          set SpDocs.cPlatPodr := 0;
+        }
+      #SpVal.SimvolV :
+        {
+          bChangeRec := true;
+
+          set SpDocs.cVal := 0 ;
+        }
+      #SpKlPrice.Name :
+        {
+          set SpDocs.cPriceLs := 0 ;
+        }
+      #GrNal.Name :
+        {
+          Exit;
+
+          bChangeRec := true;
+
+          SpDocs.ManualTax  := 0;
+          set SpDocs.cGrNal := 0;
+          if (Updatetable) {};
+          oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+          RereadRecord(#SpDocs);
+          RereadRecord(#SpDocNal);
+        }
+      #KatOtpEd.Abbr :
+        {
+!          set SpDocs.cOtpEd := 0 ;
+          abort;
+        }
+      #SpDogGrName :
+        {
+#ifdef __SMETA__
+          if (IsValid(#SpDocSmeta) and SpDocs.cGrMCUsl <> 0)
+          {
+            message(''#3'Данная запись создана'+
+                    ''#13#3'на основании сметы.'+
+                    ''#13#3'Удаление невозможно.',OkButton);
+            exit;
+            Abort;
+          }
+#end
+          if (SpDocs.cMCUsl = 0)
+            {
+              if (oSpDocs.SpDocs_isInUse(SpDocs.nRec))
+                {
+                  message(''#3'Данная запись используется'+
+                          ''#13#3'в спецификациях других документов.'+
+                          ''#13#3'Удаление невозможно.',OkButton);
+                  exit;
+                }
+              else
+                PutCommand(cmPick);
+            }
+
+          set SpDocs.cGrMCUSL := 0 ;
+        }
+      #SpDogName :
+        {
+#ifdef __SMETA__
+          if (IsValid(#SpDocSmeta)  and SpDocs.cMCUsl <> 0)
+          {
+            message(''#3'Данная запись создана'+
+                    ''#13#3'на основании сметы.'+
+                    ''#13#3'Удаление невозможно.',OkButton);
+            exit;
+            Abort;
+          }
+#end
+          set SpDocs.cMCUSL := 0 ;
+          if (SpDocs.cGrMCUSL <> 0)
+            {
+              set SpDocs.Price := 0;
+            }
+          else
+            {
+              if (oSpDocs.SpDocs_isInUse(SpDocs.nRec))
+                {
+                  message(''#3'Данная запись используется'+
+                          ''#13#3'в спецификациях других документов.'+
+                          ''#13#3'Удаление невозможно.',OkButton);
+                  exit;
+                }
+              else
+                PutCommand(cmPick);
+
+              set SpDocs.Kol   := 0;
+              set SpDocs.Price := 0;
+              set SpDocs.Summa := 0;
+            }
+        }
+      #SpShipment.Name :
+        {
+          if (Dogovor.cShipment=0)
+            {
+                  SpDocs.cShipment := 0 ;
+                  SpDocs.cTipOtg   := 0 ;
+              set SpDocs.cWayMove  := 0 ;
+            }
+          else
+            abort;
+        }
+      #SpTipOtg.Name  :
+        {
+          if (Dogovor.cTipOtg =0)
+            set SpDocs.cTipOtg  := 0
+          else
+            abort;
+        }
+      #SpWayMove.Name :
+        {
+          if (Dogovor.cWayMove=0)
+            set SpDocs.cWayMove := 0
+          else
+            abort;
+        }
+      #UpPosName, #UpPosGrName :
+        set SpDocs.cSpMC := 0;
+#ifdef __Realting__
+      #rltObjName :
+      {
+        if IsValid(#rltLinks)
+          if (message('Отвязать позицию от объекта недвижимости ?', Confirmation + YesNo) = cmYes)
+            delete safe rltLinks;
+        ReDrawPanel(#SpDocs);
+      }
+#end
+#ifdef __TVEL__
+      #NormaName:
+        set SpDocs.cNorma := 0;
+#end
+   //---------------------------------------------
+    #SmetaMy,
+    #SmetaSpMy:
+      {
+        delete SpDocSmeta where (( coSpDocs    == SpDocSmeta.coTable and
+                                   SpDocs.nRec == SpDocSmeta.cSpec  ))
+
+        ReScanPanel(#SpDocs);
+      }
+   //---------------------------------------------
+      #SaldTune.Name
+    , #vsKau1
+    , #vsKau2
+    , #vsKau3
+    , #vsKau4
+    , #vsKau5
+    , #vsKau6
+    , #vsKau7
+    , #vsKau8
+    , #vsKau9
+    , #vsKau10 :
+        {
+          Abort;
+          PutCommand(cmIerarchy);
+          RereadRecord;
+        }
+    END ;
+
+    ReScanPanel(#SpDocs) ;
+  }
+
+cmPositionChanged :
+  {
+    if NOT EditDogPosEnabled(false, false)
+      {
+        ProtectRecord(#SpDocs, true);
+      }
+    else
+      {
+        ProtectRecord(#SpDocs, false);
+
+        SetFieldSelectable(#KatOtpEd.Abbr, SpDocs.cMCUSL <> 0);
+      }
+!---------------------------------------------------------------------------
+
+    MySetFieldSpDocs;
+
+    SetFieldVisible(#SpDocs.dFrom,     SpDocs.Period > 0);
+    SetFieldVisible(#SpDocs.dTo,       SpDocs.Period > 0);
+    SetFieldVisible(#SpDocs.NumPeriod, SpDocs.Period > 0);
+    SetFieldVisible(#SpDocs.KolPeriod, SpDocs.Period > 0);
+
+!---------------------------------------------------------------------------
+#ifdef __Realting__
+    if ((Dogovor.VidDog = 12) and (CurFormatInArea(scRltObjInfo) = scRltObjInfo))
+      {
+        oRltFuncs.GetObjInfoOnSpDocs(SpDocs.nRec, Dogovor.dBeg, RltInfo);
+
+        ReDrawPanel(#SpDocs);
+      }
+#end
+!---------------------------------------------------------------------------
+    if ( IsValid(#SpDocs) )
+      oLinkMTR2Spec.SetObjParam(coSpDocs, SpDocs.nRec, GetLinkMtrMode);
+  }
+
+cmCheckField :
+  {
+    CASE CurField OF
+      #SpDocs.PrMC :
+        {
+!---------------------------------------------------------------------------
+         MySetFieldSpDocs;
+#ifdef __TVEL__
+         case SpDocs.PrMC of
+           1,2,4:
+            SpDocs.Direct := 2 - (Dogovor.Direct and 1);
+           else
+            SpDocs.Direct := 1 + (Dogovor.Direct and 1);
+         end;
+#end
+//shaf для "Почты России"
+         if ( IsValid(tnKatVidD) AND ( KatVidD.VidDog = word(1) ) ) // договор комиссии
+           if ( SpDocs.PrMC = 1 )
+             SpDocs.Direct := Dogovor.Direct
+           else
+             SpDocs.Direct := if(Dogovor.Direct = 1, 2, 1);
+
+!---------------------------------------------------------------------------
+        }
+      #SpDocs.Summa :
+        {
+/*
+          var OldKol :double;
+          OldKol:=SpDocs.Kol;
+*/
+          bChangeRec := not IsNew;//true;
+
+         // if (SpDocs.cMCUsl <> 0)
+         //   {
+            if (SpDocs.Summa <> double(OldFieldValue))
+              if (SpDocs.Kol > 0)
+                {
+                  set SpDocs.Price := DogRound_P(SpDocs.cVal <> 0, SpDocs.Summa / SpDocs.Kol);
+                  if not boGetTune('Doc.SavePriceRef')
+                    set SpDocs.cPriceLs := 0;
+              //    set Dogovor.cPriceLs := 0;
+              //    if (Dogovor.MethodPrice = 1)
+              //      set Dogovor.MethodPrice := 0;
+                }
+              else
+                {
+                  if (SpDocs.Price > 0)
+                   {
+                     set SpDocs.Kol := SpDocs.Summa / SpDocs.Price;
+
+                     oSpDocs.UpdateDEIKolSpDocs(SpDocs.Buffer,2,0,SpDocs.Kol,0,SpDocs.TiDK);
+
+                   }
+                }
+         //   }
+          if (Updatetable) {};
+          oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+          RereadRecord(#SpDocNal);
+        }
+      #SpDocs.Price:
+        {
+          if ( Dogovor1.VidDog = 14 )
+            Exit;
+
+          bChangeRec := not IsNew;//true;
+          SpDocs.Price := DogRound_P(SpDocs.cVal <> 0, SpDocs.Price);
+          //if (SpDocs.cMCUsl <> 0)
+          if (SpDocs.Price <> double(OldFieldValue)) {
+            set SpDocs.Summa := DogRound(SpDocs.cVal <> 0, SpDocs.Price * SpDocs.Kol);
+            if not boGetTune('Doc.SavePriceRef')
+              set SpDocs.cPriceLs := 0;
+         //   set Dogovor.cPriceLs := 0;
+
+         //   if (Dogovor.MethodPrice = 1)
+         //     set Dogovor.MethodPrice := 0;
+          }
+
+          if (Updatetable) {};
+          oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+          RereadRecord(#SpDocNal);
+        }
+      #SpDocs.Kol :
+        {
+#ifdef __SMETA__
+          var tmpMyIsSmetPos   : boolean;
+          var tmpMyIsSmetPosKf : double;
+          var MySm_SmetDoc     : comp;
+          var MySm_SmetJob     : comp;
+          var MySm_SmetSpec    : comp;
+
+
+          tmpMyIsSmetPos := False;
+          if (GetFirst SpDocSmeta = tsOk)
+           {
+            if (SpDocs.Kol = 0)
+             {
+              Message(''#3'Кол-во для сметной позиции не может быть нулевым !'
+              +''#13#3+'Для отмены изменений нажмите <Alt-Backspace>',Information);
+              Abort; Exit;
+             }
+            //корректировка кол-ва по другим сметным позициям для этой же работы
+            if (Message(''#3'Сметная позиция связана с другими позициями спецификации.'
+                    +''#13' При изменении кол-ва необходимо будет модифицировать кол-во'
+                    +''#13' по другим позициям спецификации текущей сметной работы.'
+                    +''#13#13' Продолжить?',YesNo)=Yes)
+              {
+               tmpMyIsSmetPosKf := SpDocs.Kol/double(OldFieldValue);
+               tmpMyIsSmetPos   := True;
+               MySm_SmetDoc     := SpDocSmeta.cDoc;
+               MySm_SmetJob     := SpDocSmeta.cPosition;
+               MySm_SmetSpec    := SpDocSmeta.cSpec;
+              }
+            else Set SpDocs.Kol := double(OldFieldValue);
+           }
+#end
+/*
+          var OldKol :double;
+          OldKol:=SpDocs.Kol;
+*/
+          if ((SpDocs.PrMC = 1) and (SpDocs.cMCUsl <> 0) and UKS_Used)
+          {
+            PushPos(#KatStroy);
+            ReSetBounds(#KatStroy);
+            if (GetFirst KatStroy where ((SpDocs.cMCUsl == KatStroy.cMC(NoIndex))) = tsOk)
+              if (not IsNew)
+              {
+                Message('МЦ соответствует объекту строительства !'+chr(13)+
+                         chr(13)+'Количество может быть равно только 1 !', Information);
+                update current SpDocs Set SpDocs.Kol := 1;
+              }
+            SetBounds(#KatStroy);
+            PopPos(#KatStroy);
+            ReScanPanel(#KatStroy);
+          }
+          bChangeRec := not IsNew;//true;
+#ifdef __SMETA__
+          if (tmpMyIsSmetPos)
+          {
+           PushPos(#SpDocSmeta);
+           ReSetBounds(#SpDocSmeta);
+           if (GetFirst SpDocSmeta where ((coSpDocs     == SpDocSmeta.coTable
+                                       and MySm_SmetDoc == SpDocSmeta.cDoc
+                                       and MySm_SmetJob == SpDocSmeta.cPosition
+                                         )) = tsOk)  {
+           do {
+            //корректировка спецификации дока
+            if (MySm_SmetSpec <> SpDocSmeta.cSpec)
+             if (GetFirst FastFirstRow SpDocsSmet
+                 where ((SpDocSmeta.cSpec == SpDocsSmet.NRec)) = tsOk)
+              {
+               Set SpDocsSmet.Kol   := SpDocsSmet.Kol*tmpMyIsSmetPosKf;
+               if ((KatOtpEdSmeta.Diskret = 1) and
+                   (SpDocsSmet.Kol - trunc(SpDocsSmet.Kol) > 0.0001))
+                 {
+                   set SpDocsSmet.Kol := trunc(SpDocsSmet.Kol);
+                   oSpDocs.UpdateDEIKolSpDocs(SpDocsSmet.Buffer,2,0,SpDocsSmet.Kol,0,SpDocsSmet.TiDK);
+                 }
+               set SpDocsSmet.Summa := SpDocsSmet.Price * SpDocsSmet.Kol ;
+               Update Current SpDocsSmet;
+              }
+             else
+              {
+                Continue;
+              }
+
+            //корректировка объема работы (SpDocSmeta)
+            SpDocSmeta.Kol   := SpDocSmeta.Kol*tmpMyIsSmetPosKf;
+            Update Current SpDocSmeta;
+
+
+           } while (GetNext SpDocSmeta where ((coSpDocs     == SpDocSmeta.coTable
+                                           and MySm_SmetDoc == SpDocSmeta.cDoc
+                                           and MySm_SmetJob == SpDocSmeta.cPosition
+                                             )) = tsOk); }
+           SetBounds(#SpDocSmeta);
+           PopPos(#SpDocSmeta);
+          }
+#end
+          if ((KatOtpEd.Diskret = 1) and
+              (SpDocs.Kol - trunc(SpDocs.Kol) > 0.0001))
+            {
+              message(''#3'Количество не может быть дробным!'+
+                      ''#13#3'Отпускная единица измерения является неделимой.',OkButton);
+
+              set SpDocs.Kol := trunc(SpDocs.Kol);
+
+              oSpDocs.UpdateDEIKolSpDocs(SpDocs.Buffer,2,0,SpDocs.Kol,0,SpDocs.TiDK);
+              abort;
+              exit;
+            }
+
+          if ((SpDocs.Period > 0) and (SpDocs.NumPeriod > 0))
+            {
+              SpDocs.KolPeriod := SpDocs.Kol / SpDocs.NumPeriod;
+              if ((KatOtpEd.Diskret = 1) and
+                  (SpDocs.KolPeriod - trunc(SpDocs.KolPeriod) > 0.0001))
+                {
+                  message(''#3'Количество за период не может быть дробным!'+
+                          ''#13#3'Отпускная единица измерения является неделимой.',OkButton);
+
+                  set SpDocs.KolPeriod := trunc(SpDocs.KolPeriod);
+                  set SpDocs.Kol       := SpDocs.KolPeriod*SpDocs.NumPeriod;
+
+                  abort;
+                  exit;
+                }
+            }
+
+          set SpDocs.Summa := DogRound(SpDocs.cVal <> 0, SpDocs.Price * SpDocs.Kol);
+
+            if (OldKolDEI <> SpDocs.Kol)
+             {
+               oSpDocs.UpdateDEIKolSpDocs(SpDocs.Buffer,2,OldKolDEI,SpDocs.Kol,0,SpDocs.TiDK);
+               OldKolDEI := SpDocs.Kol;
+             }
+
+          if (Updatetable) {};
+          oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+          RereadRecord(#SpDocNal);
+        }
+/*      #SpDocs.ShipValType :
+        {
+          SetSelectSpDogFileds ;
+          set SpDocs.MinValue := 0 ;
+          set SpDocs.MaxValue := 0 ;
+        }
+*/
+      #SpDocs.MinValue,
+      #SpDocs.MaxValue :
+        {
+          if ((SpDocs.MaxValue > 0) and (SpDocs.MinValue > SpDocs.MaxValue))
+            {
+              message(''#3'Неверно задан минимальный и максимальный объем разовой отгрузки!',OkButton);
+              abort;
+              exit;
+            }
+        }
+      #SpDocs.MinSumma,
+      #SpDocs.MaxSumma :
+        {
+          if ((SpDocs.MaxSumma > 0) and (SpDocs.MinSumma > SpDocs.MaxSumma))
+            {
+              message(''#3'Неверно задан минимальный и максимальный объем разовой отгрузки!',OkButton);
+              abort;
+              exit;
+            }
+        }
+      #SpDocs.Period :
+        {
+          bChangeRec := true;
+
+          SetFieldVisible(#SpDocs.dFrom,     SpDocs.Period > 0);
+          SetFieldVisible(#SpDocs.dTo,       SpDocs.Period > 0);
+          SetFieldVisible(#SpDocs.NumPeriod, SpDocs.Period > 0);
+          SetFieldVisible(#SpDocs.KolPeriod, SpDocs.Period > 0);
+
+          if (SpDocs.Period > 0)
+            {
+              if (SpDocs.Period > 1)
+                {
+                  SpDocs.NumPeriod := SpDocsNumPeriod(SpDocs.dFrom,
+                                                      SpDocs.dTo,
+                                                      SpDocs.Period);
+
+                  var OldKol :double;
+                  OldKol:=SpDocs.Kol;
+                  SpDocs.Kol := SpDocs.KolPeriod*SpDocs.NumPeriod;
+
+                  if (Updatetable) {};
+                  oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+                  set SpDocs.KolPeriod := SpDocs.Kol/SpDocs.NumPeriod;
+                  RereadRecord(#SpDocNal);
+                }
+
+              SetFieldSelectable(#SpDocs.NumPeriod, SpDocs.Period <= 1);
+            }
+        }
+      #SpDocs.dFrom,
+      #SpDocs.dTo :
+        {
+          bChangeRec := true;
+
+          if ((SpDocs.dTo > date(0,0,0)) and (SpDocs.dFrom > SpDocs.dTo))
+            {
+              Message('Не верно задан интервал дат!', Information);
+              abort;
+            }
+
+          if (SpDocs.Period > 1)
+            {
+              SpDocs.NumPeriod := SpDocsNumPeriod(SpDocs.dFrom,
+                                                  SpDocs.dTo,
+                                                  SpDocs.Period);
+
+              var OldKol :double;
+              OldKol:=SpDocs.Kol;
+              SpDocs.Kol := SpDocs.KolPeriod*SpDocs.NumPeriod;
+
+              if (Updatetable) {};
+              oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+              set SpDocs.KolPeriod := SpDocs.Kol/SpDocs.NumPeriod;
+              RereadRecord(#SpDocNal);
+            }
+        }
+      #SpDocs.NumPeriod :
+        {
+          var OldKol :double;
+          OldKol:=SpDocs.Kol;
+          bChangeRec := true;
+
+          SpDocs.Kol := SpDocs.KolPeriod*SpDocs.NumPeriod;
+
+          if (Updatetable) {};
+          oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+          set SpDocs.KolPeriod := SpDocs.Kol/SpDocs.NumPeriod;
+          RereadRecord(#SpDocNal);
+        }
+      #SpDocs.KolPeriod :
+        {
+          if ((KatOtpEd.Diskret = 1) and
+              (SpDocs.KolPeriod - trunc(SpDocs.KolPeriod) > 0.0001))
+            {
+              message(''#3'Количество за период не может быть дробным!'+
+                      ''#13#3'Отпускная единица измерения является неделимой.',OkButton);
+
+              set SpDocs.KolPeriod := trunc(SpDocs.KolPeriod);
+
+              abort;
+              exit;
+            }
+
+          var OldKol :double;
+          OldKol:=SpDocs.Kol;
+          bChangeRec := true;
+
+          SpDocs.Kol := SpDocs.KolPeriod*SpDocs.NumPeriod;
+
+          if (Updatetable) {};
+          oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+          set SpDocs.KolPeriod := SpDocs.Kol/SpDocs.NumPeriod;
+          RereadRecord(#SpDocNal);
+        }
+    END ;
+    RescanPanel(#SpDocs);
+  } // cmCheckField
+
+cmCheckRecord :
+  {
+    if ((SpDocs.MinValue > SpDocs.MaxValue) or
+        (SpDocs.MinSumma > SpDocs.MaxSumma))
+      {
+        message(''#3'Неверно задан минимальный и максимальный объем разовой отгрузки!',OkButton);
+        abort;
+        exit;
+      }
+  }
+
+cmUpDateRecord :
+  {
+    if EditDogPosEnabled(false, false)
+      {
+#ifdef __NIOKR__
+        if ( Dogovor1.VidDog = 14 ) and (SpDocs.cMCUSL = 0)
+          {
+            message('Укажите принципала либо удалите запись!', Warning + OkButton);
+            Abort;
+            Exit;
+          }
+        else
+#end
+        if ((SpDocs.cGrMCUSL = 0) and (SpDocs.cMCUSL = 0))
+          {
+            message('Укажите для позиции наименование МЦ/услуги либо удалите запись!', Warning + OkButton);
+            Abort;
+            Exit;
+          }
+
+        oSpDocs.UpDate_current_SpDocs(SpDocs.BufferP);
+        RereadRecord(#SpDocs);
+      }
+  }
+
+cmDeleteRecord :
+  {
+    if EditDogPosEnabled(false, false)
+      if (message(if(not IsValid(#SpDocSmeta),''#3'Удалить запись спецификации ?',''#3'Удалить записи спецификации, связанные с позицией сметы ?'),yesno+mfSwapButtons)=yes)
+          if (oSpDocs.Delete_current_SpDocs(SpDocs.nRec, true) = tsOk)
+            bChangeRec := true;
+  }
+
+cmInsertRecord :
+  {
+    if EditDogPosEnabled(false, false)
+      {
+        if ((SpDocs.cGrMCUSL <> 0) or (SpDocs.cMCUSL <> 0))
+          {
+            oSpDocs.Insert_current_SpDocs(SpDocs.BufferP);
+          }
+      }
+  }
+end ; // HandeEvent Panel paSpDog;
+end ; // Panel paSpDog;
+
+Panel pnSpDocNal
+  table SpDocNal;
+
+procedure RecalcNalog;
+{
+  var SumNds : double;
+
+  bChangeRec := true;
+
+  PushPos(#SpDocNal);
+  SumNds := 0;
+  _loop SpDocNal
+    {
+      if (Dogovor.cOrg = SpDocNal.cOrg)
+        SumNds := SumNds + SpDocNal.SumVal;
+    }
+  PopPos(#SpDocNal);
+
+  set SpDocs.SumNDS := SumNds;
+}
+
+HandleEvent
+cmPositionChanged :
+ {
+   oldNalog := SpDocNal.Nalog;
+
+   ProtectRecord(#SpDocNal, NOT EditDogPosEnabled(false, false));
+ }
+
+cmPick :
+  {
+    if (CurField = #NalOrg.Name)
+      {
+        if (Dogovor.VhodNal = 1) //налоги входят
+          message(''#3'Налог входит в цену товара.'+
+                  ''#3#13'Изменение получателя суммы налога недоступно!', Information)
+        else
+          RunInterface(GetKatOr, SpDocNal.cOrg, comp(0), false, comp(0), comp(0));
+      }
+
+    if (update current SpDocNal = tsOk)
+      {
+        RecalcNalog;
+      }
+  }
+
+cmCheckField :
+  {
+    case curfield of
+     #SpDocNal.SumVal :
+       {
+         var dValNalog : date;
+         dValNalog := oSpDocs.GetTrueDateValCurse(Dogovor.dValCurse, Dogovor.dBeg, Dogovor.dDoc);
+
+         set SpDocs.ManualTax := 1;
+         SpDocNal.SumNal := oValFunc.GetAnyCurrency(Dogovor.cVal, SpDocNal.SumVal, dValNalog, SpDocNal.cVal);
+         SpDocNal.Summa  := oValFunc.GetNatCurrency(Dogovor.cVal, SpDocNal.SumVal, dValNalog);
+       }
+     #SpDocNal.Nalog:
+       {
+         set SpDocs.ManualTax := 1;
+         SpDocNal.Summa  := SpDocNal.Summa  / oldNalog *  SpDocNal.Nalog;
+         SpDocNal.SumVal := SpDocNal.SumVal / oldNalog *  SpDocNal.Nalog;
+         SpDocNal.SumNal := SpDocNal.SumNal / oldNalog *  SpDocNal.Nalog;
+         oldNalog := SpDocNal.Nalog;
+       }
+    end; //case
+
+    if (update current SpDocNal = tsOk)
+      {
+        RecalcNalog;
+      }
+  }
+end; // handleevent
+end; // Panel pnSpDocNal

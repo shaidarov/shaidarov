@@ -1,0 +1,1816 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 8.1 - Логистика
+// Обработка событий интерфейса договоров
+//******************************************************************************
+
+Procedure MyProtectDogovor;
+var boNeedProtect: boolean;
+{
+  boNeedProtect := Not EditDogPosEnabled(FALSE, FALSE);
+
+  SetFieldProtected(#Dogovor.NoDoc_Ext      , boNeedProtect);
+  SetFieldProtected(#Dogovor.dInput         , boNeedProtect);
+  SetFieldProtected(#Dogovor.NoDoc          , boNeedProtect);
+  SetFieldProtected(#Dogovor.dDoc           , boNeedProtect);
+  SetFieldProtected(#Dogovor.dBeg           , boNeedProtect);
+  SetFieldProtected(#Dogovor.dEnd           , boNeedProtect);
+  SetFieldProtected(#Dogovor.Summa          , boNeedProtect);
+  SetFieldProtected(#Dogovor.SumNDS         , boNeedProtect);
+  SetFieldProtected(#Dogovor.ShipAddTerms   , boNeedProtect);
+  SetFieldProtected(#Dogovor.MaxDebtsControl, boNeedProtect);
+  SetFieldProtected(#Dogovor.MaxDebts       , boNeedProtect);
+  SetFieldProtected(#Dogovor.dValCurse      , boNeedProtect);
+  SetFieldProtected(#Dogovor.Discount       , boNeedProtect);
+  SetFieldProtected(#Dogovor.SummaSpec      , boNeedProtect);
+  SetFieldProtected(#wAvans                 , boNeedProtect);
+  SetFieldProtected(#PlanDog.dBegAvans      , boNeedProtect);
+  SetFieldProtected(#PlanDog.dEndAvans      , boNeedProtect);
+  SetFieldProtected(#PlanDog.SumAvans       , boNeedProtect);
+  SetFieldProtected(#PlanDog.VidAvans       , boNeedProtect);
+  SetFieldProtected(#PlanDog.DayAvans       , boNeedProtect);
+  SetFieldProtected(#wOtgr                  , boNeedProtect);
+  SetFieldProtected(#PlanDog.dBegOtgr       , boNeedProtect);
+  SetFieldProtected(#PlanDog.dEndOtgr       , boNeedProtect);
+  SetFieldProtected(#PlanDog.SumOtgr        , boNeedProtect);
+  SetFieldProtected(#PlanDog.VidOtgr        , boNeedProtect);
+  SetFieldProtected(#DayOtgr1               , boNeedProtect);
+  SetFieldProtected(#DayOtgr2               , boNeedProtect);
+  SetFieldProtected(#wPlat                  , boNeedProtect);
+  SetFieldProtected(#PlanDog.dBegPlat       , boNeedProtect);
+  SetFieldProtected(#PlanDog.dEndPlat       , boNeedProtect);
+  SetFieldProtected(#PlanDog.SumPlat        , boNeedProtect);
+  SetFieldProtected(#PlanDog.VidPlat        , boNeedProtect);
+  SetFieldProtected(#DayPlat1               , boNeedProtect);
+  SetFieldProtected(#DayPlat2               , boNeedProtect);
+  SetFieldProtected(#DayPlat3               , boNeedProtect);
+  SetFieldProtected(#AttrDog.Subject1       , boNeedProtect);
+  SetFieldProtected(#AttrDog.Subject2       , boNeedProtect);
+  SetFieldProtected(#AttrDog.Subject3       , boNeedProtect);
+}
+
+Procedure MySetFieldDogovor;
+{
+  if ( Dogovor.VidDog = 14 )
+    {
+      if (not NotEditDogPosStatus(false))
+        {
+          SetHelpAndStatusContext(brSpAgentDog, #SpDocs.CODE   , sci178Esc , 0);
+          SetHelpAndStatusContext(brSpAgentDog, #SpDocs.Price  , sci178Esc , 0);
+          SetHelpAndStatusContext(brSpAgentDog, #Principal.Name, sci1378Esc, 0);
+//          SetHelpAndStatusContext(brSpAgentDog, #PlatFor.Name  , sci1378Esc, 0);
+//          SetHelpAndStatusContext(brSpAgentDog, #IspPol.Name   , sci1378Esc, 0);
+        }
+      else
+        {
+          SetHelpAndStatusContext(brSpAgentDog, #SpDocs.CODE   , sci1Esc, 0);
+          SetHelpAndStatusContext(brSpAgentDog, #SpDocs.Price  , sci1Esc, 0);
+          SetHelpAndStatusContext(brSpAgentDog, #Principal.Name, sci1Esc, 0);
+//          SetHelpAndStatusContext(brSpAgentDog, #PlatFor.Name  , sci1Esc, 0);
+//          SetHelpAndStatusContext(brSpAgentDog, #IspPol.Name   , sci1Esc, 0);
+        }
+    }
+  else
+    {
+      SetFieldVisible(#isSpDog         , RecordExists SpDocs = tsOk);
+      SetFieldVisible(#isCalPlan       , RecordExists CalPlan = tsOk);
+      SetFieldVisible(#DogAttach.Status, RecordExists DogAttach = tsOk);
+      SetFieldVisible(#isDogAttach     , RecordExists DogAttach = tsOk);
+      SetFieldVisible(#AktSver.dDoc    , RecordExists AktSver = tsOk);
+      SetFieldVisible(#AktSver.Status  , RecordExists AktSver = tsOk);
+    }
+
+  SetSelectSpDogFileds;
+
+  SetFieldVisible(#DogKlPrice.Name, Dogovor.MethodPrice = 1);
+
+  SetFieldVisible(#Dogovor.dValCurse, Dogovor.cVal <> 0);
+
+  if ( Dogovor.cVal = 0 )
+    set Dogovor.dValCurse := ZeroDate;
+
+  SetFieldVisible(#Dogovor.SummaSpec, Dogovor.TipMoney = 2);
+  SetFieldVisible(#ProcTxt          , Dogovor.TipMoney = 2);
+  SetFieldVisible(#KursOplTxt       , Dogovor.TipMoney = 2);
+  SetFieldVisible(#Dogovor.ShemaSum , Dogovor.TipMoney = 2);
+
+  if ( Dogovor.cDogovor = 0 )
+    SelectableButtonDogovor
+  else
+    SelectableButtonSogl;
+
+  MyProtectDogovor;
+}
+
+Function OnDeleteRecord: boolean;
+{
+  Result := FALSE;
+
+  if not EditDogPosEnabled(TRUE, TRUE)
+    Exit;
+
+  if ( Dogovor.Status <> 0 )
+    {
+      Message(if(Dogovor.cDogovor = 0,'Договор ','Соглашение ')
+            + 'можно удалить только в статусе "оформляемый"!'
+            , Information + OkButton);
+
+      Exit;
+    }
+
+  if not oSDfuns.CanDeleteDocumentOborot(Dogovor.nRec, Dogovor.TiDk)
+    Exit;
+
+  var Mes       : string;
+  var NeedMes   : boolean;
+  var obDogFuns : ObjDogFuns2;
+
+  NeedMes := FALSE;
+
+  case (wGetTune('Oper.Dogovor.ControlDel')) of
+    0 :
+      {
+        NeedMes := TRUE;
+
+        if ( not oDogFuns.CheckDogovorLinksMSG(Dogovor.nRec, Mes))
+          {
+            Message(if(Dogovor.cDogovor = 0, 'Договор ', 'Соглашение ')
+                     + f_sNumDate(Dogovor.NoDoc, Dogovor.dDoc)
+                     + ' не может быть удален, поскольку на него есть ссылки в документах следующих типов: '#13
+                     + Mes
+                     , Information);
+            Exit;
+          }
+      }
+    2 :
+      {
+        NeedMes := TRUE;
+
+        if ( not oDogFuns.CheckDogovorLinksMSG(Dogovor.nRec, Mes))
+          if ( Message(if(Dogovor.cDogovor = 0, 'На договор ', 'На соглашение ')
+                     + f_sNumDate(Dogovor.NoDoc, Dogovor.dDoc)
+                     + ' есть ссылки в документах следующих типов: '#13
+                     + Mes +''#13#13
+                     + 'Удалить документ?'
+                     , YesNo + mfSwapButtons + Confirmation) <> cmYes )
+            Exit
+        else
+          NeedMes := FALSE;
+      }
+  else
+    NeedMes := TRUE;
+  end; //case
+
+  if NeedMes
+    if ( Message('Удалить документ?', YesNo + mfSwapButtons + Confirmation) <> cmYes )
+      Exit;
+
+  // проверка настройки выполнения алгоритма перед удалением договора
+  if ( coGetTune('OPER.DOGOVOR.BEFOREDELETE') <> 0 )
+    {
+      var wResult: word;
+
+      wResult := RunInterface('SimpleWayToRunAlgorithm'
+                             , coGetTune('Oper.Dogovor.BeforeDelete')
+                             , word(7)
+                             , Dogovor.nRec
+                             , comp(0));
+
+      if ( wResult = cmNo )
+        {
+          Message('По результатам выполнения алгоритма'#13
+                + 'Удаление запрещено', Information);
+          Exit;
+        }
+
+      if ( wResult = cmCancel )
+        if ( Message('В процессе выполнения алгоритма произошли ошибки!'#13
+                  + 'Продолжить?', YesNo + Confirmation) <> cmYes )
+           Exit;
+    }
+
+  Result := TRUE;
+
+  var NeedPop: boolean; NeedPop := TRUE;
+
+  if TreeGetNext(MainTree)
+    {
+      TreePushPos(MainTree);
+      TreeGetPrev(MainTree);
+    }
+  else
+    if TreeGetPrev(MainTree)
+      {
+        TreePushPos(MainTree);
+        TreeGetNext(MainTree);
+      }
+    else
+      NeedPop := FALSE;
+
+  if ( DeleteDogovor = tsOk )
+    {
+      if NeedPop
+        TreePopPos(MainTree);
+
+      RereadRecord(#Dogovor1);
+    }
+  else
+    if NeedPop
+      TreeDropPos(MainTree);
+}
+
+Procedure OnPositionChanged;
+{
+  MySetFieldDogovor;
+
+  if ( First_Position OR ( CurWindow = -1 ) )
+    {
+      if First_Position
+        First_Position := FALSE;
+
+      SetFieldProtected(#Dogovor.NoDoc_Ext, TRUE);
+      SetFieldProtected(#Dogovor.NoDoc    , TRUE);
+      SetFieldProtected(#Dogovor.dDoc     , TRUE);
+      SetFieldProtected(#Dogovor.dBeg     , TRUE);
+      SetFieldProtected(#Dogovor.dEnd     , TRUE);
+      SetFieldProtected(#Dogovor.Summa    , TRUE);
+      SetFieldProtected(#Dogovor.SumNDS   , TRUE);
+    }
+}
+
+Panel paDogovor1
+  Table Dogovor1;
+
+HandleEvent
+
+cmDeleteRecord:
+  if Not OnDeleteRecord
+    Abort;
+
+end;
+end;
+
+//******************************************************************************
+// проверка условий, при которых договор не м.б. закрыт
+//******************************************************************************
+Function DogovorCanBeClosed: boolean;
+var daBeg : date;
+{
+  DogovorCanBeClosed := FALSE;
+
+  if ( RecordExists DopDog where (( Dogovor.nRec == DopDog.cDogovor and
+                                    word(1)      == DopDog.Status )) = tsOk )
+    Exit;
+
+  if ( RecordExists CalPlan where (( Dogovor.nRec == CalPlan.cDogovor and
+                                     word(1)      == CalPlan.Status )) = tsOk )
+    Exit;
+
+  // не разрешается закрытие договора без наличия актов сверки
+  if ( Not boGetTune('Dog.CloseNotAktSver') AND ( Dogovor.VidDog <> 14 ) )
+    {
+      daBeg := Dogovor.dBeg;
+
+      _LOOP AktSver where (( Dogovor.nRec == AktSver.cDogovor )) ordered by AktSver.dBeg
+         if ( (AktSver.dBeg <= Dogovor.dEnd) AND (AktSver.dEnd >= daBeg) )
+           if (AktSver.dBeg > daBeg)
+             Break;
+           else
+             daBeg := Add_Day(AktSver.dEnd, 1);
+
+      if ( daBeg <= Dogovor.dEnd )
+        Exit;
+    }
+
+  DogovorCanBeClosed := TRUE;
+}
+// Ф-ция находит подразделение в KatPodr
+//******************************************************************************
+Function GalDepartmentNrec(cStaffDep : comp) : comp;
+var cDepNrec : comp;
+    bNotFind : boolean;
+    cTmp     : comp;
+{
+  cTmp := cStaffDep;
+  bNotFind := True;
+  cDepNrec := 0;
+
+  do
+    {
+      if (GetFirst ExtCatLinks where ((  epStaffDepartment == ExtCatLinks.ObjType
+                                     AND moStaff           == ExtCatLinks.ModType
+                                     AND cTmp              == ExtCatLinks.StaffCat )) = tsOk)
+        {
+          bNotFind := False;
+          cDepNrec := ExtCatLinks.ExtCat;
+        }
+      else
+        {
+          if (GetFirst Catalogs where (( cTmp == Catalogs.NRec)) = tsOk)
+            cTmp := Catalogs.cParent;
+          else
+            bNotFind := False;
+        }
+    }
+  while (bNotFind);
+
+  GalDepartmentNrec := cDepNrec;
+}
+
+//******************************************************************************
+
+Panel paDogovorMain // Dogovor
+  Table Dogovor;
+
+HandleEvent
+
+cmSetDefault:
+  {
+    Abort;
+    Exit;
+  }
+
+cmPick:
+  {
+    if ( IsNew )
+      SelectField(#KatVidD.Name);
+
+    if NotEditDogPos(TRUE)
+      {
+        Abort;
+        Exit;
+      }
+
+    if ( ( CurField <> #HozOperViewName ) AND ( CurField <> #KatNotes.Name ) )
+      if NotEditDogPosStatus(TRUE)
+        {
+          Abort;
+          Exit;
+        }
+
+    UpDateInsertDogovor;
+
+    case CurField of
+
+    //*******************
+      #Dogovor.TipMoney:
+        if ( IsValid(tnSpDocs) AND (Dogovor.VidDog <> 14) )
+          {
+            Message('Изменение типа документа возможно до ввода товарных позиций!', CancelButton + Information);
+            Abort;
+          }
+    //*******************
+      #KatNazna.Name:
+        if ( RunInterface('GetSomKatNazna', FALSE, Dogovor.cProg) <> cmCancel )
+          set Dogovor.cProg := Dogovor.cProg;
+    //*******************
+      #DogKlPrice.Name:
+        if ( GetLast SpDocs <> tsOk )
+          if ( RunInterface('GetKlPr', Dogovor.cPriceLs, Dogovor.VhodNal, word(0), word(0)) <> cmCancel )
+            set Dogovor.cPriceLs := Dogovor.cPriceLs;
+    //*******************
+      #Dogovor.MethodPrice:
+        if ( RecordExists SpDocs = tsOk )
+          {
+            Message('Методику определения цен можно изменять до задания спецификации!', Information);
+
+            Abort;
+            Exit;
+          }
+    //*******************
+      #Dogovor.NoDoc:
+        {
+          var calg: comp;
+
+          calg := coGetTune('Oper.Dogovor.AutoIntrNumAlg');
+
+          if ( calg = 0 )
+            message('Не указан алгоритм формирования номера', Information)
+          else
+            {
+              StartNewVisual(vtRotateVisual, vfSilent, 'Формирование номера договора', 0);
+
+              RunInterface('SimpleWayToRunAlgorithm', calg
+                                                    , word(0)
+                                                    , Dogovor.nRec
+                                                    , comp(0));
+
+              ReReadRecord;
+
+              StopVisual('', 0);
+            }
+        }
+    //*******************
+      #KatNotes.Name:
+        {
+          var wMaska : word;
+          var DateEnd: date;
+          var st     : word;
+
+          if ( Dogovor.nRec = 0 )
+            {
+              Abort;
+              Exit;
+            }
+
+          if ( Dogovor.cVidDog = 0 )
+            {
+              Message('Не задан вид ' + if(Dogovor.cDogovor = 0, 'договора', 'соглашения') + ' !');
+              Abort;
+              Exit;
+            }
+
+          if ( ( Dogovor.Status = 0 ) AND ( Dogovor.VidDog <> 14 ) )
+            {
+              var SumSpec : double;
+              var SumNal  : double;
+
+              SumSpec := 0;
+              SumNal  := 0;
+
+              case wGetTune('Dog.KontrolSpecDog') of
+               1 : {
+                     oSpDocs.ReCalcSpecDogovor(Dogovor.nRec, SumSpec, SumNal);
+
+                     if (ABS(Dogovor.Summa - SumSpec) > 0.00001)
+                       {
+                         Message(''#3'Стоимость спецификации (' +
+                                 DoubleToStr(SumSpec,'\2p[|-]3666`666`666`666`666.88') +
+                                 ' ' + ValDogovor + ') расходится с суммой ' +
+                                 if(Dogovor.cDogovor = 0, 'договора', 'соглашения') + ' (' +
+                                 DoubleToStr(Dogovor.Summa,'\2p[|-]3666`666`666`666`666.88') +
+                                 ' ' + ValDogovor + ')!',OkButton);
+
+                         Abort;
+                         Exit;
+                       }
+                   }
+               2 : {
+                     oSpDocs.ReCalcSpecDogovor(Dogovor.nRec, SumSpec, SumNal);
+
+                     if (ABS(Dogovor.Summa - SumSpec) > 0.00001)
+                       {
+                         if (Message('Стоимость спецификации (' +
+                                     DoubleToStr(SumSpec,'\2p[|-]3666`666`666`666`666.88') +
+                                     ' ' + ValDogovor + ') расходится с суммой ' +
+                                     if(Dogovor.cDogovor = 0, 'договора', 'соглашения') + ' (' +
+                                     DoubleToStr(Dogovor.Summa,'\2p[|-]3666`666`666`666`666.88') +
+                                     ' ' + ValDogovor + ')! Продолжить?'
+                                   , YesNo + mfSwapButtons + Confirmation) = cmNo)
+                           {
+                             Abort;
+                             Exit;
+                           }
+                       }
+                   }
+              end; // case
+            }
+/*
+0 - оформляемый       1
+1 - исполняемый       2
+2 - приостановленный  4
+3 - расторгнутый      8
+4 - закрытый          16
+*/
+          wMaska := 0; // маска запрещенных состояний
+
+          // проверка условий, при которых договор не м.б. закрыт
+          if ( (wMaska and 16) = 0 )
+            if Not DogovorCanBeClosed
+              wMaska := wMaska + 16;
+
+          if NotRuningDogovor
+            {
+              if ( (wMaska and 2) <> 2 )
+                wMaska := wMaska + 2;
+
+              if ( wMaska = 31 )
+                {
+                  Message('Изменение статуса невозможно.'#13
+                        + 'Не заполнены обязательные реквизиты '
+                        + if(Dogovor.cDogovor = 0, 'договора!', 'соглашения!')
+                        , Information + OkButton);
+
+                  Abort;
+                  Exit;
+                }
+            }
+          else
+            if ( wMaska = 31 )
+              {
+                Message('Изменение статуса невозможно.'#13
+                      + 'Уже есть исполняемые соглашения!'
+                      , Information + OkButton);
+
+                Abort;
+                Exit;
+              }
+
+          Var wResult : word;
+          wResult := cmOK;
+
+          if (coGetTune('Oper.Dogovor.BeforeChangeStatus') <> 0)
+            wResult := RunInterface( 'SimpleWayToRunAlgorithm'
+                           , coGetTune('Oper.Dogovor.BeforeChangeStatus')
+                           , word(7)
+                           , Dogovor.nRec
+                           , comp(0));
+
+          if (wResult = cmNo) or (wResult = cmDefault)
+            {
+              Message(''#3+'По результатам выполнения алгоритма'+''#13+
+                      ''#3+'изменение статуса запрещено',Information);
+              abort;
+              Exit;
+            }
+
+          if (wResult = cmCancel)
+            if Message(''#3+'В процессе выполнения алгоритма произошли ошибки!'+''#13+
+                       ''#3+'Продолжить?', YesNo + Confirmation) <> cmYes
+              {
+                abort;
+                Exit;
+              }
+
+          var wOldStatus: word;
+
+          wOldStatus := Dogovor.Status;
+
+          if ( RunInterface('StatLog', word(1024 + 1)
+                                     , Dogovor.nRec
+                                     , Dogovor.TiDk
+                                     , Dogovor.Status
+                                     , Dogovor.cNote
+                                     , wMaska         // маска запрещенных состояний
+                          ) <> cmCancel )
+             {
+               if ( Dogovor.VidDog = 12 )
+                 case Dogovor.Status of
+                   1:
+                     {
+                       var Flag: boolean;
+
+                       Flag := false;
+
+                       var oRltRent: RltRentHistory;
+
+                       _LOOP SpDocs
+                         if ( RecordExists rltLinks where (( SpDocs.nRec == rltLinks.cSpDocs )) = tsOk )
+                           case oRltRent.GetRentStatus(rltLinks.cObj, rltLinks.VidObj, Dogovor.dBeg) of
+                             1, 2: {}
+                           else
+                             {
+                               Flag := true;
+                               Break;
+                             }
+                           end;
+
+                       if Flag
+                         if ( Message('Добавить запись по объектам недвижимости из спецификации в таблицу "аренда/закрепление"?', Confirmation + YesNo) = cmYes )
+                           {
+                             UpDateInsertDogovor;
+
+                             _LOOP SpDocs
+                               if ( GetFirst fastfirstrow rltLinks where (( SpDocs.nRec == rltLinks.cSpDocs )) = tsOk )
+                                 oRltFuncs.AddRentRec(Dogovor.dDoc,
+                                                      Dogovor.dBeg,
+                                                      Dogovor.NoDoc,
+                                                      Dogovor.nRec,
+                                                      Dogovor.cOrg,
+                                                      rltLinks.VidObj,
+                                                      rltLinks.cObj);
+                           }
+                     }
+                   3..4:
+                     {
+                       if ( Message('Добавить запись по объектам недвижимости из спецификации в таблицу "аренда/закрепление"?', Confirmation + YesNo) = cmYes )
+                         {
+                           UpDateInsertDogovor;
+
+                           _LOOP SpDocs
+                             oRltFuncs.AddEndRentRec(Dogovor.nRec, rltLinks.VidObj, rltLinks.cObj);
+                         }
+                     }
+                 end;
+
+               if ( oThemeFuncs.NIOKR_Used AND ( wOldStatus = 0 ) AND ( Dogovor.Status = 1 ) )
+                 oThemeFuncs.EventToNIOKR('StatusToIspolFromOforml', coDogovor, Dogovor.nRec);
+
+               set Dogovor.Status := Dogovor.Status;
+               set Dogovor.cNote  := Dogovor.cNote;
+
+               OnPositionChanged;
+               MyProtectDogovor;
+
+               if (coGetTune('Oper.Dogovor.AfterChangeStatus') <> 0)
+                 RunInterface( 'SimpleWayToRunAlgorithm'
+                             , coGetTune('Oper.Dogovor.AfterChangeStatus')
+                             , word(7)
+                             , Dogovor.nRec
+                             , comp(0));
+             }
+        }
+    //*******************
+      #Dogovor.Descr:
+        RunInterface('GetDescr', Dogovor.Descr, Dogovor.DesGr, word(0));
+    //*******************
+      #Dogovor.DesGr:
+        RunInterface('GetGrDescr', Dogovor.DesGr,FALSE,FALSE,comp(0));
+    //*******************
+      #KatVidD.Name:
+        {
+          var OkOne  : boolean;
+          var pDirect: word;
+          var pOrg   : comp;
+          var pBank  : comp;
+
+          OkOne   := FALSE;
+          pDirect := Dogovor.Direct;
+
+          if ( isModified and ( Not UpdateTable ) )
+            {
+              Abort;
+              Exit;
+            }
+
+          var NewVidDog : word;
+          var NewcVidDog: comp;
+
+          if ( RunInterface('GetSomVidD', NewVidDog
+                                        , pDirect
+                                        , OkOne
+                                        , NewcVidDog
+                                        , word(0)
+                           ) = cmCancel )
+            RereadRecord
+          else
+            {
+              RereadRecord;
+              Dog_Num(Dogovor.nRec, NewcVidDog);    // Автоприсвоение номера договору
+              if ( NewVidDog = 14 )
+                {
+                  Message('Создание агентского многостороннего '
+                        + if(Dogovor.cDogovor = 0, 'договора', 'соглашения')
+                        #ifdef __NIOKR__
+                        + ''#13' доступно только из локального меню основного окна!'
+                        #else
+                        + ''#13' недоступно!'
+                        #end
+                        , Information + OkButton);
+
+                  Abort;
+                  Exit;
+                }
+
+              if (
+                  ( RecordExists CalPlan = tsOK )
+                   AND
+                  (
+                   ( Dogovor.Direct = 3 ) AND ( pDirect < 3 )
+                    OR
+                   ( Dogovor.Direct = 1 ) AND ( pDirect = 2 )
+                    OR
+                   ( Dogovor.Direct = 2 ) AND ( pDirect = 1 )
+                  )
+                 )
+                {
+                  Message('При наличии календарного плана запрещено изменять вид '
+                        + if(Dogovor.cDogovor = 0, 'договора', 'соглашения')
+                        + ' на данный!'
+                        , Information + OkButton);
+
+                  Abort;
+                  Exit;
+                }
+
+              Dogovor.VidDog  := NewVidDog;
+              Dogovor.cVidDog := NewcVidDog;
+
+              if ( (Dogovor.Direct and 1) <> (pDirect and 1) )
+                {
+                  pOrg  := Dogovor.cPol;
+                  pBank := Dogovor.cBankPol;
+
+                  Dogovor.cPol      := Dogovor.cPlat;
+                  Dogovor.cBankPol  := Dogovor.cBankPlat;
+                  Dogovor.cPlat     := pOrg;
+                  Dogovor.cBankPlat := pBank;
+
+                  var pOrg2: comp;
+
+                  pOrg2 := Dogovor.cGrOtp;
+
+                  Dogovor.cGrOtp := Dogovor.cGrPol;
+                  Dogovor.cGrPol := pOrg2;
+                }
+
+              // для "Почты России"
+              if ( ( RecordExists SpDocs = tsOK ) AND ( pDirect <> 3 ) )
+                if ( Dogovor.Direct > 2 )
+                  {
+                    if ( Message('Привести направление движения позиций в спецификации с признаками'#13
+                               + '- услуга по переработке'#13
+                               + '- давальческое сырье'#13
+                               + '- готовая продукция'#13
+                               + 'в соответствие с видом договора/соглашения,'#13
+                               + 'а также заменить признак с УП на У и ДС, ГП на Т ?'
+                               , YesNo + Confirmation) = cmYes )
+                      {
+                        update SpDocs set SpDocs.Direct := pDirect,
+                                          SpDocs.PrMc   := if((SpDocs.PrMc = 2) OR (SpDocs.PrMc = 3), 2, 1);
+
+                        Message('Направление движения позиций в спецификации с признаками'#13
+                              + '- услуга по переработке'#13
+                              + '- давальческое сырье'#13
+                              + '- готовая продукция'#13
+                              + 'приведено в соответствие с видом договора/соглашения,'
+                              + 'а также заменены признаки УП на У и ДС, ГП на Т.'
+                              , Information);
+                      }
+                  }
+                else
+                  if ( KatVidD.VidDog = 1 ) // договор комиссии
+                    _LOOP SpDocs
+                      {
+                        if ( SpDocs.PrMC = 1 )
+                         SpDocs.Direct := pDirect
+                        else
+                         SpDocs.Direct := if(pDirect = 1, 2, 1);
+
+                        if ( update current SpDocs = tsOK )
+                          {}
+                      }
+                   else
+                     if ( Message('Привести направление движения товаров/услуг в спецификации'#13
+                                + 'в соответствие с видом договора/соглашения?', YesNo + Confirmation) = cmYes )
+                       {
+                         update SpDocs set SpDocs.Direct := pDirect;
+
+                         Message('Направление движения товаров/услуг в спецификации'#13
+                               + 'приведено в соответствие с видом договора/соглашения.'
+                               , Information);
+                       }
+
+              set Dogovor.cVidDog := Dogovor.cVidDog;
+              set Dogovor.VidDog  := Dogovor.VidDog;
+              set Dogovor.Direct  := pDirect;
+
+              #ifdef __NIOKR__
+              SetTabbedSheetVisible(scDogovorEditMainNIOKR, Dogovor.VidDog = 13);
+              #end
+
+              if ( Dogovor.VidDog = 14 )
+                Dogovor.IsExtra := 2;
+            }
+        }
+    //*******************
+      #ValDogovor:
+        { var VCurse : double;
+
+          if ( Dogovor.TipMoney = 1 )
+            Message('Выбор валюты запрещен, т.к. тип договора по отношению к валюте - НДЕ.', Information + OkButton);
+          else
+            if ( RunInterface('GetValOt', Dogovor.cVal) <> cmCancel )
+              {
+                set Dogovor.cVal := Dogovor.cVal;
+
+                UpDateInsertDogovor;
+
+                if ( Dogovor.VidDog <> 14 )
+                  {
+                    oSpDocs.ReCalcSpec(Dogovor.TiDk, Dogovor.nRec);
+
+                    ReCalcSummaDogovor;
+                  }
+              }
+
+          SetFieldVisible(#Dogovor.dValCurse, Dogovor.cVal <> 0);
+
+          if ( Dogovor.cVal = 0 )
+            set Dogovor.dValCurse := ZeroDate;
+        }
+    //*******************
+      #ValRasDogovor:
+        {
+          var VCurse: double;
+
+          if ( Dogovor.TipMoney = 1 )
+            Message('Выбор валюты взаиморасчетов запрещен, т.к. тип договора по отношению к валюте - НДЕ.'
+                  , Information + OkButton);
+          else
+            if ( RunInterface('GetValOt', Dogovor.cValRas) <> cmCancel )
+              set Dogovor.cValRas := Dogovor.cValRas;
+        }
+    //*******************
+      #Dogovor.dValCurse:
+        {
+          var sumr, sumv, Curs: double;
+
+          if ( Dogovor.cVal <> 0 )
+            {
+              if ( RunInterface('GetValCu', Dogovor.cVal
+                                          , cur_date
+                                          , sumr
+                                          , sumv
+                                          , Curs
+                                          , Dogovor.dValCurse
+                               ) <> cmCancel )
+                set Dogovor.dValCurse := Dogovor.dValCurse;
+
+              if ( ( Dogovor.ShemaSum = 2 ) AND ( Dogovor.dValCurse <= ZeroDate) AND (Dogovor.TipMoney = 2) )
+                {
+                  Message('Не задан курс валюты документа для расчетов!');
+                  SelectField(#Dogovor.dValCurse);
+                }
+
+              Stop;
+            }
+        }
+    //*******************
+      #KatOrg.Name:
+        {
+          if ( GetFirst CalPlan = tsOK )
+            {
+              Message('Нельзя менять контрагента,'#13
+                    + 'если по договору/соглашению есть ПКП!', Warning);
+              Exit;
+            }
+
+          var _Bnk: comp;
+          _Bnk := if((Dogovor.Direct and 1) = 1, Dogovor.cBankPol, Dogovor.cBankPlat);
+
+          if ( RunInterface('GetKatOr', Dogovor.cMyOrg
+                                      , comp(0)
+                                      , FALSE
+                                      , comp(0)
+                                      , _Bnk
+                           ) <> cmCancel )
+            {
+              set Dogovor.cMyOrg := Dogovor.cMyOrg;
+
+              case (Dogovor.Direct and 1) of
+              // договора на продажу
+                1:
+                  {
+                    Dogovor.cBankPol := _Bnk;
+                    Dogovor.cPol     := Dogovor.cMyOrg;
+                    Dogovor.cGrOtp   := Dogovor.cMyOrg;
+                  }
+              // договора на закупку
+                0:
+                  {
+                    Dogovor.cBankPlat := _Bnk;
+                    Dogovor.cPlat     := Dogovor.cMyOrg;
+                    Dogovor.cGrPol    := Dogovor.cMyOrg;
+                  }
+              end; // case
+            }
+        }
+    //*******************
+      #KatOrg1.Name:
+        {
+          var cKontr_Old : comp;
+
+          cKontr_Old := Dogovor.cOrg;
+
+          if ( RecordExists CalPlan = tsOK )
+            if ( Message('Изменение контрагента приведет'#13
+                       + 'к изменению контрагента и у ПКП!'#13#13
+                       + 'Продолжить ?'
+                       , Confirmation + YesNo) = cmNo )
+              Exit;
+
+          var _Bnk: comp;
+          _Bnk := if((Dogovor.Direct and 1) = 0, Dogovor.cBankPol, Dogovor.cBankPlat);
+
+          if ( RunInterface('GetKatOr', Dogovor.cOrg
+                                      , comp(0)
+                                      , FALSE
+                                      , comp(0)
+                                      , _Bnk
+                           ) <> cmCancel )
+            {
+              set Dogovor.cOrg := Dogovor.cOrg;
+
+              //проверка на учет таможенных налогов
+              if (
+                  ( (Dogovor.Direct and 1) = 0 )
+                   AND
+                  ( KatOrg1.NeedCustom = 1 )
+                   AND
+                  ( Dogovor.VhodNal <> 2 )
+                 )  // договор импорта
+                if ( Message('По данному контрагенту учитываются таможенные налоги!'#13
+                           + 'Установить цены без налогов?', Information + YesNo) = cmYes )
+                  set Dogovor.VhodNal := 2;  //для импорта/экспорта налоги не входят
+
+              case (Dogovor.Direct and 1) of
+              // договора на продажу
+                1:
+                  {
+                    Dogovor.cBankPlat := _Bnk;
+                    Dogovor.cPlat     := Dogovor.cOrg;
+                    Dogovor.cGrPol    := Dogovor.cOrg;
+                  }
+              // договора на закупку
+                0:
+                  {
+                    Dogovor.cBankPol := _Bnk;
+                    Dogovor.cPol     := Dogovor.cOrg;
+                    Dogovor.cGrOtp   := Dogovor.cOrg;
+                  }
+              end; // case
+
+              UpDateInsertDogovor;
+
+              if ( cKontr_Old <> Dogovor.cOrg )
+                {
+                  oSpDocs.ChangeOrgInNal(Dogovor.TiDk, Dogovor.nRec, Dogovor.cOrg);
+                  oSpDocs.ReCalcSpec(Dogovor.TiDk, Dogovor.nRec);
+
+                  ReCalcSummaDogovor;
+
+                  if ( RecordExists CalPlan = tsOK )
+                    {
+                      var LL: tCalPlanObjInterface;
+                      GetVipRef(LL, 'CalPlan');
+
+                      _LOOP CalPlan
+                        LL.ChangeKontr(Dogovor.nRec, Dogovor.cOrg);
+                    }
+                }
+            }
+        }
+    //*******************
+      #Shipment.Name:
+        if ( RecordExists SpDocs <> tsOk )
+          if ( RunInterface('GetShipment', Dogovor.cShipment) <> cmCancel )
+            if ( GetFirst FastFirstRow Shipment = tsOk )
+              {
+                set Dogovor.cTipOtg  := Shipment.cTipOtg;
+                set Dogovor.cWayMove := Shipment.cWayMove;
+              }
+    //*******************
+      #TipOtg.Name:
+        if ( RecordExists SpDocs <> tsOk )
+          if ( RunInterface('GetTipOtg', Dogovor.cTipOtg) <> cmCancel )
+            set Dogovor.cTipOtg := Dogovor.cTipOtg;
+    //*******************
+      #WayMove.Name:
+        if ( RecordExists SpDocs <> tsOk )
+          if ( RunInterface('GetWayMove', Dogovor.cWayMove) <> cmCancel )
+            set Dogovor.cWayMove := Dogovor.cWayMove;
+    //*******************
+      #Dogovor.IsSum, #Dogovor.VhodNal:
+        bChangeRec := TRUE;
+    //*******************
+      #HozOperViewName:
+        if ( UpDateTable )
+          {
+            iTxoBind.ResetServer;
+
+            iShoz.CheckMagOper(#TSoprHozX(SoprHoz.BufferP), integer(1));
+
+            if iTxoBind.BuildTree(SoprHoz.BufferP)
+             if iTxoBind.Bind(SoprHoz.BufferP, 0)
+              if iTxoBind.RealizeOperationsTree(SoprHoz.BufferP)
+                iTxoBind.Apply(SoprHoz.BufferP);
+
+            iTxoBind.ProcessProtokol;
+
+            ReReadRecord;
+          }
+    //*******************
+      #DopKlName:
+        {
+          var cRec: comp;
+          cRec := Dogovor.cDopKlas;
+
+          iGetKau.GetCodeKau(cgiPick, wDopKlas, cRec);
+
+          set Dogovor.cDopKlas := cRec;
+        }
+    //*******************
+      #Calendar.Name:
+        {
+          if ( RecordExists CalPlan = tsOK )
+            {
+              Message('При наличии календарного плана запрещено изменять календарь!',
+                      Information + OkButton);
+
+              Abort;
+              Exit;
+            }
+
+          if ( RunInterface('Calendar', Dogovor.cCalendar) <> cmCancel )
+            set Dogovor.cCalendar := Dogovor.cCalendar;
+        }
+    #ifdef __NIOKR__
+    //*********************
+/*
+      #AgentDogName:
+        {
+          SaveMyDsk(TRUE, 'GetSDog_VidDogChangeEnabled');
+
+          RunInterface('GetSomeDogovor',
+                         word(14),
+                         word(-1),
+                         word(0),
+                         word(0),
+                         FALSE,
+                         Dogovor.cAgentDog,
+                         TRUE,
+                         comp(0)
+                      )
+        }
+*/
+    //*********************
+      #PlanNIOKR.OnYear, #PlanNIOKR.Punkt, #PlanNIOKR.Razdel:
+        if ( RunInterface('vipPlanNIOKR', cgiPick, pnPunkt, Dogovor.cPlanNIOKR) <> cmCancel )
+          RereadRecord(#PlanNIOKR);
+    //*********************
+      #AttrDog.Otv_My_Post, #AttrDog.Otv_My_Fio:
+        {
+          if ( RunInterface('GetPers', AttrDog.cOtv_My) <> cmCancel )
+            if ( GetFirst FastFirstRow Persons where (( AttrDog.cOtv_My == Persons.nRec )) = tsOk )
+              {
+                set AttrDog.cOtv_My     := Persons.nRec;
+                set AttrDog.Otv_My_Fio  := Persons.FIO;
+                set AttrDog.Otv_My_Post := '';
+
+                var wPodrPar : word; wPodrPar := 0;
+                var cPodr    : comp; cPodr    := 0;
+
+                if (Dogovor.dDoc = 0)
+                  wPodrPar := 1;
+                else
+                  if ( GetLast Appointments where ((  Persons.nRec == Appointments.Person
+                                              AND integer(0)       == Appointments.lPrizn
+                                              AND Dogovor.dDoc     >>= Appointments.AppointDate )) <> tsOk )
+                    wPodrPar := 2;
+                  else
+                    {
+                      if ( GetFirst FastFirstRow Catalogs where (( Appointments.Post == Catalogs.nRec )) = tsOk )
+                        set AttrDog.Otv_My_Post := Catalogs.Name;
+
+                      cPodr := GalDepartmentNrec(Appointments.Department);
+
+                      wPodrPar := 3;
+                    }
+
+                Case wPodrPar of
+                  1 : Message('Невозможна автоматическая установка курирующего подразделения.'#13 +
+                              'Не задана дата договора', Information);
+                  2 : Message('Не найдено подразделение, в котором работал сотрудник на дату ' + DateToStr(Dogovor.dDoc, 'DD/MM/YYYY'), Information);
+                  3 : if (GetFirst FastFirstRow fKuratPodr where (( cPodr == fKuratPodr.nRec )) = tsOk)
+                        if (Message('Установить курирующее подразделение "' + fKuratPodr.Name + '"?', Confirmation + YesNo) = cmYes)
+                          set Dogovor.cCurPodr := cPodr;
+                end;
+
+                update current AttrDog;
+              }
+        }
+    //*********************
+      #KuratPodr.Name:
+        RunInterface('GetAnyPodr', Dogovor.cCurPodr, word(4));
+    //*********************
+    #end
+    end;
+
+    ReScanPanel(#Dogovor);
+  }
+
+cmDelOnProtect:
+  {
+    if NotEditDogPos(TRUE)
+      {
+        Abort;
+        Exit;
+      }
+
+    if ( CurField <> #HozOperViewName )
+      if NotEditDogPosStatus(TRUE)
+        {
+          Abort;
+          Exit;
+        }
+
+    case CurField of
+    //**********************
+      #KatNotes.Name:
+        Abort;
+    //**********************
+      #KatVidD.Name:
+        Abort;
+    //**********************
+      #KatNazna.Name:
+        set Dogovor.cProg := 0 ;
+    //**********************
+      #DogKlPrice.Name:
+        {
+          if ( RecordExists SpDocs <> tsOk )
+            set Dogovor.cPriceLs := 0
+          else
+            Abort;
+        }
+    //**********************
+      #KatOrg.Name:
+        {
+          if ( RecordExists CalPlan = tsOK )
+            {
+              Message('Нельзя удалять ссылку на контрагента,'#13
+                    + 'если по договору/соглашению есть ПКП!', Warning);
+
+              Abort;
+              Exit;
+            }
+
+          set Dogovor.cMyOrg := 0;
+
+          case (Dogovor.Direct and 1) of
+          // договора на продажу
+            1:
+              {
+                Dogovor.cPol     := 0;
+                Dogovor.cGrOtp   := 0;
+                Dogovor.cBankPol := 0;
+              }
+          // договора на закупку
+            0:
+              {
+                Dogovor.cPlat     := 0;
+                Dogovor.cGrPol    := 0;
+                Dogovor.cBankPlat := 0;
+              }
+          end; // case
+        }
+    //**********************
+      #KatOrg1.Name:
+        {
+          if ( RecordExists CalPlan = tsOK )
+            {
+              Message('Нельзя удалять ссылку на контрагента,'#13
+                    + 'если по договору/соглашению есть ПКП!', Warning);
+
+              Abort;
+              Exit;
+            }
+
+          set Dogovor.cOrg := 0;
+
+          case (Dogovor.Direct and 1) of
+          // договора на продажу
+            1:
+              {
+                Dogovor.cPlat     := 0;
+                Dogovor.cGrPol    := 0;
+                Dogovor.cBankPlat := 0;
+              }
+          // договора на закупку
+            0:
+              {
+                Dogovor.cPol     := 0;
+                Dogovor.cGrOtp   := 0;
+                Dogovor.cBankPol := 0;
+              }
+          end; // case
+        }
+    //**********************
+      #Shipment.Name:
+        if ( RecordExists SpDocs = tsOk )
+          Abort
+        else
+          {
+            set Dogovor.cShipment := 0;
+            set Dogovor.cTipOtg   := 0;
+            set Dogovor.cWayMove  := 0;
+          }
+    //**********************
+      #TipOtg.Name:
+        if ( RecordExists SpDocs <> tsOk )
+          set Dogovor.cTipOtg := 0
+        else
+          Abort;
+    //**********************
+      #WayMove.Name:
+        {
+          if ( RecordExists SpDocs <> tsOk )
+            set Dogovor.cWayMove := 0
+          else
+            Abort;
+        }
+    //**********************
+      #ValDogovor:
+        Abort;
+    //**********************
+      #ValRasDogovor:
+        if ( Dogovor.TipMoney <> 3 )
+          set Dogovor.cValRas := 0;
+    //**********************
+      #HozOperViewName:
+        if ( UpDateTable )
+          {
+            iTxoBind.ResetServer;
+            iTxoBind.UnBind(SoprHoz.BufferP);
+            iTxoBind.ProcessProtokol;
+
+            ReReadRecord;
+          }
+    //**********************
+      #DopKlName:
+        set Dogovor.cDopKlas := 0;
+    //**********************
+      #Calendar.Name:
+        {
+          if ( RecordExists CalPlan = tsOK )
+            {
+              Message('При наличии календарного плана запрещено изменять календарь!'
+                    , Information + OkButton);
+
+              Abort;
+              Exit;
+            }
+
+          set Dogovor.cCalendar := 0;
+        }
+    //**********************
+    #ifdef __NIOKR__
+    //*********************
+!      #AgentDogName:
+!        set Dogovor.cAgentDog := 0;
+    //*********************
+      #PlanNIOKR.OnYear, #PlanNIOKR.Punkt, #PlanNIOKR.Razdel:
+        set Dogovor.cPlanNIOKR := 0;
+    //*********************
+      #AttrDog.Otv_My_Fio:
+        {
+          set AttrDog.cOtv_My     := 0;
+          set AttrDog.Otv_My_Fio  := '';
+          set AttrDog.Otv_My_Post := '';
+
+          update current AttrDog;
+        }
+    //*********************
+      #KuratPodr.Name:
+        set Dogovor.cCurPodr := 0;
+    //*********************
+    #end
+    end;
+
+    ReScanPanel(#Dogovor);
+  }
+
+cmCheckField:
+  {
+    case CurField of
+    //**********************
+      #Dogovor.VhodNal:
+        if ( Dogovor.VhodNal <> word(OldFieldValue) )
+          {
+            if IsValid(#CalPlan)
+              {
+                set Dogovor.VhodNal := word(OldFieldValue);
+
+                Message(if(Dogovor.cDogovor = 0,'По договору', 'По соглашению')
+                      + ' сформирован календарный план. Входимость налогов '
+                      + 'в цену МЦ/услуги изменять нельзя!'
+                      , Information + OkButton);
+              }
+            else
+              if IsValid(#SpDocs)
+                if ( Message(if(Dogovor.cDogovor = 0, 'Договор', 'Соглашение')+
+                           + ' содержит спецификацию! '
+                           + 'Вы действительно хотите изменить входимость '
+                           + 'налогов в цену МЦ/услуги?', YesNo + mfSwapButtons + Confirmation) <> cmYes )
+                  set Dogovor.VhodNal := word(OldFieldValue)
+                else
+                  {
+                    StartNewVisual(vtRotateVisual, vfTimer + vfConfirm, 'Пересчет налогов...', 1);
+
+                    UpdateTable;
+
+                    _LOOP SpDocs where (( Dogovor.TiDk == SpDocs.TiDk AND Dogovor.nRec == SpDocs.cDoc ))
+                      oSpDocs.ChangePosSpDocs(SpDocs.TiDk, Dogovor.nRec, SpDocs.nRec);
+
+                    StopVisual('', 0);
+                  }
+          }
+    //**********************
+      #Dogovor.VidOpl:
+        {
+          SetFieldVisible(#DayPredOtgr , Dogovor.VidOpl = 1);
+          SetFieldVisible(#DayNextOtgr , Dogovor.VidOpl = 2);
+          SetFieldVisible(#DayOneOtgr  , Dogovor.VidOpl = 3);
+          SetFieldVisible(#DayNextOtgrM, Dogovor.VidOpl = 4);
+          SetFieldVisible(#DayOnePay   , Dogovor.VidOpl = 5);
+        }
+    //**********************
+      #DayPredOtgr:
+        Dogovor.DayOpl := DayPredOtgr;
+    //**********************
+      #DayNextOtgr:
+        Dogovor.DayOpl := DayNextOtgr;
+    //**********************
+      #DayOneOtgr:
+        Dogovor.DayOpl := DayOneOtgr;
+    //**********************
+      #DayNextOtgrM:
+        Dogovor.DayOpl := DayNextOtgrM;
+    //**********************
+      #DayOnePay:
+        Dogovor.DayOpl := DayOnePay;
+    //**********************
+      #wAvans:
+        {
+          if ( wAvans = 0 )
+            {
+              if ( wPlat = 0 )
+                {
+                  SetTabbedSheetVisible(scDogDebts2_0, TRUE);
+                  SetTabbedSheetVisible(scDogDebts2_1, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_2, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_3, FALSE);
+
+                  SetFormat(scDogDebts2_0);
+                }
+              else
+                {
+                  SetTabbedSheetVisible(scDogDebts2_0, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_1, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_2, TRUE);
+                  SetTabbedSheetVisible(scDogDebts2_3, FALSE);
+
+                  SetFormat(scDogDebts2_2);
+                }
+            }
+          else
+            if ( wPlat = 0 )
+              {
+                SetTabbedSheetVisible(scDogDebts2_0, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_1, TRUE);
+                SetTabbedSheetVisible(scDogDebts2_2, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_3, FALSE);
+
+                SetFormat(scDogDebts2_1);
+              }
+            else
+              {
+                SetTabbedSheetVisible(scDogDebts2_0, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_1, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_2, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_3, TRUE);
+
+                SetFormat(scDogDebts2_3);
+              }
+
+          SetFieldVisible(#PlanDog.dBegAvans, wAvans <> 0);
+          SetFieldVisible(#PlanDog.dEndAvans, wAvans <> 0);
+          SetFieldVisible(#PlanDog.SumAvans , wAvans <> 0);
+          SetFieldVisible(#PlanDog.VidAvans , wAvans <> 0);
+          SetFieldVisible(#PlanDog.DayAvans , (wAvans <> 0) AND (PlanDog.VidAvans <> 0));
+        }
+    //**********************
+      #wOtgr:
+        {
+          SetFieldVisible(#PlanDog.dBegOtgr, wOtgr <> 0);
+          SetFieldVisible(#PlanDog.dEndOtgr, wOtgr <> 0);
+          SetFieldVisible(#PlanDog.SumOtgr , wOtgr <> 0);
+          SetFieldVisible(#PlanDog.VidOtgr , wOtgr <> 0);
+
+          SetFieldVisible(#DayOtgr1, (wOtgr <> 0) AND (PlanDog.VidOtgr = 1));
+          SetFieldVisible(#DayOtgr2, (wOtgr <> 0) AND (PlanDog.VidOtgr = 2));
+        }
+    //**********************
+      #wPlat:
+        {
+          if ( wAvans = 0 )
+            {
+              if ( wPlat = 0 )
+                {
+                  SetTabbedSheetVisible(scDogDebts2_0, TRUE);
+                  SetTabbedSheetVisible(scDogDebts2_1, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_2, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_3, FALSE);
+
+                  SetFormat(scDogDebts2_0);
+                }
+              else
+                {
+                  SetTabbedSheetVisible(scDogDebts2_0, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_1, FALSE);
+                  SetTabbedSheetVisible(scDogDebts2_2, TRUE);
+                  SetTabbedSheetVisible(scDogDebts2_3, FALSE);
+
+                  SetFormat(scDogDebts2_2);
+                }
+            }
+          else
+            if ( wPlat = 0 )
+              {
+                SetTabbedSheetVisible(scDogDebts2_0, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_1, TRUE);
+                SetTabbedSheetVisible(scDogDebts2_2, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_3, FALSE);
+
+                SetFormat(scDogDebts2_1);
+              }
+            else
+              {
+                SetTabbedSheetVisible(scDogDebts2_0, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_1, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_2, FALSE);
+                SetTabbedSheetVisible(scDogDebts2_3, TRUE);
+
+                SetFormat(scDogDebts2_3);
+              }
+
+          SetFieldVisible(#PlanDog.dBegPlat, (wPlat <> 0));
+          SetFieldVisible(#PlanDog.dEndPlat, (wPlat <> 0));
+          SetFieldVisible(#PlanDog.SumPlat , (wPlat <> 0));
+          SetFieldVisible(#PlanDog.VidPlat , (wPlat <> 0));
+
+          SetFieldVisible(#DayPlat1, (wPlat <> 0) AND (PlanDog.VidPlat = 1));
+          SetFieldVisible(#DayPlat2, (wPlat <> 0) AND (PlanDog.VidPlat = 2));
+          SetFieldVisible(#DayPlat3, (wPlat <> 0) AND (PlanDog.VidPlat = 3));
+        }
+    //**********************
+      #PlanDog.SumAvans:
+        if ( PlanDog.SumAvans < 0 )
+          {
+            Message('Сумма не может быть меньше нуля !');
+
+            set PlanDog.SumAvans := 0;
+          }
+    //**********************
+      #PlanDog.SumOtgr:
+        if ( PlanDog.SumOtgr < 0 )
+          {
+            Message('Сумма не может быть меньше нуля !');
+
+            set PlanDog.SumOtgr := 0;
+          }
+    //**********************
+      #PlanDog.SumPlat:
+        if ( PlanDog.SumPlat < 0 )
+          {
+            Message('Сумма не может быть меньше нуля !');
+
+            set PlanDog.SumPlat := 0;
+          }
+    //**********************
+      #PlanDog.dBegAvans:
+        if ( ( PlanDog.dEndAvans <> ZeroDate ) AND ( PlanDog.dBegAvans > PlanDog.dEndAvans ) )
+          {
+            Message('Дата начала периода не должна быть больше даты окончания!', Warning);
+            Abort;
+          }
+    //**********************
+      #PlanDog.dEndAvans:
+        if ( PlanDog.dBegAvans > PlanDog.dEndAvans )
+          {
+            Message('Дата начала периода не должна быть больше даты окончания!', Warning);
+            Abort;
+          }
+    //**********************
+      #PlanDog.dBegOtgr:
+        if ( ( PlanDog.dEndOtgr <> ZeroDate ) AND ( PlanDog.dBegOtgr > PlanDog.dEndOtgr ) )
+          {
+            Message('Дата начала периода не должна быть больше даты окончания!', Warning);
+            Abort;
+          }
+    //**********************
+      #PlanDog.dEndOtgr:
+        if ( PlanDog.dBegOtgr > PlanDog.dEndOtgr )
+          {
+            Message('Дата начала периода не должна быть больше даты окончания!', Warning);
+            Abort;
+          }
+    //**********************
+      #PlanDog.dBegPlat:
+        if ( ( PlanDog.dEndPlat <> ZeroDate ) AND ( PlanDog.dBegPlat > PlanDog.dEndPlat ) )
+          {
+            Message('Дата начала периода не должна быть больше даты окончания!', Warning);
+            Abort;
+          }
+    //**********************
+      #PlanDog.dEndPlat:
+        if ( PlanDog.dBegPlat > PlanDog.dEndPlat )
+          {
+            Message('Дата начала периода не должна быть больше даты окончания!', Warning);
+            Abort;
+          }
+    //**********************
+      #PlanDog.VidAvans:
+        SetFieldVisible(#PlanDog.DayAvans, PlanDog.VidAvans <> 0);
+
+    //**********************
+      #PlanDog.VidOtgr:
+        {
+          SetFieldVisible(#DayOtgr1, PlanDog.VidOtgr = 1);
+          SetFieldVisible(#DayOtgr2, PlanDog.VidOtgr = 2);
+        }
+    //**********************
+      #PlanDog.VidPlat:
+        {
+          SetFieldVisible(#DayPlat1, PlanDog.VidPlat = 1);
+          SetFieldVisible(#DayPlat2, PlanDog.VidPlat = 2);
+          SetFieldVisible(#DayPlat3, PlanDog.VidPlat = 3);
+        }
+    //**********************
+      #Dogovor.MethodPrice:
+        SetFieldVisible(#DogKlPrice.Name, Dogovor.MethodPrice = 1);
+    //**********************
+      #Dogovor.TipMoney:
+        if ( Dogovor.TipMoney = 1 )
+          {
+            set Dogovor.cVal      := 0;
+            set Dogovor.cValRas   := 0;
+            set Dogovor.dValCurse := ZeroDate;
+
+            SetFieldVisible(#Dogovor.dValCurse, FALSE);
+          }
+        else
+          if ( Dogovor.cVal = 0 )
+            {
+              if ( coGetTune('BaseCurrency') = 0 )
+                {
+                  if ( RunInterface('GetValOt', Dogovor.cVal) <> cmCancel )
+                    set Dogovor.cVal := Dogovor.cVal
+                  else
+                    {
+                      Abort;
+                      Exit;
+                    }
+                }
+              else
+                set Dogovor.cVal := coGetTune('BaseCurrency');
+
+              if ( Dogovor.TipMoney = 2 )
+                set Dogovor.cValRas := 0
+              else
+                set Dogovor.cValRas := Dogovor.cVal;
+
+              SetFieldVisible(#Dogovor.dValCurse, Dogovor.cVal <> 0);
+            }
+          else
+            if ( Dogovor.TipMoney = 2 )
+              set Dogovor.cValRas := 0;
+    //**********************
+      #Dogovor.isExtra, #Dogovor.Discount:
+        bChangeRec := TRUE;
+    //**********************
+      #Dogovor.Summa:
+        {
+          if ( abs(Dogovor.Summa) <> Dogovor.Summa )
+            {
+              Message('Сумма по '+ if(Dogovor.TiDk = 400, 'договору', 'соглашению')
+                    + ' не может быть меньше нуля !');
+
+              set Dogovor.Summa := 0;
+            }
+
+          if not f_DoublesAreEqual(Dogovor.Summa, double(OldFieldValue), 0.001)
+            if ( UpDateInsertDogovor = tsOk )
+              oDogFuns.RecalcSchema(Dogovor.nRec);
+        }
+    //**********************
+      #Dogovor.dBeg:
+      {
+        if ( ( Dogovor.dEnd <> ZeroDate ) AND ( Dogovor.dBeg > Dogovor.dEnd ) )
+          {
+            Message('Дата начала действия не д.б. больше'#13
+                  + 'даты окончания действия '
+                  + if (Dogovor.cDogovor = 0, 'договора', 'соглашения') + '!'
+                  , Warning);
+            Abort;
+          }
+
+        if ( Dogovor.cDogovor <> 0 )
+          if ( Dogovor.dBeg < DogOwner.dBeg )
+            {
+              set Dogovor.dBeg := DogOwner.dBeg;
+
+              Message('Дата начала действия соглашения не д.б. меньше'#13
+                    + 'даты начала действия '
+                    + if(DogOwner.cDogovor = 0, 'договора', 'вышестоящего соглашения') + '!'
+                    , Warning);
+
+              Abort;
+            }
+      }
+    //**********************
+      #Dogovor.dEnd:
+        {
+          if ( ( Dogovor.dBeg <> ZeroDate ) AND ( Dogovor.dBeg > Dogovor.dEnd ) )
+            {
+              Message('Дата окончания действия не д.б. меньше'#13
+                    + 'даты начала действия '
+                    + if(Dogovor.cDogovor = 0, 'договора', 'соглашения') + '!'
+                    , Warning);
+
+              Abort;
+            }
+
+          if ( Dogovor.cDogovor <> 0 )
+            if ( Dogovor.dEnd > DogOwner.dEnd )
+              {
+                set Dogovor.dEnd := DogOwner.dend;
+
+                Message('Дата окончания действия соглашения не д.б. больше'#13
+                      + 'даты окончания действия '
+                      + if(DogOwner.cDogovor = 0, 'договора', 'вышестоящего соглашения') + '!'
+                      , Warning);
+
+                Abort;
+              }
+        }
+    //**********************
+      #Dogovor.NoDoc:
+        {
+          if ( Not boGetTune('Oper.UniqNoDog') )
+            Exit;
+
+          var pr        : boolean;
+          var NoDoc_New : string[20];
+          var cDog      : comp;
+          var nRecDog   : comp;
+
+          nRecDog   := Dogovor.nRec;
+          cDog      := Dogovor.cDogovor;
+          NoDoc_New := Dogovor.NoDoc;
+
+          PushPos(#Dogovor);
+
+          pr := FALSE;
+
+          if ( GetFirst Dogovor where (( cDog == Dogovor.cDogovor and NoDoc_New == Dogovor.NoDoc )) = tsOk )
+            if ( Dogovor.nRec <> nRecDog )
+              pr := TRUE
+            else
+              if ( GetNext Dogovor where (( cDog == Dogovor.cDogovor and NoDoc_New == Dogovor.NoDoc )) = tsOk )
+                pr := TRUE;
+
+          if pr
+            if ( cDog = 0 )
+              {
+                Message('Договор с таким номером уже существует!');
+                Abort;
+              }
+            else
+              Message('Соглашение к договору с таким номером уже существует!');
+
+          PopPos(#Dogovor);
+        }
+    //**********************
+      #AttrDog.Subject1, #AttrDog.Subject2, #AttrDog.Subject3, #AttrDog.Otv_My_Fio, #AttrDog.Otv_My_Post:
+        {
+          if (
+              ( OldAttrDog.Subject1    <> AttrDog.Subject1    )
+               OR
+              ( OldAttrDog.Subject2    <> AttrDog.Subject2    )
+               OR
+              ( OldAttrDog.Subject3    <> AttrDog.Subject3    )
+               OR
+              ( OldAttrDog.Otv_My_Fio  <> AttrDog.Otv_My_Fio  )
+               OR
+              ( OldAttrDog.Otv_My_Post <> AttrDog.Otv_My_Post )
+             )
+            if ( update current AttrDog = tsOk )
+              OldAttrDog := AttrDog.Buffer;
+        }
+    //**********************
+      #Dogovor.ShemaSum, #Dogovor.dValCurse:
+        {
+          if ( ( Dogovor.ShemaSum = 2 ) AND ( Dogovor.dValCurse <= ZeroDate ) AND ( Dogovor.TipMoney = 2 ) )
+            {
+              Message('Не задан курс валюты документа для расчетов!');
+              SelectField(#Dogovor.dValCurse);
+            }
+        }
+    //**********************
+    end;
+
+  } // cmCheckField
+
+cmUpDateRecord:
+  if (Not NotEditDogPos(FALSE))
+    {
+      SetModified(TRUE);
+      UpDateInsertDogovor;
+    }
+
+cmDeleteRecord:
+  if Not OnDeleteRecord
+    Abort;
+
+cmInsertRecord:
+  {
+    if (Not NotEditDogPos(FALSE))
+      UpDateInsertDogovor;
+  }
+
+end; // HandleEvent Panel Dogovor
+
+end; //  Panel Dogovor
+
+//******************************************************************************
+
+TableEvent Table KLShtraf;
+
+cmDelOnProtect:
+  {
+    if NotEditDogPos(TRUE)
+      {
+        Abort;
+        Exit;
+      }
+
+    if ( CurField <> #HozOperViewName )
+      {
+        if NotEditDogPosStatus(TRUE)
+          {
+            Abort;
+            Exit;
+          }
+      }
+
+    if ( CurField = #KLShtraf.Name )
+      set Dogovor.cShtrafShip := 0;
+  }
+
+cmPick:
+  {
+    if NotEditDogPos(TRUE)
+      {
+        Abort;
+        Exit;
+      }
+
+    if ( ( CurField <> #HozOperViewName ) AND ( CurField <> #KatNotes.Name ) )
+      if NotEditDogPosStatus(TRUE)
+        {
+          Abort;
+          Exit;
+        }
+
+    UpDateInsertDogovor;
+
+    if ( CurField = #KLShtraf.Name )
+      {
+        if ( RunInterface('GetShtraf', Dogovor.cShtrafShip) <> cmCancel )
+          set Dogovor.cShtrafShip := Dogovor.cShtrafShip;
+
+        TuneOtgFormat;
+      }
+  }
+
+end;
+
+//******************************************************************************
+TableEvent Table KLShtrafPlat;
+
+cmDelOnProtect:
+  {
+    if NotEditDogPos(TRUE)
+      {
+        Abort;
+        Exit;
+      }
+
+    if ( CurField <> #HozOperViewName )
+      if NotEditDogPosStatus(TRUE)
+        {
+          Abort;
+          Exit;
+        }
+
+    if ( CurField = #KLShtrafPlat.Name )
+      set Dogovor.cShtrafPlat := 0;
+  }
+
+cmPick:
+  {
+    if NotEditDogPos(TRUE)
+      {
+        Abort;
+        Exit;
+      }
+
+    if ( ( CurField <> #HozOperViewName ) AND ( CurField <> #KatNotes.Name ) )
+      if NotEditDogPosStatus(TRUE)
+        {
+          Abort;
+          Exit;
+        }
+
+    UpDateInsertDogovor;
+
+    if ( CurField = #KLShtrafPlat.Name )
+      {
+        if ( RunInterface('GetShtraf', Dogovor.cShtrafPlat) <> cmCancel )
+          set Dogovor.cShtrafPlat := Dogovor.cShtrafPlat;
+
+        TuneOplFormat;
+      }
+  }
+end;

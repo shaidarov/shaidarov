@@ -1,0 +1,330 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║ Система       : Малоценка                                                 ║
+ ║ Назначение    : Функции используемые в накладной на передачу МЦ в МБП     ║
+ ║                 Подключается в sopinmov.vip у Эдика                       ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+// 14-11-97 16:43:40 с Эдиком добавили логирование расходного ордера
+
+function MakeRashOrd2MBP(var doShowErr: boolean) : boolean;
+{
+  doShowerr := false;
+  MakeRashOrd2MBP := MakeRashOrd(true, 0);
+}
+
+//-----------------------------------------------------------------------------
+#include round.vpp
+
+function CheckDeleteMBPOperation : Boolean;
+{
+  CheckDeleteMBPOperation := False;
+
+  _try
+  {
+    vConf.ConfClrAll( Response);
+    vConf.SingleBatchEnter( CallCtx, ccxMCNakl);
+    CallCtx.BatMode := cfMultiChild;
+
+    StartNewVisual( vtRotateVisual, vfTimer+ vfBreak+ vfConfirm, 'Проверяю  ...'#13, 1);
+
+    // Пройдем циклом по всем привязанным Приходам
+    _LOOP MBPIn Where ((KatSopr.NRec == MBPIn.cSopr and ( MBPIn.InState = 3 )))
+    {
+      InBuf := TMBP_In( MBPIn.Buffer);
+      vIn.ChkDelete( InBuf, CallCtx, Response);
+    }
+
+    CheckDeleteMBPOperation := True;
+  }
+  #include MBP_ExPan.vpp
+  _finally
+  {
+    vTrans.StopVisualIfActive;
+    vTrans.TransCompleted;
+  }
+}
+
+procedure DeleteMBPOperation;
+{
+  _try
+  {
+    vTrans.StartTrans( False);
+
+    while( vTrans.TryGet( GetFirst MBPIn where
+             (( KatSopr.NRec == MBPIn.cSopr and
+              ( MBPIn.InState = mbpFrMCOp) ))))
+    {
+      InBuf := TMBP_In( MBPIn.Buffer);
+      vIn.DeleteObj( InBuf, CallCtx, Response);
+    }
+
+    vTrans.Commit;
+  }
+  #include MBP_ExPan.vpp
+  _finally
+    vTrans.TransCompleted;
+}
+
+//-----------------------------------------------------------------------------
+
+function CheckMakeMBPOperation: boolean;
+{
+  CheckMakeMBPOperation := False;
+  if ( GetFirst MBPIn Where ((KatSopr.NRec == MBPIn.cSopr and (MBPIn.InState = 3))) <> tsOk)
+  {
+    CheckMakeMBPOperation := True;
+    Exit;
+  }
+
+  if ( Message('Для данной накладной уже созданы карточки прихода МБП'#13 +
+         'Вы действительно хотите переформировать документы ?', Warning + YesNo) <> cmYes)
+    Exit;
+
+  CheckMakeMBPOperation := CheckDeleteMBPOperation;
+}
+
+#include isSFOGrp.vpp
+
+// Создаем драгметаллы в ОС
+Procedure InsNalDrag(wTidk : word; cNRec : comp);
+{
+  _Loop NalDrag where ((wTidk == NalDrag.TiDk and
+                        cNRec == NalDrag.cKatOs))
+  {
+    NalDrag.NRec   := 0;
+    NalDrag.TiDk   := Word(2);
+    NalDrag.cKatOs := KatMBP.NRec;
+
+    Insert current NalDrag;
+  }
+}
+
+Procedure InsKatKod(cNRec : comp; wTypeKod : word; cInNRec : comp);
+{
+  _Loop KatKod where ((wTypeKod == KatKod.wType and
+                          cNRec == KatKod.cGroup))
+  {
+    KatKodIns.Buffer := KatKod.Buffer;
+    KatKodIns.NRec := 0;
+    KatKodIns.wType := cgKatKod_FurnPrih;
+    KatKodIns.cGroup := cInNRec;
+
+    Insert current KatKodIns;
+  }
+}
+
+procedure MakeMBPOperation;
+{
+  var ShowErr : Boolean;
+  var vKoef : Double;
+
+  if (not CheckNullPos)
+    Exit;
+  if (not CheckMakeMBPOperation)
+    Exit;
+
+  if (not MakeRashOrd2MBP( ShowErr))
+  {
+    if ( ShowErr)
+      frm1wed.showFile
+    else
+      frm1wed.AbortForm;
+    Exit;
+  }
+
+  DeleteMBPOperation; // предварительно удалим
+
+  // Отработка флага ввода в эксплуатацию
+  var inExpl, showProt, fromOrder : Boolean;
+
+  showProt := False;
+  inExpl := False;
+  fromOrder := if ( vMBP_Tune.GetMBPTune(4) = 0, False, True);
+
+  case ( vMBP_Tune.GetMBPTune( 2)) of
+   1: inExpl := True;
+   2: if ( Message('Вводить ли передаваемые по накладной'#13+
+             'предметы в эксплуатацию ?', Confirmation+ YesNo) = cmYes)
+        inExpl := True;
+  end;
+
+  // Запрос методики начисления износа для создаваемых КУ МБП
+  var cMetod : Comp;
+  var wToAll, tAll, Srok : Word;
+
+  cMetod := comp(4);
+  wToAll := word(1);
+  tAll := 0;
+  Srok := 0;
+
+  _try // Транзакции пока не и использую
+  {
+    vConf.ConfClrAll( Response);
+    vConf.SingleBatchEnter( CallCtx, ccxMCNakl);
+    CallCtx.BatMode := cfMultiChild;
+
+    StartNewVisual( vtRotateVisual, vfTimer, 'Создаю карточки МБП  ...'#13, 1);
+
+    if ( inExpl)
+    {
+      frmMBPProt.Write( KatSopr.dOpr);
+      frmMBPProt.Write( KatSopr.NSopr);
+    }
+
+    PushPos( #SpSopr);
+    _LOOP SpSopr
+    {
+      iNextVisual('Создаю карточку прихода для '#13 + KatMC.Name);
+      if ( GetFirst KatMBP Where ((SpSopr.cMcUsl == KatMBP.cMc)) <> tsOk)
+      {
+        ClearBuffer(#KatMBP);
+        KatMBP.NRec     := 0;
+        KatMBP.cMc      := KatMc.NRec;
+        KatMBP.Name     := KatMc.Name;
+        KatMBP.NNumber  := KatMc.BarKod;
+        KatMBP.cEd      := KatMc.cEd;
+
+        // Группа материальных ценностей
+        if (KatMBP.cMC <> 0)
+          if ((modifier GetFirst GroupMC
+                 where ((KatMC.cGroupMC == GroupMC.NRec)) ) = tsOk)
+          {
+            KatMBP.cGroupMC  := GroupMC.NRec;
+            KatMBP.KodGr     := GroupMC.Kod;
+          }
+
+        // Принадлежность к СФО
+        var grKod : String;
+        if ( isSFOGroup( KatMBP.cGroupMC, grKod))
+          KatMBP.DesGr := 'SFO';
+
+        // Для ввода в эксплуатацию нужна методика списания
+        if ( inExpl)
+          if (wToAll > 0) // Если уже указывалась для всех создаваемых КУ МБП
+            KatMBP.cWriteOff := cMetod;
+          else
+            if ( RunInterface( 'MakeMBPParams', wToAll, cMetod, KatMBP.cMc) = cmDefault)
+              KatMBP.cWriteOff := cMetod;
+
+        Insert Current KatMBP;
+      }
+
+      // Перенос информации о содержании драгметаллов
+      if (GetFirst NalDrag where ((Word(2)     == NalDrag.TiDk and
+                                   KatMBP.NRec == NalDrag.cKatOs)) <> tsOk)
+      {
+        if (RecordExists NalDrag where ((word(4)       == NalDrag.TiDk and
+                                         KatParty.NRec == NalDrag.cKatOs)) = tsOk)
+          InsNalDrag(word(4), KatParty.NRec);
+        else
+          InsNalDrag(word(3), SpSopr.cMcUsl);
+      }
+
+      NextVisual;
+
+      ClearAdvRecord( InBuf);
+      InBuf.InState := mbpFrMCOp;
+      InBuf.cMBP    := KatMBP.NRec;
+      InBuf.Nom     := KatSopr.NSopr;
+      InBuf.cSopr   := KatSopr.NRec;
+      InBuf.dIn     := KatSopr.dOpr;
+      InBuf.cPodrF  := KatSopr.cPodrFrom;
+      InBuf.cMolF   := KatSopr.cMolFrom;
+      InBuf.cPodr   := KatSopr.cPodrTo;
+      InBuf.cMol    := KatSopr.cMolTo;
+      InBuf.cPartyF := SpSopr.cParty;
+      InBuf.DopInfo := SpSopr.nKvit;
+
+      vKoef := 1;
+      if ( isValid( #KatOtpEd))
+        if ( KatOtpEd.Koef <> 0)
+          vKoef := KatOtpEd.Koef;
+
+      InBuf.KolDoc  := SpSopr.KolFact * vKoef;
+
+      if (fromOrder) // Брать цену из ордера или накладной
+      {
+        if (GetFirst SpOrder2 where
+              ((SpSopr.nRec == SpOrder2.cSpSopr and
+               (word(1) = SpOrder2.vidOrder))) = tsOk)
+        {
+          InBuf.Price := SpOrder2.SrPrice;
+
+          // Синхронизировать цену в накладной с ордером
+          if (SpSopr.Price <> (SpOrder2.SrPrice * vKoef))
+  #ifdef GAL5_80
+              or (SpSopr.rPrice <> (SpOrder2.rSrPrice * vKoef))
+  #end
+          {
+            SpSopr.cVal  := SpOrder2.cVal;
+            SpSopr.Price := SpOrder2.SrPrice * vKoef;
+            SpSopr.VPrice:= SpOrder2.vPrice * vKoef;
+  #ifdef GAL5_80
+            SpSopr.rPrice := SpOrder2.rSrPrice * vKoef;
+            SpSopr.rVPrice:= SpOrder2.rVPrice  * vKoef;
+  #end
+            Update Current SpSopr;
+          }
+        }
+      }
+      else
+        InBuf.Price := SpSopr.Price / vKoef;
+
+      if ( inExpl)
+      {
+        InBuf.InEkspl := 1;
+        InBuf.DateEksp := InBuf.dIn;
+
+        if (not vIzn.FindMetodic( KatMBP.cWriteOff))
+        { // Занести в протокол отсутствие методики начисления
+          showProt := True;
+          frmMBPProt.Write( KatMBP.Name);
+          frmMBPProt.Write( KatMBP.NNumber);
+        }
+        else
+          if (not vIzn.SpisOnExp)
+            if ( vIzn.Period = 0) // Зависимость от срока службы
+              if (tAll > 0)
+                InBuf.DateEnd := Add_Months( InBuf.DateEksp, Srok);
+              else
+                if ( RunInterface( 'MakeMBPSrok', InBuf.cMBP, Srok, tAll) = cmDefault)
+                  InBuf.DateEnd := Add_Months( InBuf.DateEksp, Srok);
+      }
+
+      if (wGetTune ( 'Fin.MBP.RoundMCPrice') <> 0)
+        InBuf.Price := my_Round( InBuf.Price, doGetTune( 'Fin.MBP.RoundMCPriceDo'), wGetTune ( 'Fin.MBP.RoundMCPrice') - 1);
+
+      vIn.SetDeflts( InBuf, CallCtx, Response);
+//    vIn.ChkModify( InBuf, CallCtx, Response);
+      vIn.InsertObj( InBuf, CallCtx, Response);
+      
+      // Перенос информации о фурнитуре в комплекте
+      if (GetFirst KatKod where ((cgKatKod_FurnNakl == KatKod.wType
+                                    and SpSopr.NRec == KatKod.cGroup)) = tsOk)
+        InsKatKod(SpSopr.NRec, cgKatKod_FurnNakl, InBuf.Nrec);
+    }
+  }
+#include MBP_ExPan.vpp
+  _finally
+  {
+    PopPos( #SpSopr);
+    vTrans.StopVisualIfActive;
+  }
+
+  if ( ShowErr)
+  {
+    frm1wed.ShowFile;
+    frmMBPProt.AbortForm;
+  }
+  else
+    if ( showProt)
+    {
+      frmMBPProt.PutEvent( feBreak);
+      frmMBPProt.ShowFile;
+    }
+    else
+      frmMBPProt.AbortForm;
+}

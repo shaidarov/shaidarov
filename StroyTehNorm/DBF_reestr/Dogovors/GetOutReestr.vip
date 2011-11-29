@@ -1,0 +1,320 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2005    корпорация ГАЛАКТИКА                      ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Отчеты по оперативному контуру                            ║
+ ║ Версия        : 7.12                                                      ║
+ ║ Назначение    : Формирование отчета "Реестр накладных/актов"              ║
+ ║ Ответственный : Прокофьев Игорь Александрович                             ║
+ ║ Параметры     : нет                                                       ║
+ ║                                                                           ║
+ ║ nReport       := 17021;                                                   ║
+ ║                                                                           ║
+ ║    Изменения                                                              ║
+ ║        Автор: ____________________  Дата: ____________                    ║
+ ║        Цель : _______________________________________________________     ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+Interface GetOutReestr_stDog 'Выгрузка данных в DBF и Excel' DoAccept, EscClose;
+  show at (,,,);
+
+ Table struct tKatNalog
+ (
+     cKatNalog  : comp     "nRec Налога"           ,
+     npp        : string   "Номер по порядку"      ,
+     name       : string   "Наименование налога"   ,
+     proc       : double   "Процент налога"        ,
+     summ       : double   "Сумма налога в НДЕ"    ,
+     summV      : double   "Сумма налога в валюте"
+ )
+ with index
+ (
+     tKatNalog01 = cKatNalog
+ );
+
+var
+  nRec_Dog       : comp
+  KatSoprB       : boolean
+  
+create view
+var
+  nReport        : word
+  d1, d2         : date
+  idFile         : LongInt
+  fDBFFileName   : string
+  oper           : boolean
+
+from
+  Dogovor
+, KatOrg
+, KatVidD
+, KatNotes
+, SpDocs
+, KatUsl
+, UserDeskRep
+, PickRep
+, tKatNalog
+Where
+  ((
+       d1                     <<= Dogovor.dDoc
+   and d2                     >>= Dogovor.dDoc
+   
+   and Dogovor.cOrg            == KatOrg.nRec
+   and Dogovor.cVidDog         == KatVidD.nRec
+   and Dogovor.cNote           == KatNotes.nRec
+
+   and Dogovor.nRec            == SpDocs.cDoc
+   and word(400)               == SpDocs.TidK
+   and SpDocs.cMcUsl           == KatUsl.nRec
+
+   and Dogovor.cVal            == KlVal.nRec
+   ))
+
+bounds ksVidD   =
+   UserDeskRep.ResComp[16]     == Dogovor.cVidDog (noindex)
+
+bounds ksStatus =
+   UserDeskRep.ResComp[17]     == Dogovor.cNote   (noindex)
+;
+
+create view tSopr
+as select * from
+  Dogovor
+, KatSopr
+Where
+  ((
+       nRec_Dog                == Dogovor.nRec
+   and Dogovor.nRec            == KatSopr.cDogovor
+   ))
+;
+
+!#ifndef GAL7_12
+#INCLUDE Valfunc.vpp
+!#end
+
+Function SetAllAloneBounds : boolean;
+{
+  SetAllAloneBounds := false ;
+
+  if( UserDeskRep.ResComp[16] <> 0 ) AddBounds( tbksVidD   );
+  if( UserDeskRep.ResComp[17] <> 0 ) AddBounds( tbksStatus );
+
+  SetAllAloneBounds := true ;
+}
+
+
+
+Function FindInPickRep ( _wList : word ; _cRec : comp ) : word ;
+{
+  FindInPickRep := GetFirst PickRep where ((
+                                            Username          == PickRep.OWNNAME       and
+                                            UserDeskRep.nrec  == PickRep.cUserDeskRep  and
+                                            _wList            == PickRep.wList         and
+                                            _cRec             == PickRep.crec
+                                          ))
+}
+
+
+Procedure Create_Dbf ;
+{
+
+  fDBFFileName := UserDeskRep.ResName[1];
+  idFile       := DBFOpen( fDBFFileName, stCreate);  // Возвращает дескриптор файла или 0
+  if( idFile = 0)
+    {
+    Message( 'Ошибка создания DBF файла') ;
+    Exit ;
+    }
+
+  if(
+      DBFAddField(idFile, 'dNum'       ,   DbChar, 40,   0) <> 0  and
+      DBFAddField(idFile, 'dDate'      ,   DbDate, 40,   0) <> 0  and
+      DBFAddField(idFile, 'dEnd'       ,   DbDate, 40,   0) <> 0  and
+      DBFAddField(idFile, 'Org'        ,   DbChar, 100,  0) <> 0  and
+      DBFAddField(idFile, 'Sum'        ,   DbNum,  40,   0) <> 0  and
+      DBFAddField(idFile, 'Val'        ,   DbChar, 40,   0) <> 0  and
+      DBFAddField(idFile, 'vid'        ,   DbChar, 80,   0) <> 0  and
+      DBFAddField(idFile, 'status'     ,   DbChar, 80,   0) <> 0  and
+      DBFAddField(idFile, 'dSp'        ,   DbChar, 100,  0) <> 0  and
+      DBFAddField(idFile, 'nSopr'      ,   DbChar, 80,   0) <> 0  and
+      DBFAddField(idFile, 'dSopr'      ,   DbDate, 80,   0) <> 0  and
+      DBFAddField(idFile, 'sumSopr'    ,   DbNum,  80,   0) <> 0
+    )
+    {
+      Message( 'Ошибка создания структуры DBF файла' + fDBFFileName);
+      DBFClose(idFile);
+      Exit;
+    }
+}
+
+
+Procedure WriteKSSPtoDBF   ;       // запись в DBF
+{
+
+  nRec_Dog := Dogovor.nRec;
+  KatSoprB := False;
+
+  DBFClearBuffer( idFile );
+
+  DBFPutFieldValue ( idFile, 'dNum'       , String(Dogovor.NoDoc ) )
+  DBFPutFieldValue ( idFile, 'dDate'      , DateToStr(Dogovor.DDoc, 'DD.MM.YYYY' ) )
+  DBFPutFieldValue ( idFile, 'dEnd'       , DateToStr(Dogovor.DEnd, 'DD.MM.YYYY' ) )
+
+if ( Dogovor.cOrg > 0 )
+  DBFPutFieldValue ( idFile, 'Org'        , String(KatOrg.Name) )
+else
+  DBFPutFieldValue ( idFile, 'Org'        , String('') )
+  
+  DBFPutFieldValue ( idFile, 'Sum'        , String(Dogovor.Summa, 20, 0 ) )
+
+if ( String( KlVal.SimvolV) <> '' ) {
+  DBFPutFieldValue ( idFile, 'Val'    , String( KlVal.SimvolV ) )
+} else {
+  DBFPutFieldValue ( idFile, 'Val'    , ' ' )
+  }
+
+if ( Dogovor.cVidDog > 0 )
+  DBFPutFieldValue ( idFile, 'vid'        , String( KatVidD.Name ) )
+else
+  DBFPutFieldValue ( idFile, 'vid'        , String( '' ) )
+  
+if ( Dogovor.cNote > 0 )
+  DBFPutFieldValue ( idFile, 'status'     , String( KatNotes.Name ) )
+else
+  DBFPutFieldValue ( idFile, 'status'     , String( '' ) )
+  
+if (GetFirst KatUsl = tsOK)
+  DBFPutFieldValue ( idFile, 'dSp'        , String( KatUsl.Name ) )
+else
+  DBFPutFieldValue ( idFile, 'dSp'        , String( '' ) )
+  
+
+if(tSopr.GetFirst Dogovor = tsOK)
+
+if (tSopr.GetFirst KatSopr = tsOK)
+  {
+
+  KatSoprB := True;
+    Do
+      {
+
+  DBFPutFieldValue ( idFile, 'nSopr'       , String(tSopr.KatSopr.nSopr ) )
+  DBFPutFieldValue ( idFile, 'dSopr'       , DateToStr(tSopr.KatSopr.dSopr, 'DD.MM.YYYY' ) )
+  DBFPutFieldValue ( idFile, 'sumSopr'     , String(tSopr.KatSopr.Summa, 20, 0 ) )
+
+         if( DBFInsertRecord ( idFile ) <> 0 )
+            Message ( 'Ошибка DBFInsertRecord ')
+
+      }
+    While (tSopr.GetNext KatSopr = tsOK)
+  }
+
+ if KatSoprB = False
+ {
+
+  DBFPutFieldValue ( idFile, 'nSopr'       , String( '' ) )
+  DBFPutFieldValue ( idFile, 'dSopr'       , String( '' ) )
+  DBFPutFieldValue ( idFile, 'sumSopr'     , String( '' ) )
+
+
+ if( DBFInsertRecord ( idFile ) <> 0 )
+    Message ( 'Ошибка DBFInsertRecord ')
+ }
+}
+
+
+Function PutDBFtoExcel : boolean ;
+var
+   fActiveXLSName : string ;
+   fDBFFileName   : string ;
+   fVBFileName    : string ;
+   fXLTFileName   : string ;
+   fXLSFileName   : string ;
+   IsExcelOK      : boolean;
+   j              : longint;
+{
+  PutDBFtoExcel := false ;
+
+  fDBFFileName  := UserDeskRep.ResName[1] ;
+  fVBFileName   := UserDeskRep.ResName[2] ;
+  fXLTFileName  := UserDeskRep.ResName[3] ;
+  fXLSFileName  := UserDeskRep.ResName[4] ;
+  IsExcelOK     := xlDisplayAlerts ( true );
+  IsExcelOK     := xlCreateExcelWithTemplate ( fXLTFileName, true ) ;
+  IsExcelOK     := xlIsExcelValid ;
+  IsExcelOK     := xlGetActiveWorkBookName (fActiveXLSName );
+  IsExcelOK     := xlSetActiveSheetByName ('Параметры');
+  if( IsExcelOK )
+  {
+    xlSetCellStringValue(fDBFFileName, 1, 2, 1, 2 );  // B1 = путь на DBF
+    xlSetCellStringValue(' ' + D1, 1, 4, 1, 4 );
+    xlSetCellStringValue(' ' + D2, 2, 4, 2, 4 );
+
+    j := 73; // стартовый столбец для ввода шапки налогов
+
+  }
+
+  IsExcelOK     := xlImportModule( fVBFileName ) ;
+  IsExcelOK     := xlRunMacro( 'Main' );
+  IsExcelOK     := xlSaveAsWorkBookByName( fActiveXLSName , fXLSFileName);
+  IsExcelOK     := xlKillExcel ;
+  PutDBFtoExcel := true ;
+}
+
+procedure loop_Dogovor;
+{
+  StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm, ''#3'Выгрузка данных в dbf', 1);
+
+  _loop Dogovor
+  {
+   oper := true;
+   WriteKSSPtoDBF;
+  }
+
+  StopVisual('',0);
+}
+
+  HandleEvent
+
+  cmInit:
+  {
+    nReport    := 17021;
+    oper := false;
+    oValFunc.InitVal;
+
+    if( RunInterface( GetInDataReestr_stDog ) <> cmCancel )
+      {
+      if( GetFirst UserdeskRep
+                   where ((
+                            UserName  ==  UserDeskRep.OwnName  and
+                            nReport   ==  UserDeskRep.nRep
+                         ))
+
+                          =  tsOK )
+        {
+          d1 := UserDeskRep.ResDate[1];
+          d2 := UserDeskRep.ResDate[2];
+
+         If ( Not SetAllAloneBounds ) Exit;
+
+          Create_Dbf;
+
+          loop_Dogovor;
+
+          DBFClose(idFile);
+
+          if (oper) PutDBFtoExcel;
+          else message('Нет данных для отчета');
+        }
+     }
+  oValFunc.DoneVal;
+  CloseInterface(0);
+  }
+
+ end;
+
+
+end.
+
+

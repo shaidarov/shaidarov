@@ -1,0 +1,286 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2005    корпорация ГАЛАКТИКА                      ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Отчеты по оперативному контуру                            ║
+ ║ Версия        : 7.12                                                      ║
+ ║ Назначение    : Настройка отчета "Реестр накладных/актов"                 ║
+ ║ Ответственный : Прокофьев Игорь Александрович                             ║
+ ║ Параметры     : нет                                                       ║
+ ║                                                                           ║
+ ║ nReport       := 17020;                                                   ║
+ ║                                                                           ║
+ ║    Изменения                                                              ║
+ ║        Автор: ____________________  Дата: ____________                    ║
+ ║        Цель : _______________________________________________________     ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+Interface GetInDataReestr_R_Akt 'Исходные данные для построения отчета по расходу (Акты) ' (,,) doAccept,EscClose
+create view
+var
+  nReport         : word
+  fName           : String
+  pNrecStat       : Comp
+  fDBFFilename    : String
+  fVBFileName     : String
+  fXLTFileName    : String
+  fXLSFileName    : String
+as select
+  if (UserDeskRep.ResComp[16]<>0,GroupUsl.Name,
+    if (UserDeskRep.ResWord[23]<>0,'множественный выбор ('+string(UserDeskRep.ResWord[24])+')','')
+     ) ( FieldName = fGrUsl ) ,
+  *
+from
+  Pick,
+  PickRep,
+  UserDeskRep,
+  GroupUsl
+
+where
+((
+   UserName                == UserDeskRep.OwnName      and
+   Nreport                 == UserDeskRep.nRep         and
+   UserDeskRep.ResComp[16] == GroupUsl.Nrec
+))
+;
+
+#include pmarker.vpp                         
+
+Panel MainPanel;
+Table UserDeskRep;
+
+TabbedSheet Top MainTabScreen show at (,,,);
+
+screen InputScreen1 'Основные параметры отчета' ;
+Table UserDeskRep;
+
+fields
+ UserDeskRep.ResDate[1] ('Укажите начальную дату формирования отчета',,) : [,'DD/MM/YYYY'], NoProtect;
+ UserDeskRep.ResDate[2] ('Укажите конечную дату формирования отчета' ,,) : [,'DD/MM/YYYY'], NoProtect;
+!a---------------------------------------
+
+  fGrUsl( 'Фильтр по группам услуг', ): protect, PickButton ;
+
+buttons
+ cmOK,default,,'Сформировать отчет' , ;
+ cmCancel,,, 'Отмена'  ,              ;
+<<
+
+   Период отбора документов        с.@@@@@@@@@@@ по.@@@@@@@@@@@
+
+   Группа услуг по Акту .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+         <. Сформировать .>             <.  Отмена  .>
+>>
+end;
+Screen DopParamDBFExcel 'Параметры выгрузки в DBF и Excel' ;
+fields
+  UserDeskRep.RESNAME[1] ( 'Формируемый DBF файл'                      ,) : Protect, PickButton ;
+  UserDeskRep.RESNAME[2] ( 'Файл с подключаемым макросом Visual Basic ',) : Protect, PickButton ;
+  UserDeskRep.RESNAME[3] ( 'Файл - шаблон отчета '                     ,) : Protect, PickButton ;
+  UserDeskRep.RESNAME[4] ( 'Файл формируемого XLS отчета '             ,) : Protect, PickButton ;
+
+<<
+    Пути и имена :
+ Формируемый DBF файл   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Файл с макросом VB     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Файл с шаблоном Excel  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Файл с отчетом Excel   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+>>
+end;
+
+end; // TabbedSheet
+
+HandleEvent  // Panel
+
+cmInsertRecord:
+{
+  // Message( 'Зашли в СМ_Инсерт ') ;
+  Insert Current UserDeskRep;
+}
+
+cmUpdateRecord:
+{
+   // Message ('Зашли в СМ_Апдате') ;
+   UserDeskRep.OwnName := UserName;
+   update current UserDeskRep;
+}
+
+cmDeleteRecord:
+{
+  if ( Message(''#3'Удалить текущую запись?', YesNo) <> cmYes )
+    Abort;
+  else
+    Delete Current UserDeskRep;
+}
+
+End; // HandleEvent Panel
+End; // Panel
+
+HandleEvent  // Interface
+
+cmInit :
+  {
+    nReport    := 17020;
+
+    if (GetFirst UserDeskRep <> tsOK)
+    {
+      ClearBuffer(#UserDeskRep);
+       UserDeskRep.OwnName := UserName;
+       UserDeskRep.nRep    := Nreport;
+      insert current UserDeskRep;
+    }
+    else
+    {
+      fDBFFileName := UserDeskRep.ResName[1];
+      fVBFileName  := UserDeskRep.ResName[2];
+      fXLTFileName := UserDeskRep.ResName[3];
+      fXLSFileName := UserDeskRep.ResName[4];
+    }
+  }
+
+cmCheckField :
+{
+Case CurField Of
+
+  #UserDeskRep.ResDate[1]:
+  {
+     if( UserDeskRep.ResDate[1] > UserDeskRep.ResDate[2] )
+       SetFontBackgroundColor(0, #UserDeskRep.ResDate[1], 18);
+     else
+     {
+       SetFontBackgroundColor(0, #UserDeskRep.ResDate[1], 0);
+       SetFontBackgroundColor(0, #UserDeskRep.ResDate[2], 0);
+     }
+  }
+
+  #UserDeskRep.ResDate[2]:
+  {
+     if( UserDeskRep.ResDate[1] > UserDeskRep.ResDate[2] )
+       SetFontBackgroundColor(0, #UserDeskRep.ResDate[2], 18);
+     else
+     {
+       SetFontBackgroundColor(0, #UserDeskRep.ResDate[1], 0);
+       SetFontBackgroundColor(0, #UserDeskRep.ResDate[2], 0);
+     }
+  }
+
+end ;
+}
+
+cmPick :
+{
+  Var NumPick : Word;
+
+  Case (CurField) of
+
+  #fGrUsl :
+  {
+       DelPick(Word(5));
+       PickRep2Pick(NReport + 16, Word(5), UserDeskRep.ResComp[16]);
+
+       if (RunInterface('L_MCU::GetSomGU') <> cmCancel)
+       {
+         DelPickRep(NReport + 16);
+         Pick2PickRep(Word(5), NReport + 16, UserDeskRep.ResComp[16], NumPick)
+         Set UserDeskRep.ResComp[16] := UserDeskRep.ResComp[16] ;
+         if (NumPick > 1)
+         {
+           Set UserDeskRep.ResWord[23] := NReport + 16;
+           Set UserDeskRep.ResWord[24] := NumPick;
+         }
+         else
+         {
+           Set UserDeskRep.ResWord[23] := 0;
+           Set UserDeskRep.ResWord[24] := NumPick;
+         }
+         RescanPanel(#UserDeskRep);
+       }
+  }
+  
+  #UserDeskRep.RESNAME[1] :
+  {
+    set UserDeskRep.RESNAME[1] := GetFileName ('*.dbf', 'Задайте DBF файл' ) ;
+    if ( Not UpdateTable() ) Exit;
+    ReDrawPanel(CurTable);
+  }
+
+  #UserDeskRep.RESNAME[2]:
+  {
+    set UserDeskRep.RESNAME[2] := GetFileName ('*.bas', 'Задайте файл с макросом VB' ) ;
+    if ( Not UpdateTable() ) Exit;
+    ReDrawPanel(CurTable);
+  }
+
+  #UserDeskRep.RESNAME[3]:
+  {
+    set UserDeskRep.RESNAME[3] := GetFileName ('*.XLT', 'Задайте файл шаблона' ) ;
+    if ( Not UpdateTable() ) Exit;
+    ReDrawPanel(CurTable);
+  }
+
+  #UserDeskRep.RESNAME[4]:
+  {
+    set UserDeskRep.RESNAME[4] := GetFileName ('*.XLS', 'Задайте файл отчета ' ) ;
+    if ( Not UpdateTable() ) Exit;
+    ReDrawPanel(CurTable);
+  }
+
+  end;
+
+} // cmPick
+
+cmDelOnProtect :
+ {
+
+ Case CurField of
+
+ #fGrUsl :
+ {
+   if ( fGrUsl <> '' )
+     if ( Message(''#3'Удалить выбор?', YesNo) = cmYes )
+     {
+       DelPickRep( NReport + 16 );
+       Set UserDeskRep.ResComp[16] := 0;
+       Set UserDeskRep.ResWord[23] := 0;
+       Set UserDeskRep.ResWord[24] := 0;
+       RescanPanel(#UserDeskRep);
+     }
+   Stop;
+ }
+
+
+ end;
+
+ }
+
+
+cmOK :
+{
+    if ( LongInt(UserDeskRep.ResDate[1]) <> 0 And
+         LongInt(UserDeskRep.ResDate[2]) <> 0 And
+         UserDeskRep.ResDate[1] > UserDeskRep.ResDate[2] )
+    {
+      Message(''#3'Ошибка ввода диапазона дат', Error+CancelButton);
+      Abort;
+      Exit;
+    }
+
+    CloseInterface (cmOK) ;
+}
+cmCancel  :
+{
+    CloseInterface (cmCancel) ;
+}
+
+// cmDone:
+
+
+
+End;  // HandleEvent Interface
+
+
+End.

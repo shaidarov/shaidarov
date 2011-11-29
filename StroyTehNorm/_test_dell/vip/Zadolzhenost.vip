@@ -1,0 +1,453 @@
+#doc
+test  Задолженность по проводкам и сальдо с датой образования
+#end
+
+#component "F_BuhRep"
+
+#include xlReport.Vih
+#include PickBuh.vih      // Обьектный интерфес для работы с таблицей PickBuh
+#include ShowKAU.vpp
+
+Interface Zadolzhenost 'Задолженность по проводкам с датой образования';
+ Show at (, , 70, 7);
+
+Table struct tmpSaldoSum
+(
+   _nRec       : comp    "nRec tmpSaldoSum"
+ , _SchetO     : string
+ , _SubOsSch   : string
+ , _TblOs1     : word
+ , _TblOs2     : word
+ , _TblOs3     : word
+ , _TblOs4     : word
+ , _TblOs5     : word
+ , _TblOs6     : word
+ , _KauOs1     : comp
+ , _KauOs2     : comp
+ , _KauOs3     : comp
+ , _KauOs4     : comp
+ , _KauOs5     : comp
+ , _KauOs6     : comp
+ , _ShowKau1   : string
+ , _ShowKau2   : string
+ , _ShowKau3   : string
+ , _ShowKau4   : string
+ , _ShowKau5   : string
+ , _ShowKau6   : string
+ , _ViOb       : word   "Вид сальдо (д=1,к=2)"
+ , _SumS       : double "Сумма сальдо"
+)
+with index
+(
+ tmpSaldoSum02 = _SchetO + _SubOsSch + _KauOs1+ _KauOs2+ _KauOs3+ _KauOs4+ _KauOs5+ _KauOs6
+)
+;
+
+Table struct tmpSaldoMakeUp
+(
+   _nRecTmp    : comp    "ссылка на tmpSaldoSum"
+ , SumSaldo    : double  "сумма сальдо"
+ , DateSaldo   : date    "дата возникновения суммы по сальдо"
+ , NomerSaldo  : string  "номер документа"
+)
+with index
+(
+  tmpSaldoMakeUp01 = _nRecTmp
+)
+;
+
+
+Create view
+var
+  pXL
+                : XLSRepBuilder;
+  sXLTFileName
+, sXLSFileName
+, sSchet
+, sSubSchet
+                : string;
+  nReport
+                : word;
+  SummaZero               // сумма для поиска дат задолженности
+                : double
+  cPlanSch
+                : comp
+  isOborot
+                : boolean
+as select * from
+  SaldMoun          (ReadOnly)
+, Oborot            (ReadOnly)
+, BuhSchet          (ReadOnly)
+, tmpSaldoSum
+, tmpSaldoMakeUp
+where
+  ((   cPlanSch                  == SaldMoun.cPlansSch
+   and UserDeskRep.ResDate[1]    == SaldMoun.DateSal
+
+   and tmpSaldoSum._nRec         == tmpSaldoMakeUp._nRecTmp
+  ))
+ ;
+
+
+DataStream DS
+  (
+    [User]    UserName;   // элемент "нулевого уровня"
+    [dDate]   UserDeskRep.ResDate[1];   // элемент "нулевого уровня"
+
+    table tmpSaldoSum       // элемент уровня table
+    (
+      [_SchetO]    tmpSaldoSum._SchetO ;
+      [_SubOsSch]  tmpSaldoSum._SubOsSch ;
+      [_ShowKau1]  tmpSaldoSum._ShowKau1;
+      [_ShowKau2]  tmpSaldoSum._ShowKau2;
+      [_ShowKau3]  tmpSaldoSum._ShowKau3;
+      [_ShowKau4]  tmpSaldoSum._ShowKau4;
+      [_ShowKau5]  tmpSaldoSum._ShowKau5;
+      [_ShowKau6]  tmpSaldoSum._ShowKau6;
+      [_ViOb]      tmpSaldoSum._ViOb;
+    );
+
+    table tmpSaldoMakeUp       // элемент уровня table
+    (
+      [NomerSaldo] tmpSaldoMakeUp.NomerSaldo;
+      [DateSaldo]  tmpSaldoMakeUp.DateSaldo;
+      [SumSaldo]   tmpSaldoMakeUp.SumSaldo;
+    );
+  )
+end;
+
+#include pmarker.vpp
+#include PickBuh.var       // Переменная "Интерфес работы с таблицей PickBuh"
+
+Panel MainPanel;
+Table UserDeskRep;
+
+// Возвращает наименование счета/субсчет
+Function GetNameSch(Sch : tSchet3; Sub : tSubSch) : String;
+{
+  // Всегда буду перечитывать субсчет,
+  // так как возможна куча ситуаций когда GetBuhSchet вернет в поле sSubSchet непонятно что
+  if (Sub <> cgDefSub)
+    iPickBuh.FoundFirstSub(Sch, Sub);
+
+  if (GetFirst FastFirstRow BuhSchet where ((Sch == BuhSchet.Schet and
+                                             Sub == BuhSchet.SubSch)) = tsOk)
+    GetNameSch := BuhSchet.Code + ' ' + BuhSchet.Name;
+}
+
+Function FindInPickRep ( _wList : word ; _cRec : comp ) : word ;
+{
+  FindInPickRep := GetFirst PickRep where (( Username          == PickRep.OWNNAME       and
+                                             UserDeskRep.nrec  == PickRep.cUserDeskRep  and
+                                             _wList            == PickRep.wList         and
+                                             _cRec             == PickRep.crec
+                                          ))
+} // FindInPickRep
+
+
+Function IsFilterBuhSch(tSch, tSub : String) : Boolean;
+{
+  IsFilterBuhSch := False;
+
+    if (sSchet <> '') {
+      if (not (iPickBuh.FoundInPickByKod(cgPick_Schet, #GetDbSch(tSch))))                  // Счёт
+        Exit;
+
+      if (iPickBuh.FoundSubForSchet(tSch))                                                 // СубСчёт
+        if (not (iPickBuh.FoundSubSch(tSch, if (tSub = cgDefSub, cgNotSch, tSub))))
+          Exit;
+    }
+
+  IsFilterBuhSch := True;
+}
+
+//Procedure InsertXLT; {
+// pXL.SetTblStringFldValue('SchetO'    , tmpSaldoSum._SchetO );
+// pXL.SetTblStringFldValue('SubOsSch'  , tmpSaldoSum._SubOsSch );
+// pXL.SetTblStringFldValue('KAU1'      , #ShowKau(tmpSaldoSum._TblOs1, tmpSaldoSum._KauOs1) );
+// pXL.SetTblStringFldValue('KAU2'      , #ShowKau(tmpSaldoSum._TblOs2, tmpSaldoSum._KauOs2));
+// pXL.SetTblStringFldValue('KAU3'      , #ShowKau(tmpSaldoSum._TblOs3, tmpSaldoSum._KauOs3));
+// pXL.SetTblStringFldValue('KAU4'      , #ShowKau(tmpSaldoSum._TblOs4, tmpSaldoSum._KauOs4));
+// pXL.SetTblStringFldValue('KAU5'      , #ShowKau(tmpSaldoSum._TblOs5, tmpSaldoSum._KauOs5));
+// pXL.SetTblStringFldValue('KAU6'      , #ShowKau(tmpSaldoSum._TblOs6, tmpSaldoSum._KauOs6));
+// pXL.SetTblStringFldValue('VidOb'     , tmpSaldoSum._ViOb);
+// pXL.SetTblStringFldValue('NomerDoc'  , tmpSaldoMakeUp.NomerSaldo);
+// pXL.SetTblDateFldValue  ('DatOb'     , tmpSaldoMakeUp.DateSaldo);
+// pXL.SetTblNumberFldValue('Summa'     , tmpSaldoMakeUp.SumSaldo);
+//
+// pXL.InsTblRow;
+//}
+
+Procedure Loop_Debet;
+{
+ _Loop backward Oborot Where (( tmpSaldoSum._SchetO    == Oborot.SchetO
+                            and tmpSaldoSum._SubOsSch  == Oborot.SubOsSch
+                            and UserDeskRep.ResDate[1] >> Oborot.DatOb
+                            and tmpSaldoSum._KauOs1    == Oborot.KauOs[1]   (noIndex)
+                            and tmpSaldoSum._KauOs2    == Oborot.KauOs[2]   (noIndex)
+                            and tmpSaldoSum._KauOs3    == Oborot.KauOs[3]   (noIndex)
+                            and tmpSaldoSum._KauOs4    == Oborot.KauOs[4]   (noIndex)
+                            and tmpSaldoSum._KauOs5    == Oborot.KauOs[5]   (noIndex)
+                            and tmpSaldoSum._KauOs6    == Oborot.KauOs[6]   (noIndex)
+                            )) {
+  isOborot := true;
+
+  ClearBuffer(#tmpSaldoMakeUp);
+      if (Oborot.SumOb > SummaZero) {
+      tmpSaldoMakeUp.SumSaldo   := SummaZero;
+        } else {
+      tmpSaldoMakeUp.SumSaldo   := Oborot.SumOb;
+          }
+  tmpSaldoMakeUp.DateSaldo  := Oborot.DatOb;
+  tmpSaldoMakeUp.NomerSaldo := Oborot.NoDok;
+  insert current tmpSaldoMakeUp;
+
+!  InsertXLT;
+  SummaZero := SummaZero - Oborot.SumOb;
+  if (SummaZero <= 0 ) {Break;}
+ }
+}
+
+Procedure Loop_Kredit;
+{
+ _Loop backward Oborot Where (( tmpSaldoSum._SchetO    == Oborot.SchetK
+                            and tmpSaldoSum._SubOsSch  == Oborot.SubSchK
+                            and UserDeskRep.ResDate[1] >> Oborot.DatOb
+                            and tmpSaldoSum._KauOs1    == Oborot.KauKs[1]   (noIndex)
+                            and tmpSaldoSum._KauOs2    == Oborot.KauKs[2]   (noIndex)
+                            and tmpSaldoSum._KauOs3    == Oborot.KauKs[3]   (noIndex)
+                            and tmpSaldoSum._KauOs4    == Oborot.KauKs[4]   (noIndex)
+                            and tmpSaldoSum._KauOs5    == Oborot.KauKs[5]   (noIndex)
+                            and tmpSaldoSum._KauOs6    == Oborot.KauKs[6]   (noIndex)
+                            )) {
+  isOborot := true;
+
+  ClearBuffer(#tmpSaldoMakeUp);
+      if (Oborot.SumOb > SummaZero) {
+      tmpSaldoMakeUp.SumSaldo   := SummaZero;
+        } else {
+      tmpSaldoMakeUp.SumSaldo   := Oborot.SumOb;
+          }
+  tmpSaldoMakeUp.DateSaldo  := Oborot.DatOb;
+  tmpSaldoMakeUp.NomerSaldo := Oborot.NoDok;
+  insert current tmpSaldoMakeUp;
+
+!  InsertXLT;
+  SummaZero := SummaZero - Oborot.SumOb;
+  if (SummaZero <= 0 ) {Break;}
+ }
+}
+
+Function StartRep(isCreateXLT : boolean) : boolean;
+{
+ StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выгрузка отчёта', 1);
+
+ StartRep := False;
+
+  // Выгрузка полей таблицы
+  if (not isCreateXLT)
+
+ _Loop SaldMoun {
+   if( not IsFilterBuhSch(SaldMoun.SchetO, SaldMoun.SubOsSch) ) {Continue;}
+
+    if (GetFirst tmpSaldoSum where (( SaldMoun.SchetO    == tmpSaldoSum._SchetO
+                                  and SaldMoun.SubOsSch  == tmpSaldoSum._SubOsSch
+                                  and SaldMoun.KauOs[1]  == tmpSaldoSum._KauOs1
+                                  and SaldMoun.KauOs[2]  == tmpSaldoSum._KauOs2
+                                  and SaldMoun.KauOs[3]  == tmpSaldoSum._KauOs3
+                                  and SaldMoun.KauOs[4]  == tmpSaldoSum._KauOs4
+                                  and SaldMoun.KauOs[5]  == tmpSaldoSum._KauOs5
+                                  and SaldMoun.KauOs[6]  == tmpSaldoSum._KauOs6
+                                   )) = tsOK) {
+
+      if (SaldMoun.ViOb   = tmpSaldoSum._ViOb) {
+       tmpSaldoSum._SumS := tmpSaldoSum._SumS + SaldMoun.SumS;
+       }
+      else {
+         tmpSaldoSum._SumS := tmpSaldoSum._SumS - SaldMoun.SumS;
+         }
+
+      upDate current tmpSaldoSum;
+    } else {
+         ClearBuffer(#tmpSaldoSum);
+         tmpSaldoSum._SchetO    := SaldMoun.SchetO   ;
+         tmpSaldoSum._SubOsSch  := SaldMoun.SubOsSch ;
+         tmpSaldoSum._TblOs1    := SaldMoun.TblOs[1] ;
+         tmpSaldoSum._TblOs2    := SaldMoun.TblOs[2] ;
+         tmpSaldoSum._TblOs3    := SaldMoun.TblOs[3] ;
+         tmpSaldoSum._TblOs4    := SaldMoun.TblOs[4] ;
+         tmpSaldoSum._TblOs5    := SaldMoun.TblOs[5] ;
+         tmpSaldoSum._TblOs6    := SaldMoun.TblOs[6] ;
+         tmpSaldoSum._KauOs1    := SaldMoun.KauOs[1] ;
+         tmpSaldoSum._KauOs2    := SaldMoun.KauOs[2] ;
+         tmpSaldoSum._KauOs3    := SaldMoun.KauOs[3] ;
+         tmpSaldoSum._KauOs4    := SaldMoun.KauOs[4] ;
+         tmpSaldoSum._KauOs5    := SaldMoun.KauOs[5] ;
+         tmpSaldoSum._KauOs6    := SaldMoun.KauOs[6] ;
+         tmpSaldoSum._ShowKau1  := #ShowKau(tmpSaldoSum._TblOs1, tmpSaldoSum._KauOs1);
+         tmpSaldoSum._ShowKau2  := #ShowKau(tmpSaldoSum._TblOs2, tmpSaldoSum._KauOs2);
+         tmpSaldoSum._ShowKau3  := #ShowKau(tmpSaldoSum._TblOs3, tmpSaldoSum._KauOs3);
+         tmpSaldoSum._ShowKau4  := #ShowKau(tmpSaldoSum._TblOs4, tmpSaldoSum._KauOs4);
+         tmpSaldoSum._ShowKau5  := #ShowKau(tmpSaldoSum._TblOs5, tmpSaldoSum._KauOs5);
+         tmpSaldoSum._ShowKau6  := #ShowKau(tmpSaldoSum._TblOs6, tmpSaldoSum._KauOs6);
+         tmpSaldoSum._ViOb      := SaldMoun.ViOb     ;
+         tmpSaldoSum._SumS      := SaldMoun.SumS     ;
+         insert current tmpSaldoSum;
+      }
+ }
+
+ _Loop tmpSaldoSum {
+
+       isOborot := false;
+         if (tmpSaldoSum._ViOb = 1 and tmpSaldoSum._SumS > 0) {SummaZero :=  tmpSaldoSum._SumS; Loop_Debet;}
+         if (tmpSaldoSum._ViOb = 2 and tmpSaldoSum._SumS < 0) {SummaZero := -tmpSaldoSum._SumS; Loop_Debet;}
+
+         if (tmpSaldoSum._ViOb = 1 and tmpSaldoSum._SumS < 0) {SummaZero :=  tmpSaldoSum._SumS; Loop_Kredit;}
+         if (tmpSaldoSum._ViOb = 2 and tmpSaldoSum._SumS > 0) {SummaZero := -tmpSaldoSum._SumS; Loop_Kredit;}
+
+       if (not isOborot) {
+           pXL.SetTblStringFldValue('SchetO'    , tmpSaldoSum._SchetO );
+           pXL.SetTblStringFldValue('SubOsSch'  , tmpSaldoSum._SubOsSch );
+           pXL.SetTblStringFldValue('KAU1'      , #ShowKau(tmpSaldoSum._TblOs1, tmpSaldoSum._KauOs1) );
+           pXL.SetTblStringFldValue('KAU2'      , #ShowKau(tmpSaldoSum._TblOs2, tmpSaldoSum._KauOs2));
+           pXL.SetTblStringFldValue('KAU3'      , #ShowKau(tmpSaldoSum._TblOs3, tmpSaldoSum._KauOs3));
+           pXL.SetTblStringFldValue('KAU4'      , #ShowKau(tmpSaldoSum._TblOs4, tmpSaldoSum._KauOs4));
+           pXL.SetTblStringFldValue('KAU5'      , #ShowKau(tmpSaldoSum._TblOs5, tmpSaldoSum._KauOs5));
+           pXL.SetTblStringFldValue('KAU6'      , #ShowKau(tmpSaldoSum._TblOs6, tmpSaldoSum._KauOs6));
+           pXL.SetTblStringFldValue('VidOb'     , tmpSaldoSum._ViOb);
+           pXL.SetTblStringFldValue('NomerDoc'  , '');
+           pXL.SetTblDateFldValue  ('DatOb'     , date(01,01,1990));
+           pXL.SetTblNumberFldValue('Summa'     , SummaZero);
+           pXL.InsTblRow;
+         }
+   }
+
+
+   _Loop tmpSaldoSum {
+     Logstrtofile('C:\1.txt', tmpSaldoSum._nRec + '*' +  tmpSaldoSum._SchetO + '*' + _ShowKau1 + '*' + tmpSaldoMakeUp._nRecTmp + '*' + tmpSaldoMakeUp.NomerSaldo);
+     }
+
+   _Loop tmpSaldoSum {
+       _Loop tmpSaldoMakeUp {
+       Logstrtofile('C:\2.txt', tmpSaldoSum._nRec + '*' +  tmpSaldoSum._SchetO + '*' + _ShowKau1 + '*' + tmpSaldoMakeUp._nRecTmp + '*' + tmpSaldoMakeUp.NomerSaldo);
+       }
+     }
+
+//  pXL.PublishTbl('Oborot');
+//
+//  pXL.LoadReport(sXLSFileName);
+//  pXL.DisConnectExcel;
+
+  StartRep := True;
+  StopVisual('',0);
+} // Function StartRep(isCreateXLT : boolean) : boolean;
+
+
+
+Screen stexP 'Установка параметров формирования отчёта';
+Fields
+ UserDeskRep.ResDate[1] ('Укажите дату формирования отчёта',,) : [,'DD/MM/YYYY'], NoProtect;
+ sSchet                 : Protect, QuickChoice, PickButton;
+ sSubSchet              : Protect, QuickChoice, PickButton;
+Buttons
+  cmOk, Default, , 'Сформировать отчёт', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+
+                     `На дату` .@@@@@@@@@@
+
+ `Счёт`    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Субсчёт` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+            <. Сформировать .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent  // Panel
+
+cmInsertRecord:
+  Insert Current UserDeskRep;
+
+cmUpdateRecord: {
+   UserDeskRep.OwnName := UserName;
+   update current UserDeskRep;
+}
+
+cmDeleteRecord:
+    Delete Current UserDeskRep;
+
+End; // HandleEvent Panel
+End; // Panel
+
+
+
+HandleEvent   // Interface
+ cmInit: {
+   nReport  := 17023;
+
+    if (GetFirst UserDeskRep <> tsOK) {
+          ClearBuffer(#UserDeskRep);
+           UserDeskRep.OwnName    := UserName;
+           UserDeskRep.nRep       := nReport;
+          insert current UserDeskRep;
+    }
+
+   cPlanSch     := coGetTune('Fin.User.cPlansSch');
+//   sXLTFileName := '\\BuhServer\GalSrv\exe\_Resources\xlt\Zadolzhenost.xlt';
+   sXLTFileName := TranslatePath('%ClientStartPath%') + 'XLS\' + 'Zadolzhenost.xlt';
+ }
+
+cmPick : {
+ var NumPick     : Word;
+ var _Schet      : tSchet3;
+ var _SubSchet   : tSubSch;
+ var MultiSch
+   , MultiSub
+   , aPickDogApp : Word;
+
+ Case (CurField) of
+  #sSchet, #sSubSchet :  {
+      if (RunInterface('F_BuhSchet::GetBuhSchet', cgiPickMult, cPlanSch, _Schet, _SubSchet) = cmDefault)
+      {
+        MultiSch := iPickBuh.GetCountItem(cgPick_Schet);
+        MultiSub := iPickBuh.GetCountItem(cgPick_SubSch);
+//        BuhSchCount := MultiSch + MultiSub;
+
+        case MultiSch of
+              0 : Set sSchet    := '';
+              1 : Set sSchet    := GetNameSch(_Schet, '');
+           else   Set sSchet    := 'Множественный выбор' + ' (' + MultiSch + ')';
+        end; // case
+
+        case MultiSub of
+              0 : Set sSubSchet := '';
+              1 : Set sSubSchet := GetNameSch('', _SubSchet);
+           else   Set sSubSchet := 'Множественный выбор' + ' (' + MultiSub + ')';
+        end; // case
+      }
+  }
+  end;
+}
+
+cmCheckField : {
+  case CurField Of
+  #UserDeskRep.ResDate[1]: {
+       UserDeskRep.ResDate[1] := date(01, Month(UserDeskRep.ResDate[1]), Year(UserDeskRep.ResDate[1]) );
+     }
+  end;
+}
+
+ cmOK : {
+  StartRep(False);
+  RunFReport(DS, '', false);
+  CloseInterface (cmOK) ;
+ }
+
+ cmCancel :
+  CloseInterface (cmCancel) ;
+
+end; // HandleEvent
+
+end.

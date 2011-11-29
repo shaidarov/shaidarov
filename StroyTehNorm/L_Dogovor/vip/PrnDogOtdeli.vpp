@@ -1,0 +1,85 @@
+#doc
+Печать договора по собственному прототипу Шайдарова
+#end
+
+form frmDogOtdeli('DogOtdeli.out','DogOtdeli') with NoVisual;
+
+Procedure PrintDogovorOtdeli;
+{
+  if (UpDateInsertDogovor <> tsOk) Exit;
+  ReReadRecord(#Dogovor1);
+  if (Dogovor.Direct = 2)
+    frmDogOtdeli.SetGroup('Закупка')
+  else
+    frmDogOtdeli.SetGroup('Продажа');
+
+  frmDogOtdeli.Write(Dogovor.nRec);
+  frmDogOtdeli.Write(Dogovor.cDogovor);
+  frmDogOtdeli.Write(Dogovor.NoDoc);
+
+//  frmDogOtdeli.Write(DateToStr(Dogovor.dDoc, 'DD mon YYYY'));
+  frmDogOtdeli.Write(Dogovor.dDoc);
+  frmDogOtdeli.Write(DateToStr(Dogovor.dBeg, 'DD mon YYYY'));
+  frmDogOtdeli.Write(DateToStr(Dogovor.dEnd, 'DD mon YYYY'));
+
+  frmDogOtdeli.Write(Dogovor.Summa);
+  frmDogOtdeli.Write(DoubleToString(0, Dogovor.Summa));
+
+  frmDogOtdeli.Write(Dogovor.Summa - Dogovor.SumNDS);
+  frmDogOtdeli.Write(DoubleToString(0, Dogovor.Summa - Dogovor.SumNDS));
+
+  frmDogOtdeli.Write(Dogovor.SumNDS);
+  frmDogOtdeli.Write(DoubleToString(0, Dogovor.SumNDS));
+
+  frmDogOtdeli.Write(ValDogovor);
+  frmDogOtdeli.Write(KatOrg.TipOrg);
+  frmDogOtdeli.Write(KatOrg.Name);
+  frmDogOtdeli.Write(KatOrg.IndexK + ', ' + KatOrg.Addr);
+  frmDogOtdeli.Write(KatOrg.Tel);
+  frmDogOtdeli.Write(KatOrg.UNN);
+  frmDogOtdeli.Write(KatOrg.OKPO);
+  frmDogOtdeli.Write(BankPol.Schet1);
+  frmDogOtdeli.Write(BankPol.Name);
+  frmDogOtdeli.Write(BankPol.MFO1);
+  frmDogOtdeli.Write(BankPol.Addr);
+
+  frmDogOtdeli.Write(KatOrg1.TipOrg);
+  frmDogOtdeli.Write(KatOrg1.Name);
+  frmDogOtdeli.Write(KatOrg1.IndexK + ', ' + KatOrg1.Addr);
+  frmDogOtdeli.Write(KatOrg1.Tel);
+  frmDogOtdeli.Write(KatOrg1.UNN);
+  frmDogOtdeli.Write(KatOrg1.OKPO);
+  frmDogOtdeli.Write(BankPlat.Schet1);
+  frmDogOtdeli.Write(BankPlat.Name);
+  frmDogOtdeli.Write(BankPlat.MFO1);
+  frmDogOtdeli.Write(BankPlat.Addr);
+
+  _loop SpDocs {
+    frmDogOtdeli.PutEventById(feDoLoop,fcSpec);
+    frmDogOtdeli.Write(SpDocs.nRec);
+    case SpDocs.PrMC of
+    1:
+    {
+      frmDogOtdeli.Write(GroupMC.Name);
+      frmDogOtdeli.Write(KatMC.Name);
+    }
+    2,3:
+    {
+      frmDogOtdeli.Write(GroupUsl.Name);
+      frmDogOtdeli.Write(KatUSL.Name);
+    }
+    else
+      frmDogOtdeli.SkipFormat(2);
+    end;
+
+    frmDogOtdeli.Write(KatOtpEd.Name);
+    frmDogOtdeli.Write(SpDocs.Kol);
+    frmDogOtdeli.Write(SpDocs.Price);
+    frmDogOtdeli.Write(SpDocs.Summa);
+  }
+
+  if (not frmDogOtdeli.Error)
+    frmDogOtdeli.ShowFile('')
+  else
+    frmDogOtdeli.AbortForm;
+}

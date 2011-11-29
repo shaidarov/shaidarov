@@ -1,0 +1,212 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Логистика
+//
+//******************************************************************************
+
+#doc
+Окно редактирования соглашения
+#end
+Window wiDogovorAttachMain 'Соглашение' LeftToolbar;
+  Show at (,,88,27);
+
+ToolBar
+    F_Common::tbPrintDoc
+  , F_Common::tbAttrClass
+  , DogNavigator
+;
+
+Screen  scDogovorAttachHead ('Редактирование соглашения',hcDogSoglasie,sci13Esc)
+  Show at (,,,8);
+  Table Dogovor ;
+
+Fields
+  KatNotes.Name      ('Статус соглашения') : PickButton, protect ;
+
+  Dogovor.Descr      ('Дескриптор(идентификатор)пользователя') : protect;
+  KatVidD.Name       ('Вид соглашения') : PickButton, protect ;
+  Dogovor.TipMoney   ('Тип соглашения')
+    : [LIST 1 'в НДЕ', 'вал-НДЕ', 'валютный'], protect ;
+  Dogovor.NoDoc      ('Номер соглашения',,sci1Esc) : noprotect;
+  Dogovor.dDoc       ('Дата заключения соглашения') : [10,'DD/MM/YYYY'], noprotect ;
+  Dogovor.dBeg       ('Дата начала соглашения') : [10,'DD/MM/YYYY'], noprotect;
+  Dogovor.dEnd       ('Дата окончания соглашения') : [10,'DD/MM/YYYY'], noprotect;
+  Dogovor.Summa      ('Общая (планируемая) сумма по соглашению',,sci1Esc) : [19.2,'\2p[|-]3666`666`666`666.88'] noprotect;
+  ValDogovor         ('Валюта соглашения') : protect;
+  Dogovor.SumNDS     ('Сумма налогов по соглашению',,sci1Esc) : [19.2,'\2p[|-]3666`666`666`666.88'] noprotect;
+<<
+   &Дескр                                    Статус.@@@@@@@@@@@@@@@@@@@@@@@@@
+   .@@@@@@                                   Вид   .@@@@@@@@@@@@@@@@@@@@@@@@@
+                                             Тип   .@@@@@@@@@@@@@@@@@@@@@@@@@
+ № .@@@@@@@@@@ от .@@@@@@@@@@@
+
+ На период  с.@@@@@@@@@@по.@@@@@@@@@@@     на сумму.@@@@@@@@@@@@@@@@@@@.@@@@@
+
+                                           налоги  .@@@@@@@@@@@@@@@@@@@
+
+>>
+end; // screen scDogovorAttachMain
+
+TabbedSheet BOTTOM tsDogovorEditMain
+  Show at (,9,);
+
+Screen scDogovorAttachMain 'Основная информация' ('Редактирование соглашения',hcDogSoglasie,sci13Esc)
+  Table Dogovor ;
+
+Fields
+  AttrDog.Subject1   ('Предмет договора',,sci14Esc) : noprotect;
+  AttrDog.Subject2   ('Предмет договора',,sci14Esc) : noprotect;
+  AttrDog.Subject3   ('Предмет договора',,sci14Esc) : noprotect;
+  AttrDog.Otv_My_Fio  ('Фамилия, имя, отчество ответственного', , sci13Esc) : PickButton, noprotect;
+  AttrDog.Otv_My_Post ('Должность ответственного', , sci13Esc) : PickButton, noprotect;
+  KuratPodr.Name    : Protect;
+
+  KatVidD.Role1      ('Роль контрагента в соглашении') : skip;
+  KatOrg.Name        ('Наименование контрагента') : protect,QuickChoice;
+  KatVidD.Role2      ('Роль контрагента в соглашении') : skip;
+  KatOrg1.Name       ('Наименование контрагента', , sci134Esc) : protect,QuickChoice;
+  isSpDog            ('Присутствие в соглашении спецификации') : skip ;
+  Dogovor.SpecStatus ('Статус спецификации')
+    : [LIST 'обязательная',
+            'рекомендательная'], protect ;
+
+  isCalPlan          ('Присутствие в соглашении календарного плана') : skip ;
+  AktSver.dDoc       ('Дата последнего акта сверки') : [10,'DD/MM/YYYY'],skip ;
+  AktSver.Status     ('Статус последнего акта сверки')
+    : [LIST 'оформляемый',
+            'аннулированный',
+            'проведенный'], skip ;
+Buttons
+  cmValue2 ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue3 ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue5 ,,, 'Спецификация' ;
+  cmSchema ,,, 'Схема платежей' ;
+  cmValue6 ,,, 'План' ;
+  cmAttrib ,,, 'Просмотр и изменение расширенной информации по документу' ;
+  cmValue7 ,,, 'Акт сверки' ;
+  cmValue10,,, 'Текстовая информация' ;
+<<
+`Предмет соглашения`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Ответственный`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`Должность`.@@@@@@@@@@@@@@@@@@@@@@@@
+`Курирующее подразделение`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Контрагент 1.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Контрагент 2.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Спецификация.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@  <.    Схема платежей    .>
+
+<.    План     .> .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  <.Расширенная информация.>
+
+<. Акт сверки  .> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@  <. Текстовая информация .>
+>>
+end; // screen scDogovorAttachMain
+
+Embedded emLSSog 'Лист согласования' interface oLSDog;
+  Cache = Slave;
+end;
+
+end; // TabbedSheet
+
+!--------- Проверка доступности экранных кнопок -----------------------
+
+procedure SelectableButtonSogl;
+  {
+    SetCommandEnabled(cmSchema, EditDogPosEnabled(false, false) OR (RecordExists PlatDog = tsOK));
+
+    if NotEditDogPosStatus(false)
+      SelectableButton(scDogovorAttachMain
+                     , cmValue5
+                     , RecordExists SpDocs where (( Dogovor.TiDk == SpDocs.TiDk and Dogovor.nRec == SpDocs.cDoc )) = tsOk
+                      )
+    else
+      SelectableButton(scDogovorAttachMain, cmValue5, TRUE);
+
+    SetFieldVisible(#KatOrg1.Name, TRUE);
+  }
+
+Procedure cmInitHandlerSogl;
+{
+  SelectableButtonSogl;
+
+  var StrTitle : string;
+  if Dogovor.cZamena <> 0
+    {
+      StrTitle := 'Редактирование отменяющего соглашения';
+      if (sGetTune('OPER.Dogovor.UserName.OtmenSogl') <> '')
+        StrTitle := StrTitle + ' (' +
+                    sGetTune('OPER.Dogovor.UserName.OtmenSogl') + ')';
+    }
+  else
+    {
+      StrTitle := 'Редактирование уточняющего соглашения';
+      if (sGetTune('OPER.Dogovor.UserName.UtochSogl') <> '')
+        StrTitle := StrTitle + ' (' +
+                    sGetTune('OPER.Dogovor.UserName.UtochSogl') + ')';
+    }
+
+  SetWindowTitle(wiDogovorAttachMain, StrTitle);
+
+  OldSumDog := Dogovor.Summa;
+  OldSumNDS := Dogovor.SumNDS;
+  cValDog   := Dogovor.cVal;
+
+  if (GetFirst fastfirstrow AttrDog <> tsOk)
+    {
+      ClearBuffer(#AttrDog);
+      AttrDog.cDogovor := Dogovor.nRec;
+      AttrDog.cPodr    := DefaultBaseCO;
+      if (insert current AttrDog <> tsOk) {}
+    }
+
+  OldAttrDog := AttrDog.Buffer;
+
+  SetTabbedSheetVisible(scDogovorAttachMain, Dogovor.VidDog <> 15);
+}
+
+HandleEvent // Window wiDogovorAttachMain
+
+cmInit :
+  {
+    if (isNew or (c1 <> -1))
+      {
+        c1 := -1;
+
+        _loop SpGrSch where (( word(1)       == SpGrSch.wList and
+                               DogOwner.nRec == SpGrSch.cBaseDoc ))
+          if (GetFirst fastfirstrow GroupSch = tsOK)
+            if ((GroupSch.cOrg = 0) or (GroupSch.cOrg = Dogovor.cOrg))
+              if (RecordExists SpGrSch2 where ((   word(1)           == SpGrSch2.wList
+                                               AND SpGrSch.cGroupSch == SpGrSch2.cGroupSch
+                                               AND Dogovor.nRec      == SpGrSch2.cBaseDoc)) <> tsOk)
+                if (insert SpGrSch2 set SpGrSch2.wList     := 1,
+                                        SpGrSch2.cGroupSch := SpGrSch.cGroupSch,
+                                        SpGrSch2.cBaseDoc  := Dogovor.nRec) <> tsOk {};
+        ReReadRecord(#Dogovor1);
+        if GetFirst SpGrSch <> tsOK {};
+        ReReadRecord(#SpGrSch);
+      }
+
+    cmInitHandlerSogl;
+
+    SetFormat(scDogovorAttachMain);
+  }
+
+cmChangeTabbedSheetFormat:
+  {
+    case Target of
+    //******************************************
+      emLSSog:
+        if not oLSDog.SetPosition(Dogovor.nRec, EditDogPosEnabled(false, false))
+          Abort;
+    //******************************************
+    end;
+  }
+
+#include d_d_we.han
+
+end ; // HandleEvent Window wiDogovorAttachMain
+
+end; // Window wiDogovorAttachMain

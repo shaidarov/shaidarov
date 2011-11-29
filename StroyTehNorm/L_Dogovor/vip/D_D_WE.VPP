@@ -1,0 +1,252 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Логистика
+//
+//******************************************************************************
+
+Procedure MySetFieldDogovor; forward;
+
+#doc
+Окно редактирования агентского договора
+#end
+Window wiDogovorEditMain 'Редактирование договора' ('Редактирование договора', , )
+  LeftToolbar
+  show at (,, 88, 26);
+
+ToolBar
+    F_Common::tbPrintDoc
+  , tbRunDogExcel
+  , F_Common::tbManagerId
+  , F_Common::tbAttrClass
+  , DogNavigator
+;
+
+Screen scDogovorEditMainHead
+  ('Редактирование договора',hcDogEditDogovor,sci13Esc)
+  Show at (,,,7);
+  Table Dogovor ;
+
+Fields
+  KatNotes.Name      ('Статус договора'): PickButton, protect, {font = {color = ColorByEndDate; bold = (ColorByEndDate<>0)}};
+//  Dogovor.DesGr      ('Код группы пользователей'): protect;
+  Dogovor.Descr      ('Дескриптор(идентификатор) пользователя'): protect;
+//  Dogovor.NoDoc_Ext  ('Номер договора', , sci1Esc): noprotect;
+//  Dogovor.dInput     ('Дата создания договора'): [10, 'DD/MM/YYYY'], noprotect;
+  KatVidD.Name       ('Вид договора'): PickButton, protect;
+  Dogovor.NoDoc      ('Номер договора'): PickButton, noprotect;
+  Dogovor.dDoc       ('Дата заключения договора'): [10, 'DD/MM/YYYY'], noprotect;
+  Dogovor.TipMoney   ('Тип договора'): [LIST 1 'в НДЕ', 'вал-НДЕ', 'валютный'], protect;
+//  DogZamenaInfo      : skip;
+  Dogovor.dBeg       ('Дата начала договора'): [10, 'DD/MM/YYYY'], noprotect;
+  Dogovor.dEnd       ('Дата окончания договора', ): [10, 'DD/MM/YYYY'], noprotect, {font = {color = ColorByEndDate; bold = (ColorByEndDate<>0)}};
+  Dogovor.Summa      ('Общая (планируемая) сумма по договору', , sci1Esc): [19.2, '\2p[|-]3666`666`666`666.88'], noprotect;
+  ValDogovor         ('Валюта договора'): protect;
+  Dogovor.SumNDS     ('Сумма налогов по договору', , sci1Esc): [19.2, '\2p[|-]3666`666`666`666.88'], noprotect;
+<<
+   Дескр.&                                         Статус.@@@@@@@@@@@@@@@@@@@@@@@@@
+   .@@@@@@           Внутренний №      от          Вид   .@@@@@@@@@@@@@@@@@@@@@@@@@
+                    .@@@@@@@@@@@   .@@@@@@@@@@@    Тип   .@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        На период с .@@@@@@@@@@@ по.@@@@@@@@@@@  на сумму.@@@@@@@@@@@@@@@@@@@.@@@@@
+                                                 налоги  .@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scDogovorEditMain
+
+Screen scDogovorEditMainNIOKRHead
+  ('Редактирование договора',hcDogEditDogovor,sci13Esc)
+  Show at (,,,7);
+  Table Dogovor;
+
+Bevel b01 {1, 1, 85, 5, bsRaised, bsFrame};
+
+Fields
+//******************************************************************************
+  'Cведения из плана НИОКР'
++ if(IsValid(tnPlanNIOKR), ' на ' + string(PlanNIOKR.OnYear) + ' год', ''): Skip,
+    { Font = { Bold = TRUE } };
+//******************************************************************************
+  PlanNIOKR.Razdel  : Protect;
+//******************************************************************************
+  PlanNIOKR.Punkt   : Protect;
+//******************************************************************************
+<<
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   `Раздел плана`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   `Пункт плана` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scDogovorEditMain
+
+TabbedSheet BOTTOM tsDogovorEditMain
+  Show at (,8,);
+
+Screen scDogovorEditMain 'Основная информация'
+  ('Редактирование договора',hcDogEditDogovor,sci13Esc)
+  Table Dogovor ;
+
+Fields
+  KatVidD.Role1      ('Роль контрагента в договоре') : skip;
+  KatOrg.Name        ('Наименование контрагента') : protect,QuickChoice;
+  KatVidD.Role2      ('Роль контрагента в договоре') : skip;
+  KatOrg1.Name       ('Наименование контрагента', , sci134Esc) : protect,QuickChoice;
+
+  isSpDog            ('Присутствие в договоре спецификации') : skip ;
+  Dogovor.MaxDebtSage ('Максимальный срок задолженности') : NoProtect, NoPickButton ;
+Buttons
+  cmValue2 ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue3 ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue5 ,,, 'Спецификация' ;
+<<
+
+<. Контрагент 1.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Контрагент 2.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Спецификация.> .@@@@@@@@@@@@@@         `Максимальный срок задолженности` .@@@@@@
+
+>>
+end; // screen scDogovorEditMain
+
+Text MemoId = scDogovorEditMainNIOKR PlanNIOKR.TextData 'План НИОКР': Protect;
+
+Embedded emLSDog 'Лист согласования' interface oLSDog;
+  Cache = Slave;
+end;
+
+end; // TabbedSheet
+!--------- Проверка доступности экранных кнопок -----------------------
+
+procedure SelectableButtonDogovor;
+  {
+    SetCommandEnabled(cmSchema, EditDogPosEnabled(false, false) OR (RecordExists PlatDog = tsOK));
+
+    SelectableButton(scDogovorEditMain, cmValue7, Dogovor.Status <> 0);
+
+    if (NotEditDogPosStatus(false))
+      SelectableButton(scDogovorEditMain
+                     , cmValue5
+                     , RecordExists SpDocs where (( Dogovor.TiDk == SpDocs.TiDk and
+                                                    Dogovor.nRec == SpDocs.cDoc )) = tsOk
+                      )
+    else
+      SelectableButton(scDogovorEditMain, cmValue5, true);
+  }
+
+Procedure cmInitHandlerDogovor;
+{
+  SetFormat(scDogovorEditMain);
+  SetFormat(scDogovorEditMainHead);
+
+  SetTabbedSheetVisible(scDogovorEditMainNIOKR, Dogovor.VidDog = 13);
+
+  var StrTitle: string;
+  if Dogovor.cZamena <> 0
+    {
+      StrTitle := 'Редактирование отменяющего договора';
+      if (sGetTune('OPER.Dogovor.UserName.OtmenDogovor') <> '')
+        StrTitle := StrTitle + ' (' +
+                    sGetTune('OPER.Dogovor.UserName.OtmenDogovor') + ')';
+    }
+  else
+    {
+      StrTitle := 'Редактирование договора';
+      if (sGetTune('OPER.Dogovor.UserName.Dogovor') <> '')
+        StrTitle := StrTitle + ' (' +
+                    sGetTune('OPER.Dogovor.UserName.Dogovor') + ')';
+    }
+
+  SetWindowTitle(wiDogovorEditMain, StrTitle);
+
+  MySetFieldDogovor;
+
+  if (GetFirst fastfirstrow AttrDog <> tsOk)
+    {
+      ClearBuffer(#AttrDog);
+      AttrDog.cDogovor := Dogovor.nRec;
+      AttrDog.cPodr    := DefaultBaseCO;
+      if (insert current AttrDog <> tsOk) {}
+    }
+
+  OldAttrDog := AttrDog.Buffer;
+}
+
+Function CheckKontrLinksAgent: boolean;
+{
+  if ( Dogovor.cMyOrg = 0 )
+    {
+      CheckKontrLinksAgent := FALSE;
+
+      Message('Не задан контрагент ' + if(Dogovor.cDogovor = 0, 'договора', 'соглашения') + '!', Information + OkButton);
+    }
+  else
+    CheckKontrLinksAgent := TRUE;
+}
+
+Function CheckKontrLinks: boolean;
+{
+  if ( Dogovor.VidDog = 14 )
+    CheckKontrLinks := CheckKontrLinksAgent
+  else
+    if ( ( Dogovor.cMyOrg = 0 ) OR ( Dogovor.cOrg = 0 ) )
+      {
+        CheckKontrLinks := FALSE;
+
+        Message('Не заданы контрагенты ' + if(Dogovor.cDogovor = 0, 'договора', 'соглашения') + '!', Information + OkButton);
+      }
+    else
+      CheckKontrLinks := TRUE;
+}
+
+HandleEvent // Window wiDogovorEditMain
+
+cmChangeTabbedSheetFormat:
+  {
+    case Target of
+    //******************************************
+      scDogovorEditMainNIOKR:
+        PutCommand(cmValFld2);
+    //******************************************
+      scDogovorEditMain:
+        SetFormat(scDogovorEditMainHead);
+    //******************************************
+      emLSDog:
+        if not oLSDog.SetPosition(Dogovor.nRec, EditDogPosEnabled(false, false))
+          Abort;
+    //******************************************
+    end;
+  }
+
+cmValFld2:
+  {
+    SelectPanel(#Dogovor);
+    SelectFormat(scDogovorEditMainNIOKRHead);
+  }
+
+cmInit:
+  {
+    cmInitHandlerDogovor;
+
+    SetFormat(scDogovorEditMain);
+
+    if (IsNew or (c1 <> -1))
+      PutCommand(cmValue20);
+  }
+
+cmValue20:
+  {
+    ReReadRecord(#Dogovor);
+
+    c1 := -1;
+
+    SelectFormat(scDogovorEditMainHead);
+    SelectFieldInFormat(scDogovorEditMainHead, #KatVidD.Name);
+
+    if (Dogovor.cVidDog = comp(0))
+      PutCommand(cmPick);
+  }
+
+#include E:\!StroyTehNorm\!project\L_Dogovor\vip\D_D_WE.HAN
+
+end; // HandleEvent Window wiDogovorEditMain
+
+end; // Window wiDogovorEditMain

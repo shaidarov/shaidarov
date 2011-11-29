@@ -1,0 +1,344 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.70 - Касса
+// Формирование ТХО по спецификации АО
+//------------------------------------------------------------------------------
+
+#include direct.vpp
+#include pl_dirpl.vpp
+#include serv_str.vpp
+var
+ isExcess : boolean; // если ли превышение
+
+function isSpecSynch : boolean;
+{
+  isSpecSynch :=boGetTune('Fin.Doc.AOSynchSH');
+}
+function InsertToSoprHoz: boolean;
+! формирование ссылки из PlPor на SoprHoz
+var InsOk: boolean;
+{
+  InsertToSoprHoz := false;
+  ClearBuffer(#SoprHoz);
+  SoprHoz.NRec := GetNextNRec(#SoprHoz, 0)
+  SoprHoz.cHozOper := PlPor.cHozOper;
+  SoprHoz.Summa    := PlPor.SumPlat;
+  SoprHoz.SumValut := PlPor.SumPlatV;
+  SoprHoz.KodValut := PlPor.cVal;
+  SoprHoz.DatOb    := PlPor.DatOb;
+  SoprHoz.VhSumHoz := '+';
+  SoprHoz.FilialNo := PlPor.FilialNo;
+  SoprHoz.cFilKor  := PlPor.cFilKor;
+  SoprHoz.Descr    := PlPor.Descr;
+  SoprHoz.DesGr    := PlPor.DesGr;
+  SoprHoz.TipDoc   := PlPor.TiDk;
+  SoprHoz.TiDkGal  := PlPor.TiDkGal;
+  SoprHoz.NoDoc    := PlPor.NoDok;
+  SoprHoz.cSoprDoc := PlPor.NRec;
+
+  //взаиморасчеты
+  if ((PlPor.ModeDoc and 2) <> (SoprHoz.ModeDoc and 2))
+    SoprHoz.ModeDoc := SoprHoz.ModeDoc xor 2;
+
+  //платежный/сопроводительный
+  if ((PlPor.ModeDoc and 4) <> (SoprHoz.ModeDoc and 4))
+    SoprHoz.ModeDoc := SoprHoz.ModeDoc xor 4;
+
+  if isSetBitDirect(PlPor.ModeDoc)     // bit направления определен
+  {
+    if ((PlPor.ModeDoc and 4096) = 0)  // т.е. продажа или закупка
+      SetDefDirectSoprHoz(SoprHoz.ModeDoc, SoprHoz.Direct);
+  }
+  else
+    SetDefDirectSoprHoz(SoprHoz.ModeDoc, SoprHoz.Direct);
+
+  SetBitKontras(PlPor.ModeDoc, SoprHoz.ModeDoc);
+
+  SoprHoz.cStepDoc := 0;
+
+  if (PlPor.cStepDoc <> 0)
+    if (GetFirst BaseDoc where ((PlPor.cStepDoc == StepDoc.NRec and
+                               StepDoc.cBaseDoc == BaseDoc.NRec)) = tsOk)
+      SoprHoz.cStepDoc := PlPor.cStepDoc;
+
+  if ((SoprHoz.ModeDoc and 4096) <> 0)       // направление не определено
+  {
+    if (SoprHoz.cStepDoc <> 0)
+    {
+      SoprHoz.Direct := BaseDoc.Direct;  // берем его из ДО
+
+      SetBitDirect(SoprHoz.Direct, SoprHoz.ModeDoc);
+    }
+  }
+
+  if (trim(SoprHoz.NameSHO) = '')
+    SoprHoz.NameSHO := trim(PlPor.NamePl1) + ' ' + trim(PlPor.NamePl2);
+
+  SoprHoz.cOrg := GetPlatPlPor;
+
+  InsOk := (insert current SoprHoz = tsOk);
+  InsertToSoprHoz := InsOk;
+
+  if InsOk
+    iSynch.SynchBaseFin(SoprHoz.BufferP);
+}
+
+procedure MakeSoprHoz(cHO: comp; cVal: comp; sum: double; sumval: double);
+var Exist: boolean;
+{
+  Exist := false;
+
+  if boGetTune('Fin.Doc.AOHozFurl')
+    if (GetFirst SoprHoz where ((PlPor.TiDk == SoprHoz.TipDoc
+                                    and cHO == SoprHoz.cHozOper
+                            and PlPor.DatOb == SoprHoz.DatOb
+                            and PlPor.NoDok == SoprHoz.NoDoc)) = tsOk)
+      do
+      {
+        if (SoprHoz.cSoprDoc = PlPor.nRec)
+        {
+          SoprHoz.Summa    := SoprHoz.Summa + sum;
+          SoprHoz.SumValut := SoprHoz.SumValut + sumval;
+          SoprHoz.cOrg     := GetPlatPlPor;
+
+          if (update current SoprHoz = tsOk)
+            iSynch.SynchBaseFin(SoprHoz.BufferP);
+
+          Exist := true;
+          Break;
+        }
+      } while (GetNext SoprHoz where ((PlPor.TiDk == SoprHoz.TipDoc
+                                          and cHO == SoprHoz.cHozOper
+                                  and PlPor.DatOb == SoprHoz.DatOb
+                                  and PlPor.NoDok == SoprHoz.NoDoc)) = tsOk);
+
+  if isSpecSynch and
+     not(isExcess)  // ... и нет превышение
+    if ((RecordExists Soprhoz where ((rashdoc.ckredCard == soprhoz.nrec))
+                                 and (SoprHoz.cSoprDoc = PlPor.Nrec)) = tsOk)
+      Exist := true;
+
+  if (not Exist)
+  {
+    ClearBuffer(#SoprHoz);
+    SoprHoz.NRec     := GetNextNRec(#SoprHoz, 0)
+    SoprHoz.Summa    := sum;
+    SoprHoz.SumValut := sumval;
+    SoprHoz.KodValut := cVal;
+    SoprHoz.DatOb    := PlPor.DatOb;
+    SoprHoz.VhSumHoz := '+';
+    SoprHoz.TipDoc   := PlPor.TiDk;
+    SoprHoz.TiDkGal  := PlPor.TiDkGal;
+    SoprHoz.NoDoc    := PlPor.NoDok;
+    SoprHoz.cSoprDoc := PlPor.NRec;
+    SoprHoz.cHozOper := cHO;
+
+    case myTip of
+    //
+      9:
+        SoprHoz.Direct := 2;        // НДС по командировочным отражается в книге закупок
+    //
+      8, 18:
+        SoprHoz.Direct := 0;        // НДС в книге закупок не отражается (дабы не дублироваться с АО)
+    end;
+
+    SoprHoz.DesCr    := PlPor.DesCr;
+    SoprHoz.DesGr    := PlPor.DesGr;
+    SoprHoz.cOrg     := GetPlatPlPor;
+
+    if boGetTune('Fin.Doc.AORashNameToNameSH')
+      SoprHoz.NameSHo := RashDoc.Name;
+    if (insert current SoprHoz = tsOk)
+      iSynch.SynchBaseFin(SoprHoz.BufferP);
+  }
+}
+
+procedure InsertToSoprHozE;
+! формирование хоз.операции на превышение нормы расхода
+var
+  ss, ssv: double
+{
+  RashSumExcess(ss, ssv);
+  isExcess := true;
+  MakeSoprHoz(NormRash.cHozOper, RashDoc.cVal2, ss, ssv);
+  isExcess := false;
+}
+
+procedure InsertToSoprHozR (ss: double; ssv: double);
+! формирование хозоперации по спецификации
+{
+  case myTip of
+  // АО
+    9:
+    {
+      if lim and (RashDoc.SumN <> 0)       // есть превышение
+         and (NormRash.cHozOperO = 0)      // пустая ТХО на норму
+         and (NormRash.cHozOper <> 0)      // ТХО на превышение задана
+         and (NormRash.Summa = 0) and (NormRash.PrTime = 1)  // нулевая норма по сумме
+      {
+        // сразу формируем ТХО на превышение
+        InsertToSoprHozE;
+
+        // ТХО на превышение
+        set RashDoc.cHozOper := NormRash.cHozOper;
+
+        // SoprHoz на превышение
+        if (not boGetTune('Fin.Doc.AOHozFurl'))
+          set RashDoc.cAvans := SoprHoz.nRec;
+
+        // привязываем первую ТХО к PlPor'у
+        if (PlPor.cHozOper = 0)
+        {
+          PlPor.cHozOper := SoprHoz.cHozOper;
+          update current PlPor;
+        }
+      }
+      else
+      {
+        MakeSoprHoz(NormRash.cHozOperO, RashDoc.cVal2, ss, ssv);
+
+        // привязываем первую ТХО к PlPor'у
+        if (PlPor.cHozOper = 0)
+        {
+          PlPor.cHozOper := SoprHoz.cHozOper;
+          update current PlPor;
+        }
+
+        // привязываем ТХО на норму к статье расходов
+        if (not boGetTune('Fin.Doc.AOHozFurl'))
+        {
+          if isSpecSynch
+          {
+            if RashDoc.cKredCard = 0
+              RashDoc.cKredCard := SoprHoz.nRec;
+          }else
+            RashDoc.cKredCard := SoprHoz.nRec;
+        }
+        if lim and (RashDoc.SumN <> 0)  // есть превышение
+        {
+          InsertToSoprHozE;
+
+          // ТХО на превышение
+          set RashDoc.cHozOper := NormRash.cHozOper;
+
+          // SoprHoz на превышение
+          if (not boGetTune('Fin.Doc.AOHozFurl'))
+            set RashDoc.cAvans := SoprHoz.nRec;
+        }
+      }
+    }
+  // РКО
+    8, 18:
+    {
+      MakeSoprHoz(NormRash.cHozOperV, RashDoc.cVal2, ss, ssv);
+
+      // привязываем первую ТХО к PlPor'у
+      if (PlPor.cHozOper = 0)
+      {
+        PlPor.cHozOper := SoprHoz.cHozOper;
+        update current PlPor;
+      }
+    }
+  //
+   else
+     Exit;
+  end;  // case
+
+  update current RashDoc;
+}
+
+Procedure InsSoprHoz;
+! формирование хоз.операций по спецификации
+var
+  ss, ssv, SumPlPor: double;
+{
+//  if (message('С помощью данного режима осуществляется автоматическое'#13 +
+//              'формирование хоз.операций по спецификации.'#13#13 +
+//              'Формировать хоз.операции ?', YesNo) <> cmYes)
+//    Exit;
+
+  // 1. Удалить все старые записи журнала хозопераций вместе с проводками
+
+//  if isSpecSynch //синхронизация спецификации и хозоперации в АО
+//    _loop soprhoz
+//      if RecordExists RashDoc where((9 == RashDoc.TipDoc and SoprHoz.Nrec == RashDoc.cKredCard)) <> tsOk
+//        iSHoz.DeleteRec(SoprHoz.Nrec)
+  //}
+//  if not isSpecSynch
+    if (GetFirst SoprHoz = tsOk)
+    {
+//      if ((PlPor.cHozOper = 0) and (SoprHoz.cHozOper = 0))
+        iSHoz.DeleteDoc(PlPor.NRec, PlPor.TiDk);
+//      else
+//        if (message('По данному документу уже сформированы'#13 +
+//                    'хозяйственные операции.'#13#13 +
+//                    'Переформировать заново?', YesNo) = cmYes)
+//        {
+//          iSHoz.DeleteDoc(PlPor.NRec, PlPor.TiDk);
+//
+          PlPor.cHozOper := 0;
+          update current PlPor;
+//        }
+//        else
+//          Exit;
+    }
+
+  // 2. Сформировать новые записи журнала хозопераций
+
+  PushPos(#RashDoc);
+
+  if (GetFirst RashDoc = tsOk)
+  {
+    isMes    := true;
+    lim      := false;
+    SumPlPor := 0;
+
+    do
+    {
+      if not isSpecSynch
+        RashDoc.cKredCard := 0;
+        RashDoc.cAvans    := 0;
+
+      if (GetFirst NormRash = tsOk)
+        if ((myTip = 9) and ((NormRash.cHozOperO <> 0) or (NormRash.cHozOper <> 0)))
+            or (((myTip = 8) or (myTip = 18)) and (NormRash.cHozOperV <> 0))
+        {
+          RashSum(myTip, true, ss, ssv);
+
+          InsertToSoprHozR(ss, ssv);
+          SumPlPor := SumPlPor + ss;
+        }
+    }
+    WHILE (GetNext RashDoc = tsOk);
+  }
+
+  PopPos(#RashDoc);
+
+  set PlPor.SumPlat := SumPlPor;
+  if (UpDate current PlPor = tsOK) {}
+
+  // 3. формируем проводки по уже привязанным ТХО
+
+  if (GetFirst SoprHoz = tsOk)
+  {
+    if (wGetTune('TProv.FormTP') <> 0)
+    {
+      InitServTxo(0);
+
+      TxoResetServer;
+
+      _loop SoprHoz
+        TxoMakeSpecial(SoprHoz.NRec, SoprHoz.cHozOper, 0);
+
+      TxoProcessProtokol;
+
+      DoneServTxo;
+    }
+  }
+  else
+    InsertToSoprHoz;  // формируем пустой SoprHoz
+
+  // 4. перерисуем окошко
+
+  ReScanPanel(#RashDoc);
+}

@@ -1,0 +1,144 @@
+#doc
+Подготовка Организаций к объединению
+#end
+
+
+Interface "Join_KatOrg";
+
+var
+  k
+, i
+, l
+                : integer;
+  nrec_org
+, nrec_org1
+, nrec_join
+, User_nRec
+                : comp   ;
+  name
+, name_1
+, _yes
+, analog
+, User_Name
+                : string ;
+  y
+                : boolean;
+
+
+
+create view
+  as select *
+  from
+  KatOrg
+, Joihead
+, SpJoi
+, X$USERS
+, synonym KatOrg KatOrg1
+, synonym KatOrg KatOrg2
+  where  (( KatOrg.UNN == KatOrg1.UNN
+         ))
+  and KatOrg.nRec <> KatOrg1.nRec
+  and KatOrg.UNN > ''
+;
+
+
+
+HandleEvent
+  cmInit : {
+  k:=0;
+  i:=0;
+  l:=0;
+  User_Name := sGetTune('USER.OWNNAME');
+
+  if (GetFirst X$USERS Where ((User_Name == X$USERS.XU$LOGINNAME)) = tsOK ) {
+    User_nRec := X$USERS.ATL_NREC;
+  } else {
+    User_nRec := 0000000000000018h; // igor
+    }
+
+     StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Просмотрено: 0',10000);
+
+  if (GetFirst KatOrg = tsOk)
+     Do {
+          inc(k);
+          y := true;
+         NextVisual();
+         SetVisualHeader(' Просмотрено: ' + String(k));
+
+         nrec_org := string(KatOrg.nRec);
+
+         If (KatOrg.eMail = '_yes') {Continue;}
+
+      if (GetFirst KatOrg1 = tsOk)
+           Do {
+             nrec_org1 := string(KatOrg1.nRec);
+             _yes      := string(KatOrg1.eMail);
+
+                  if (_yes <> '_yes') {
+
+                       if y {
+                           y :=false;
+                           
+                           ClearBuffer(#joihead);
+                           joihead.typeevent    := word(2);
+                           joihead.crec         := nrec_org;
+                           joihead.ddate        := cur_date;
+                           joihead.username     := User_Name;
+                           joihead.atl_lastuser := User_nRec;
+                            if (insert current joihead = tsok) {inc(i);}
+                            if (update current joihead <> tsok) {
+                              message('Не смогли вставить результат: '+name);
+                            } else {
+                              nrec_join    := joihead.nrec;
+                              KatOrg.eMail := '_yes';
+                              if (update current KatOrg =tsok) {inc(l);}
+                              }
+                       }
+
+                           ClearBuffer(#spjoi);
+                           spjoi.cjoihead     := nrec_join;
+                           spjoi.crec         := nrec_org1;
+                           spjoi.isdel        := byte(1);
+                           spjoi.atl_lastuser := User_nRec;
+                            if (insert current spjoi = tsok)
+                            if (update current spjoi <> tsok)
+                             {message('Не смогли вставить источник: '+name_1);}
+                             else {
+                                 KatOrg1.eMail := '_yes';
+                                 if (update current KatOrg1 =tsok) {inc(l);}
+                             }
+
+
+                  }
+
+           } While (GetNext KatOrg1 = tsok)
+            
+     } While (GetNext KatOrg = tsOk)
+
+  If (GetFirst KatOrg2 = tsok)
+  Do {
+    if KatOrg2.eMail = '_yes' {
+        KatOrg2.eMail := '';
+        if (update current KatOrg2 = tsok) {}
+    }
+  } While (GetNext KatOrg2 = tsOk)
+
+
+    StopVisual('',0);
+    CloseInterFace(cmDefault);
+    message('Просмотрено: ' + String(k)+'; результат='+string(i)+'; источник='+string(l));
+  }
+  end;
+
+end.
+
+
+.Form 'Подготовка к объединению Организаций по УНН'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('Join_KatOrg');
+end.
+
+.endform
+

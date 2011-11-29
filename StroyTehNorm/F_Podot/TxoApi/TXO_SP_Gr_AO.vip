@@ -1,0 +1,85 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2000 корпорация ГАЛАКТИКА                    ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Бухгалтерский контур                                      ║
+ ║ Версия        : 8.1x                                                      ║
+ ║ Назначение    : Проставляет счета бух. учёта в зависимости                ║
+ ║                 от кода группы МЦ по складским ордерам,                   ║
+ ║                 план счетов с кодом "0"                                   ║
+ ║                 В АВАНСОВЫХ ОТЧЁТАХ                                       ║
+ ║ Ответственный : Шайдаров Игорь Александрович                              ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_Sp_Gr_AO implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_Sp_Gr_AO;
+var
+  CurSoprHoz : comp   ;
+
+create view
+as select
+  *
+from
+     SoprHoz   (ReadOnly)
+   , RashDoc   (ReadOnly)
+   , SklOrder  (ReadOnly)
+   , SpOrder   (ReadOnly)
+   , KatMC     (ReadOnly)
+   , GroupMC   (ReadOnly)
+
+where
+((
+    CurSoprHoz    == SoprHoz.nRec
+))
+;
+
+
+
+function GetInfo : string; {
+   GetInfo := 'Проставляет бух. счета в зависимости от группы МЦ (по ордерам). Режим счетов - <режим 1 и 0>';
+}
+
+function ParamMaster : string; {
+   ParamMaster := ''  ;
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   TxoAllowRecallStoreCycles(hTxo);
+   CurSoprHoz := buf.cSoprHoz;
+   InitGetCur;
+
+if( GetFirst SoprHoz where ((CurSoprHoz == SoprHoz.nRec)) <> tsOk ) {Exit;}
+
+if( GetFirst RashDoc where (( SoprHoz.TipDoc  == RashDoc.TipDoc
+                          and SoprHoz.nRec    == RashDoc.cKredCard )) <> tsOk ) {Exit;}
+
+     _Loop SklOrder where (( 9            == SklOrder.TipOrd  (noIndex)
+                         and RashDoc.nRec == SklOrder.cSopr              )) {
+
+        _Loop SpOrder where (( SklOrder.nRec == SpOrder.cSklOrder )) {
+
+           if(GetFirst KatMC   where ((SpOrder.cMC    == KatMC.nRec  )) <> tsOk) {Exit;}
+           if(GetFirst GroupMc where ((KatMC.cGroupMC == GroupMc.nRec)) <> tsOk) {Exit;}
+
+           TxoBodyClear   (hTxo);
+           TxoBodySetSum  (hTxo, SpOrder.Kol * SpOrder.RsRPrice,  0, SpOrder.Kol);
+           TxoBodyAddSchet(hTxo, wFlKau_Mode1, '0' + SubStr(GroupMC.Kod, 1, 2),  SubStr(GroupMC.Kod, 3, 2) );
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatPodr, SklOrder.cPodr);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMOL , SklOrder.cMOL);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMC  , SpOrder.cMC);
+           TxoBodyInsert  (hTxo);
+          }
+       }
+}
+
+handleevent
+end;
+
+end.

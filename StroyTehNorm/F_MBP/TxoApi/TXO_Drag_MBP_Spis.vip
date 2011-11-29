@@ -1,0 +1,69 @@
+/*
+ ษอออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออป
+ บ                     (c) 1994,2000 ชฎเฏฎเ ๆจ๏ €€’€                    บ
+ บ เฎฅชโ        : €€’€                                                 บ
+ บ ‘จแโฅฌ        : ใๅฃ ซโฅเแชจฉ ชฎญโใเ                                      บ
+ บ ฅเแจ๏        : 8.1x                                                      บ
+ บ  งญ ็ฅญจฅ    : Boolean - ฅแโ์ ซจ ใ แฏจแ๋ข ฅฌฎฃฎ  คเ ฃฌฅโ ซซ๋ : 1-ฅแโ์ บ
+ บ โขฅโแโขฅญญ๋ฉ :  ฉค เฎข ฃฎเ์ €ซฅชแ ญคเฎขจ็                              บ
+ บ  เ ฌฅโเ๋     : ญฅโ                                                       บ
+ ศอออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ
+*/
+
+#include TxoApi.vih // ฎคชซ๎็ฅญจฅ จญโฅเไฅฉแ  TxoApi
+
+VipInterface TXO_Drag_MBP_Spis implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_Drag_MBP_Spis;
+var
+  CurSoprDoc : comp  ;
+  Par_Rasch  : word  ;
+
+create view
+as select
+  *
+from
+     MBPout    (ReadOnly)
+   , MBPin     (ReadOnly)
+   , KatMBP    (ReadOnly)
+   , NalDrag   (ReadOnly)
+where
+((
+   CurSoprDoc          == MBPout.nRec        and
+   MBPout.cMBPin       == MBPin.nRec         and
+   MBPin.cMBP          == KatMBP.nRec        and
+   word(2)             == NalDrag.TidK       and
+   KatMBP.nRec         == NalDrag.cKatOS
+))
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := '…แซจ คเ ฃฌฅโ ซซ๋ ฅแโ์, โฎ ฏเฎขฎคจโแ๏ แใฌฌ  จ ชฎซจ็ฅแโขฎ ใ่ฅค่จฅ';
+}
+
+
+function ParamMaster : string;
+{
+   ParamMaster := '' ;
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   CurSoprDoc := buf.cSoprDoc;
+
+         if (GetFirst NalDrag = tsOK)
+          {
+           TxoBodyClear    (hTxo);
+           TxoBodySetSum   (hTxo, MBPout.Summa,  0, MBPout.Kol);
+           TxoBodyInsert   (hTxo);
+          }
+
+}
+
+handleevent
+end;
+
+end.

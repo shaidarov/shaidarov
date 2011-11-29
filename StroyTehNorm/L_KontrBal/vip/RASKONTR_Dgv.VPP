@@ -1,0 +1,1837 @@
+//****************************************************************************************
+//                                                        (c) корпорация Галактика
+// Галактика 7.12 - логистика
+// Акт сверки взаиморасчетов с контрагентом в разрезе договоров. Функции расчета и печати.
+//****************************************************************************************
+
+#include rep_common.vpp
+
+// Загружает ссылку на заданный договор/соглашение и суммы по нему во временную таблицу
+procedure Modif_tmpDogovor_One(aVal, aDogovor, aAppDogovor : Comp; aSort : String; aSum : Double;
+                               aDirect, aMode : Word);
+{
+  if (GetFirst FastFirstRow tmpDogovor where((aDogovor    == tmpDogovor.cDogovor  and
+                                              aAppDogovor == tmpDogovor.cAppDogovor)) = tsOk)
+  {
+    if (aMode = 0)
+    {
+      if (aDirect = 1)  // Дебет
+        tmpDogovor.SumDebet  := tmpDogovor.SumDebet + aSum;
+      else // Кредит
+        tmpDogovor.SumKredit := tmpDogovor.SumKredit + aSum;
+    }
+    else
+    {
+      if (aDirect = 1)  // Дебет
+        tmpDogovor.BegSumDebet  := tmpDogovor.BegSumDebet + aSum;
+      else // Кредит
+        tmpDogovor.BegSumKredit := tmpDogovor.BegSumKredit + aSum;
+    }
+
+    Update current tmpDogovor;
+  }
+  else
+  {
+    ClearBuffer(#tmpDogovor);
+    tmpDogovor.cDogovor    := aDogovor;
+    tmpDogovor.cAppDogovor := aAppDogovor;
+    tmpDogovor.cVal        := aVal;
+    tmpDogovor.SortName    := if (aDogovor <> Comp(0), aSort, PadCh('', Chr(255), 80));
+
+    if (aMode = 0)
+    {
+      if (aDirect = 1)  // Дебет
+        tmpDogovor.SumDebet  := aSum;
+      else // Кредит
+        tmpDogovor.SumKredit := aSum;
+    }
+    else
+    {
+      if (aDirect = 1)  // Дебет
+        tmpDogovor.BegSumDebet  := aSum;
+      else // Кредит
+        tmpDogovor.BegSumKredit := aSum;
+    }
+
+    Insert current tmpDogovor;
+  }
+}
+
+// Загружает ссылки и суммы на текущий и все вышележащие договора/соглашения
+procedure Modif_tmpDogovor(aVal, aDogovor, aAppDogovor : Comp; aSort : String; aSum : Double;
+                           aDirect, aMode : Word);
+var
+  bIsAppDogovor        : Boolean;
+  aDogSort, aUpDogSort : String;
+  aCurrAppDogovor      : Comp;
+{
+  // Загрузка текущего договора/соглашения
+  Modif_tmpDogovor_One(aVal, aDogovor, aAppDogovor, aSort, aSum, aDirect, aMode);
+
+  // Добавление сумм к вышележащим договорам/соглашениям
+  aCurrAppDogovor := aAppDogovor;
+
+  _loop IerDog where ((aCurrAppDogovor == IerDog.cRec))
+  {
+    if (IerDog.cUpRec = IerDog.cRec)
+      Continue;
+
+    if (GetFirst FastFirstRow Dogovor_Dop where ((IerDog.cUpRec == Dogovor_Dop.NRec)) <> tsOk)
+      Continue;
+
+    bIsAppDogovor := (Dogovor_Dop.cDogovor <> Comp(0));
+
+    aDogovor    := if (bIsAppDogovor, IerDog.cDogovor,  Dogovor_Dop.NRec);
+    aAppDogovor := if (bIsAppDogovor, Dogovor_Dop.NRec, Comp(0));
+    aDogSort    := DateToStr(Dogovor_Dop.dDoc, 'YYYYMMDD') + Dogovor_Dop.NoDoc;
+    aUpDogSort  := '';
+
+    if (bIsAppDogovor)
+    {
+      if (GetFirst FastFirstRow Dogovor_Dop where ((aDogovor == Dogovor_Dop.NRec)) = tsOk)
+        aUpDogSort := DateToStr(Dogovor_Dop.dDoc, 'YYYYMMDD') + Dogovor_Dop.NoDoc + '_';
+    }
+
+    Modif_tmpDogovor_One(aVal, aDogovor, aAppDogovor, aUpDogSort + aDogSort, aSum, aDirect, aMode);
+  }
+}
+
+
+//****************************************************************************************
+// Загружает ссылку на Валюты и суммы во временную таблицу
+procedure Modif_tmpValSort(cValTmp : Comp; aValSum : Double; aDirect : Word; aMode : Word);
+{
+  if (GetFirst FastFirstRow tmpValSort where((cValTmp == tmpValSort.cValut)) = tsOk)
+  {
+    if (aMode = 0)
+    {
+      if (aDirect = 1)  // Дебет
+        tmpValSort.SumValD := tmpValSort.SumValD + aValSum;
+      else // Кредит
+        tmpValSort.SumValK := tmpValSort.SumValK + aValSum;
+    }
+    else
+    {
+      if (aDirect = 1)  // Дебет
+        tmpValSort.BegValD := tmpValSort.BegValD + aValSum;
+      else // Кредит
+        tmpValSort.BegValK := tmpValSort.BegValK + aValSum;;
+    }
+
+    Update current tmpValSort;
+  }
+  else
+  {
+    ClearBuffer(#tmpValSort);
+    tmpValSort.cValut  := cValTmp;
+    if (aMode = 0)
+    {
+     if (aDirect = 1)  // Дебет
+       tmpValSort.SumValD := aValSum;
+     else // Кредит
+       tmpValSort.SumValK := aValSum;
+    }
+    else
+    {
+      if (aDirect = 1)  // Дебет
+        tmpValSort.BegValD := aValSum;
+      else // Кредит
+        tmpValSort.BegValK := aValSum;;
+    }
+
+    Insert current tmpValSort;
+  }
+}
+
+//****************************************************************************************
+// Загрузка ссылки на документ во временную таблицу
+procedure Modif_tmpDocSort(aDogovor, aAppDogovor, aDoc : Comp; aTypeDoc : Word;
+                           aSumma : Double; aSummaType : Word; adDoc : Date; aNoDoc : String;
+                           aTiDkGal : Word; aName : String[80]; adProv : Date;
+                           aNameR : String[80]; aPost : Comp;
+                           aDopType : Word; aDopDoc : Comp; sStr1, sStr2, sStr3, sStr4 : string);
+{
+  if ((aTypeDoc <> 1) or
+      ((aTypeDoc = 1) and (aDopType = 0)))
+  {
+    if (GetFirst FastFirstRow tmpDocSort where((aDogovor    == tmpDocSort.cDogovor    and
+                                                aAppDogovor == tmpDocSort.cAppDogovor and
+                                                aTypeDoc    == tmpDocSort.TypeDoc     and
+                                                aDoc        == tmpDocSort.cDoc)) = tsOk)
+    {
+      if aSummaType = 1
+        tmpDocSort.SummaDb := tmpDocSort.SummaDb + aSumma;
+      else
+        tmpDocSort.SummaKr := tmpDocSort.SummaKr + aSumma;
+      Update current tmpDocSort;
+    }
+    else
+    {
+      ClearBuffer(#tmpDocSort);
+      tmpDocSort.cDogovor    := aDogovor;
+      tmpDocSort.cAppDogovor := aAppDogovor;
+      tmpDocSort.cDoc        := aDoc;
+      tmpDocSort.TypeDoc     := aTypeDoc;
+      tmpDocSort.dDoc        := adDoc;
+      tmpDocSort.NoDoc       := aNoDoc;
+      tmpDocSort.TiDkGal     := aTiDkGal;
+      tmpDocSort.Name        := aName;
+      tmpDocSort.dProv       := adProv;
+      tmpDocSort.NameR       := aNameR;
+      tmpDocSort.cPost       := aPost;
+
+      if (aSummaType = 1)
+        tmpDocSort.SummaDb := aSumma;
+      else
+        tmpDocSort.SummaKr := aSumma;
+
+      Insert current tmpDocSort;
+    }
+  }
+  else // BaseFin
+  {
+    if (GetFirst FastFirstRow tmpDocSort where((aDogovor    == tmpDocSort.cDogovor    and
+                                                aAppDogovor == tmpDocSort.cAppDogovor and
+                                                aTypeDoc    == tmpDocSort.TypeDoc     and
+                                                aDopType    == tmpDocSort.DopType     and
+                                                aDopDoc     == tmpDocSort.cDopDoc)) = tsOk)
+    {
+      if aSummaType = 1
+        tmpDocSort.SummaDb := tmpDocSort.SummaDb + aSumma;
+      else
+        tmpDocSort.SummaKr := tmpDocSort.SummaKr + aSumma;
+      Update current tmpDocSort;
+    }
+    else
+    {
+      ClearBuffer(#tmpDocSort);
+      tmpDocSort.cDogovor    := aDogovor;
+      tmpDocSort.cAppDogovor := aAppDogovor;
+      tmpDocSort.cDoc        := aDoc;
+      tmpDocSort.TypeDoc     := aTypeDoc;
+      tmpDocSort.dDoc        := adDoc;
+      tmpDocSort.NoDoc       := aNoDoc;
+      tmpDocSort.TiDkGal     := aTiDkGal;
+      tmpDocSort.Name        := aName;
+      tmpDocSort.dProv       := adProv;
+      tmpDocSort.NameR       := aNameR;
+      tmpDocSort.cPost       := aPost;
+      tmpDocSort.cDopDoc     := aDopDoc;
+      tmpDocSort.DopType     := aDopType;
+      tmpDocSort.sNamePL1    := sStr1;
+      tmpDocSort.sNamePL2    := sStr2;
+      tmpDocSort.sNamePL3    := sStr3;
+      tmpDocSort.sNamePL4    := sStr4;
+
+      if (aSummaType = 1)
+        tmpDocSort.SummaDb := aSumma;
+      else
+        tmpDocSort.SummaKr := aSumma;
+
+      Insert current tmpDocSort;
+    }
+  }
+}
+
+//****************************************************************************************
+// Фильтр по договорам
+function CheckDogovorFilter(aDogovor, aAppDogovor : Comp; aStatus : Word) : Boolean;
+var
+  IndexNo : LongInt;
+{
+  CheckDogovorFilter := True;
+
+  if (not bIsFilterDogovor)
+  {
+    // Договор не задан, документы попадают в отчет
+    if (aDogovor = Comp(0))
+      aStatus := 1;
+
+//    // Если фильтр не задан, то только исполняемые и приостановленные договора рассматриваются
+//    if ((aStatus <> Word(1)) and (aStatus <> Word(2)))
+//      CheckDogovorFilter := False;
+  }
+  else
+  {
+    if ((not SearchMarker(MrkDogovorFilter, aDogovor, IndexNo)) and
+        (not SearchMarker(MrkDogovorFilter, aAppDogovor, IndexNo)))
+      CheckDogovorFilter := False;
+  }
+}
+
+// Фильтрация по счетам
+function IsFilterBuhSch(tSch, tSub : String) : Boolean;
+{
+  IsFilterBuhSch := False;
+
+  // Счет
+  if (not (iPickBuh.FoundInPickByKod(cgPick_Schet, #GetDbSch(tSch))))
+    Exit;
+
+  if (iPickBuh.FoundSubForSchet(tSch))
+    if (not (iPickBuh.FoundSubSch(tSch, if (tSub = cgDefSub, cgNotSch, tSub))))
+      Exit;
+
+  IsFilterBuhSch := True;
+}
+
+//****************************************************************************************
+// Для сопроводительных PlPor
+function CheckDK_PlPSopr(aMode : Word; _wTiDk : Word; boFieldPlat : Boolean) : Boolean;
+// aMode = 0 - Загрузка во временную таблицу документов контрагента
+//         1 - Расчет входящего сальдо на начало периода для контрагента
+var
+  S1: Double;
+  aDirect : Word;
+  IsOk    : Boolean;
+{
+  CheckDK_PlPSopr := True;
+  wPlPorSopr := _wTiDk;
+
+  if (aMode = 0)
+  {
+    if (SoprInRep > 0)
+    {
+      if (boFieldPlat)
+        PushBounds(tbbyPlPorDatOb1);
+      else
+        PushBounds(tbbyPlPorDatOb2);
+    }
+    else
+    {
+      if (boFieldPlat)
+        PushBounds(tbbyPlPorDat1);
+      else
+        PushBounds(tbbyPlPorDat2);
+    }
+  }
+  else
+  {
+    if (SoprInRep > 0)
+    {
+      if (boFieldPlat)
+        PushBounds(tbbyPlPorDatObBeforeBeg1);
+      else
+        PushBounds(tbbyPlPorDatObBeforeBeg2);
+    }
+    else
+    {
+      if (boFieldPlat)
+        PushBounds(tbbyPlPorDatBeforeBeg1);
+      else
+        PushBounds(tbbyPlPorDatBeforeBeg2);
+    }
+  }
+
+  PushCondition(tcbyPlP_Sopr);
+
+  if (aMode = 0)
+    if (GetFirst FastFirstRow KatDocS where((_wTiDk == KatDocS.TiDkGal)) = tsOk) {}
+
+  _loop PlP_Sopr
+  {
+    if (not NextVisual)
+    {
+      CheckDK_PlPSopr := False;
+      Break;
+    }
+
+    if (boFieldPlat)
+    {
+      if (PlP_Sopr.cPlat <> cRec_Org)
+        Continue;
+    }
+    else
+    {
+      if (PlP_Sopr.cPlatNew <> cRec_Org)
+        Continue;
+    }
+
+    // Фильтр по направлению
+    case wDirect of
+
+      1 :
+      {
+        if ((PlP_Sopr.ModeDoc and 1024) = 0)
+          Continue;
+      }
+
+      2 :
+      {
+        if ((PlP_Sopr.ModeDoc and 2048) = 0)
+          Continue;
+      }
+    end;
+
+    // Документы с нулевыми суммами не учитываются
+    if ((PlP_Sopr.SumPlat = 0) and (PlP_Sopr.SumPlatV = 0))
+      Continue;
+
+    // Фильтр по оборотам
+    if (BuhSchCount > 0)
+    {
+      IsOk := False;
+
+      _loop OborotPlP
+      {
+        // Проверка на совпадение значения основного счета
+        if (IsFilterBuhSch(OborotPlP.SchetO, OborotPlP.SubOsSch))
+        {
+          IsOk := True;
+          Break;
+        }
+
+        // Проверка на совпадение значения корреспондирующего счета
+        if (IsFilterBuhSch(OborotPlP.SchetK, OborotPlP.SubSchK))
+        {
+          IsOk := True;
+          Break;
+        }
+      }
+
+      if (not IsOk)
+        Continue;
+    }
+
+    if (not CheckDogovorFilter(Comp(0), Comp(0), Word(1)))
+      Continue;
+
+    S1 := oValFunc.GetAnyCurrency(PlP_Sopr.cVal,
+                                  if(PlP_Sopr.cVal = 0, PlP_Sopr.SumPlat, PlP_Sopr.SumPlatV),
+                                  PlP_Sopr.DatVip, Comp(0));
+    // Загрузка документа во временную таблицу
+    if ((PlP_Sopr.ModeDoc and 1024) <> 0)  // Продажа
+      aDirect := 1;  // Дебет
+    else
+      aDirect := 2;  // Кредит
+
+    // Загрузка информации во временную таблицу
+    Modif_tmpValSort(Comp(0), S1, aDirect, aMode);
+    Modif_tmpDogovor(Comp(0), Comp(0), Comp(0), '', S1, aDirect, aMode);
+
+    if (aMode = 0)
+    {
+      Modif_tmpDocSort(Comp(0), Comp(0), PlP_Sopr.NRec, Word(4), S1, aDirect, PlP_Sopr.DatVip,
+                       KatDocS.Name + ' № ' + PlP_Sopr.NoDok, PlP_Sopr.TiDkGal,
+                       '(Тип - "сопроводительный")', PlP_Sopr.DatOb,
+                       '', Comp(0), Word(0), Comp(0), '', '', '', '');
+    }
+  } // _loop PlP_Sopr
+
+  PopCondition(tcbyPlP_Sopr);
+  if (aMode = 0)
+  {
+    if (SoprInRep > 0)
+    {
+      if (boFieldPlat)
+        PopBounds(tbbyPlPorDatOb1);
+      else
+        PopBounds(tbbyPlPorDatOb2);
+    }
+    else
+    {
+      if (boFieldPlat)
+        PopBounds(tbbyPlPorDat1);
+      else
+        PopBounds(tbbyPlPorDat2);
+    }
+  }
+  else
+  {
+    if (SoprInRep > 0)
+    {
+      if (boFieldPlat)
+        PopBounds(tbbyPlPorDatObBeforeBeg1);
+      else
+        PopBounds(tbbyPlPorDatObBeforeBeg2);
+    }
+    else
+    {
+      if (boFieldPlat)
+        PopBounds(tbbyPlPorDatBeforeBeg1);
+      else
+        PopBounds(tbbyPlPorDatBeforeBeg2);
+    }
+  }
+}
+
+// Финансовые документы
+function CheckDK_BaseFin(aMode : Word) : Boolean;
+// aMode = 0 - Загрузка во временную таблицу документов контрагента
+//         1 - Расчет входящего сальдо на начало периода для контрагента
+var
+  aDogovor, aAppDogovor, aVal, aDopDoc : Comp;
+  S1                         : Double;
+  DC                         : Date;
+  aDogSort, sStr1, sStr2
+, sStr3, sStr4               : String;
+  aDirect, aDopType, aStatus : Word;
+  IsOk, Fsh, bIsAppDogovor   : Boolean;
+  aPost                      : Comp;
+{
+  CheckDK_BaseFin := True;
+
+  if (aMode = 0)
+  {
+    PushBounds(tbbyBaseFinDat);
+    PushBounds(tbByKatDoc_BF);
+  }
+  else
+    PushBounds(tbbyBaseFinDatBeforeBeg);
+
+  _loop BaseFin
+  {
+    if (not NextVisual)
+    {
+      CheckDK_BaseFin := False;
+      Break;
+    }
+
+    if not ((BaseFin.Direct = 1) or (BaseFin.Direct = 2))
+      Continue;
+
+    // Фильтр по направлению
+    case wDirect of
+      1, 2 :
+      {
+        if (BaseFin.Direct <> wDirect)
+          Continue;
+      }
+    end;
+
+    if (not SearchMarker(MarkerTree, Comp(BaseFin.TiDKGal), IndexNoTree))
+      Continue;
+
+    // Документы с нулевыми суммами не учитываются
+    if ((BaseFin.Summa = 0) and (BaseFin.SumVal = 0))
+      Continue;
+
+    // Фильтр по оборотам
+    if (BuhSchCount > 0)
+    {
+      IsOk := False;
+      if basefin.TiDKGal = 71
+      {
+        if (GetFirst SoprHoz70
+            where (( word(70) == SoprHoz70.TipDoc AND
+               BaseFin.cPlPor  == SoprHoz70.cSoprDoc )) = tsOk)
+        {
+          _loop OborotBF70
+          {
+            if (IsFilterBuhSch(OborotBF70.SchetO, OborotBF70.SubOsSch))
+            {
+              IsOk := True;
+              Fsh  := True;
+              Break;
+            }
+            // Проверка на совпадение значения корреспондирующего счета
+            if (IsFilterBuhSch(OborotBF70.SchetK, OborotBF70.SubSchK))
+            {
+              IsOk := True;
+              Fsh  := False;
+              Break;
+            }
+          }
+        }
+      }
+      else
+      {
+      _loop OborotBF
+      {
+        if (IsFilterBuhSch(OborotBF.SchetO, OborotBF.SubOsSch))
+        {
+          IsOk := True;
+          Break;
+        }
+
+        // Проверка на совпадение значения корреспондирующего счета
+        if (IsFilterBuhSch(OborotBF.SchetK, OborotBF.SubSchK))
+        {
+          IsOk := True;
+          Break;
+        }
+      }
+      }
+      if (not IsOk)
+        Continue;
+    }
+
+    aDogovor    := Comp(0);
+    aAppDogovor := Comp(0);
+    aStatus     := Word(0);
+    aDogSort    := '';
+    DC          := BaseFin.dDoc; // Дата курса
+    aVal        := Comp(0);
+
+    bIsAppDogovor    := False;
+    pDogovor_BaseFin := BaseFin.cDogovor;
+
+    // По соглашениям
+    if ((wDopParam and 4) <> 0)
+      if (BaseFin.cAppDogovor <> Comp(0))
+      {
+        pDogovor_BaseFin := BaseFin.cAppDogovor;
+        bIsAppDogovor := True;
+      }
+
+    Set pDogovor_BaseFin := pDogovor_BaseFin;
+
+    if (IsValid(#Dogovor))
+    {
+      if (bIsAppDogovor)
+      {
+        if (GetFirst FastFirstRow IerDog where ((Dogovor.NRec == IerDog.cRec)) = tsOk)
+          aDogovor := IerDog.cDogovor;
+
+        aAppDogovor := Dogovor.NRec;
+      }
+      else
+      {
+        aDogovor    := Dogovor.NRec;
+        aAppDogovor := Comp(0);
+      }
+
+      aStatus := Dogovor.Status;
+      aVal    := Dogovor.cVal;
+
+      if (bIsAppDogovor)
+      {
+        if (GetFirst FastFirstRow Dogovor_Dop where ((aDogovor == Dogovor_Dop.NRec)) = tsOk)
+          aDogSort := DateToStr(Dogovor_Dop.dDoc, 'YYYYMMDD') + Dogovor_Dop.NoDoc + '_';
+
+        aStatus := Dogovor_Dop.Status;
+      }
+
+      aDogSort := aDogSort + DateToStr(Dogovor.dDoc, 'YYYYMMDD') + Dogovor.NoDoc;
+
+      if ((Dogovor.dValCurse <> Date(0,0,0)) and (Dogovor.TipMoney = 2))
+        DC := Dogovor.dValCurse;
+    }
+
+    if (not CheckDogovorFilter(aDogovor, aAppDogovor, aStatus))
+      Continue;
+
+    S1 := oValFunc.GetAnyCurrency(BaseFin.cVal,
+                                  if(BaseFin.cVal = 0, BaseFin.Summa, BaseFin.SumVal),
+                                  DC, aVal);
+
+    if (BaseFin.Direct = 1)
+      {
+        aDirect := 2;  // Кредит
+        if ((KatOrgSelf.nrec = KatOrg.nrec) and Fsh)
+          Continue;
+      }
+      else
+      {
+        aDirect := 1;  // Дебет
+        if ((KatOrgSelf.nrec = KatOrg.nrec) and (Fsh = false))
+          Continue;
+      }
+    // Загрузка информации во временную таблицу
+    Modif_tmpValSort(aVal, S1, aDirect, aMode);
+    Modif_tmpDogovor(aVal, aDogovor, aAppDogovor, aDogSort, S1, aDirect, aMode);
+
+    if (aMode = 0)
+    {
+      aDopDoc  := Comp(0);
+      aDopType := Word(0);
+      if (BaseFin.cPlPor <> Comp(0))
+      {
+        aDopDoc  := BaseFin.cPlPor;
+        aDopType := Word(1);
+      }
+      else
+      {
+        if (BaseFin.cVeksl <> Comp(0))
+        {
+          aDopDoc  := BaseFin.cVeksl;
+          aDopType := Word(2);
+        }
+      }
+
+      aPost := 0;
+      sStr1 := ''; sStr2 := ''; sStr3 := ''; sStr4 := '';
+
+      if GetFirst PlPor where ((BaseFin.cPlPor == PlPor.nrec)) = tsOk
+        {
+        if PlPor.cPlatNew <> 0
+          aPost := PlPor.cPol;
+
+          sStr1 := PlPor.NamePl1;
+          sStr2 := PlPor.NamePl2;
+          sStr3 := PlPor.NamePl3;
+          sStr4 := PlPor.NamePl4;
+        }
+
+      Modif_tmpDocSort(aDogovor, aAppDogovor, BaseFin.NRec, Word(1), S1, aDirect,
+                       BaseFin.dDoc, KatDocS.Name + ' № ' + BaseFin.NoDoc,
+                       BaseFin.TiDkGal, '', Date(0, 0, 0), '', aPost,
+                       aDopType, aDopDoc, sStr1, sStr2, sStr3, sStr4);
+    }
+  } // _loop BaseFin
+
+  if (aMode = 0)
+  {
+    PopBounds(tbByKatDoc_BF);
+    PopBounds(tbbyBaseFinDat);
+  }
+  else
+    PopBounds(tbbyBaseFinDatBeforeBeg);
+}
+
+// Сопроводительные документы
+function CheckDK_KatSopr(aMode : Word) : Boolean;
+// aMode = 0 - Загрузка во временную таблицу документов контрагента
+//         1 - Расчет входящего сальдо на начало периода для контрагента
+var
+  aDogovor, aAppDogovor, aVal, aPost       : Comp;
+  boIsStatus, boDb_Kr, IsOk, bIsAppDogovor : Boolean;
+  S1               : Double;
+  DC               : Date;
+  i_Mrk            : LongInt;
+  aDogSort, aPrim  : String;
+  aDirect, aStatus : Word;
+{
+  CheckDK_KatSopr := True;
+
+  if (aMode = 0)
+  {
+    if (SoprInRep = 0)
+      PushBounds(tbbyKatSoprDatAll);
+    else
+      PushBounds(tbbyKatSoprDatOpr);
+
+    PushBounds(tbByKatDoc_KS);
+  }
+  else
+  {
+    if (SoprInRep = 0)
+      PushBounds(tbbyKatSoprDatBeforeBegAll);
+    else
+      PushBounds(tbbyKatSoprDatBeforeBegOpr);
+  }
+
+  boIsStatus := (GetMarkerCount(MrkStatusSopr) > 0);
+
+  _loop KatSopr
+  {
+    if (not NextVisual)
+    {
+      CheckDK_KatSopr := False;
+      Break;
+    }
+
+    if (not SearchMarker(MarkerTree, Comp(KatSopr.VidSopr), IndexNoTree))
+      Continue;
+
+    // По статусу
+    if (boIsStatus)
+    {
+      if (not (SearchMarker(MrkStatusSopr, KatSopr.cNote, i_Mrk)))
+        Continue;
+    }
+
+    // Документы с нулевыми суммами не учитываются
+    if ((KatSopr.Summa = 0) and (KatSopr.SumVal = 0))
+      Continue;
+
+    // Фильтр по оборотам
+    if (BuhSchCount > 0)
+    {
+      IsOk := False;
+
+      _loop OborotKS
+      {
+        // Проверка на совпадение значения основного счета
+        if (IsFilterBuhSch(OborotKS.SchetO, OborotKS.SubOsSch))
+        {
+          IsOk := True;
+          Break;
+        }
+
+        // Проверка на совпадение значения корреспондирующего счета
+        if (IsFilterBuhSch(OborotKS.SchetK, OborotKS.SubSchK))
+        {
+          IsOk := True;
+          Break;
+        }
+      }
+
+      if (not IsOk)
+        Continue;
+    }
+
+    aDogovor    := Comp(0);
+    aAppDogovor := Comp(0);
+    aStatus     := Word(0);
+    aDogSort    := '';
+    DC          := if(KatSopr.dPrice = ZeroDate, KatSopr.dSopr, KatSopr.dPrice);
+    aVal        := Comp(0);
+
+    bIsAppDogovor    := False;
+    pDogovor_KatSopr := KatSopr.cDogovor;
+
+    // По соглашениям
+    if ((wDopParam and 4) <> 0)
+      if (KatSopr.cAppDogovor <> Comp(0))
+      {
+        pDogovor_KatSopr := KatSopr.cAppDogovor;
+        bIsAppDogovor := True;
+      }
+
+    Set pDogovor_KatSopr := pDogovor_KatSopr;
+
+    if (IsValid(#Dog_KS))
+    {
+      if (bIsAppDogovor)
+      {
+        if (GetFirst FastFirstRow IerDog where ((Dog_KS.NRec == IerDog.cRec)) = tsOk)
+          aDogovor := IerDog.cDogovor;
+
+        aAppDogovor := Dog_KS.NRec;
+      }
+      else
+      {
+        aDogovor    := Dog_KS.NRec;
+        aAppDogovor := Comp(0);
+      }
+
+      aStatus := Dog_KS.Status;
+      aVal    := Dog_KS.cVal;
+
+      if (bIsAppDogovor)
+      {
+        if (GetFirst FastFirstRow Dogovor_Dop where ((aDogovor == Dogovor_Dop.NRec)) = tsOk)
+          aDogSort := DateToStr(Dogovor_Dop.dDoc, 'YYYYMMDD') + Dogovor_Dop.NoDoc + '_';
+
+        aStatus := Dogovor_Dop.Status;
+      }
+
+      aDogSort := aDogSort + DateToStr(Dog_KS.dDoc, 'YYYYMMDD') + Dog_KS.NoDoc;
+
+      if ((Dog_KS.dValCurse <> Date(0,0,0)) and (Dog_KS.TipMoney = 2))
+        DC := Dog_KS.dValCurse
+    }
+
+    if (not CheckDogovorFilter(aDogovor, aAppDogovor, aStatus))
+      Continue;
+
+    S1 := oValFunc.GetAnyCurrency(KatSopr.cVal,
+                                  if(KatSopr.cVal = 0, KatSopr.Summa, KatSopr.SumVal),
+                                  DC, aVal);
+
+    boDb_Kr := DebetSopr(KatSopr.VidSopr, KatSopr.TipSopr);
+
+    if (KatSopr.VidSopr = Word(700))  // Входящая задолженность
+    {
+      if (KatSopr.Summa >= 0)
+        boDb_Kr := False;
+      else
+      {
+        boDb_Kr := True;
+        S1 := Abs(S1);
+      }
+    }
+
+    // Фильтр по направлению
+    case wDirect of
+
+      1 :
+      {
+        if (boDb_Kr)
+          Continue;
+      }
+
+      2 :
+      {
+        if (not boDb_Kr)
+          Continue;
+      }
+    end;
+
+    if IsReklSopr(KatSopr.VidSopr)
+      boDb_Kr := not boDb_Kr;
+
+    if (boDb_Kr)
+      aDirect := 2;  // Кредит
+    else
+      aDirect := 1;  // Дебет
+
+    // Загрузка информации во временную таблицу
+    Modif_tmpValSort(aVal, S1, aDirect, aMode);
+    Modif_tmpDogovor(aVal, aDogovor, aAppDogovor, aDogSort, S1, aDirect, aMode);
+
+    if (aMode = 0)
+    {
+      aPost := Comp(0);
+      if (Pos('Акт ', KatDocS.Name) = 1)
+        aPost := KatSopr.cGruzFrom;
+      else
+      {
+        if (KatSopr.TipSopr = 1)  // Снабжение
+          aPost := KatSopr.cGruzFrom;
+        else
+          if (KatSopr.TipSopr = 2)  // Сбыт
+            aPost := KatSopr.cGruzTo;
+      }
+
+      // KatSopr.Name + if (IsValid(#HozOper), ' ' + HozOper.Name1 - раньше передавали в Наименование МЦ
+      aPrim := '';
+      if (GetFirst FastFirstRow SpSopr = tsOk)
+      {
+        if (SpSopr.PrMC = 1)
+          aPrim := if (IsValid(#GroupMC), GroupMC.Name, KatMC.Name);
+        else
+          aPrim := if (IsValid(#GroupUsl), GroupUsl.Name, KatUsl.Name);
+      }
+
+      Modif_tmpDocSort(aDogovor, aAppDogovor, KatSopr.NRec, Word(2), S1, aDirect,
+                       KatSopr.dSopr, KatDocS.Name + ' № ' + KatSopr.NSopr, KatSopr.VidSopr,
+                       KatSopr.Name, KatSopr.dOpr, aPrim, aPost,
+                       Word(0), Comp(0), '', '', '', '');
+    }
+  } // _loop KatSopr
+
+  if (aMode = 0)
+  {
+    PopBounds(tbByKatDoc_KS);
+    if (SoprInRep = 0)
+      PushBounds(tbbyKatSoprDatAll);
+    else
+      PushBounds(tbbyKatSoprDatOpr);
+  }
+  else
+  {
+    if (SoprInRep = 0)
+      PopBounds(tbbyKatSoprDatBeforeBegAll);
+    else
+      PopBounds(tbbyKatSoprDatBeforeBegOpr);
+  }
+}
+
+// Накладная на возврат поставщику из розницы
+function CheckDK_RzDoc(aMode : Word) : Boolean;
+// aMode = 0 - Загрузка во временную таблицу документов контрагента
+//         1 - Расчет входящего сальдо на начало периода для контрагента
+var
+  S1      : Double;
+  aDirect : Word;
+  IsOk    : Boolean;
+{
+  CheckDK_RzDoc := True;
+
+  if (aMode = 0)
+  {
+    if (SoprInRep = 0)
+      PushBounds(tbbyRzDocDatAll);
+    else
+      PushBounds(tbbyRzDocDatOpr);
+
+    PushBounds(tbByKatDoc_Rz);
+  }
+  else
+  {
+    if (SoprInRep = 0)
+      PushBounds(tbbyRzDocDatBeforeBegAll);
+    else
+      PushBounds(tbbyRzDocDatBeforeBegOpr);
+  }
+
+
+  _loop RzDoc
+  {
+    if (not NextVisual)
+    {
+      CheckDK_RzDoc := False;
+      Break;
+    }
+
+    if (not CheckDogovorFilter(Comp(0), Comp(0), Word(1)))
+      Continue;
+
+    S1 := 0;
+
+    // Фильтр по оборотам
+    if (BuhSchCount > 0)
+    {
+      IsOk := False;
+
+      _loop OborotRz
+      {
+        // Проверка на совпадение значения основного счета
+        if (IsFilterBuhSch(OborotRz.SchetO, OborotRz.SubOsSch))
+        {
+          IsOk := True;
+          Break;
+        }
+
+        // Проверка на совпадение значения корреспондирующего счета
+        if (IsFilterBuhSch(OborotRz.SchetK, OborotRz.SubSchK))
+        {
+          IsOk := True;
+          Break;
+        }
+      }
+
+      if (not IsOk)
+        Continue;
+    }
+
+    _loop RzSpDoc
+      S1 := S1 + if(rzDOC.TypeMove=911, RzSpDoc.Price,RzSpDoc.pPrice) * RzSpDoc.Kol;
+
+    // Документы с нулевыми суммами не учитываются
+    if (S1 = 0)
+      Continue;
+
+    // Загрузка информации во временную таблицу
+    aDirect := 1;  // Дебет
+    Modif_tmpValSort(Comp(0), S1, aDirect, aMode);
+    Modif_tmpDogovor(Comp(0), Comp(0), Comp(0), '', S1, aDirect, aMode);
+
+    if (aMode = 0)
+    {
+      Modif_tmpDocSort(Comp(0), Comp(0), RzDoc.NRec, Word(3), S1, Word(1),
+                       RzDoc.dDoc, KatDocS.Name +' № ' + RzDoc.NDoc,
+                       RzDoc.TypeMove, '', RzDoc.dOpr, '', Comp(0),
+                       Word(0), Comp(0), '', '', '', '');
+    }
+  } // _loop RzDoc
+
+  if (aMode = 0)
+  {
+    PopBounds(tbByKatDoc_Rz);
+    if (SoprInRep = 0)
+      PopBounds(tbbyRzDocDatAll);
+    else
+      PopBounds(tbbyRzDocDatOpr);
+  }
+  else
+  {
+    if (SoprInRep = 0)
+      PopBounds(tbbyRzDocDatBeforeBegAll);
+    else
+      PopBounds(tbbyRzDocDatBeforeBegOpr);
+  }
+}
+
+function CheckDK(aMode : Word) : Boolean;
+// aMode = 0 - Загрузка во временную таблицу документов контрагента
+//         1 - Расчет входящего сальдо на начало периода для контрагента
+{
+  CheckDK := False;
+  StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm,
+                 if (aMode = 0,
+                   'Загрузка во временную таблицу документов контрагента...',
+                   'Расчет входящего сальдо на начало периода...'), 1);
+
+  // Финансовые документы
+  if (not CheckDK_BaseFin(aMode))
+  {
+    StopVisual('',0);
+    Exit;
+  }
+
+  // Сопроводительные документы
+  if (not CheckDK_KatSopr(aMode))
+  {
+    StopVisual('',0);
+    Exit;
+  }
+
+  // Накладная на возврат поставщику из розницы
+  if (SearchMarker(MarkerTree, Comp(911), IndexNoTree))
+    if (not CheckDK_RzDoc(aMode))
+    {
+      StopVisual('',0);
+      Exit;
+    }
+
+  // Бухгалтерская справка с типом "сопроводительный"
+  if (SearchMarker(MarkerTree, Comp(BuchSopr + 10), IndexNoTree))
+    if (not CheckDK_PlPSopr(aMode, Word(10), True))
+    {
+      StopVisual('',0);
+      Exit;
+
+    }
+
+  if (SearchMarker(MarkerTree, Comp(BuchSopr + 21), IndexNoTree))
+    if (not CheckDK_PlPSopr(aMode, Word(21), False))
+    {
+      StopVisual('',0);
+      Exit;
+    }
+
+  if (SearchMarker(MarkerTree, Comp(BuchSopr + 22), IndexNoTree))
+    if (not CheckDK_PlPSopr(aMode, Word(22), False))
+    {
+      StopVisual('',0);
+      Exit;
+    }
+
+  StopVisual('',0);
+  CheckDK := True;
+}
+
+/*
+// Печать баланса на начало и окончание периода
+procedure PrintBalans(aDebet, aKredit : Double);
+{
+  if (aDebet > aKredit)
+  {
+    // Дебетовое сальдо
+    frmAktSvDO.Write(GetPrintSum(aDebet - aKredit));
+    frmAktSvDO.SkipFormat(1);
+  }
+  else
+  {
+    if (aKredit > aDebet)
+    {
+      // Кредитовое сальдо
+      frmAktSvDO.SkipFormat(1);
+      frmAktSvDO.Write(GetPrintSum(aKredit - aDebet));
+    }
+    else
+      frmAktSvDO.SkipFormat(2);
+  }
+}
+
+// Печать сумм по документу
+procedure PrintSummsForDoc;
+{
+  if (tmpDocSort.SummaType = 1)  // Дебет
+  {
+    frmAktSvDO.Write(GetPrintSum(tmpDocSort.Summa));
+    frmAktSvDO.SkipFormat(1);
+  }
+  else  // Кредит
+  {
+    frmAktSvDO.SkipFormat(1);
+    frmAktSvDO.Write(GetPrintSum(tmpDocSort.Summa));
+  }
+}
+
+// Вывод в форму документов отчета, которые были сохранены во временной таблице
+procedure PrintTempTable_Text;
+var
+  Org_Debet, Org_Kredit, aSum,
+  Val_Debet, Val_Kredit, aSVal : Double;
+
+  Str, Str                    : String;
+{
+  Org_Debet  := 0;
+  Org_Kredit := 0;
+  Val_Debet  := 0;
+  Val_Kredit := 0;
+
+  _loop tmpValSort
+  {
+    // информация по валюте
+    Str := '';
+    if (tmpValSort.cValut <> Comp(0))
+       if (GetFirst FastFirstRow KlVal where((tmpValSort.cValut == KlVal.NRec)) = tsOk)
+         Str := 'ВАЛЮТА : ' + KlVal.Dollar;
+
+    if (Str = '')
+      Str := 'ВАЛЮТА : ' + sGetTune('NDE.NameRubl');
+
+    frmAktSvDO.PutEventByID(feTrue, fcNeedDOInfo);
+    frmAktSvDO.Write(Str);
+
+    aSVal := GetPrintSum(tmpValSort.SumValD);
+    if (aSVal <> 0)
+      frmAktSvDO.Write(aSVal);
+    else
+      frmAktSvDO.SkipFormat(1);
+
+    aSVal := GetPrintSum(tmpValSort.SumValK);
+    if (aSVal <> 0)
+      frmAktSvDO.Write(aSVal);
+    else
+      frmAktSvDO.SkipFormat(1);
+  }
+
+  _loop tmpDogovor
+  {
+    // Информация по договорам
+    Str := 'Договор не задан';
+    if (tmpDogovor.cDogovor <> Comp(0))
+      if (GetFirst FastFirstRow Dogovor where((tmpDogovor.cDogovor == Dogovor.NRec)) = tsOk)
+        Str := 'Договор N ' + Dogovor.NoDoc + DateToStr(Dogovor.dDoc, ' от DD/MM/YYYY');
+
+    frmAktSvDO.PutEventByID(feTrue, fcNeedDOInfo);
+    frmAktSvDO.Write(Str);
+
+    aSum := GetPrintSum(tmpDogovor.SumDebet);
+    if (aSum <> 0)
+      frmAktSvDO.Write(aSum);
+    else
+      frmAktSvDO.SkipFormat(1);
+
+    aSum := GetPrintSum(tmpDogovor.SumKredit);
+    if (aSum <> 0)
+      frmAktSvDO.Write(aSum);
+    else
+      frmAktSvDO.SkipFormat(1);
+
+    Org_Debet  := Org_Debet  + tmpDogovor.SumDebet;
+    Org_Kredit := Org_Kredit + tmpDogovor.SumKredit;
+
+    // Информация по документам, привязанным к ДО
+    _loop tmpDocSort where ((tmpDogovor.cDogovor == tmpDocSort.cDogovor))
+    {
+      frmAktSvDO.PutEventByID(feDoLoop, fcAktSvDO_forDoc);
+      frmAktSvDO.Write(tmpDocSort.dDoc, 'DD/MM/YYYY');
+
+      case tmpDocSort.TypeDoc of
+
+        1 : // BaseFin
+        {
+          PrintSummsForDoc;  // Печать сумм по документу
+          frmAktSvDO.Write(tmpDocSort.NoDoc)
+          frmAktSvDO.Write('');
+          frmAktSvDO.Write('');
+          frmAktSvDO.Write(tmpDocSort.NameR);
+          frmAktSvDO.Write('');
+        }
+
+        2 : // KatSopr
+        {
+          PrintSummsForDoc;  // Печать сумм по документу
+          frmAktSvDO.Write(tmpDocSort.NoDoc);
+          frmAktSvDO.Write(if (tmpDocSort.dProv <> Date(0,0,0),
+            '(дата проведения ' + DateToStr(tmpDocSort.dProv, 'DD/MM/YYYY') + ')',
+            '(документ пока не проведен)'));
+          frmAktSvDO.Write(tmpDocSort.Name);
+          frmAktSvDO.Write(tmpDocSort.NameR);
+          Str := '';
+          if (tmpDocSort.cPost <> Comp(0))
+            if (GetFirst FastFirstRow KatOrgGr where((tmpDocSort.cPost == KatOrgGr.NRec)) = tsOk)
+              Str := KatOrgGr.Name;
+
+          frmAktSvDO.Write(Str);
+        }
+
+        3 : // RzDoc
+        {
+          PrintSummsForDoc;  // Печать сумм по документу
+          frmAktSvDO.Write(tmpDocSort.NoDoc);
+          frmAktSvDO.Write(if (tmpDocSort.dProv <> Date(0,0,0),
+            '(дата проведения ' + DateToStr(tmpDocSort.dProv, 'DD/MM/YYYY') + ')',
+            '(документ пока не проведен)'));
+          frmAktSvDO.Write('');
+          frmAktSvDO.Write('');
+          frmAktSvDO.Write('');
+        }
+
+        4 :  // PlPor
+        {
+          PrintSummsForDoc;  // Печать сумм по документу
+          frmAktSvDO.Write(tmpDocSort.NoDoc);
+          frmAktSvDO.Write(tmpDocSort.Name);
+          frmAktSvDO.Write(if (tmpDocSort.dProv <> Date(0,0,0),
+            '(дата проведения ' + DateToStr(tmpDocSort.dProv, 'DD/MM/YYYY') + ')',
+            '(документ пока не проведен)'));
+          frmAktSvDO.Write(tmpDocSort.NameR);
+          frmAktSvDO.Write('');
+        }
+      end;  // case tmpDocSort.TypeDoc
+
+      frmAktSvDO.Write(tmpDocSort.TiDkGal);
+      frmAktSvDO.Write(tmpDocSort.cDoc);
+    } // _loop tmpDocSort
+  } // _loop tmpDogovor
+
+  frmAktSvDO.PutEvent(feBreak);
+
+  frmAktSvDO.Write(GetPrintSum(Org_Debet));
+  frmAktSvDO.Write(GetPrintSum(Org_Kredit));
+
+  Balans_Debet  := Balans_Debet  + Org_Debet;
+  Balans_Kredit := Balans_Kredit + Org_Kredit;
+  PrintBalans(Balans_Debet, Balans_Kredit); // Печать баланса на окончание периода
+
+  frmAktSvDO.Write(sGetTune('Boss'));
+  frmAktSvDO.Write(sGetTune('MainBuh'));
+}
+*/
+
+// Расчеты и заполнение временных таблиц, по которым строится отчет
+function CalcTempTable : Boolean;
+{
+  CalcTempTable     := False;
+  bIsFilterDogovor  := ((wFilter = 1) and (NumFilterDogovor >= 1));
+
+  Delete all tmpDogovor;
+  Delete all tmpDocSort;
+  Delete all tmpValSort;
+
+  if (GetFirst FastFirstRow KatOrg <> tsOk)
+    Exit;
+
+  // Поиск баланса по контрагенту на дату начала интервала
+  if (not CheckDK(1))
+    Exit;
+
+  if (not CheckDK(0)) // Загрузка документов во временную таблицу
+    Exit;
+
+  // Не отображать договоры с нулевым сальдо и без движения(!)
+  if ( ((wDopParam and 1) = 0) OR ((wDopParam AND 2) <> 0) )
+  {
+    _loop tmpValSort
+      _loop tmpDogovor
+        {
+          if ((wDopParam and 1) = 0)
+            if ( Abs(tmpDogovor.BegSumDebet  + tmpDogovor.SumDebet
+                   - tmpDogovor.BegSumKredit - tmpDogovor.SumKredit) <= MinDouble )
+              Update current tmpDogovor set tmpDogovor.wDeleting := cnstDel;
+
+          if ((wDopParam AND 2) <> 0)
+            if ((Abs(tmpDogovor.SumDebet) <= MinDouble) and (Abs(tmpDogovor.SumKredit) <= MinDouble))
+              Update current tmpDogovor set tmpDogovor.wDeleting := cnstDel;
+        }
+
+    Delete tmpDogovor where((cnstDel == tmpDogovor.wDeleting));
+
+    // Удаляю валюты, для которых не осталось договоров
+    _loop tmpValSort
+    {
+      if (GetFirst FastFirstRow tmpDogovor where((tmpValSort.cValut == tmpDogovor.cVal)) <> tsOk)
+      {
+        tmpValSort.wDeleting := cnstDel;
+        Update current tmpValSort;
+      }
+    }
+
+    Delete tmpValSort where((cnstDel == tmpValSort.wDeleting));
+  }
+
+  if (GetFirst tmpDogovor <> tsOk)
+    if (GetFirst tmpValSort <> tsOk)
+      {
+        Message(''#3'Не было отношений с контрагентом за период'#13#3 +
+                'с ' + DateToStr(BegDate, 'DD/MM/YYYY г. по ') +
+                DateToStr(EndDate, 'DD/MM/YYYY г.') + ''#13#3 +
+                'и не было входящего сальдо.', OkButton + Information);
+        Exit;
+      }
+
+  CalcTempTable := True;
+}
+
+/*
+// Формат очета - Text
+procedure CreateRasKontr_Text;
+{
+  StartNewVisual(vtRotateVisual, vfTimer,
+                ''#3'Акт сверки в разрезе договоров с контрагентом ' + KatOrg.Name, 1);
+  frmAktSvDO.Write(BegDate, 'DD/MM/YYYY');
+  frmAktSvDO.Write(EndDate, 'DD/MM/YYYY');
+  if (SoprInRep > 0)
+    frmAktSvDO.Write('только по проведенным')
+  else
+    frmAktSvDO.Write('по всем');
+
+  case wDirect of
+    1 : frmAktSvDO.Write('продажа');
+    2 : frmAktSvDO.Write('закупка');
+    else frmAktSvDO.Write('все');
+  end;
+
+  frmAktSvDO.Write(sBuhSchet);
+  frmAktSvDO.Write(KatOrgSelf.Name);
+  frmAktSvDO.Write(KatOrg.Name);
+  frmAktSvDO.Write(KatOrg.NRec);
+  PrintBalans(Beg_Balans_Debet, Beg_Balans_Kredit); // Печать баланса на начало периода
+
+  // Вывод в форму документов отчета, которые были сохранены во временной таблице
+  PrintTempTable_Text;
+
+  StopVisual('',0);
+
+  if (not frmAktSvDO.Error)
+    frmAktSvDO.ShowFile('');
+  else
+    frmAktSvDO.AbortForm;
+}
+*/
+
+// Проверка формата вывода сумм
+function GetPrintSum(aSum : Double) : Double;
+{
+  GetPrintSum := aSum;
+  if (Abs(aSum) <= MinDouble)
+    GetPrintSum := 0;
+}
+
+// Печать входящего сальдо
+procedure PrintSaldo(aDebet, aKredit : Double);
+var
+  aIsNullSaldo : Boolean;
+{
+  aIsNullSaldo := (Abs(aDebet - aKredit) <= MinDouble);
+
+  if (aIsNullSaldo)
+  {
+    pXL.SetTblNumberFldValue('Сумма_дебет',  0);
+    pXL.SetTblNumberFldValue('Сумма_кредит', 0);
+
+    Exit;
+  }
+
+  if (aDebet > aKredit)
+  {
+    pXL.SetTblNumberFldValue('Сумма_дебет', GetPrintSum(aDebet - aKredit));
+    pXL.SetTblNumberFldValue('Сумма_кредит', 0);
+  }
+  else
+  {
+    if (aKredit > aDebet)
+    {
+      pXL.SetTblNumberFldValue('Сумма_дебет',  0);
+      pXL.SetTblNumberFldValue('Сумма_кредит', GetPrintSum(aKredit - aDebet));
+    }
+  }
+}
+
+// Печать дебета и кредита
+function Print_Debet_Kredit(aDebet, aKredit : Double) : Boolean;
+var
+  aSumma : Double;
+{
+  Print_Debet_Kredit := False;
+
+  aSumma := GetPrintSum(aDebet);
+  if (aSumma <> 0)
+  {
+    pXL.SetTblNumberFldValue('Сумма_дебет', aSumma);
+    Print_Debet_Kredit := True;
+  }
+
+  aSumma := GetPrintSum(aKredit);
+  if (aSumma <> 0)
+  {
+    pXL.SetTblNumberFldValue('Сумма_кредит', aSumma);
+    Print_Debet_Kredit := True;
+  }
+}
+
+procedure GetBankOrg(sPref : string[20]; cKatOrg : comp; cBank : comp);
+{
+  if (cBank <> comp(0))
+    {
+      if (GetFirst KatBank where ((cBank   == KatBank.NRec)) <> tsOk )
+        exit;
+    }
+  else
+    if (GetFirst KatBank where ((cKatOrg == KatBank.cOrg
+                             AND word(1) == KatBank.Aktiv)) <> tsOk )
+      exit;
+
+  pXL.SetStringVar(sPref + 'BankName'  , KatBank.Name);
+  pXL.SetStringVar(sPref + 'BankAddr'  , KatBank.Addr);
+  pXL.SetStringVar(sPref + 'BankMFO1'  , KatBank.MFO1);
+  pXL.SetStringVar(sPref + 'BankMFO2'  , KatBank.MFO2);
+  pXL.SetStringVar(sPref + 'BankSchet1', KatBank.Schet1);
+  pXL.SetStringVar(sPref + 'BankSchet2', KatBank.Schet2);
+  pXL.SetStringVar(sPref + 'BankSchet3', KatBank.Schet3);
+}
+
+// Информация об организации
+procedure GetKatOrgInfo(sPref : string[20]; aKatOrg : Comp; aUNN, aAddr, aTel : String);
+var
+  bIsExistDopInfoForKatOrg : Boolean;
+  Str, sAddress            : String;
+{
+  bIsExistDopInfoForKatOrg := False;
+  pXL.SetStringVar(sPref + 'Name', pKatOrg.GetKatOrgName(aKatOrg, koOnTune));
+
+  if (aUNN <> '')
+  {
+    if (not bIsExistDopInfoForKatOrg)
+    {
+      Str := ' (';
+      bIsExistDopInfoForKatOrg := True;
+    }
+
+    Str := Str + sGetTune('KatOrg.FldView.UNN') + ' ' + aUNN;
+  }
+
+  if (boGetTune('Rep.FullOrgAddr'))
+    sAddress := pKatOrg.FullOrgAddr(aKatOrg);
+  else
+    sAddress := aAddr;
+
+  if (sAddress <> '')
+  {
+    if (not bIsExistDopInfoForKatOrg)
+    {
+      Str := Str + ' (';
+      bIsExistDopInfoForKatOrg := True;
+    }
+    else
+      Str := Str + ', ';
+
+    Str := Str + sAddress;
+  }
+
+  if (aTel <> '')
+  {
+    if (not bIsExistDopInfoForKatOrg)
+    {
+      Str := Str + ' (';
+      bIsExistDopInfoForKatOrg := True;
+    }
+    else
+      Str := Str + ', ';
+
+    Str := Str + 'тел.' + aTel;
+  }
+
+  if (bIsExistDopInfoForKatOrg)
+    Str := Str + ')';
+
+  pXL.SetStringVar(sPref + 'DopInfo', Str);
+}
+
+// Формат очета - Excel
+procedure CreateRasKontr_Excel(isCreateXLT : Boolean);
+var
+  sXLTFileName, sXLSFileName, Str, Str1,
+  sVhSaldo, sIshSaldo                    : String;
+  StrCount                               : LongInt;
+  aGeneralDogovor, aCurrDogovor          : Comp;
+  bIsAppDogovor                          : Boolean;
+{
+  sXLTFileName := RepName;
+
+  // Создаем отчет на основании существующего шаблока,
+  // либо если это надо создает заготовку шаблона отчета
+  if (not isCreateXLT)
+  {
+    StartNewVisual(vtRotateVisual, vfTimer, ''#3'Создание отчета по шаблону', 1);
+    sXLSFileName := pXL.CreateReport(sXLTFileName, True);
+  }
+  else
+  {
+    StartNewVisual(vtRotateVisual, vfTimer, ''#3'Создание шаблона отчета', 1);
+    sXLSFileName := pXL.CreateXLT(sXLTFileName, True);
+  }
+
+  iNextVisual('Определение таблицы отчета');
+  // Выгрузка таблицы отчета
+  // Определение таблицы отчета (DBTbl Constructor)
+  pXL.CreateTbls(sXLSFileName);
+  pXL.CreateTbl('AktSvDO');
+  // Объявление полей таблицы
+  pXL.CreateTblFld('Дата');
+  pXL.CreateTblFld('Документ');
+  pXL.CreateTblFld('Наименование_МЦ');
+  pXL.CreateTblFld('Способ_поставки');
+  pXL.CreateTblFld('Признак_шрифта');
+  pXL.CreateTblFld('Сумма_дебет');
+  pXL.CreateTblFld('Сумма_кредит');
+  StopVisual('', 0);
+
+  // Выгрузка полей таблицы
+  if (not isCreateXLT)
+  {
+    StartNewVisual(vtNumericVisual, vfTimer, ''#3'Выгрузка данных', 1);
+    StrCount  := 0;
+    sVhSaldo  := 'Входящее сальдо';
+    sIshSaldo := 'Исходящее сальдо';
+
+    // Входящее сальдо по валютам
+    _loop tmpValSort
+    {
+      pXL.ClearTblBuffer;
+
+      PrintSaldo(tmpValSort.BegValD, tmpValSort.BegValK);
+
+      Str := '';
+
+      if (tmpValSort.cValut <> Comp(0))
+        if (GetFirst FastFirstRow KlVal where((tmpValSort.cValut == KlVal.NRec)) = tsOk)
+          Str := 'Валюта: ' + KlVal.Dollar;
+
+      if (Str = '')
+        Str := 'Валюта: ' + sGetTune('NDE.NameRubl');
+
+      pXL.SetTblStringFldValue('Наименование_МЦ', Str);
+      pXL.SetTblStringFldValue('Способ_поставки', sVhSaldo);
+      pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+
+      pXL.InsTblRow;
+      StrCount := StrCount + 1;
+    }
+
+    _loop tmpValSort
+    {
+      // Информация по валюте
+      pXL.ClearTblBuffer;
+      Str := '';
+
+      if (tmpValSort.cValut <> Comp(0))
+         if (GetFirst FastFirstRow KlVal where((tmpValSort.cValut == KlVal.NRec)) = tsOk)
+           Str := 'Валюта: ' + KlVal.Dollar;
+
+      if (Str = '')
+        Str := 'Валюта: ' + sGetTune('NDE.NameRubl');
+
+      pXL.SetTblStringFldValue('Дата', Str);
+
+      // Входящее сальдо по валюте
+      PrintSaldo(tmpValSort.BegValD, tmpValSort.BegValK);
+      pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+      pXL.SetTblStringFldValue('Способ_поставки', sVhSaldo);
+      pXL.InsTblRow;
+      StrCount := StrCount + 1;
+
+      // Суммы дебета/кредита по валюте
+      pXL.ClearTblBuffer;
+      Print_Debet_Kredit(tmpValSort.SumValD, tmpValSort.SumValK);
+      pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+      pXL.InsTblRow;
+      StrCount := StrCount + 1;
+
+      // Исходящее сальдо по валюте
+      pXL.ClearTblBuffer;
+      PrintSaldo(tmpValSort.BegValD + tmpValSort.SumValD,
+                 tmpValSort.BegValK + tmpValSort.SumValK);
+      pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+      pXL.SetTblStringFldValue('Способ_поставки', sIshSaldo);
+      pXL.InsTblRow;
+      StrCount := StrCount + 1;
+
+      // Информация по договорам
+      aGeneralDogovor := Comp(0);
+
+      _loop tmpDogovor
+      {
+        pXL.ClearTblBuffer; // Пустая строка
+        pXL.InsTblRow;
+        StrCount := StrCount + 1;
+
+        Str := '  Договор не задан';
+
+        aCurrDogovor  := Comp(0);
+        bIsAppDogovor := False;
+
+        if (tmpDogovor.cDogovor <> Comp(0))
+        {
+          if (GetFirst FastFirstRow Dogovor where((tmpDogovor.cAppDogovor == Dogovor.NRec)) = tsOk)
+          {
+            Str := '    ' + if (Dogovor.cZamena = 0, 'Уточн.', 'Отм.') + ' согл. № ' +
+                   Dogovor.NoDoc + DateToStr(Dogovor.dDoc, ' от DD/MM/YYYY');
+
+            if (GetFirst FastFirstRow IerDog where ((Dogovor.NRec == IerDog.cRec)) = tsOk)
+              aCurrDogovor := IerDog.cDogovor;
+
+            bIsAppDogovor := True;
+          }
+          else
+            if (GetFirst FastFirstRow Dogovor where((tmpDogovor.cDogovor == Dogovor.NRec)) = tsOk)
+            {
+              Str := '  Договор № ' + Dogovor.NoDoc + DateToStr(Dogovor.dDoc, ' от DD/MM/YYYY');
+              aCurrDogovor := Dogovor.NRec;
+            }
+        }
+
+        if (not bIsAppDogovor)
+          aGeneralDogovor := aCurrDogovor;
+        else
+        {
+          // Для соглашений печатаю объединяющий их договор
+          if (aCurrDogovor <> aGeneralDogovor)
+          {
+            aGeneralDogovor := aCurrDogovor;
+            Str1 := '';
+            if (GetFirst FastFirstRow Dogovor where((aGeneralDogovor == Dogovor.NRec)) = tsOk)
+              Str1 := '  Договор № ' + Dogovor.NoDoc + DateToStr(Dogovor.dDoc, ' от DD/MM/YYYY');
+
+            pXL.ClearTblBuffer;
+            pXL.SetTblStringFldValue('Дата', Str1);
+            pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+            pXL.InsTblRow;
+            StrCount := StrCount + 1;
+          }
+        }
+
+        pXL.ClearTblBuffer;
+        pXL.SetTblStringFldValue('Дата', Str);
+
+        // Входящее сальдо по договору
+        PrintSaldo(tmpDogovor.BegSumDebet, tmpDogovor.BegSumKredit);
+        pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+        pXL.SetTblStringFldValue('Способ_поставки', sVhSaldo);
+        pXL.InsTblRow;
+        StrCount := StrCount + 1;
+
+        // Суммы дебета/кредита по договору
+        pXL.ClearTblBuffer;
+        if (Print_Debet_Kredit(tmpDogovor.SumDebet, tmpDogovor.SumKredit))
+        {
+          pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+          pXL.InsTblRow;
+          StrCount := StrCount + 1;
+        }
+
+        // Исходящее сальдо по договору
+        pXL.ClearTblBuffer;
+        PrintSaldo(tmpDogovor.BegSumDebet  + tmpDogovor.SumDebet,
+                   tmpDogovor.BegSumKredit + tmpDogovor.SumKredit);
+        pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+        pXL.SetTblStringFldValue('Способ_поставки', sIshSaldo);
+        pXL.InsTblRow;
+        StrCount := StrCount + 1;
+
+        // Информация по документам, привязанным к договорам
+        _loop tmpDocSort where ((tmpDogovor.cDogovor    == tmpDocSort.cDogovor  and
+                                 tmpDogovor.cAppDogovor == tmpDocSort.cAppDogovor)) ordered by tmpDocSort.dDoc
+        {
+          pXL.ClearTblBuffer;
+          pXL.SetTblDateFldValue('Дата', tmpDocSort.dDoc);
+          pXL.SetTblNumberFldValue('Признак_шрифта', 0);
+
+          case tmpDocSort.TypeDoc of
+
+            1 : // BaseFin
+            {
+              pXL.SetTblStringFldValue('Документ',        tmpDocSort.NoDoc);
+              pXL.SetTblStringFldValue('Наименование_МЦ', tmpDocSort.NameR
+                                                        + if(tmpDocSort.NameR <> '', ', ', '')
+                                                        + tmpDocSort.sNamePL1 + ' '
+                                                        + tmpDocSort.sNamePL2 + ' '
+                                                        + tmpDocSort.sNamePL3 + ' '
+                                                        + tmpDocSort.sNamePL4);
+              if (tmpDocSort.cPost <> Comp(0))
+                if (GetFirst FastFirstRow KatOrgGr where((tmpDocSort.cPost == KatOrgGr.NRec)) = tsOk)
+                  pXL.SetTblStringFldValue('Способ_поставки', KatOrgGr.Name);
+            }
+
+            2 : // KatSopr
+            {
+              pXL.SetTblStringFldValue('Документ', tmpDocSort.NoDoc + ' ' +
+                if (tmpDocSort.dProv <> Date(0,0,0),
+                  '(дата проведения ' + DateToStr(tmpDocSort.dProv, 'DD/MM/YYYY') + ')',
+                  '(документ пока не проведен)'));
+              pXL.SetTblStringFldValue('Наименование_МЦ', tmpDocSort.NameR);
+
+              if (tmpDocSort.cPost <> Comp(0))
+                if (GetFirst FastFirstRow KatOrgGr where((tmpDocSort.cPost == KatOrgGr.NRec)) = tsOk)
+                  pXL.SetTblStringFldValue('Способ_поставки', KatOrgGr.Name);
+            }
+
+            3 : // RzDoc
+            {
+              pXL.SetTblStringFldValue('Документ', tmpDocSort.NoDoc +
+                if (tmpDocSort.dProv <> Date(0,0,0),
+                  '(дата проведения ' + DateToStr(tmpDocSort.dProv, 'DD/MM/YYYY') + ')',
+                  '(документ пока не проведен)'));
+            }
+
+            4 :  // PlPor
+            {
+              pXL.SetTblStringFldValue('Документ', tmpDocSort.NoDoc + ' ' + tmpDocSort.Name);
+              pXL.SetTblStringFldValue('Наименование_МЦ', tmpDocSort.NameR);
+            }
+          end;  // case tmpDocSort.TypeDoc
+
+          if (tmpDocSort.SummaDb <> 0) // Дебет
+            pXL.SetTblNumberFldValue('Сумма_дебет', GetPrintSum(tmpDocSort.SummaDb));
+          if (tmpDocSort.SummaKr <> 0) // Кредит
+            pXL.SetTblNumberFldValue('Сумма_кредит', GetPrintSum(tmpDocSort.SummaKr));
+
+          pXL.InsTblRow;
+          StrCount := StrCount + 1;
+        } // _loop tmpDocSort
+      } // _loop tmpDogovor
+    } // _loop tmpValSort
+
+    // Итоговые суммы по валюте
+    pXL.ClearTblBuffer; // Пустая строка
+    pXL.InsTblRow;
+    StrCount := StrCount + 1;
+
+    pXL.ClearTblBuffer;
+    pXL.SetTblStringFldValue('Наименование_МЦ', 'Итого:');
+    pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+    pXL.InsTblRow;
+    StrCount := StrCount + 1;
+
+    // Итоговое сальдо по валютам
+    _loop tmpValSort
+    {
+      pXL.ClearTblBuffer;
+
+      PrintSaldo(tmpValSort.BegValD + tmpValSort.SumValD,
+                 tmpValSort.BegValK + tmpValSort.SumValK);
+
+      Str := '';
+
+      if (tmpValSort.cValut <> Comp(0))
+        if (GetFirst FastFirstRow KlVal where((tmpValSort.cValut == KlVal.NRec)) = tsOk)
+          Str := 'Валюта: ' + KlVal.Dollar;
+
+      if (Str = '')
+        Str := 'Валюта: ' + sGetTune('NDE.NameRubl');
+
+      pXL.SetTblStringFldValue('Наименование_МЦ', Str);
+      pXL.SetTblStringFldValue('Способ_поставки', sIshSaldo);
+      pXL.SetTblNumberFldValue('Признак_шрифта', 1);
+      pXL.InsTblRow;
+      StrCount := StrCount + 1;
+    }
+
+    StrCount := StrCount + 3;
+    StopVisual('', 0);
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Публикация данных в Excel', 1);
+  // Все необходимые пост-действия по "публикации" таблицы (DBTbl Destructor)
+  pXL.PublishTbl('AktSvDO');
+
+  iNextVisual('Инициализация переменных Excel-БД');
+  // Инициализация переменных Excel-БД (DBVar Constructor)
+  pXL.CreateVar(sXLSFileName);
+  pXL.SetStringVar('Заголовок_Отчета', 'Акт сверки в разрезе договоров с контрагентом ' + KatOrg.Name);
+  pXL.SetDateVar  ('Дата_Отчета',       Cur_Date);
+
+  GetKatOrgInfo('Соборг_', KatOrgSelf.NRec, KatOrgSelf.UNN, KatOrgSelf.Addr, KatOrgSelf.Tel);
+  GetBankOrg('Соббанк_'  , coGetTune('MyOrg'), 0);
+
+  GetKatOrgInfo('Орг_' , KatOrg.NRec, KatOrg.UNN, KatOrg.Addr, KatOrg.Tel);
+  GetBankOrg('Оргбанк_', KatOrg.NRec, cBankOrg);
+
+  pXL.SetDateVar  ('Начало_периода',    BegDate);
+  pXL.SetDateVar  ('Окончание_периода', EndDate);
+  pXL.SetStringVar('За_период',         'за период с ' + DateToStr(BegDate, 'DD/MM/YYYY г.') +
+                                        DateToStr(EndDate, ' по DD/MM/YYYY г.'));
+  pXL.SetStringVar('Тип_накладных',     'сформирован ' +
+                                        if (SoprInRep > 0, 'только по проведенным', 'по всем') +
+                                        ' сопроводительным документам');
+  Str := 'направление - ';
+
+  case wDirect of
+    1 : Str := Str + 'продажа';
+    2 : Str := Str + 'закупка';
+    else Str := Str + 'все';
+  end;
+
+  pXL.SetStringVar('Направление',       Str);
+  pXL.SetStringVar('Обороты_по_счету',  'Наличие оборотов по счету - ' + sBuhSchet);
+  pXL.SetStringVar('Директор',          sGetTune('Boss'));
+  pXL.SetStringVar('Главный_бухгалтер', sGetTune('MainBuh'));
+  pXL.SetNumberVar('Kol_Records',       StrCount);
+
+  // Все необходимые пост-действия по "публикации" переменных (DBVar Destructor)
+  pXL.PublishVar;
+
+  // Выгрузка таблицы отчета
+  iNextVisual('Формирование отчета по заданному шаблону');
+  pXL.LoadReport(sXLSFileName);
+  pXL.DisConnectExcel;
+  StopVisual('', 0);
+}

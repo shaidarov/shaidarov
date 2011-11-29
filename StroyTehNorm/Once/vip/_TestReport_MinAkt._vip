@@ -1,0 +1,83 @@
+
+#component "L_SoprDoc"
+
+#include xlReport.Vih
+
+Interface ReportMinAkt 'Печать реестра Министерских актов' EscClose DoAccept;
+  Show at (, , 75, 5);
+
+create view tbl
+var
+  DateBeg
+, DateEnd
+              : date
+
+ as select * from
+  KatSopr
+, SpSopr
+, SpDocNal
+, Dogovor
+, ResOtgr
+, synonym Dogovor Dogovor_App         // Доп. соглашение
+
+ where (( DateBeg            <<= KatSopr.dOpr
+      and DateEnd            >>= KatSopr.dOpr
+
+      and KatSopr.nRec        == SpSopr.cSopr
+      and KatSopr.cDogovor    == Dogovor.nRec
+
+      and SpSopr.cMCUsl       == KatUsl.nRec
+
+      and SpSopr.cResOtgr     == ResOtgr.nRec
+      and 'СП'                == ResOtgr.Kod       (noIndex)
+
+      and KatSopr.cDogovor    == Dogovor.nRec
+      and KatSopr.cAppDogovor == Dogovor_App.nRec
+       ))
+;
+
+
+DataStream Stream_Test
+(
+   [DateB] DateBeg;
+   [DateE] DateEnd;
+
+    table KatSopr
+    (
+      [_nSopr]  KatSopr.nSopr;
+      [_dSopr]  KatSopr.dSopr;
+    );
+
+    table SpSopr
+    (
+      [_Kol]    SpSopr.Kol;
+      [_Price]  SpSopr.Price;
+    );
+)
+end;
+
+Screen sReportMinAkt;
+Fields
+  DateBeg ('Начальная дата'            , , sci13Esc  ) noProtect;
+  DateEnd ('Конечная дата'             , , sci13Esc  ) noProtect;
+<<
+
+                     с .@@@@@@@@@@@ по .@@@@@@@@@@@
+
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInit: {
+  DateBeg := dGetTune('Dat_M_Ot');
+  DateEnd := Date( Last_Day(DateBeg), Month(DateBeg), Year(DateBeg) );
+}
+
+cmPrintDoc :
+  RunFReport(Stream_test, '', false);
+
+end;
+
+end.

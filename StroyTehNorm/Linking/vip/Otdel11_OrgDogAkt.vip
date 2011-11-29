@@ -1,0 +1,516 @@
+#doc
+Закачка Организаций, Договоров и Актов 11 отдела
+#end
+
+#include notes.vih
+#include statlog.vih
+
+#include KatSopr.vih
+#include DogFuns.vih
+#include SDfuns.vih
+#include ExtAttr.vih
+
+#component "L_SoprDoc"
+
+Interface Otdel11_OrgDogAkt 'Закачка Организаций, Договоров и Актов 11 отдела' EscClose DoAccept;
+  Show at (, , 75, 5);
+#include GetState.const
+
+#include KatSopr.var
+#include DogFuns.var
+#include SDfuns.var
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, OrgUNN
+, OrgName
+, _CUST_ID
+, _DOGNUM
+, _Account
+, _ACTNUM
+, _ACT_ID
+, _CUSTNUM
+               : string;
+  _ACTSUM
+, _NDS
+               : double;
+  ErrImport
+               : boolean;
+  dObr
+, _DATESTATEM
+, _ACTDATE
+               : date;
+  _Type
+               : word;
+  oNotes       : iNotes;
+  oStatlog     : vipStatlog;
+  oWA          : objExtAttr;   // название переменной по аналогии из KatOrg.vip - для проверки необходимости заполнения УНН в данной стране
+
+as select * from
+  KatOrg
+, KatBank
+, Dogovor
+, KatSopr
+, SpSopr
+, SpDocNal
+, IerDog
+, PlanDog
+, Oborot
+;
+
+#include IerDog.vpp    // Описание иерархии договоров (необходимо при вставке договора)
+#include SoprAll.vpp   // Общие функции сопроводительных документов
+#include sopconst.inc  // Константы сопроводительных документов
+
+#include E:\!StroyTehNorm\!project\L_SoprDoc\vip\Status_dogovor.vpp   // Изменение статуса договора по набранной сумме актов
+
+Procedure WriteError(TypeError : string); {
+  LogStrToFile(LogFileName, OrgUNN + '*' + OrgName + '*' + TypeError + '*' + _DATESTATEM + '*' + _DOGNUM);
+  ErrImport := true;
+  Continue;
+}
+
+Procedure CheckPeriod(dDoc : date); {
+   if (  LongInt(dDoc) <> 0  and dDoc < dGetTune('TEKMONTH') ) {
+       WriteError('Закрытый период');
+    }
+}
+
+Procedure CheckOrg; {
+  OrgUNN   := string( DBFGetFieldValue(Handle,'UNN') );
+  OrgName  := string( DBFGetFieldValue(Handle,'Name') );
+  _Account := string( DBFGetFieldValue(Handle,'Account') );
+
+  if (OrgName = '') {
+    WriteError('Не найдена организация');
+    }
+
+  if (OrgUNN = '') {
+    if (GetFirst KatOrg where ((OrgName == KatOrg.Name)) <> tsOK) {
+     WriteError('Не найдена организация');
+    }
+
+    if (Trim(KatOrg.UNN) = '' )
+      and (if (oWA.ValueExists(coKatState, KatOrg.cState, NameAttrStateUNN),
+             if (oWA.doGetAttr(coKatState, KatOrg.cState, NameAttrStateUNN) = 0, TRUE, FALSE), TRUE)) // TRUE - ведение ИНН в данной стране
+         {
+         WriteError('Не найдена организация - нужен УНН');
+         }
+    }
+
+  if (GetFirst KatOrg where ((OrgUNN == KatOrg.UNN)) <> tsOK) {
+
+    if (Length(OrgUNN) <> 9) {WriteError('УНН не 9 символов');}
+
+    ClearBuffer(#KatOrg);
+    KatOrg.UNN  := OrgUNN;
+    KatOrg.Name := OrgName;
+    if (Insert current KatOrg = tsOK) {};
+    }
+}
+
+Procedure InsertIerDogovor; {
+   ClearBuffer(#IerDog);
+   IerDog.cDogovor := Dogovor.nRec;
+   IerDog.cUpRec   := Dogovor.nRec;
+   IerDog.cRec     := Dogovor.nRec;
+   IerDog.IsLeaf   := 1;
+   if (insert current IerDog = tsOK) {}
+
+   ClearBuffer(#PlanDog);
+   PlanDog.cDogovor := Dogovor.nRec;
+   if (insert current PlanDog = tsOK) {}
+}
+
+
+
+Procedure InsertDogovor; {
+
+    if (GetFirst Dogovor where ((_CUST_ID == Dogovor.ShipAddTerms (noIndex) )) = tsOK) {
+      WriteError('Попытка вставки договора с существующим CUST_ID');
+      }
+
+    ClearBuffer(#Dogovor);
+
+   if (GetFirst KatBank where ((KatOrg.nRec == KatBank.cOrg)) = tsOK) {
+    Dogovor.cBankPlat := KatBank.nRec;
+    }
+   if (GetFirst KatBank where ((KatOrg.nRec == KatBank.cOrg
+                           and 1            == KatBank.Aktiv)) = tsOK) {
+    Dogovor.cBankPlat := KatBank.nRec;
+    }
+   if (GetFirst KatBank where ((KatOrg.nRec == KatBank.cOrg
+                           and _Account     == KatBank.Schet1 (noIndex) )) = tsOK) {
+    Dogovor.cBankPlat := KatBank.nRec;
+    }
+
+    Dogovor.cBankPol      := 4000F3C17E543866h;
+    Dogovor.cNote         := 4000419379BDDA2Dh;
+    Dogovor.cOrg          := KatOrg.nRec;
+    Dogovor.cPlat         := KatOrg.nRec;
+    Dogovor.cPol          := 0000000000000002h;
+    Dogovor.cMyOrg        := 0000000000000002h;
+    Dogovor.cVidDog       := 0000000000000018h;
+    Dogovor.DesCr         := 'IGO';
+    Dogovor.DesGr         := '11';
+    Dogovor.Direct        := 1;
+    Dogovor.NoDoc         := _DOGNUM;
+    Dogovor.dDoc          := _DATESTATEM;
+    Dogovor.Status        := 1;
+    Dogovor.TidK          := 400;
+    Dogovor.TipMoney      := 1;
+    Dogovor.VhodNal       := 1;
+    Dogovor.cGrOtp        := 0000000000000002h;
+    Dogovor.cGrPol        := KatOrg.nRec;
+    Dogovor.Summa         := double( DBFGetFieldValue(Handle,'SUMPAID') );
+    Dogovor.SumNDS        := double( DBFGetFieldValue(Handle,'NDS') );
+    Dogovor.ShipAddTerms  := _CUST_ID;
+    if (Insert current Dogovor = tsOK) {}
+
+    InsertIerDogovor;
+//    oDogFuns.UpdInsDogByHan(Dogovor.BufferP, True);
+//    CreateIerDogOnDoc(0, Dogovor.nRec);
+}
+
+Procedure UpDateDogovor; {
+
+   if (GetFirst KatBank where ((KatOrg.nRec == KatBank.cOrg)) = tsOK) {
+    Dogovor.cBankPlat := KatBank.nRec;
+    }
+   if (GetFirst KatBank where ((KatOrg.nRec == KatBank.cOrg
+                           and 1            == KatBank.Aktiv)) = tsOK) {
+    Dogovor.cBankPlat := KatBank.nRec;
+    }
+   if (GetFirst KatBank where ((KatOrg.nRec == KatBank.cOrg
+                           and _Account     == KatBank.Schet1 (noIndex) )) = tsOK) {
+    Dogovor.cBankPlat := KatBank.nRec;
+    }
+
+    Dogovor.cOrg          := KatOrg.nRec;
+    Dogovor.cPlat         := KatOrg.nRec;
+    Dogovor.NoDoc         := _DOGNUM;
+    Dogovor.cGrPol        := KatOrg.nRec;
+    Dogovor.Summa         := double( DBFGetFieldValue(Handle,'SUMPAID') );
+    Dogovor.SumNDS        := double( DBFGetFieldValue(Handle,'NDS') );
+    Dogovor.ShipAddTerms  := string( DBFGetFieldValue(Handle,'CUST_ID') );
+    if (UpDate current Dogovor = tsOK) {}
+}
+
+Procedure DeleteDogovor; {
+    if (GetFirst KatSopr where ((Dogovor.nRec == KatSopr.cDogovor)) = tsOK) {
+       WriteError('Попытка удаления договора, имеющего ссылки в сопроводительных документах');
+      }
+
+    if (GetFirst BaseFin where ((Dogovor.nRec == BaseFin.cDogovor)) = tsOK) {
+       WriteError('Попытка удаления договора, имеющего ссылки в платёжных документах');
+      }
+
+    oDogFuns.DeleteDogovorEx(Dogovor.nRec, false);
+    DeleteIerDogOnDoc(0, Dogovor.nRec);
+}
+
+
+
+Procedure InsertAkt; {
+  if (GetFirst Dogovor where (( _CUST_ID == Dogovor.ShipAddTerms (noIndex) )) <> tsOK) {
+    if (GetFirst Dogovor where (( _CUSTNUM == Dogovor.NoDoc (noIndex) )) <> tsOK) {
+     WriteError('Не найден договор для привязки Акта');
+     }
+    }
+
+     ClearBuffer(#KatSopr);
+     KatSopr.DesCr     := 'IGO';
+     KatSopr.cOrg      := KatOrg.nRec
+     KatSopr.Summa     := _ACTSUM;
+     KatSopr.SumVal    := _ACTSUM;
+     KatSopr.VhodNal   := 1;
+     KatSopr.dPrice    := _ACTDATE;
+     KatSopr.cDogovor  := Dogovor.nRec;
+     KatSopr.Status    := 1;
+     KatSopr.cNote     := 0000000000000003h;
+     KatSopr.TipSopr   := 2;
+     KatSopr.VidSopr   := 211;
+     KatSopr.dSopr     := _ACTDATE;
+     KatSopr.YearSopr  := Year(_ACTDATE);
+     KatSopr.nSopr     := _ACTNUM;
+     KatSopr.cGruzFrom := 0000000000000002h; // СТН
+     KatSopr.cGruzTo   := KatOrg.nRec;
+     KatSopr.cOrgBase  := KatOrg.nRec;
+     KatSopr.dOpr      := _ACTDATE;
+     KatSopr.cValut    := 0000000000000005h;
+     KatSopr.sNalogS   := _NDS;
+     KatSopr.sVNalogS  := _NDS;
+     KatSopr.cOrgPlat  := KatOrg.nRec;
+     KatSopr.nKvit     := _ACT_ID;
+     Insert current KatSopr;
+
+     ClearBuffer(#SpSopr);
+     SpSopr.Npp      := 1;
+     SpSopr.PrMC     := 2;
+     SpSopr.cOtpEd   := 0000000000000A2Bh;
+     SpSopr.Kol      := 1;
+     SpSopr.KolOpl   := 1;
+     SpSopr.cGrNal   := 4000AD5A995C9F7Eh;
+     SpSopr.cSopr    := KatSopr.nRec;
+     SpSopr.dSopr    := _ACTDATE;
+     SpSopr.dOprTTN  := _ACTDATE;
+     SpSopr.VidSopr  := 211;
+     SpSopr.KolFact  := 1;
+     SpSopr.SumNDS   := _NDS;
+     SpSopr.SumVNDS  := _NDS;
+     SpSopr.Price   := _ACTSUM;
+     SpSopr.vPrice  := _ACTSUM;
+     SpSopr.rPrice  := _ACTSUM;
+     SpSopr.rVPrice := _ACTSUM;
+     SpSopr.cMcUsl  := 281474976710970;   // Реализация отдел 11
+     Insert current SpSopr;
+
+  if ( _NDS > 0 ) {
+     ClearBuffer(#SpDocNal);
+     SpDocNal.cSpDoc    := SpSopr.nRec;
+     SpDocNal.cDoc      := KatSopr.nRec;
+     SpDocNal.TipDoc    := 211;
+     SpDocNal.cGrNal    := 4611876623059033982;
+     SpDocNal.cNalog    := 4611884681239087291;
+     SpDocNal.Nalog     := 20;
+     SpDocNal.SumNal    := _NDS;
+     SpDocNal.SumVal    := _NDS;
+     SpDocNal.Summa     := _NDS;
+     SpDocNal.IsAgreg   := False;
+     SpDocNal.cOrg      := KatOrg.nRec;
+     SpDocNal.ValCurse  := 1;
+     SpDocNal.CrosCurse := 1;
+     SpDocNal.Npp       := 1;
+     SpDocNal.IsCustom  := 2;
+     Insert current SpDocNal;
+  }
+
+  oSDfuns.UpdateSoprHoz(KatSopr.Buffer);
+}
+
+Procedure UpDateAkt; {
+  if (GetFirst Dogovor where (( _CUST_ID == Dogovor.ShipAddTerms (noIndex) )) <> tsOK) {
+    if (GetFirst Dogovor where (( _CUSTNUM == Dogovor.NoDoc (noIndex) )) <> tsOK) {
+     WriteError('Не найден договор для модификации Акта');
+     }
+    }
+
+     KatSopr.cOrg      := KatOrg.nRec
+     KatSopr.Summa     := _ACTSUM;
+     KatSopr.SumVal    := _ACTSUM;
+     KatSopr.dPrice    := _ACTDATE;
+     KatSopr.cDogovor  := Dogovor.nRec;
+     KatSopr.dSopr     := _ACTDATE;
+     KatSopr.YearSopr  := Year(_ACTDATE);
+     KatSopr.nSopr     := _ACTNUM;
+     KatSopr.cGruzTo   := KatOrg.nRec;
+     KatSopr.cOrgBase  := KatOrg.nRec;
+     KatSopr.dOpr      := _ACTDATE;
+     KatSopr.sNalogS   := _NDS;
+     KatSopr.sVNalogS  := _NDS;
+     KatSopr.cOrgPlat  := KatOrg.nRec;
+     UpDate current KatSopr;
+
+  if (GetFirst SpSopr where ((KatSopr.nRec == SpSopr.cSopr)) = tsOK) {
+     SpSopr.dSopr    := _ACTDATE;
+     SpSopr.dOprTTN  := _ACTDATE;
+     SpSopr.SumNDS   := _NDS;
+     SpSopr.SumVNDS  := _NDS;
+     SpSopr.Price   := _ACTSUM;
+     SpSopr.vPrice  := _ACTSUM;
+     SpSopr.rPrice  := _ACTSUM;
+     SpSopr.rVPrice := _ACTSUM;
+     SpSopr.cMcUsl  := 281474976710970;   // Реализация отдел 11
+     UpDate current SpSopr;
+     }
+
+  if ( GetFirst SpDocNal where ((SpSopr.nRec  == SpDocNal.cSpDoc)) = tsOK ) {
+     SpDocNal.SumNal    := _NDS;
+     SpDocNal.SumVal    := _NDS;
+     SpDocNal.Summa     := _NDS;
+     SpDocNal.cOrg      := KatOrg.nRec;
+     UpDate current SpDocNal;
+     }
+}
+
+Screen sOtdel11_OrgDogAkt;
+Fields
+  dObr ('Дата обработки - отбирает файлы по началу названия' , , sci13Esc  ): Protect, PickButton;
+
+Buttons
+  cmOk, Default, , 'Ввод - запустить импорт Договоров и Актов', , sci1Esc;
+
+<<
+
+    `Дата обработки ` .@@@@@@@@@@@             <. Провести Импорт .>
+
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInit:{
+  dObr        := cur_date;
+  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'ErrImport_' + Hour(cur_time) + '_' + Minute(cur_time) + '_.log';
+  ErrImport   := false;
+}
+
+cmOK: {
+// ********************************* Организации и Договоры   ******************************************************
+  sDBFname    := '\\BuhServer\GalSrv\62_11\' + DateToStr(dObr, 'YYYYMMDD') + '_cust.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     WriteError('Не удалось открыть dbf-файл с Договорами');
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка Договоров 11 отдела', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            CheckOrg;
+            _Type       := word( DBFGetFieldValue(Handle,'TYPE') );
+            _DOGNUM     := string( DBFGetFieldValue(Handle,'DOGNUM') );
+            _DATESTATEM := StrToDate( DBFGetFieldValue(Handle,'DATESTATEM'), 'YYYYMMDD' );
+            _CUST_ID    := string( DBFGetFieldValue(Handle,'CUST_ID') );
+
+// Закрытый период проверяется для Вставки и Удаления, Модифицировать - можно
+
+             Case _Type  of
+               1: {                         // вставка
+                  CheckPeriod( StrToDate( DBFGetFieldValue(Handle,'DATESTATEM'), 'YYYYMMDD' ) );
+                  if (GetFirst Dogovor where ((_DOGNUM == Dogovor.NoDoc (noIndex) )) <> tsOK) {
+                    InsertDogovor;
+                    }  else {
+                      WriteError('Попытка вставки договора под существующим номером');
+                      }
+
+               }
+               2: {                         // модификация
+                  if (GetFirst Dogovor where (( _CUST_ID == Dogovor.ShipAddTerms (noIndex) )) <> tsOK) {
+                    if (GetFirst Dogovor where (( _DOGNUM == Dogovor.NoDoc (noIndex) )) <> tsOK) {
+                      WriteError('Не найден договор для модификации')
+                      }
+                    }
+                  UpDateDogovor;
+               }
+               3: {                         // удаление
+                  CheckPeriod( StrToDate( DBFGetFieldValue(Handle,'DATESTATEM'), 'YYYYMMDD' ) );
+                  if (GetFirst Dogovor where (( _CUST_ID == Dogovor.ShipAddTerms (noIndex) )) <> tsOK) {
+                    if (GetFirst Dogovor where (( _DOGNUM == Dogovor.NoDoc (noIndex) )) <> tsOK) {
+                      WriteError('Не найден договор для удаления');
+                      }
+                    }
+                  DeleteDogovor;
+               }
+             end;
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+// ***************************************   Акты   ****************************************************************
+  sDBFname    := '\\BuhServer\GalSrv\62_11\' + DateToStr(dObr, 'YYYYMMDD') + '_acts.dbf';
+//  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'ErrImport_' + Hour(cur_time) + '_' + Minute(cur_time) + '_Akts.log';
+//  ErrImport   := false;
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     WriteError('Не удалось открыть dbf-файл с Актами');
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка Актов 11 отдела', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            CheckOrg;
+            _Type     := word( DBFGetFieldValue(Handle,'TYPE') );
+            _ACTDATE  := StrToDate( DBFGetFieldValue(Handle,'ACTDATE'), 'YYYYMMDD' );
+            _ACTNUM   := string( DBFGetFieldValue(Handle,'ACTNUM') );
+            _ACT_ID   := string( DBFGetFieldValue(Handle,'ACT_ID') );
+            _CUST_ID  := string( DBFGetFieldValue(Handle,'CUST_ID') );
+            _CUSTNUM  := string( DBFGetFieldValue(Handle,'CUSTNUM') );
+            _ACTSUM   := double( DBFGetFieldValue(Handle,'ACTSUM') );
+            _NDS      := double( DBFGetFieldValue(Handle,'NDS') );
+            CheckPeriod( _ACTDATE );
+
+
+             Case _Type  of
+               1: {                         // вставка
+                  if (GetFirst KatSopr where ((211            == KatSopr.VidSopr
+                                           and Year(_ACTDATE) == KatSopr.YearSopr
+                                           and _ACTNUM        == KatSopr.nSopr )) <> tsOK) {
+                    InsertAkt;
+                    Update_Current_KatSopr;
+                    Status_dogovor(KatSopr.cDogovor, 0);
+                    }  else {
+                      WriteError('Попытка вставки Акта под существующим номером');
+                      }
+
+               }
+               2: {                         // модификация
+                  if (GetFirst KatSopr where (( _ACT_ID == KatSopr.nKvit (noIndex) )) <> tsOK) {
+                    if (GetFirst KatSopr where ((211            == KatSopr.VidSopr
+                                             and Year(_ACTDATE) == KatSopr.YearSopr
+                                             and _ACTNUM        == KatSopr.nSopr )) <> tsOK) {
+                      WriteError('Не найден Акт для модификации')
+                      }
+                    }
+                  UpDateAkt;
+                  Update_Current_KatSopr;
+                  Status_dogovor(KatSopr.cDogovor, 0);
+               }
+               3: {                         // удаление
+                  if (GetFirst KatSopr where (( _ACT_ID == KatSopr.nKvit (noIndex) )) <> tsOK) {
+                    if (GetFirst KatSopr where ((211            == KatSopr.VidSopr
+                                             and Year(_ACTDATE) == KatSopr.YearSopr
+                                             and _ACTNUM        == KatSopr.nSopr )) <> tsOK) {
+                      WriteError('Не найден Акт для удаления');
+                      }
+                    }
+                  _Loop Oborot where ((   211           == SoprHoz.TidKGal
+                                      and KatSopr.nRec  == SoprHoz.cSoprDoc
+                                      and SoprHoz.nRec  == Oborot.cSoprHoz
+                                     )) {
+                          Delete current Oborot;
+                                        }
+
+                  oSDfuns.DeleteSoprHoz(KatSopr.nRec, KatSopr.VidSopr);
+                  oSDfuns.KatSopr_Delete(KatSopr.nRec);
+               }
+             end;
+    } While (DBFGetNext(Handle) = tsok)
+
+   if (ErrImport) {
+        _try {
+        message('При импорте были обнаружены ошибки');
+        ProcessText(logFileName, vfDefault, 'Ошибки импорта договоров 11 отдела');
+        }
+    } else {
+      message('Импорт завершён!');
+      }
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+  CloseInterface (cmOK);
+}
+
+end;
+
+end.

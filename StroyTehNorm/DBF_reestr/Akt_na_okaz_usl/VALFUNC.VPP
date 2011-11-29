@@ -1,0 +1,456 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,98 корпорация ГАЛАКТИКА                      ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Оперативный контур                                        ║
+ ║ Версия        : 5.50                                                      ║
+ ║ Назначение    : Функции для отчетов (перевод из одной валюты в другую)    ║
+ ║ Ответственный : Володько Вадим Геннадьевич (VVG)                          ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+#ifndef GAL5_85
+#ifndef _VALFUNC_VPP
+#define _VALFUNC_VPP
+
+#ifndef __valfunc_info__
+#info устаревшие вызовы методов из VALFUNC.VPP. Используйте public функции интерфейса oValFunc : ValFuncs
+#end
+
+Create view ValF
+Var
+
+  d100         : date;
+  c100         : comp;
+  sdMyOrgNRec  : comp;        // NRec моей организации
+  ValBase      : comp;        // код базовой валюты
+  ValBaseName  : string[30];  // ее наименование, например 'долларах'
+  ValBaseSimv  : string[6];   // ее символ валюты
+  ValTar       : comp;        // код валюты для отчетов
+  ValTarName   : string[30];  // ее наименование, например
+  ValTarSimv   : string[6];   // ее символ валюты
+  ValNatName   : string[30];  // наименование нац.валюты
+  ValNatSimv   : string[6];   // символ нац. валюты
+  showMessages : boolean;     // показывать ошибки
+  wasInitedStr : string[20];  //
+  dateInit     : date;
+;
+
+Var
+  _TCR_ : TgCurrency;
+
+// //\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\
+// \\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//\\//
+
+Function ValBase : comp;
+{
+  ValBase := VALF.ValBase;
+}
+Function ValBaseName : string[30];
+{
+  ValBaseName := VALF.ValBaseName;
+}
+Function ValBaseSimv : string[6];
+{
+  ValBaseSimv := VALF.ValBaseSimv;
+}
+Function ValTar : comp;
+{
+  ValTar := VALF.ValTar;
+}
+Function ValTarName : string[30];
+{
+  ValTarName := VALF.ValTarName;
+}
+Function ValTarSimv : string[6];
+{
+  ValTarSimv := VALF.ValTarSimv;
+}
+Function ValNatName : string[30];
+{
+  ValNatName := VALF.ValNatName;
+}
+Function ValNatSimv : string[6];
+{
+  ValNatSimv := VALF.ValNatSimv;
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+
+Function GetValSimvName(_cVal : comp; var sim:string; var nam:string) : boolean;
+{
+  GetValSimvName := _TCR_.GetSimvAndName(_cVal,sim,nam);
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+
+Function GetValSimv(_cVal : comp) : string;
+{
+  var s:string;
+  GetValSimvName(_cVal,s,'');
+  GetValSimv := s;
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+
+Function GetValName(_cVal : comp) : string;
+{
+  var s:string;
+  GetValSimvName(_cVal,'',s);
+  GetValName := s;
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+
+Procedure InitVal;
+{
+  if VALF.wasInitedStr='ValFunc Was Inited' and VALF.dateInit=cur_Date
+    Exit;
+
+#ifndef TUNE_CONV
+  LoadVipInterface(_TCR_);
+#else
+  GetVipInterface(_TCR_);
+#end
+
+  VALF.ValTar     := 0;
+  VALF.ValBase    := 0;
+  VALF.sdMyOrgNRec := 0;
+  VALF.ValTarName := '??????????';
+  VALF.ValTarSimv := '???';
+  VALF.ValNatName := '???????';
+  VALF.ValNatSimv := '???';
+
+  VALF.ValTar := coGetTune('REP.cVAL');
+
+  if (VALF.ValTar = 0)
+    {
+      VALF.ValTarName := sGetTune('NDE.NAMERUBLAH');
+      VALF.ValTarSimv := sGetTune('NDE.SimvRub');
+      VALF.ValTar    := coGetTune('BASECURRENCY');
+    }
+  VALF.ValBase    := coGetTune('BASECURRENCY');
+  if (VALF.ValBase = 0)
+    {
+      VALF.ValBaseName := sGetTune('NDE.NameRublah');
+      VALF.ValBaseSimv := sGetTune('NDE.SimvRub');
+    };
+  VALF.ValNatName := sGetTune('NDE.NameRublah');
+  VALF.ValNatSimv := sGetTune('NDE.SimvRub');
+  VALF.sdMyOrgNRec:= coGetTune('MyOrg');
+
+  if (VALF.ValTar <> 0)
+    GetValSimvName(VALF.ValTar, VALF.ValTarSimv, VALF.ValTarName)
+  if (VALF.ValBase <> 0)
+    GetValSimvName(VALF.ValBase, VALF.ValBaseSimv, VALF.ValBaseName)
+
+  VALF.showMessages:= true;
+
+  VALF.wasInitedStr:= 'ValFunc Was Inited';
+  VALF.dateInit:= cur_Date;
+};
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+
+Procedure DoneVal;  // вызывать перед showfile для вывода сообщения в
+                   // случае, если при пересчете курсов были ошибки
+{
+  if VALF.showMessages then _TCR_.WasErrorValut;
+  FreeVipInterface(_TCR_);
+
+  VALF.wasInitedStr:= '';
+  VALF.dateInit:= date(0,0,0);
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! поиск курса валюты cVal на дату DAT
+
+Function GetCurse(var _cVal : comp;
+                  var dat : date;
+                  var kurs :double) : boolean;
+{
+  kurs := _TCR_.Rate(_cVal, dat);
+  if kurs = 0
+    {
+      kurs := 1;
+      getcurse := false
+    }
+  else
+    GetCurse := true;
+  exit;
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+
+Function GetCurrencyPrimitive(var ValSrc : comp;
+                              var SumSrc : double;
+                              var ValTo : comp;
+                              var dCourse : date) : double;
+{
+  GetCurrencyPrimitive :=
+    _TCR_.CurrencyExchange(valsrc,sumsrc,ValTo,dCourse);
+}; // function GetCurrencyPrimitive
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! в валюте отчетов
+
+Function GetCurrency(var ValSrc : comp;
+                     var SumSrc : double;
+                     var dCourse : date) : Double;
+begin
+  GetCurrency := GetCurrencyPrimitive(ValSrc,
+                                      SumSrc,
+                                      VALF.ValTar,
+                                      dCourse);
+end;
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! в базовой валюте
+
+Function GetBaseCurrency(var ValSrc : comp;
+                         var SumSrc : double;
+                         var dCourse : date) : Double;
+begin
+  GetBaseCurrency := GetCurrencyPrimitive(ValSrc,
+                                          SumSrc,
+                                          VALF.ValBase,
+                                          dCourse);
+end;
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! в национальной валюте
+
+Function GetNatCurrency(var ValSrc : comp;
+                        var SumSrc : double;
+                        var dCourse : date) : Double;
+begin
+  GetNatCurrency := GetCurrencyPrimitive(ValSrc,
+                                         SumSrc,
+                                         comp(0),
+                                         dCourse);
+end;
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! в любой заданной валюте
+
+Function GetAnyCurrency(var ValSrc : comp;
+                        var SumSrc : double;
+                        var dCourse : date;
+                        var targval : comp) : Double;
+begin
+  GetAnyCurrency := GetCurrencyPrimitive(ValSrc,
+                                         SumSrc,
+                                         targval,
+                                         dCourse);
+end;
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+
+Procedure GetNatTarCurrency(var ValSrc1 : comp;
+                            var SumSrc1 : double;
+                            var ValSrc2 : comp;
+                            var SumSrc2 : double;
+                            var dCourse : date;
+                            var ResNat  : double;
+                            var ResTar  : double);
+begin
+  ResNat := GetNatCurrency(ValSrc1, SumSrc1, dCourse);
+  if (ResNat = 0)
+    if (ValSrc2 <> ValSrc1)
+      ResNat := GetNatCurrency(ValSrc2, SumSrc2, dCourse);
+
+  ResTar := 0;
+  if (ValSrc2 <> ValSrc1)
+    ResTar := GetCurrency(ValSrc2, SumSrc2, dCourse);
+  if (ResTar = 0)
+    ResTar := GetCurrency(ValSrc1, SumSrc1, dCourse);
+end;
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!
+! возвращает в валюте отчетов исходя из 2 сумм: в национальной и
+!                                               указанной валютах
+!
+Function GetTarCurrency(  ValSrc : comp;              //валюта операции
+                         SumSrcV : double;            //сумма в валюте
+                         SumSrcR : double;            //сумма в НДЕ
+                         dCourse : date) : Double;    //дата операции
+begin
+  GetTarCurrency := 0;
+  if (VALF.ValTar = 0)                 //валюта отчетов = НДЕ
+    GetTarCurrency := SumSrcR
+  else
+    if (ValSrc <> 0)                    //операция в валюте
+      {
+        if (VALF.ValTar = ValSrc)
+          GetTarCurrency := SumSrcV     //валюта операции = валюте отчетов
+        else                            //операция в валюте отличной от валюты отчетов
+          GetTarCurrency := GetAnyCurrency(ValSrc, SumSrcV, dCourse, VALF.ValTar);
+      }
+    else                                //операция в НДЕ
+      GetTarCurrency := GetCurrency(ValSrc,SumSrcR,dCourse);
+end;
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+!анализ настройки пользователя для пересчета валют
+
+function ReCalcCursVal : boolean;
+{
+  ReCalcCursVal := true;
+//  case _TSR_.UserTune.Need16 of
+  case wGetTune('DOC.VALRUBCALC') of
+    1 : ReCalcCursVal := false;
+    2 :  if ( message(''#3'Пересчитать сумму в валюте (НДЕ) ' +
+                      'по курсу валюты на дату операции?',YesNo) <> cmYes)
+            ReCalcCursVal := false;
+  end;
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! выбор валюты Pick и пересчет сумм
+
+function ChoiceVal(var ValSrc  : comp;
+                   var dCourse : date;
+                   var SumSrc  : double;
+                   var SumSrcV : double
+                   ) : boolean;
+var
+  CVSumR, KVSumV, CursTec : double;
+  CursDate : date;
+{
+  ChoiceVal := true;
+  if (runinterface('GetValCu',ValSrc,dCourse,CVSumR,KVSumV,CursTec,CursDate) = cmDefault)
+    { if (KVSumV = 0)
+        KVSumV := 1
+      else if (ValSrc <> 0)
+        { if (SumSrcV <> 0)
+            SumSrc := round((SumSrcV * CVSumR / KVSumV),2)
+          else if (CVSumR <> 0)
+            SumSrcV := round((SumSrc * KVSumV / CVSumR),2)
+          else
+            SumSrcV := 0;
+        }
+      else SumSrcV := 0;
+    }
+  else ChoiceVal := false;
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! обработка сумм в НДЕ, валюте и даты операции
+! пересчет сумм в валюте (НДЕ) при корректировке соответсвующего поля
+
+procedure ReCalcSumRubVal( isSumRub : boolean;  //true-коррект. сумма в НДЕ = CurField
+                            dCourse : date;
+                        var ValSrc  : comp;
+                        var SumSrc  : double;
+                        var SumSrcV : double);
+{
+  if (ValSrc = 0)
+    Exit
+  else if (longint(dCourse) = 0)
+    Exit
+  else if (not ReCalcCursVal)
+    Exit
+  else if ( (abs(SumSrc) < 0.005) and
+            (abs(SumSrcV) < 0.005) )
+    { Message(''#3'Не задана сумма в валюте по документу.', CancelButton);
+      ValSrc := 0;
+    }
+  if (isSumRub)
+    { if (abs(SumSrc) >= 0.005)
+        SumSrcV := GetAnyCurrency(comp(0),SumSrc,dCourse,ValSrc);
+    }
+  else
+    { if (abs(SumSrcV) >= 0.005)
+        SumSrc := GetAnyCurrency(ValSrc,SumSrcV,dCourse,comp(0));
+    }
+  if (abs(SumSrcV) < 0.005)
+    message(''#3'Сумма в валюте по документу слишком мала (меньше 0.005)!',OkButton);
+  if (abs(SumSrc) < 0.005)
+    message(''#3'Сумма в ' + trim(VALF.ValNatName) +  ' по документу слишком мала (меньше 0.005)!',OkButton);
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! пересчет суммы в валюте в РУБЛИ с учетом процента к курсу
+! if OkPlus = true  -> сколько должен заплатить учетом процента
+!           = false -> сколько заплачено фактически с учетом процента
+
+function CalcRubValMoney( OkPlus  : boolean;
+                           ValSrc : comp;
+                          dCourse : date;
+                          sCourse : double;
+                          SumProc : double;
+                          SumSrcV : double
+                        ) : double;
+{
+  CalcRubValMoney := 0;
+  if ( (ValSrc = 0) or
+       (longint(dCourse) = 0) or
+       (abs(SumSrcV) < 0.001) ) Exit;
+
+  var k:double;  k := if (OkPlus, 1 + SumProc / 100, 1 / (1+SumProc/100));
+
+  if (abs(sCourse) >= 0.00005)
+    CalcRubValMoney := SumSrcV * k * sCourse / _TCR_.GetValSumValut(ValSrc);
+  else
+    if (GetCurse(ValSrc, dCourse, sCourse))
+      CalcRubValMoney := SumSrcV * sCourse * k;
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! пересчет суммы в рублях в ВАЛЮТУ с учетом процента к курсу
+
+function CalcValRubMoney(  ValSrc : comp;
+                         dCourse : date;
+                         sCourse : double;
+                         SumProc : double;
+                         SumSrcR : double
+                       ) : double;
+{
+  CalcValRubMoney := 0;
+  if ( (ValSrc = 0) or
+       (longint(dCourse) = 0) or
+       (abs(SumSrcR) < 0.001) ) Exit;
+
+  if (abs(sCourse) >= 0.00005)
+    CalcValRubMoney := SumSrcR * _TCR_.GetValSumValut(ValSrc) / (sCourse * (1 + SumProc / 100));
+  else
+    if (GetCurse(ValSrc, dCourse, sCourse))
+      CalcValRubMoney := SumSrcR / (sCourse * (1 + SumProc / 100));
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! пересчет суммы ВАЛЮТЕ в РУБЛИ с учетом процента к курсу
+
+function CalcSumValRubDO(  ValSrc : comp;
+                         dCourse : date;
+                         sCourse : double;
+                         SumProc : double;
+                         SumSrcV : double
+                       ) : double;
+{
+  CalcSumValRubDO := 0;
+  if ( (ValSrc = 0) or
+       (dCourse = date(0,0,0)) or
+       (abs(SumSrcV) < 0.001) ) Exit;
+
+  if (abs(sCourse) >= 0.00005)
+    CalcSumValRubDO := SumSrcV * sCourse * (1 + SumProc / 100) / _TCR_.GetValSumValut(ValSrc);
+  else
+    if GetCurse(ValSrc, dCourse, sCourse)
+      CalcSumValRubDO := SumSrcV * sCourse * (1 + SumProc / 100);
+
+}
+
+! = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+
+#include OE_FUNC.VPP
+
+#end // _VALFUNC_VPP
+#end

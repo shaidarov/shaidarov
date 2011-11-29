@@ -1,0 +1,3245 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 8.1 - Бухгалтерский контур
+// Интерфейс формирования и привязки документов к АО и к приказам на командировки
+//------------------------------------------------------------------------------
+
+#include SHManager.vih
+#include PlPor.vih
+#include PlPorSimple.vih
+#include Docs2Obj.vih
+#include SchFactFunctions.vih
+#include DocSet.vih           // Наборы документов для раздельного учета
+#include AhdFunc.vih          // Учет подотчетных лиц и депонентов
+#include aPickStr.vih         // Выбор строки из списка (objPickStr)
+#include FormPayRoll.vih      // Формирование реестра по перечислениям
+#include UKSfuns.vih          // Функции УКСа: привязка к объектам строительства и т.п.
+#include DOfuns.vih           // Процедуры округления для ДО
+#include iSynch.vih
+#include SelUsDoc.vih
+#include GetVed.vih
+#include EmpElements.vih      // Реквизиты сотрудника
+#include PPMacros.vih
+#include NalTunes.vih
+#include Rashifr.vih          // Расшифровка КУ, АО, РКО (подотчетники)
+#include aCashBank.vih
+#include marker.vih
+
+#doc
+Интерфейс формирования и привязки документов к АО и к приказам на командировки.
+#end
+Interface GetKO_Form 'Формирование связи документов' EscClose, Gray;
+  Show at (, , 66, 17);
+
+#include DocSet.var
+#include PlPorSimple.var
+#include iSynch.var
+#include aPickStr.var    // piPickStr
+#include EmpElements.var // Реквизиты сотрудника (iEmpElements)
+#include aCashBank.var   // piCashBank
+
+Var
+  iAhdF       : AdvHoldAndDepFuncs;
+  iSHoz       : SHmanager;
+  iReestr     : FormPayRoll;
+  pMarker     : IPosMarker;         // Автопометка с функцией обхода помеченных записей в порядке их пометки
+  iGetVed     : GetVed;
+  iTempl      : PPT_GetTemplate;    // шаблоны
+  iObjNDTunes : ObjNalDistrTunes;
+  iRashifr    : Rashifr;            // Расшифровка КУ, АО, РКО (подотчетники)
+  lMarker     : IMarker(Marker) new;
+
+Const
+  cgMes_FldsCheck = 'Формирование связи документов невозможно.'#13;
+end;
+
+// Таблица нужна для перехвата табличных событий
+Table struct tDataVS
+(
+  cVal   : comp,  // Валюта окна формирования связи документов
+  SumKol : double // Сумма окна формирования связи документов
+);
+
+// Нераспределенные суммы в разрезе валют
+Table struct SumsByVal
+(
+  NRec : tNRec,
+  cVal : tNRec,
+  Spec : double,
+  Docs : double,
+  Summ : double
+)
+With Index
+(
+  SumsByVal01 = cVal
+);
+
+// Нераспределенные суммы в разрезе валют и сотрудников
+Table struct SumsByValAndPers
+(
+  NRec  : tNRec,
+  cVal  : tNRec,       // валюта
+  cPers : tNrec,       // ссылка на физическое лицо
+  cLsch : tNrec,       // лицевой счет
+  Spec  : double,      // сумма по спецификации
+  Docs  : double,      // сумма других документов, вычтенная из суммы документа
+  Summ  : double       // сумма документа = Spec - Docs
+)
+With Index
+(
+  SumsByValAndPers01 = cVal + cPers,
+  SumsByValAndPers02 = cPers + cVal
+);
+
+// Существующие связи между документами
+Table struct mt_DocPodot
+(
+  nRec  : comp,   // nRec в Docpodot
+  cDoc  : comp,   // nRec документа с которым существует связь
+  NoDoc : string, // номер документа
+  Name  : string, // тип связи
+  cVal  : comp,   // валюта документа
+  Summ  : double  // сумма документа
+)
+With Index
+(
+  mt_DocPodot01 = cDoc
+);
+
+#include GetCurTunes.vpp
+
+Create view
+Var
+  SbBanNRec,
+  myVal,
+  myPersons,
+  myLschet,
+  myOrg,
+  myBank,
+  myNR,                       // NRec формируемого документа
+  myNRec,                     // Параметр интерфейса: NRec исходного документа (приказа на командировку, АО)
+  myCash,
+  myEtap,                     // Текущий этап командировки
+  myTempl,                    // ссылка на шаблон назначения
+  cDocLink      : comp;       // связанный документ
+  wKolPers,                   // Количество выбранных сотрудников
+  SelectForm,                 // Выбор существующих документов/Формирование нового
+  FormSpec,                   // Перенос информации из спецификации подвязываемых документов
+  CreateReestr,               // Формирование реестра по перечислению
+  myTiDkGal,                  // Ситемный тип формируемого документа
+  myTiDkUser,                 // Тип пользователя
+  myTiDk,
+  myTp,                       // Режим вызова интерфейса
+  myTipRP,                    // Тип связи реестра по перечислениям в банк с платежным документом в таблице DocPodot
+  myTip,                      // Тип связи документов в таблице DocPodot
+  wMode,
+  bMess,
+  PickKol,                    // Количество выбранных сотрудников (для поддержания порядка пометки)
+  tEr           : word;
+  BegYear,
+  EndYear,
+  dForm         : date;
+  MyDesGr       : string[4];  // Группа дескрипторов и дескриптор из документа
+  MyDesCr       : string[20]; // по которому формируется отчет
+  PersonsFIO,                 // Наименование сотрудника (для высветки)
+  SCashName,
+  SDocType      : string;
+  NomReestr     : string[7];  // Номер реестра
+  vbRetOk,
+  bInsDocPod    : boolean;    // Создана связь приказа с документом
+  piScreen,
+  piScreenV,
+  piScreenF,
+  Markers       : longint;
+  iRunInt       : integer;
+  markRashDoc,
+  indexNo       : longint;
+  isMarkPrikaz,
+  isMark        : boolean;
+
+  MrkPickedList,
+  markRashDocV  : longint;
+
+As select
+  // vsValNew
+  if (tDataVS.cVal = 0, sGetTune('Nde.SimvRub'), KlVal1.SimvolV)     (FieldName = vsValNew),
+  // vsValRaspr
+  if (SumsByVal.cVal = 0, sGetTune('Nde.SimvRub'), KlVal2.SimvolV)   (FieldName = vsValRaspr),
+  // vsValLink
+  if (mt_DocPodot.cVal = 0, sGetTune('Nde.SimvRub'), KlVal3.SimvolV)   (FieldName = vsValLink),
+  // SCashTitle
+  if (myTiDkGal <> 0, iDocSet.GetNameRazdelShort(iDocSet.GetDocSetByTiDkGal(myTiDkGal)), 'Раздел')
+                                                                     (FieldName = SCashTitle),
+  // DocTypeBold
+  if (myTp = cgTip_AvnOtchKU or myTp = cgTip_PlatVedKU, true, false)
+                                                                     (FieldName = DocTypeBold),
+  // AvansValBold
+  if (myTp = cgTip_PrihDocAO or myTp = cgTip_RashDocAO, true, false) (FieldName = AvansValBold),
+  // IsPicked
+  if (IsValid(tnPickS), '√', '')                                     (FieldName = IsPicked),
+  // TabNom
+  if (myLschet <> 0, GetStrTabN(LSchet.TabN, LSchet.StrTabN), GetStrTabN(Persons.TabNmb, Persons.StrTabN))
+                                                                     (FieldName = TabNom),
+  // FieldName
+  iTempl.GetTemplName(myTempl)                                       (FieldName = Template),
+
+  DocPodot.*, KatOrg.Name, KatBank.Name, PlPor.*, DocPodot2.*, SbBan.*, SpPlBan.*, tDataVS.*,
+  SpPrikazS.*, PickS.*, SumsByVal.*, SumsByValAndPers.*
+From
+  BaseDoc,
+  BaseFin,
+  CashBank,
+  DocPodot,
+  KatBank,
+  KatOrg,
+  KlVal,
+  LSchet,
+  NormRash,
+  Persons,
+  Pick,                         // Выбор привязываемых документов
+  PlPor,
+  Prikaz,
+  SbBan,
+  SoprHoz,
+  SpPlBan,
+  SpPrikaz,
+  StepDoc,                      // Необходима для собираемости Pl_New.vpp
+  RashDoc,
+  UsersDoc,
+  SpPlVed,
+  // таблицы в памяти
+  tDataVS,
+  SumsByVal,
+  SumsByValAndPers,
+  // маркер
+  pMarker,
+  // синонимы
+  KlVal    KlVal1,
+  KlVal    KlVal2,
+  KlVal    KlVal3,
+  DocPodot DocPodot1,
+  DocPodot DocPodot2,
+  DocPodot DocPodot3,
+  SbBan    SbBanYear,
+  RashDoc  RashDoc1,
+  PlPor    PlPor1,
+  PlPor    PlPorOld,
+  PlPor    PlPorAO,             // Исходные АО для ПП с реестром
+  Pick     PickS,               // Выбор сотрудников из приказа на командировку
+  SpPrikaz SpPrikazS,
+  SpPrikaz SpPrikaz1,
+  Persons  PersonsS,
+  Persons  PersonsSums,
+  Prikaz   PrikazEtap,
+  SpPlBan  SpPlBanP,
+  SpPrikaz SpPrikazTmp,
+  PlPor    PlPorTmp,
+
+  mt_DocPodot
+Where
+((
+      myTip                  == DocPodot.TipDoc
+  and myNRec                 == DocPodot.cPrDoc
+  and myPersons              == Persons.NRec
+  and myLschet               == LSchet.NRec
+  and PlPor.TiDk             == UsersDoc.TipUsers
+  and UsersDoc.cCashBank     == CashBank.NRec
+  and myOrg                  == KatOrg.nRec             // получатель денежных средств
+  and myBank                 == KatBank.nRec            // банк получателя
+  and Prikaz.NRec            == SpPrikazS.cPrikaz
+  and SpPrikazS.cPersons     == PersonsS.NRec
+  and word(45)               == PickS.wList
+  and SpPrikazS.NRec         == PickS.cRec
+  and myTipRP                == DocPodot2.TipDoc
+  and DocPodot.cVtDoc        == DocPodot2.cPrDoc
+  and DocPodot2.cVtDoc       == SbBan.NRec
+  and DocPodot2.cVtDoc       == SpPlBan.cSbBan
+  and LSchet.NRec            == SpPlBan.cLsch
+  and DocPodot2.cVtDoc       == SpPlBanP.cSbBan
+  and Persons.TabNmb         == SpPlBanP.TabN
+  and Persons.StrTabN        == SpPlBanP.StrTabN
+  and SumsByVal.cVal         == SumsByValAndPers.cVal
+  and SumsByValAndPers.cPers == PersonsSums.NRec
+  and 'KRPS'                 == SbBanYear.Prefix
+  and BegYear               <<= SbBanYear.dForm
+  and EndYear               >>= SbBanYear.dForm
+  and PlPor.cVal             == KlVal.NRec
+  and tDataVS.cVal           == KlVal1.NRec
+  and SumsByVal.cVal         == KlVal2.NRec
+  and mt_DocPodot.cVal       == KlVal3.NRec
+  // Многоэтапный приказ
+  and word(2)                == PrikazEtap.TipDoc
+  and myNRec                 == PrikazEtap.cSpPrikaz
+))
+
+Bounds byPlPor = DocPodot.cVtDoc == PlPor.NRec
+;
+
+Parameters
+  pMarker, // Автопометка записей
+  myNRec,  // NRec записи
+  myTp,    // Режим вызова интерфейса
+  myEtap;  // Текущий этап командировки
+
+#include Pl_New.vpp
+
+//------------------------------------------------------------------------------
+Window wiSumsByVal 'Выбор валюты из списка распределения сумм спецификации', Cyan;
+  Show at (, , , 15);
+
+Panel pSumsByVal
+  Show at (, , , 7);
+  Table SumsByVal;
+
+Browse brSumsByVal ('', , sci1EnEsc);
+Fields
+  SumsByVal.Summ ''#3'Сумма к', ''#3'распределению' ('Сумма к распределению по всем сотрудникам в указанной валюте')    : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  vsValRaspr     ''#3'Валюта'                       ('Валюта спецификации')                                             : [10], Protect;
+  SumsByVal.Spec ''#3'Сумма по', ''#3'спецификации' ('Сумма по спецификациям выбранных сотрудников в указанной валюте') : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  SumsByVal.Docs ''#3'Сумма по', ''#3'документам'   ('Сумма по уже подвязанным документам в указанной валюте')          : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+end;
+
+Browse brSumsByValAO ('', , sci1EnEsc);
+Fields
+  SumsByVal.Summ ''#3'Сумма к', ''#3'распределению'  ('Сумма к распределению по всем сотрудникам в указанной валюте') : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  vsValRaspr     ''#3'Валюта'                        ('Валюта спецификации')                                          : [10], Protect;
+  SumsByVal.Spec ''#3'Нераспределенная', ''#3'сумма' ('Нераспределенная сумма по всем выбранным документам')          : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  SumsByVal.Docs ''#3'Сумма по', ''#3'документам'    ('Сумма по уже подвязанным документам в указанной валюте')       : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+end;
+end; // Panel pSumsByVal
+
+Panel pSumsByValAndPers
+  Show at (, 8, ,);
+  Table SumsByValAndPers;
+
+Browse brSumsByValAndPers ('', , sci1Esc);
+Fields
+  PersonsSums.FIO       ''#3'Сотрудник'                    ('Выбранный сотрудник из приказа')                                 : [30], Protect;
+  SumsByValAndPers.Summ ''#3'Сумма к', ''#3'распределению' ('Разность сумм по спецификации и по документам')                  : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  SumsByValAndPers.Spec ''#3'Сумма по', ''#3'спецификации' ('Сумма по спецификации выбранного сотрудника в указанной валюте') : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  SumsByValAndPers.Docs ''#3'Сумма по', ''#3'документам'   ('Сумма по уже подвязанным документам по выбранному сотруднику')   : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+end;
+
+Browse brSumsByValAndPersAO ('', , sci1Esc);
+Fields
+  PersonsSums.FIO       ''#3'Сотрудник'                     ('Сотрудник из выбранного документа в указанной валюте')           : [30], Protect;
+  SumsByValAndPers.Summ ''#3'Сумма к', ''#3'распределению'  ('Сумма к распределению по сотруднику в указанной валюте')         : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  SumsByValAndPers.Spec ''#3'Нераспределенная', ''#3'сумма' ('Нераспределенная сумма выбранного документа в указанной валюте') : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  SumsByValAndPers.Docs ''#3'Сумма по', ''#3'документам'    ('Сумма по уже подвязанным документам по выбранному сотруднику')   : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+end;
+end; // Panel pSumsByValAndPers
+
+//------------------------------------------------------------------------------
+HandleEvent // Window wiSumsByVal
+
+cmInit:
+{
+  if (myTp = cgTip_PlatDocAO)
+  {
+    SetWindowTitle(wiSumsByVal, 'Выбор валюты из списка распределения сумм по документам');
+    SetFormat(brSumsByValAO);
+    SetFormat(brSumsByValAndPersAO);
+  }
+  else
+  {
+    SetWindowTitle(wiSumsByVal, 'Выбор валюты из списка распределения сумм спецификации');
+    SetFormat(brSumsByVal);
+    SetFormat(brSumsByValAndPers);
+  }
+
+  vbRetOk := false;
+}
+
+cmDefault:
+{
+  if (CurTable = #SumsByVal)
+  {
+    vbRetOk := IsValid(#SumsByVal);
+
+    CloseWindow(wiSumsByVal);
+  }
+}
+end; // HandleEvent Window wiSumsByVal
+end; // Window wiSumsByVal
+
+//------------------------------------------------------------------------------
+// Заполнение назначения платежа
+// cTempl - шаблон; wMtd - 0 все строчки изменяем 1 - только пустые
+Function RunTempl(cTempl : comp; wMtd : word): boolean;
+var
+  i : word;
+{
+  RunTempl := false;
+
+  if (cTempl = 0)
+    Exit;
+
+  iTempl.SetFieldCol(6);
+
+  for(i := 1; i <= 6; i++)
+    iTempl.SetFieldLen(i, if(i = 4, 255, 76));
+
+  if (iTempl.CulcTempl(PlPor.TiDkGal, PlPor.TiDk, PlPor.Nrec, cTempl, False))
+  {
+    case wMtd of
+      0 :
+      {
+        PlPor.NamePl1   := if(iTempl.GetTemplResult(1) = ''#13, PlPor.NamePl1, iTempl.GetTemplResult(1));
+        PlPor.NamePl2   := if(iTempl.GetTemplResult(2) = ''#13, PlPor.NamePl2, iTempl.GetTemplResult(2));
+        PlPor.NamePl3   := if(iTempl.GetTemplResult(3) = ''#13, PlPor.NamePl3, iTempl.GetTemplResult(3));
+        PlPor.NamePl4   := if(iTempl.GetTemplResult(4) = ''#13, PlPor.NamePl4, iTempl.GetTemplResult(4));
+        PlPor.PodOtchet := if(iTempl.GetTemplResult(5) = ''#13, PlPor.PodOtchet, iTempl.GetTemplResult(5));
+        set PlPor.Tax   := if(iTempl.GetTemplResult(6) = ''#13, PlPor.Tax, iTempl.GetTemplResult(6));
+      }
+
+      1 :
+      {
+        PlPor.NamePl1   := if(Trim(PlPor.NamePl1) = '',  if(iTempl.GetTemplResult(1) = ''#13,'',iTempl.GetTemplResult(1)),PlPor.NamePl1);
+        PlPor.NamePl2   := if(Trim(PlPor.NamePl2) = '',  if(iTempl.GetTemplResult(2) = ''#13,'',iTempl.GetTemplResult(2)),PlPor.NamePl2);
+        PlPor.NamePl3   := if(Trim(PlPor.NamePl3) = '',  if(iTempl.GetTemplResult(3) = ''#13,'',iTempl.GetTemplResult(3)),PlPor.NamePl3);
+        PlPor.NamePl4   := if(Trim(PlPor.NamePl4) = '',  if(iTempl.GetTemplResult(4) = ''#13,'',iTempl.GetTemplResult(4)),PlPor.NamePl4);
+        PlPor.PodOtchet := if(Trim(PlPor.PodOtchet) = '',if(iTempl.GetTemplResult(5) = ''#13,'',iTempl.GetTemplResult(5)),PlPor.PodOtchet);
+        set PlPor.Tax   := if(Trim(PlPor.Tax) = '',      if(iTempl.GetTemplResult(6) = ''#13,'',iTempl.GetTemplResult(6)),PlPor.Tax);
+      }
+      end;
+
+    RunTempl := true;
+  }
+}
+
+//------------------------------------------------------------------------------
+// Формирование назначения платежа
+// cTempl - шаблон
+Function CreaTempl(myTempl : comp) : boolean;
+var sNamePl1, sNamePl2: tNamePl;
+{
+  CreaTempl := false;
+
+  if (myTp = cgTip_AvnOtchKU)
+    Exit;
+
+  sNamePl1 := PlPor.NamePl1;
+  sNamePl2 := PlPor.NamePl2;
+
+  if (myTempl <> 0) // берем шаблон из интерфейса
+  {
+    if RunTempl(myTempl, 0)
+      if (update current PlPor <> tsOk)
+        Exit;
+  }
+  else // общий шаблон для данного типа документов из настроек
+  {
+    if (iObjNDTunes.wGetBuhTune(cgBuh_MkShbl,PlPor.TiDkGal,tEr) <> 0)
+      if ((iObjNDTunes.wGetBuhTune(cgBuh_EvShbl, PlPor.TiDkGal, tEr) and 100000b) = 100000b)
+        if RunTempl(iObjNDTunes.coGetBuhTune(cgBuh_Shbl,PlPor.TiDkGal,tEr),
+                    iObjNDTunes.wGetBuhTune(cgBuh_MkMtdShbl,PlPor.TiDkGal,tEr))
+          if (update current PlPor <> tsOk)
+            Exit;
+  }
+
+  if ((sNamePl1 <> PlPor.NamePl1) or (sNamePl2 <> PlPor.NamePl2))
+    if ((iObjNDTunes.wGetBuhTune(cgBuh_RemarkTXOBy, PlPor.TiDkGal, tEr) and 1) = 1)
+      if (GetFirst SoprHoz where (( PlPor.TiDk == SoprHoz.TipDoc and
+                                    PlPor.nRec == SoprHoz.cSoprDoc)) = tsOk)
+        _Loop SoprHoz where ((PlPor.TiDk == SoprHoz.TipDoc and
+                                    PlPor.nRec == SoprHoz.cSoprDoc))
+        {
+          if (Trim(SoprHoz.NameSHO) = '') or (iObjNDTunes.wGetBuhTune(cgBuh_IsFieldFull, PlPor.TiDkGal, tEr) = 0)
+            if (SoprHoz.NameSHO <> Trim(Trim(PlPor.NamePl1) + ' ' + Trim(PlPor.NamePl2)))
+            {
+              update current SoprHoz set SoprHoz.NameSHO := Trim(Trim(PlPor.NamePl1) + ' ' + Trim(PlPor.NamePl2));
+              iSynch.SynchBaseFin(SoprHoz.BufferP);
+            }
+        }
+
+  CreaTempl := true;
+}
+
+//------------------------------------------------------------------------------
+// Очистка результатов предыдущего расчета.
+// Чистятся SumsByVal, SumsByValAndPers.
+Procedure ClearSumVal;
+{
+  ResetBounds(#SumsByValAndPers);
+
+  delete all SumsByVal;
+  delete all SumsByValAndPers;
+
+  SetBounds(#SumsByValAndPers);
+}
+
+//------------------------------------------------------------------------------
+Procedure DeleteAllPickS;
+{
+  PickKol := 0;
+
+  delete PickS where ((word(45) == PickS.wList));
+}
+
+//------------------------------------------------------------------------------
+Procedure DeleteCurPickS;
+{
+  PickKol := PickKol - 1;
+
+  delete current PickS;
+}
+
+//------------------------------------------------------------------------------
+Procedure SelectOnePers;
+{
+  PickKol := PickKol + 1;
+
+  PickS.wList := 45;
+  PickS.cRec := SpPrikazS.NRec;
+  PickS.PickNum := PickKol;  // порядок выбора
+  insert current PickS;
+}
+
+//------------------------------------------------------------------------------
+Function IsFRONotBuhSpr(_TiDkGal: word): boolean;
+{
+  IsFRONotBuhSpr := (IsFRODoc(_TiDkGal) and (not IsBuhSpravka(_TiDkGal)));
+}
+
+//------------------------------------------------------------------------------
+// Формируем/выбираем ПП с реестром
+Function IsPlatAndReestr(_TiDkGal: word): boolean;
+{
+  IsPlatAndReestr := (IsFRONotBuhSpr(_TiDkGal) and (CreateReestr <> 0));
+}
+
+//------------------------------------------------------------------------------
+// Подвязка кассового документа (РКО, ВРКО, АО) со спецификацией
+Function IsKassNotPrihDoc(_TiDkGal: word): boolean;
+{
+  IsKassNotPrihDoc := (IsKassaDoc(_TiDkGal) and (myTp <> cgTip_PrihDocAO) and (SelectForm = 0));
+}
+
+//------------------------------------------------------------------------------
+// Формирование кассового ордера из АО
+Function IsFormKasDocAO: boolean;
+{
+  IsFormKasDocAO := ((myTp = cgTip_PrihDocAO) or (myTp = cgTip_RashDocAO));
+}
+
+//------------------------------------------------------------------------------
+// Формирование реестра для ПП по нескольким сотрудникам обязательно
+Function IsFormPPAndReestr: boolean;
+{
+  IsFormPPAndReestr := (((myTp = cgTip_PlatDocPr) or (myTp = cgTip_PlatDocAO)) and (wKolPers > 1));
+}
+
+//------------------------------------------------------------------------------
+Function IsFormPPAndReestr2: boolean;
+{
+  IsFormPPAndReestr2 := false;
+
+  if ((myTp = cgTip_PlatDocPr) and (wKolPers > 1))
+    IsFormPPAndReestr2 := (GetFirst PickS where ((word(45) == PickS.wList)) = tsOk);
+
+  if ((myTp = cgTip_PlatDocAO) and (wKolPers > 1))
+    IsFormPPAndReestr2 := (GetFirst pMarker = tsOk);
+}
+
+//------------------------------------------------------------------------------
+// Формируем валютный документ АО, валюта суммы не задана
+Function IsValAO(_TiDkGal: word): boolean;
+{
+  IsValAO := (IsFormKasDocAO and (myVal = 0) and IsValutDoc(_TiDkGal));
+}
+
+//------------------------------------------------------------------------------
+Function IsPlDocPrAO(_TiDkGal : word) : boolean;
+{
+//  IsPlDocPrAO := (((myTp = cgTip_PlatDocPr) or (myTp = cgTip_PlatDocAO)) and
+//                  ((_TiDkGal = cgDoc_0008) or (_TiDkGal = cgDoc_0018)));
+  IsPlDocPrAO := (((myTp = cgTip_PlatDocPr) or (myTp = cgTip_PlatDocAO)) and
+                  (                           (_TiDkGal = cgDoc_0018)));
+}
+
+//------------------------------------------------------------------------------
+// определение myTiDkUser
+Function IsFindRecUsersDoc: boolean;
+{
+  IsFindRecUsersDoc := false;
+
+  if (GetFirst UsersDoc where ((iDocSet.GetDocSetByTiDkGal(myTiDkGal) == UsersDoc.Razdel
+                                                           and myCash == UsersDoc.cCashBank
+                                                        and myTiDkGal == UsersDoc.TipGal)) = tsOk)
+  {
+    myTiDkUser := UsersDoc.TipUsers;
+    set SCashName := UsersDoc.Name;
+
+    IsFindRecUsersDoc := true;
+  }
+}
+
+//------------------------------------------------------------------------------
+Function IsNotFindReestr : boolean;
+{
+  IsNotFindReestr := false;
+
+  if (IsPlatAndReestr(myTiDkGal))
+  {
+    if (GetFirst DocPodot2 where ((myTipRP == DocPodot2.TipDoc and
+                                   myNR    == DocPodot2.cPrDoc)) <> tsOk)
+      IsNotFindReestr := true;
+  }
+}
+
+//------------------------------------------------------------------------------
+// поиск существующих связей (_cDoc - для какого документа ищем, то что нашли - _cDocLink)
+Function FindDocLink(_myTip : word; _cDoc : comp; var _cDocLink : comp) : boolean;
+{
+  FindDocLink := false;
+  _cDocLink := 0;
+
+  case _myTip of
+    cgTip_RashDocAO: // РКО по АО - ищем КУ по АО
+    {
+      if (GetFirst DocPodot3 where ((cgLink_AvnOtchKU == DocPodot3.TipDoc
+                                            and _cDoc == DocPodot3.cVtDoc)) = tsOk)
+      {
+        delete all mt_DocPodot;
+
+        _loop DocPodot3 where ((cgLink_AvnOtchKU == DocPodot3.TipDoc
+                                       and _cDoc == DocPodot3.cVtDoc))
+        {
+          if (GetFirst SpPrikazTmp where ((DocPodot3.cPrDoc == SpPrikazTmp.nRec)) = tsOk)
+          {
+            ClearBuffer(#mt_DocPodot);
+            mt_DocPodot.nRec  := DocPodot3.nRec;
+            mt_DocPodot.cDoc  := DocPodot3.cPrDoc;
+            mt_DocPodot.NoDoc := SpPrikazTmp.NomKU;
+            mt_DocPodot.Name  := 'Командировочное удостоверение';
+
+            insert current mt_DocPodot;
+          }
+        }
+
+        if (GetFirst mt_DocPodot = tsOk)
+        {
+          FindDocLink := true;
+
+          if (RecordsInTable(#mt_DocPodot) = 1)
+            _cDocLink := mt_DocPodot.cDoc;
+        }
+      }
+    }
+    cgTip_RashDocKU: // РKO по КУ - ищем ОА по КУ
+    {
+      if (GetFirst DocPodot3 where ((cgLink_AvnOtchKU == DocPodot3.TipDoc
+                                            and _cDoc == DocPodot3.cPrDoc)) = tsOk)
+      {
+        delete all mt_DocPodot;
+
+        _loop DocPodot3 where ((cgLink_AvnOtchKU == DocPodot3.TipDoc
+                                       and _cDoc == DocPodot3.cPrDoc))
+        {
+          if (GetFirst PlPorTmp where ((DocPodot3.cVtDoc == PlPorTmp.nRec)) = tsOk)
+          {
+            if (piCashBank.CashBank_ByTidk(PlPorTmp.Tidk) = piCashBank.CashBank_ByTidk(myTiDkUser))
+            {
+              ClearBuffer(#mt_DocPodot);
+              mt_DocPodot.nRec  := DocPodot3.nRec;
+              mt_DocPodot.cDoc  := DocPodot3.cVtDoc;
+              mt_DocPodot.NoDoc := PlPorTmp.NoDok;
+              mt_DocPodot.Name  := 'Авансовый отчет';
+              mt_DocPodot.cVal  := PlPorTmp.cVal;
+              mt_DocPodot.Summ  := if(PlPorTmp.cVal = 0, PlPorTmp.SumPlat, PlPorTmp.SumPlatV);
+
+              insert current mt_DocPodot;
+            }
+          }
+        }
+
+        if (GetFirst mt_DocPodot = tsOk)
+        {
+          FindDocLink := true;
+
+          if (RecordsInTable(#mt_DocPodot) = 1)
+            _cDocLink := mt_DocPodot.cDoc;
+        }
+      }
+    }
+    cgTip_AvnOtchKU: // АО по КУ - ищем РКО по КУ
+    {
+      if (GetFirst DocPodot3 where ((cgLink_RashDocKU == DocPodot3.TipDoc
+                                            and _cDoc == DocPodot3.cPrDoc)) = tsOk)
+      {
+        delete all mt_DocPodot;
+
+        _loop DocPodot3 where ((cgLink_RashDocKU == DocPodot3.TipDoc
+                                       and _cDoc == DocPodot3.cPrDoc))
+        {
+          if (GetFirst PlPorTmp where ((DocPodot3.cVtDoc == PlPorTmp.nRec)) = tsOk)
+          {
+            if (piCashBank.CashBank_ByTidk(PlPorTmp.Tidk) = piCashBank.CashBank_ByTidk(myTiDkUser))
+            {
+              ClearBuffer(#mt_DocPodot);
+              mt_DocPodot.nRec  := DocPodot3.nRec;
+              mt_DocPodot.cDoc  := DocPodot3.cVtDoc;
+              mt_DocPodot.NoDoc := PlPorTmp.NoDok;
+              mt_DocPodot.Name  := 'Расходный кассовый ордер';
+              mt_DocPodot.cVal  := PlPorTmp.cVal;
+              mt_DocPodot.Summ  := if(PlPorTmp.cVal = 0, PlPorTmp.SumPlat, PlPorTmp.SumPlatV);
+
+              insert current mt_DocPodot;
+            }
+          }
+        }
+
+        if (GetFirst mt_DocPodot = tsOk)
+        {
+          FindDocLink := true;
+
+          if (RecordsInTable(#mt_DocPodot) = 1)
+            _cDocLink := mt_DocPodot.cDoc;
+        }
+      }
+    }
+  end;
+}
+
+//------------------------------------------------------------------------------
+Function IsRKOPP(wTip : word) : boolean;
+{
+  case wTip of
+
+    cgDoc_0008, cgDoc_0018, cgDoc_0001, cgDoc_0031:
+      IsRKOPP := true;
+
+  else
+    IsRKOPP := false;
+  end;
+}
+
+//------------------------------------------------------------------------------
+Function GetTidkGal_Type(_TiDkGal : word; _MeanType : word) : boolean;
+Var
+  bRet : boolean;
+{
+  case _MeanType of
+
+    cgTip_PrihDocAO:
+      bRet := (IsBuhSpravka(_TiDkGal) or IsKassaPrihod(_TiDkGal));
+
+    cgTip_RashDocAO:
+      bRet := (IsBuhSpravka(_TiDkGal) or IsRKOPP(_TiDkGal));
+
+    cgTip_RashDocKU, cgTip_PlatDocPr, cgTip_PlatDocAO:
+      bRet := IsRKOPP(_TiDkGal);
+
+    cgTip_AvnOtchKU:
+      bRet := IsAO(_TiDkGal);
+
+  else
+    bRet := true;
+  end;
+
+  GetTidkGal_Type := bRet;
+}
+
+//------------------------------------------------------------------------------
+Function DocTidkGal_Type(_Marker : longint; _MeanType : word) : boolean;
+Var
+  FoundType : boolean;
+  iTiDkGal  : word;
+{
+  if (_Marker = 0)
+  {
+    DocTidkGal_Type := false;
+    Exit;
+  }
+
+  ClearMarker(_Marker);
+
+  for (iTiDkGal := cgDoc_0001; iTiDkGal <= cgDoc_0031; iTiDkGal := iTiDkGal + 1)
+  {
+    FoundType := GetTidkGal_Type(iTiDkGal, _MeanType);
+
+    if (FoundType)
+    {
+      if ((not IsValAO(iTiDkGal)) and (not IsPlDocPrAO(iTiDkGal)))
+        InsertMarker(_Marker, iTiDkGal);
+    }
+  }
+
+  DocTidkGal_Type := true;
+}
+
+//------------------------------------------------------------------------------
+// Выбор типа формируемого документа
+Function DocPick_Type(_MeanType: word; var _retTiDkGal: word) : boolean;
+Var
+  Marker: longint;
+  CurDocType: word;
+{
+  DocPick_Type := false;
+
+  piPickStr.Clear;
+
+  Marker := InitMarker('', 2, 100, 10);
+
+  if (DocTidkGal_Type(Marker, _MeanType))
+  {
+    while GetMarker(Marker, 0, CurDocType)
+    {
+      piPickStr.Add(CurDocType, GetTiDkGalName(CurDocType));
+      AtDeleteMarker(Marker, 0);
+    }
+
+    // Видна колонка Код, не множественный выбор
+    piPickStr.Init('Типы документов', true, false);
+
+    DocPick_Type := piPickStr.ExecSelect(_retTiDkGal);
+  }
+
+  DoneMarker(Marker, 'GetPs_TidkGal');
+}
+
+//------------------------------------------------------------------------------
+// Заполнение спецификации реестра по перечислениям в банк по подотчетным суммам
+Procedure CreateSpecBankReestr;
+{
+  iReestr.SetCEXAKT(0);
+  iReestr.SetCPOL(myOrg);          // организация получателя
+  iReestr.SetCBANKPOL(myBank);     // банк получателя
+
+  if (myLschet <> 0)
+    iReestr.SetCLSCH(myLschet);
+  else
+    iReestr.SetCLSCH(PlPor.cLSchet);
+
+  iReestr.SetTPERSON(myPersons);
+  iReestr.SetCEX(Persons.GalDep);
+
+  if ((GetFirst LSchet = tsOk) and (Trim(LSchet.Pasport) <> ''))
+    iReestr.SetNOMLSH(LSchet.Pasport);   // № л/с
+  else
+    iReestr.SetNOMLSH(TabNom);
+
+  iReestr.SetNOMCARD(LSchet.NomCard);    // № карты
+  iReestr.SetFIO(Persons.FIO);
+  iReestr.SetTabN(TabNom);
+
+  if (SelectForm = 0)
+  {
+    if (PlPor.cVal = 0)
+      iReestr.SetSUMMA(PlPor.SumPlat);
+    else
+      iReestr.SetSUMMA(PlPor.SumPlatV);
+  }
+  else
+  {
+    if (not IsFormPPAndReestr)     // в реестре один сотрудник
+      iReestr.SetSUMMA(tDataVS.SumKol);
+    else
+    {
+      if (GetFirst SumsByValAndPers where ((tDataVS.cVal == SumsByValAndPers.cVal
+                                           and myPersons == SumsByValAndPers.cPers)) = tsOk)
+        iReestr.SetSUMMA(SumsByValAndPers.Summ);
+      else
+        iReestr.SetSUMMA(0);
+    }
+  }
+
+  iReestr.SetSBOR(doGetTune('UP.ZAR.SBORS'));
+  iReestr.SetADRES('');
+  iReestr.SetVIDUD(0);
+
+  iReestr.SetFAMCH('');
+  iReestr.SetDATROG(0);
+  iReestr.insertRMONEY;
+}
+
+//------------------------------------------------------------------------------
+// Заполнение шапки реестра по перечислениям в банк по подотчетным суммам
+Procedure CreateCapBankReestr;
+Var
+  myDate : date;
+{
+  iReestr.SetSBBANNAME('Перечисление подотчетных сумм ');
+
+  if (wGetTune('COUNTRY') = ccBel)   // РБ
+    iReestr.SetSBBANMNEM('Список по перечислениям в банк');
+  else
+    iReestr.SetSBBANMNEM('Реестр по перечислениям в банк');
+
+  if (SelectForm = 0)
+    iReestr.SetFORMINGDATE(PlPor.DatVip);
+  else
+    iReestr.SetFORMINGDATE(dForm);
+
+  myDate := DGetTune('UP.DATOTCH');
+
+  if (coGetTune('UP.TekBud') = 1)    // Расчетный период - будущий
+    myDate := Add_Months(myDate, 1);
+
+  iReestr.SetDATAZA(Date(1, Month(myDate), Year(myDate)));
+  iReestr.SetDATAV(Date(Last_Day(myDate), Month(myDate), Year(myDate)));
+  iReestr.SetPREFIX('KRPS');
+
+  SbBanNRec := iReestr.CreatePayRoll('', 0, NomReestr, false, 0, 0);
+
+  if (SbBanNRec <> 0)
+  {
+    PushPos(#SbBan);
+    ResetBounds(#SbBan);
+
+    if (GetFirst SbBan where ((SbBanNRec == SbBan.NRec)) = tsOk)
+    {
+      SbBan.Priznak := 1;            // По реестру формировалось ПП
+
+      update current SbBan;
+    }
+
+    SetBounds(#SbBan);
+    PopPos(#SbBan);
+  }
+}
+
+//------------------------------------------------------------------------------
+// Формирование SumsByValAndPers.
+// Расчет сумм по спецификации документа в разрезе валют и сотрудников.
+Procedure GetSumDoc(acDoc: comp; awTip: word);
+Var
+  ffKol: double;
+{
+  _loop RashDoc where ((awTip == RashDoc.TipDoc and acDoc == RashDoc.cSoprDoc))
+  {
+    if isMark
+      if not SearchMarker(markRashDoc, RashDoc.NRec, IndexNo)
+        continue;
+
+    if (GetFirst NormRash where ((RashDoc.cNorm == NormRash.NRec)) = tsOk)
+    {
+      if (NormRash.PrTime = 0)
+        ffKol := RashDoc.Kol;
+      else
+        ffKol := 1;
+    }
+    else
+    {
+      if (RashDoc.Kol = 0)
+        ffKol := 1;
+      else
+        ffKol := RashDoc.Kol;
+    }
+
+    if (GetFirst SumsByValAndPers where ((RashDoc.cVal2 == SumsByValAndPers.cVal
+                                          and myPersons == SumsByValAndPers.cPers)) = tsOk)
+    {
+      SumsByValAndPers.Spec := SumsByValAndPers.Spec + RashDoc.SumV2 * ffKol;
+      SumsByValAndPers.Summ := SumsByValAndPers.Summ + RashDoc.SumV2 * ffKol;
+
+      update current SumsByValAndPers;
+    }
+    else
+    {
+      ClearBuffer(#SumsByValAndPers);
+
+      SumsByValAndPers.cVal  := RashDoc.cVal2;
+      SumsByValAndPers.cPers := myPersons;
+      SumsByValAndPers.cLsch := myLschet;
+      SumsByValAndPers.Spec  := RashDoc.SumV2 * ffKol;
+      SumsByValAndPers.Summ  := RashDoc.SumV2 * ffKol;
+
+      insert current SumsByValAndPers;
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+// Корректировка рассчитанных сумм с учетом уже связанных документов
+Procedure CorrectSumFormDoc(acDoc: comp; awTip: word; abSub: boolean);
+! abSub = true - вычитаем суммы
+var
+  ffSumm: double;
+{
+  _loop DocPodot where ((awTip == DocPodot.TipDoc and acDoc == DocPodot.cPrDoc))
+  {
+    if (GetFirst PlPor1 where ((DocPodot.cVtDoc == PlPor1.NRec)) = tsOk)
+    {
+      if (PlPor1.cVal = 0)
+        ffSumm := if (abSub, PlPor1.SumPlat, -PlPor1.SumPlat);
+      else
+        ffSumm := if (abSub, PlPor1.SumPlatV, -PlPor1.SumPlatV);
+
+      // Если для ПП есть реестр по перечислениям, то сумму берем из реестра
+      if (myLschet <> 0)
+      {
+        if (GetFirst LSchet = tsOk)
+        {
+          if (GetFirst SpPlBan = tsOk)
+            ffSumm := SpPlBan.SumOpl;
+        }
+      }
+      else
+        if (GetFirst Persons = tsOk)
+          if (GetFirst SpPlBanP = tsOk)
+            ffSumm := SpPlBanP.SumOpl;
+
+      if (GetFirst SumsByValAndPers where ((PlPor1.cVal == SumsByValAndPers.cVal and
+                                            myPersons   == SumsByValAndPers.cPers)) = tsOk)
+      {
+        SumsByValAndPers.Docs := SumsByValAndPers.Docs + ffSumm;
+        SumsByValAndPers.Summ := SumsByValAndPers.Summ - ffSumm;
+
+        update current SumsByValAndPers;
+      }
+    }
+  }
+}
+
+// Корректировка рассчитанных сумм с учетом уже связанных документов
+Procedure CorrectSumPlVedDoc(acDoc: comp; awTip: word; abSub: boolean);
+! abSub = true - вычитаем суммы
+var
+  ffSumm: double;
+{
+  _loop DocPodot where ((awTip == DocPodot.TipDoc and acDoc == DocPodot.cPrDoc))
+  {
+    if (GetFirst SpPlVed where ((DocPodot.cVtDoc == SpPlVed.NRec)) = tsOk)
+    {
+      if (SpPlVed.cVal = 0)
+        ffSumm := if (abSub, SpPlVed.SumUd, -SpPlVed.SumUd);
+      else
+        ffSumm := if (abSub, SpPlVed.SumUdV, -SpPlVed.SumUdV);
+
+      // Если для ПП есть реестр по перечислениям, то сумму берем из реестра
+      if (myLschet <> 0)
+      {
+        if (GetFirst LSchet = tsOk)
+        {
+          if (GetFirst SpPlBan = tsOk)
+            ffSumm := SpPlBan.SumOpl;
+        }
+      }
+      else
+        if (GetFirst Persons = tsOk)
+          if (GetFirst SpPlBanP = tsOk)
+            ffSumm := SpPlBanP.SumOpl;
+
+      if (GetFirst SumsByValAndPers where ((SpPlVed.cVal == SumsByValAndPers.cVal and
+                                             myPersons   == SumsByValAndPers.cPers)) = tsOk)
+      {
+        SumsByValAndPers.Docs := SumsByValAndPers.Docs + ffSumm;
+        SumsByValAndPers.Summ := SumsByValAndPers.Summ - ffSumm;
+
+        update current SumsByValAndPers;
+      }
+    }
+  }
+}
+//------------------------------------------------------------------------------
+// Расчет суммы АО в разрезе валют для включения в общий ПП с реестром
+// (уже существующие DocPodot не учитываются)
+Procedure GetSumPlatDocAO(acDoc: comp);
+{
+  if (GetFirst PlPorAO where ((acDoc == PlPorAO.NRec)) = tsOk)
+  {
+    if (GetFirst SumsByValAndPers where ((PlPorAO.cVal == SumsByValAndPers.cVal and
+                                          myPersons    == SumsByValAndPers.cPers)) = tsOk)
+
+    {
+      if (PlPorAO.cVal = 0)
+      {
+        SumsByValAndPers.Spec := SumsByValAndPers.Spec + PlPorAO.SumPlat;
+        SumsByValAndPers.Summ := SumsByValAndPers.Summ + PlPorAO.SumPlat;
+      }
+      else
+      {
+        SumsByValAndPers.Spec := SumsByValAndPers.Spec + PlPorAO.SumPlatV;
+        SumsByValAndPers.Summ := SumsByValAndPers.Summ + PlPorAO.SumPlatV;
+      }
+
+      update current SumsByValAndPers;
+    }
+    else
+    {
+      ClearBuffer(#SumsByValAndPers);
+
+      SumsByValAndPers.cVal  := PlPorAO.cVal;
+      SumsByValAndPers.cPers := myPersons;
+      SumsByValAndPers.cLsch := myLschet;
+
+      if (PlPorAO.cVal = 0)
+      {
+        SumsByValAndPers.Spec := PlPorAO.SumPlat;
+        SumsByValAndPers.Summ := PlPorAO.SumPlat;
+      }
+      else
+      {
+        SumsByValAndPers.Spec := PlPorAO.SumPlatV;
+        SumsByValAndPers.Summ := PlPorAO.SumPlatV;
+      }
+
+      insert current SumsByValAndPers;
+    }
+  }
+}
+
+//---------------------------------------------------------------------------------
+// Закачка данных в SumsByVal. Расчет сумм в разрезе валют (без учета сотрудников).
+Procedure PumpSumsByVal;
+{
+  ResetBounds(#SumsByValAndPers);
+
+  _Loop SumsByValAndPers
+    if (GetFirst SumsByVal where ((SumsByValAndPers.cVal == SumsByVal.cVal)) = tsOk)
+    {
+      SumsByVal.Spec := SumsByVal.Spec + SumsByValAndPers.Spec;
+      SumsByVal.Docs := SumsByVal.Docs + SumsByValAndPers.Docs;
+
+      if (IsFormKasDocAO or (SumsByValAndPers.Summ > 0))
+        SumsByVal.Summ := SumsByVal.Summ + SumsByValAndPers.Summ;
+
+      update current SumsByVal;
+    }
+    else
+    {
+      ClearBuffer(#SumsByVal);
+
+      SumsByVal.cVal := SumsByValAndPers.cVal;
+      SumsByVal.Spec := SumsByValAndPers.Spec;
+      SumsByVal.Docs := SumsByValAndPers.Docs;
+
+      if (IsFormKasDocAO or (SumsByValAndPers.Summ > 0))
+        SumsByVal.Summ := SumsByValAndPers.Summ;
+
+      insert current SumsByVal;
+    }
+
+  SetBounds(#SumsByValAndPers);
+
+  if (myTp = cgTip_PrihDocAO)
+  {
+    _loop SumsByVal
+    {
+      SumsByVal.Summ := -1 * SumsByVal.Summ;   // для ПКО суммы прибавляются
+
+      update current SumsByVal;
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------------
+// Расчет суммы по формируемому документу (документ формируется на одного сотрудника)
+Procedure GetSumOnePersDoc(acDoc: comp);
+{
+  case myTp of
+
+    cgTip_RashDocKU, cgTip_PlatDocPr:
+    {
+      // заполняем SumsByValAndPers суммами из спецификации документа
+      GetSumDoc(acDoc, cgRashDoc_KU);
+
+      // корректировка SumsByValAndPers с учетом существующих DocPodot
+      CorrectSumFormDoc(acDoc, cgLink_RashDocKU, true);
+    }
+
+    cgTip_PlatVedKU:
+    {
+      GetSumDoc(acDoc, cgRashDoc_KU);
+      CorrectSumPlVedDoc(acDoc, cgLink_SpPlVedKU, true);
+    }
+
+    cgTip_AvnOtchKU:
+    {
+      GetSumDoc(acDoc, cgRashDoc_KU);
+      CorrectSumFormDoc(acDoc, cgLink_AvnOtchKU, true);
+    }
+
+    cgTip_RashDocAO:
+    {
+      GetSumDoc(acDoc, cgRashDoc_AO);
+      CorrectSumFormDoc(acDoc, cgLink_RashDocAO, true);
+      CorrectSumFormDoc(acDoc, cgLink_PrihDocAO, false);
+    }
+
+    cgTip_PrihDocAO:
+    {
+      GetSumDoc(acDoc, cgRashDoc_AO);
+      CorrectSumFormDoc(acDoc, cgLink_PrihDocAO, false);
+      CorrectSumFormDoc(acDoc, cgLink_RashDocAO, true);
+    }
+
+    cgTip_PlatDocAO:
+      // заполняем SumsByValAndPers суммами из спецификации документа,
+      // уже существующие DocPodot при этом не учитываются
+      GetSumPlatDocAO(acDoc);
+  end;
+
+  if ((myTp <> cgTip_PlatDocPr) and (myTp <> cgTip_PlatDocAO) and (myTp <> cgTip_PlatVedKU))
+    PumpSumsByVal;   // закачка данных в SumsByVal
+}
+
+//-----------------------------------------------------------------------------------------
+// Расчет суммы по формируемому ПП (документ формируется на нескольких сотрудников).
+// Вызывается для myTp = cgTip_PlatDocPr, cgTip_PlatDocAO.
+Procedure GetSumManyPersDoc;
+{
+  PushPos(#PickS);
+
+  ClearSumVal;   // чистятся SumsByVal, SumsByValAndPers
+
+  // Подсчет количества выбранных сотрудников
+
+  wKolPers := 0;
+
+  if (myTp = cgTip_PlatDocAO)
+    _loop pMarker
+      inc(wKolPers);
+  else
+    _loop PickS where ((word(45) == PickS.wList))
+      inc(wKolPers);
+
+  if (wKolPers = 0)
+    wKolPers := 1;
+
+  // Расчет суммы по формируемому ПП
+
+  if (wKolPers = 1)
+  {
+    // Расчет суммы по формируемому ПП с одним сотрудником
+
+    if (myTp = cgTip_PlatDocAO)
+    {
+      if (GetFirst PlPorAO where ((myNRec == PlPorAO.NRec)) = tsOk)
+      {
+        set myPersons := PlPorAO.cPersons;
+        set myLschet := PlPorAO.cLSchet;
+        set PersonsFIO := Persons.FIO;
+
+        GetSumOnePersDoc(myNRec);
+      }
+    }
+    else
+    {
+      if (GetFirst SpPrikaz where ((myNRec == SpPrikaz.NRec)) = tsOk)
+      {
+        set myPersons := SpPrikaz.cPersons;
+        set myLschet := SpPrikaz.cLsch;
+        set PersonsFIO := Persons.FIO;
+
+        GetSumOnePersDoc(myNRec);
+      }
+    }
+  }
+  else  // wKolPers > 1
+  {
+    // ПП формируется по нескольким сотрудникам
+
+    if (myTp = cgTip_PlatDocAO)
+    {
+      _loop pMarker
+        if (GetFirst PlPorAO where ((pMarker.pcRec == PlPorAO.NRec)) = tsOk)
+        {
+          myPersons := PlPorAO.cPersons;
+          myLschet := PlPorAO.cLSchet;
+
+          GetSumOnePersDoc(pMarker.pcRec);
+        }
+    }
+    else
+    {
+      _loop PickS where ((word(45) == PickS.wList))
+        if (GetFirst SpPrikaz where ((PickS.cRec == SpPrikaz.NRec)) = tsOk)
+        {
+          set myPersons := SpPrikaz.cPersons;
+
+          if (SpPrikaz.cLsch <> 0)
+            set myLschet := SpPrikaz.cLsch;
+          else
+          {
+            myLschet := 0;
+
+            iEmpElements.CheckPersonsLschet(myPersons, myLschet);  // заполняем ЛС по умолчанию
+          }
+
+          GetSumOnePersDoc(PickS.cRec);
+        }
+    }
+
+    set myPersons := 0;
+    set PersonsFIO := 'Множественный выбор (' + string(wKolPers) + ')';
+  }
+
+  PumpSumsByVal;  // заключительная закачка данных в SumsByVal
+
+  PopPos(#PickS);
+}
+
+//------------------------------------------------------------------------------
+Procedure GetValFromKat;
+{
+  if (RunInterface('GetValOt', tDataVS.cVal) = cmDefault)
+  {
+    if (GetFirst SumsByVal where ((tDataVS.cVal == SumsByVal.cVal)) = tsOk)
+      set tDataVS.SumKol := SumsByVal.Summ;
+    else
+      set tDataVS.SumKol := 0;
+  }
+}
+
+//------------------------------------------------------------------------------
+Procedure DocPodotIns(_cPersons, _cPrDoc, _cVtDoc : comp; _myTip : word);
+{
+  ClearBuffer(#DocPodot);
+
+  DocPodot.NRec     := 0;
+  DocPodot.cPersons := _cPersons;
+  DocPodot.cPrDoc   := _cPrDoc;
+  DocPodot.cVtDoc   := _cVtDoc;
+  DocPodot.TipDoc   := _myTip;
+
+  if (insert current DocPodot <> tsOk)
+    bInsDocPod := false;      // связь документа с приказом/АО не сформирована
+}
+
+//------------------------------------------------------------------------------
+Procedure DocPodot2Ins(_cPersons : comp);
+{
+  if (SbBanNRec <> 0)
+  {
+    ClearBuffer(#DocPodot2);
+
+    DocPodot2.NRec     := 0;
+    DocPodot2.cPersons := _cPersons;
+    DocPodot2.cPrDoc   := myNR;
+    DocPodot2.cVtDoc   := SbBanNRec;
+    DocPodot2.TipDoc   := myTipRP;
+
+    if (insert current DocPodot2 = tsOk)
+    {
+      _loop SpPlBan where ((SbBanNRec == SpPlBan.cSbBan)) // Платежные документы c реестрами по перечислениям по подотчетнику
+      {
+        iAhdF.GetInfoOldDocPodot(true, word(45), 0);      // Учет подотчетных сумм из реестра
+        iAhdF.GetInfoNewDocPodot(word(45), SpPlBan.NRec);
+        iAhdF.DocumentAndPodotchetAddIns1(0, true);              // Подотчетники
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+// При необходимости переключаем SelectForm, проверяем wKolPers.
+Function SelectExistent: boolean;
+{
+  SelectExistent := false;
+
+  if (myTp = cgTip_PlatVedKU)
+  {
+    set SelectForm := 1;
+    ClearFieldOption (#SelectForm, ofSelectable);
+    if (wKolPers > 1)
+      ClearFieldOption(#tDataVS.SumKol, ofSelectable);
+    SelectExistent := true;
+    Exit;
+  }
+
+  if ((SelectForm = 0) and IsFormPPAndReestr)  // ПП по нескольким сотрудникам
+  {
+    set SelectForm := 1;   // можно только сформировать
+    SelectExistent := true;
+  }
+}
+
+//------------------------------------------------------------------------------
+// Ищем номер для нового реестра в рамках года формирования документа
+Procedure InitNomReestr;
+Var
+  MaxNum, TabNum: string;
+{
+  MaxNum  := '0000000';
+  BegYear := date(1, 1, Year(dForm));
+  EndYear := date(31, 12, Year(dForm));
+
+  _loop SbBanYear
+  {
+    TabNum := LPadCh(SbBanYear.LastUser, '0', 7);
+
+    if (TabNum > MaxNum)
+      MaxNum := TabNum;
+  }
+
+  set NomReestr := NextNumStr(MaxNum);
+}
+
+//------------------------------------------------------------------------------
+// Настройка CreateReestr и NomReestr:
+// а) в зависимости от wKolPers переключается CreateReestr;
+// б) скрываем/открываем номер реестра в зависимости от CreateReestr.
+Procedure SetViewFieldsReestr;
+Var
+  sMyArray1: array [1..2] of string;
+  sMyArray2: array [1..3] of string;
+{
+  if (IsFRONotBuhSpr(myTiDkGal))
+  {
+    // устанавливаем список значений для CreateReestr
+    if (SelectForm = 0)   // Выбор существующих документов
+    {
+      sMyArray2[1] := 'Без реестра';
+      sMyArray2[2] := 'Формировать реестр';
+      sMyArray2[3] := 'С реестром';
+
+      SetEnumList(piScreen, #CreateReestr, sMyArray2);
+    }
+    else   // Формирование нового
+    {
+      sMyArray1[1] := 'Без реестра';
+      sMyArray1[2] := 'Формировать реестр';
+
+      SetEnumList(piScreen, #CreateReestr, sMyArray1);
+
+      // Если ПП по нескольким сотрудникам, то реестр формируем обязательно.
+      // Проверяем wKolPers.
+      if ((CreateReestr <> 1) and IsFormPPAndReestr)
+        set CreateReestr := 1;   // переключаем на 'Формировать реестр'
+    }
+
+    if (CreateReestr <> 1)
+    {
+      HideLabel4Field(#NomReestr);
+      ClearFieldState(#NomReestr, sfVisible);
+    }
+    else   // Формировать реестр
+    {
+      ShowLabel4Field(#NomReestr);
+      SetFieldState(#NomReestr, sfVisible);
+
+      InitNomReestr;
+    }
+  }
+}
+
+//------------------------------------------------------------------------------------
+// Перенос информации из спецификации (настройка FormSpec)
+Procedure SetViewFieldsSpec;
+{
+  if IsKassNotPrihDoc(myTiDkGal)  // подвязка документа со спецификацией
+    SetFieldState(#FormSpec, sfVisible);
+  else
+    ClearFieldState(#FormSpec, sfVisible);
+}
+
+//------------------------------------------------------------------------------------
+// Настройка параметров окна, зависящих от wKolPers, типа документа и SelectForm:
+// SCashName, KatOrg.Name, KatBank.Name, CreateReestr, NomReestr, FormSpec
+Procedure SetViewFields;
+{
+  // раздел
+
+  if (iDocSet.OkManyTipDoc(iDocSet.GetDocSetByTiDkGal(myTiDkGal)))
+  {
+    SetFieldState(#SCashName, sfVisible);
+    SetFieldState(#SCashTitle, sfVisible);
+  }
+  else
+  {
+    ClearFieldState(#SCashName, sfVisible);
+    ClearFieldState(#SCashTitle, sfVisible);
+  }
+
+  // организация, банк, формирование реестра, номер реестра
+
+  if (IsFRONotBuhSpr(myTiDkGal))
+  {
+    ShowLabel4Field(#KatOrg.Name);
+    SetFieldState(#KatOrg.Name, sfVisible);
+    ShowLabel4Field(#KatBank.Name);
+    SetFieldState(#KatBank.Name, sfVisible);
+    ShowLabel4Field(#CreateReestr);
+    SetFieldState(#CreateReestr, sfVisible);
+
+    SetViewFieldsReestr;
+  }
+  else
+  {
+    HideLabel4Field(#KatOrg.Name);
+    ClearFieldState(#KatOrg.Name, sfVisible);
+    HideLabel4Field(#KatBank.Name);
+    ClearFieldState(#KatBank.Name, sfVisible);
+    HideLabel4Field(#CreateReestr);
+    ClearFieldState(#CreateReestr, sfVisible);
+    HideLabel4Field(#NomReestr);
+    ClearFieldState(#NomReestr, sfVisible);
+  }
+
+  // перенос информации из спецификации
+
+  SetViewFieldsSpec;
+}
+
+//------------------------------------------------------------------------------
+// Подсчет количества сотрудников в формируемом из АО ПП по валюте формирования
+Procedure GetKolPersAO;
+Var
+  wKolPersAO: word;
+{
+  if ((wKolPers > 1) and (myTp = cgTip_PlatDocAO))
+  {
+    wKolPersAO := 0;
+
+    _loop SumsByValAndPers where ((tDataVS.cVal == SumsByValAndPers.cVal))
+      inc(wKolPersAO);  // подсчитываем кол-во сумм по валюте формирования
+
+    set myPersons := 0;
+    set PersonsFIO := 'Множественный выбор (' + string(wKolPersAO) + ')';
+  }
+}
+
+//-------------------------------------------------------------------------------------
+// Закрываем/открываем поля dForm, tDataVS.SumKol, vsValNew в зависимости от SelectForm
+Procedure CheckSelectForm;
+{
+  if (myTp = cgTip_RashDocKU) and (SelectForm <> 0)
+  {
+    ShowLabel4Field(#Template);
+    SetFieldState(#Template, sfVisible);
+  }
+  else
+  {
+    HideLabel4Field(#Template);
+    ClearFieldState(#Template, sfVisible);
+  }
+
+  if (SelectForm = 0)
+  {
+    HideLabel4Field(#dForm);
+    ClearFieldState(#dForm, sfVisible);
+    HideLabel4Field(#tDataVS.SumKol);
+    ClearFieldState(#tDataVS.SumKol, sfVisible);
+    HideLabel4Field(#vsValNew);
+    ClearFieldState(#vsValNew, sfVisible);
+    SetFormat(piScreenV);
+  }
+  else
+  {
+    ShowLabel4Field(#dForm);
+    SetFieldState(#dForm, sfVisible);
+    ShowLabel4Field(#tDataVS.SumKol);
+    SetFieldState(#tDataVS.SumKol, sfVisible);
+    ShowLabel4Field(#vsValNew);
+    SetFieldState(#vsValNew, sfVisible);
+    SetFormat(piScreenF);
+  }
+}
+
+//---------------------------------------------------------------------------------
+// Настраиваем поля dForm, tDataVS.SumKol, vsValNew, PersonsFIO
+Procedure InitFields;
+{
+  set myNR := 0;      // NRec формируемого документа
+  set dForm := Cur_Date;      // дата формирования
+  set tDataVS.SumKol := 0;    // сумма окна
+  set tDataVS.cVal := myVal;  // валюта окна
+
+  _loop SumsByVal
+    if (IsFormKasDocAO or (SumsByVal.Summ > 0))  // формируем кассовый ордер из АО
+    {
+      // подставляем первую ненулевую сумму из списка сумм по валютам
+      set tDataVS.SumKol := SumsByVal.Summ;
+      set tDataVS.cVal := SumsByVal.cVal;
+      Break;
+    }
+
+  // подсчитываем количество сотрудников в формируемом из АО ПП, заполняем PersonsFIO
+  GetKolPersAO;
+
+  // закрываем от редактирования валюту
+  if IsFormKasDocAO   // если формируем кассовый ордер из АО
+    ClearFieldOption(#vsValNew, ofSelectable);
+  else
+    SetFieldOption(#vsValNew, ofSelectable);
+
+  CheckSelectForm;   // закрываем/открываем поля в зависимости от SelectForm
+}
+
+//------------------------------------------------------------------------------
+// Очистка раздела
+Procedure ClearCashName;
+{
+  set SCashName := '';
+  set myCash := 0;
+}
+
+//------------------------------------------------------------------------------
+Function TextMes : string;
+{
+  if (IsKassaDoc(myTiDkGal))
+    TextMes := 'кассы!';
+  else
+  {
+    if (IsValPP(myTiDkGal))
+      TextMes := 'валютного счета!';
+    else
+    {
+      if (IsBuhSpravka(myTiDkGal))
+        TextMes := 'бухсправки!';
+      else
+        TextMes := 'расчетного счета!';
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+Function ViewMessage : boolean;
+{
+  ViewMessage := false;
+
+  if (wKolPers = 0)
+  {
+    Message(cgMes_FldsCheck + 'Не указан сотрудник!');
+    SelectField(#PersonsFIO);
+    Exit;
+  }
+
+  if (myTiDkGal = 0)
+  {
+    Message(cgMes_FldsCheck + 'Не указан тип документа!');
+    SelectField(#SDocType);
+    Exit;
+  }
+
+  if (iDocSet.OkManyTipDoc(iDocSet.GetDocSetByTiDkGal(myTiDkGal)))
+  {
+    if (myCash = 0)
+    {
+      Message(cgMes_FldsCheck + 'Не указано наименование ' + TextMes);
+      SelectField(#SCashName);
+      Exit;
+    }
+  }
+
+  if (IsFRONotBuhSpr(myTiDkGal))
+  {
+    if (myOrg = 0)
+    {
+      Message(cgMes_FldsCheck + 'Не указана организация!');
+      SelectField(#KatOrg.Name);
+      Exit;
+    }
+  }
+
+  if (wKolPers <= 1)
+  {
+    if (GetFirst PlPor where ((myNRec == PlPor.NRec)) = tsOk)
+    {
+      var dSumm : double;
+
+      if (PlPor.cVal = 0)
+        set dSumm := PlPor.SumPlat;
+      else
+        set dSumm := PlPor.SumPlatV;
+
+      if (dSumm = 0)
+      {
+        Message(cgMes_FldsCheck + 'Не задана сумма авансового отчета!');
+        Exit;
+      }
+    }
+  }
+
+  ViewMessage := true;
+}
+
+//------------------------------------------------------------------------------
+Procedure InsDocPodot;
+{
+  if (not IsFormPPAndReestr2)
+  {
+    if (IsNotFindReestr)
+    {
+      CreateSpecBankReestr;
+      CreateCapBankReestr;
+      DocPodot2Ins(myPersons);
+    }
+
+    bInsDocPod := true;
+
+    DocPodotIns(myPersons, myNRec, myNR, myTip);
+  }
+  else
+  {
+    _loop SumsByValAndPers where ((tDataVS.cVal == SumsByValAndPers.cVal))
+    {
+      if (SumsByValAndPers.Summ > 0)
+      {
+        set myPersons := SumsByValAndPers.cPers;
+        set myLschet  := SumsByValAndPers.cLsch;
+
+        CreateSpecBankReestr;
+
+        bInsDocPod := true;
+      }
+    }
+
+    if bInsDocPod
+    {
+      CreateCapBankReestr;
+      DocPodot2Ins(0);
+    }
+
+    if (myTp <> cgTip_PlatDocAO)
+    {
+      _loop PickS where ((word(45) == PickS.wList))
+      {
+        if (GetFirst SpPrikaz where ((PickS.cRec == SpPrikaz.NRec)) = tsOk)
+        {
+          if (GetFirst SumsByValAndPers where ((tDataVS.cVal      == SumsByValAndPers.cVal and
+                                                SpPrikaz.cPersons == SumsByValAndPers.cPers)) = tsOk)
+            DocPodotIns(SpPrikaz.cPersons, SpPrikaz.NRec, myNR, myTip);
+        }
+      }
+    }
+    else
+    {
+      _loop pMarker
+      {
+        if (GetFirst PlPorAO where ((pMarker.pcRec == PlPorAO.NRec)) = tsOk)
+        {
+          var dSumm: double;
+
+          if (PlPorAO.cVal = 0)
+            set dSumm := PlPorAO.SumPlat;
+          else
+            set dSumm := PlPorAO.SumPlatV;
+
+          if ((tDataVS.cVal = PlPorAO.cVal) and (dSumm > 0))
+            DocPodotIns(PlPorAO.cPersons, PlPorAO.NRec, myNR, myTip);
+        }
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+Procedure SaveAndClose;
+{
+  if bInsDocPod  // документ сформирован и привязан к приказу
+  {
+    if (SaveMyDsk(myTiDkGal, 'myTiDkGal_' + string(myTp)))
+    {
+      if (iDocSet.OkManyTipDoc(iDocSet.GetDocSetByTiDkGal(myTiDkGal)))
+        SaveMyDsk(myCash, 'myCash_' + string(myTp));
+
+      if (SaveMyDsk(myOrg, 'myOrg_' + string(myTp)))
+        SaveMyDsk(myBank, 'myBank_' + string(myTp));
+
+      SaveMyDsk(SelectForm, 'SelectForm_' + string(myTp));
+
+      if IsKassNotPrihDoc(myTiDkGal)  // подвязка документа со спецификацией
+        SaveMyDsk(FormSpec, 'FormSpec_' + string(myTp));
+
+      if (IsFRONotBuhSpr(myTiDkGal))
+        SaveMyDsk(CreateReestr, 'CreateReestr_' + string(myTp));
+
+      SaveMyDsk(myTempl, 'myTempl_myTiDkGal' + string(myTp)+ string(myTiDkGal));
+    }
+
+    CloseInterface(cmDefault);
+  }
+}
+
+//------------------------------------------------------------------------------
+// Формирование ПКО, ВПКО, РКО, ВРКО, АО, ПП, ВПП, БС
+Function InsPlPor(_TiDkGal : word) : comp;
+Var
+  bufPlPor : TPlPor;
+{
+  InsPlPor := cgNrec0;
+  // Заполняем буфер по умолчанию - на дату dForm
+  if (not piPlPor.PlPor_Fill(bufPlPor, _TiDkGal, myTiDkUser, dForm, 0))
+    Exit;
+
+  PlPor.buffer := type$PlPor(bufPlPor);
+
+  if (IsKassaDoc(PlPor.TiDkGal))
+    PlPor.VidDk := 1;
+
+  if (IsBuhSpravka(PlPor.TiDkGal))
+  {
+    var retModeDoc : word;
+
+    SetBitDirect(2, retModeDoc);
+
+    PlPor.ModeDoc := retModeDoc;
+
+    if (not boGetTune('Fin.Doc.DefBuhSprModeDocOrg'))
+    {
+      // Если выключен 2 бит - включаем
+      if ((PlPor.ModeDoc and 2) = 0)
+        PlPor.ModeDoc := PlPor.ModeDoc + 2;
+    }
+  }
+
+  if (IsFRONotBuhSpr(PlPor.TiDkGal))
+  {
+    if (IsKPPDoc(PlPor.TiDkGal))
+      PlPor.DenoSch3 := KatOrg.KodPlatNDS;
+
+    PlPor.cPol     := myOrg;
+    PlPor.cBankPol := myBank;
+  }
+
+  if (boGetTune('Doc.NaslDesCr'))
+  {
+    PlPor.DesGr := MyDesGr;
+    PlPor.DesCr := MyDesCr;
+  }
+  else
+  {
+    PlPor.DesGr := CurDesGr;
+    PlPor.DesCr := CurDesCr;
+  }
+
+  PlPor.StatusSwift := 0;
+  PlPor.prShtraf := 0;
+  PlPor.TelePost := 0;
+  PlPor.cPersons := myPersons;
+  PlPor.cLschet := myLschet;
+  PlPor.PodOtchet := Persons.FIO;
+
+  if IsKassaRashod(PlPor.TiDkGal)
+    PlPor.Append := iEmpElements.PassportName(Persons.PasspRus, if(wGetTune('Country') = ccBel, 0, 1));
+
+  iEmpElements.CheckPersonsLschet(PlPor.cPersons, PlPor.cLschet);
+
+  if (tDataVS.cVal = 0)
+    PlPor.SumPlat  := tDataVS.SumKol;
+  else
+  {
+    PlPor.cVal     := tDataVS.cVal;
+    PlPor.SumPlatV := tDataVS.SumKol;
+    PlPor.SumPlat  := oValFunc.GetNatCurrency(PlPor.cVal, PlPor.SumPlatV, PlPor.DatVip);
+  }
+
+  if (not IsPlatAndReestr(myTiDkGal))
+    iAhdF.GetInfoOldDocPodot(true, PlPor.TiDkGal, PlPor.NRec);
+
+  if (insert current PlPor <> tsOk)
+  {
+    Message('Не удалось добавить запись в PlPor!', Warning);
+    Exit;
+  }
+  else
+  {
+    myNR := PlPor.NRec;
+
+    if (not IsPlatAndReestr(myTiDkGal))
+    {
+      iAhdF.GetInfoNewDocPodot(PlPor.TiDkGal, PlPor.NRec);
+      iAhdF.DocumentAndPodotchetAddIns1(0, true);                 // Подотчетники
+    }
+
+    InsertToSoprHoz(0);
+
+    InsPlPor := myNR;
+  }
+}
+
+//------------------------------------------------------------------------------
+Procedure InsRashDoc;
+Var
+  Tp : word;
+{
+  case myTp of
+
+    cgTip_PrihDocAO, cgTip_RashDocAO:
+      Tp := cgRashDoc_AO;
+
+    cgTip_RashDocKU, cgTip_AvnOtchKU:
+      Tp := cgRashDoc_KU;
+  end;
+
+  if (GetFirst RashDoc where ((Tp     == RashDoc.TipDoc and
+                               myNRec == RashDoc.cSoprDoc)) = tsOk)
+  {
+    do
+    {
+      if isMark
+        if not SearchMarker(markRashDoc, RashDoc.NRec, IndexNo)
+          continue;
+
+      if (RashDoc.cVal2 = tDataVS.cVal)
+      {
+        ClearBuffer(#RashDoc1);
+
+        RashDoc1.NRec      := GetNextNRec(#RashDoc, 0);
+        RashDoc1.cSoprDoc  := PlPor.Nrec;
+        RashDoc1.DateR     := dForm;
+        RashDoc1.Name      := RashDoc.Name;
+        RashDoc1.cNorm     := RashDoc.cNorm;
+        RashDoc1.cState    := RashDoc.cState;
+        RashDoc1.cCity     := RashDoc.cCity;
+        RashDoc1.Kol       := RashDoc.Kol;
+        RashDoc1.ValCurse1 := RashDoc.ValCurse1;
+        RashDoc1.ValCurse2 := RashDoc.ValCurse2;
+
+        case myTp of
+
+          cgTip_RashDocKU, cgTip_RashDocAO:
+          {
+            if (myTiDkGal = cgDoc_0018)
+              RashDoc1.TipDoc := cgRashDoc_VRKO;
+            else
+              RashDoc1.TipDoc := cgRashDoc_RKO;
+
+            RashDoc1.cVal1 := RashDoc.cVal1;
+            RashDoc1.SumV1 := RashDoc.SumV1;
+          }
+
+          cgTip_AvnOtchKU:
+          {
+            RashDoc1.TipDoc := cgRashDoc_AO;
+            RashDoc1.cVal1  := RashDoc.cVal2;
+            RashDoc1.SumV1  := RashDoc.SumV2;
+          }
+        end;
+
+        RashDoc1.cVal2 := RashDoc.cVal2;
+        RashDoc1.SumV2 := RashDoc.SumV2;
+        RashDoc1.Sum   := RashDoc.Sum;
+        RashDoc1.SumN  := RashDoc.SumN;
+        RashDoc1.PrOst := RashDoc.PrOst;
+
+        Insert current RashDoc1;
+      }
+    }
+    while (GetNext RashDoc where ((Tp     == RashDoc.TipDoc and
+                                   myNRec == RashDoc.cSoprDoc)) = tsOk);
+  }
+}
+
+//------------------------------------------------------------------------------
+Procedure ReInsRashDoc;
+{
+  if (GetFirst DocPodot1 where ((cgLink_RashDocKU == DocPodot1.TipDoc and
+                                 myNRec           == DocPodot1.cPrDoc)) = tsOk)
+  {
+    do
+    {
+      if (GetFirst PlPorOld where ((DocPodot1.cVtDoc == PlPorOld.NRec)) = tsOk)
+      {
+        if (PlPorOld.cVal = tDataVS.cVal)
+        {
+          if (GetFirst DocPodot where ((cgLink_AvnOtchKU == DocPodot.TipDoc and
+                                        PlPor.NRec       == DocPodot.cPrDoc and
+                                        PlPorOld.NRec    == DocPodot.cVtDoc)) <> tsOk)
+          {
+            ClearBuffer(#DocPodot);
+
+            DocPodot.NRec     := 0;
+            DocPodot.cPersons := myPersons;
+            DocPodot.cPrDoc   := PlPor.NRec;
+            DocPodot.cVtDoc   := PlPorOld.NRec;
+            DocPodot.TipDoc   := cgLink_RashDocAO;
+
+            insert current DocPodot;
+          }
+        }
+      }
+    }
+    while (GetNext DocPodot1 where ((cgLink_RashDocKU == DocPodot1.TipDoc and
+                                     myNRec           == DocPodot1.cPrDoc)) = tsOk);
+  }
+}
+
+//------------------------------------------------------------------------------
+Function InsDocPodotG : boolean;
+Var
+  boNotPeople : boolean;
+{
+  InsDocPodotG := false;
+
+  if (GetFirst PlPor1 where ((myNR == PlPor1.NRec)) <> tsOk)
+    Message('Кто-то уже успел удалить'#13 + 'данный документ.', OkButton + Warning);
+  else
+  {
+    if ((myPersons <> PlPor1.cPersons) and (CreateReestr <> 2))
+      Message('Не совпадает подотчетник первичного'#13 + 'документа и выбранного.', OkButton);
+    else
+    {
+      if (GetFirst DocPodot where ((myTip  == DocPodot.TipDoc and
+                                    myNRec == DocPodot.cPrDoc and
+                                    myNR   == DocPodot.cVtDoc)) = tsOk)
+        Message('Документ номер ' + PlPor1.NoDok + ' от ' +
+                DateToStr(PlPor1.DatOb, 'DD/MM/YYYY') + ' уже выбран.', OkButton);
+      else
+      {
+        if (GetFirst PlPorOld where ((myNRec == PlPorOld.NRec)) = tsOk) {};
+
+        if ((PlPorOld.cVal <> PlPor1.cVal) and (myTp <> cgTip_RashDocKU) and
+            (myTp <> cgTip_AvnOtchKU) and (myTp <> cgTip_PlatDocPr) and (PlPorOld.SumPlat <> 0))
+          Message('Не совпадает валюта первичного'#13 +
+                  'документа и выбранного.', OkButton);
+        else
+        {
+          if ((CreateReestr <> 2) or (GetFirst DocPodot2 where ((myTipRP == DocPodot2.TipDoc and
+                                                                 myNR    == DocPodot2.cPrDoc)) <> tsOk))
+          {
+            InsDocPodot;
+            CreaTempl(0);
+
+            InsDocPodotG := true;
+          }
+          else
+          {
+            if (myLschet <> 0)
+              boNotPeople := (GetFirst SpPlBan where ((DocPodot2.cVtDoc == SpPlBan.cSbBan and
+                                                       LSchet.NRec      == SpPlBan.cLsch)) <> tsOk);
+            else
+              boNotPeople := (GetFirst SpPlBan where ((DocPodot2.cVtDoc == SpPlBan.cSbBan and
+                                                       Persons.TabNmb   == SpPlBan.TabN and
+                                                       Persons.StrTabN  == SpPlBan.StrTabN)) <> tsOk);
+
+            if (boNotPeople)
+              Message('В реестре по перечислению в банк нет указанного сотрудника.'#13#13 +
+                      'Документ не может быть выбран.');
+            else
+            {
+              InsDocPodot;
+              CreaTempl(0);
+
+              InsDocPodotG := true;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+// Формирование новой спецификации приказа по подцепленным документам
+Procedure InsertRashDoc;
+Var
+  cRashDocEtap : comp;
+  Find         : boolean;
+{
+  if (GetFirst DocPodot where ((myTip  == DocPodot.TipDoc and
+                                myNRec == DocPodot.cPrDoc and
+                                myNR   == DocPodot.cVtDoc)) = tsOk)
+  {
+    if (GetFirst PlPor1 where ((DocPodot.cVtDoc == PlPor1.NRec)) = tsOk)
+    {
+      if (GetFirst RashDoc where ((PlPor1.TiDkGal == RashDoc.TipDoc and
+                                   PlPor1.NRec    == RashDoc.cSoprDoc)) = tsOk)
+      {
+        do
+        {
+          // Определение этапа приказа для привязки
+          cRashDocEtap := myEtap;
+          Find         := false;
+
+          if (GetFirst NormRash where ((RashDoc.cNorm == NormRash.NRec)) = tsOk)
+          {
+            if ((NormRash.cOrg <> 0) or (NormRash.cCity <> 0) or (NormRash.cState <> 0))
+            {
+              // Поиск совпадения по организации
+              if (NormRash.cOrg <> 0)
+              {
+                _loop PrikazEtap
+                {
+                  if (PrikazEtap.cOrg = NormRash.cOrg)     // Организация совпадает
+                  {
+                    cRashDocEtap := PrikazEtap.NRec;
+                    Find         := true;
+
+                    Break; // Выход из цикла
+                  }
+                }
+              }
+
+              // Поиск совпадения по городу
+              if ((not Find) and (NormRash.cCity <> 0))
+              {
+                _loop PrikazEtap
+                {
+                  if (PrikazEtap.cCity = NormRash.cCity)   // Город совпадает
+                  {
+                    cRashDocEtap := PrikazEtap.NRec;
+                    Find         := true;
+
+                    Break; // Выход из цикла
+                  }
+                }
+              }
+
+              // Поиск совпадения по стране
+              if ((not Find) and (NormRash.cState <> 0))
+              {
+                _loop PrikazEtap
+                {
+                  if (PrikazEtap.cState = NormRash.cState) // Страна совпадает
+                  {
+                    cRashDocEtap := PrikazEtap.NRec;
+                    Find         := true;
+
+                    Break; // Выход из цикла
+                  }
+                }
+              }
+            }
+          }
+
+          // Копирование статьи расхода в спецификацию приказа
+          PushPos(#RashDoc);
+
+          RashDoc.NRec     := 0;
+          RashDoc.TipDoc   := myTiDk;
+          RashDoc.cSoprDoc := myNRec;
+          RashDoc.cPrikaz  := cRashDocEtap;
+
+          insert current RashDoc;
+
+          PopPos(#RashDoc);
+        }
+        while (GetNext RashDoc where ((PlPor1.TiDkGal == RashDoc.TipDoc and
+                                       PlPor1.NRec    == RashDoc.cSoprDoc)) = tsOk);
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+Procedure Prn_Inf;
+{
+  if (GetFirst RashDoc where ((myTiDk == RashDoc.TipDoc and
+                               myNRec == RashDoc.cSoprDoc)) <> tsOk)
+    bMess := 1;  // Спецификация пустая
+  else
+  {
+    if (Message('Спецификация документа содержит информацию.'#13 +
+                'Формировать спецификацию заново из подвязанных документов?', YesNo + Confirmation) <> cmYes)
+      bMess := 2;
+    else
+    {
+      bMess := 1;
+
+      delete RashDoc where ((myTiDk == RashDoc.TipDoc and
+                             myNRec == RashDoc.cSoprDoc))
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+Procedure FillOrgBankFromLSchet;
+! вытягиваем организацию и банк получателя из ЛС,
+! переменная myLschet должна быть определена.
+{
+  if (myLschet <> 0)
+    if (GetFirst LSchet = tsOk)
+    {
+      if (LSchet.cPodr <> 0)
+        set myOrg := LSchet.cPodr;
+
+      if (LSchet.cLSchDop <> 0)
+        set myBank := LSchet.cLSchDop;
+
+      RescanPanel(#KatOrg);
+      RescanPanel(#KatBank);
+    }
+}
+
+//------------------------------------------------------------------------------
+Procedure AutoInfillOrgAndBank;
+! автозаполнение организации и банка получателя
+{
+  if (IsPlatAndReestr(myTiDkGal) and
+      (SelectForm = 1) and
+      (wGetTune('Fin.Doc.Def.MissionOrder.ReestrBank') = 1))
+  {
+    if (wKolPers = 1)
+      FillOrgBankFromLSchet;   // вытягиваем организацию и банк получателя из ЛС
+    else
+    {
+      // вытягиваем реквизиты из первого помеченного сотрудника
+
+      if (myTp = cgTip_PlatDocAO)
+      {
+        if (GetFirst pMarker = tsOk)
+          if (GetFirst PlPorAO where ((pMarker.pcRec == PlPorAO.NRec)) = tsOk)
+          {
+            myLschet := PlPorAO.cLSchet;
+
+            FillOrgBankFromLSchet;   // вытягиваем организацию и банк получателя из ЛС
+          }
+      }
+      else
+      {
+        if (myTp = cgTip_PlatDocPr)
+          if (GetFirst PickS where ((word(45) == PickS.wList)) ordered by index Pick02 = tsOk)
+            if (GetFirst SpPrikaz where ((PickS.cRec == SpPrikaz.NRec)) = tsOk)
+            {
+              // определяем myLschet
+
+              if (SpPrikaz.cLsch <> 0)
+                myLschet := SpPrikaz.cLsch;
+              else
+              {
+                myLschet := 0;
+                myPersons := SpPrikaz.cPersons;
+
+                iEmpElements.CheckPersonsLschet(myPersons, myLschet);  // заполняем ЛС по умолчанию
+              }
+
+              // вытягиваем организацию и банк получателя из ЛС
+              FillOrgBankFromLSchet;
+            }
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+Function IsMarkRecord(cSpPrikaz : comp; marker : longint) : boolean;
+var i : word;
+var cRec : comp;
+{
+  IsMarkRecord := false;
+
+  for(i := 0; i < GetMarkerCount(marker); i++)
+    if GetMarker(marker,i,cRec)
+      if getfirst RashDoc where ((cRec == RashDoc.nRec)) = tsOk
+        if (RashDoc.cSoprDoc = cSpPrikaz)
+          {
+            IsMarkRecord := true;
+            break;
+          }
+}
+
+//------------------------------------------------------------------------------
+Function OnlyMarkPosition : boolean;
+{
+  OnlyMarkPosition := false;
+
+  if not isMarkPrikaz // вообще ничего не помечено
+    Exit;
+
+  if (myTp = cgTip_PlatDocPr) or (myTp = cgTip_PlatVedKU)
+  {
+    if (GetFirst PickS where ((word(45) == PickS.wList)) ordered by index Pick02 = tsOk)
+    {
+      _loop PickS where ((word(45) == PickS.wList))
+      {
+        if (GetFirst SpPrikaz where ((PickS.cRec == SpPrikaz.NRec)) = tsOk)
+          if IsMarkRecord(SpPrikaz.NRec, markRashDoc)
+          {
+            OnlyMarkPosition := true;
+            Break;
+          }
+      }
+    }
+    else
+      OnlyMarkPosition := IsMarkRecord(myNRec, markRashDoc);
+  }
+  else
+    OnlyMarkPosition := IsMarkRecord(myNRec, markRashDoc);
+}
+
+//------------------------------------------------------------------------------
+Window wiPersPrik 'Сотрудники из приказа' Cyan, EscClose;
+  Show at (, , 56, 10);
+
+Panel pPersPrik
+  Table SpPrikazS;
+
+Browse brPersPrik ('', hcNoContext, sci1EscIns);
+Fields
+  {Font = {Color = if (IsPicked = '', 0, ColorMark)}};
+  IsPicked '√': [1], Skip, NoAutoSize;
+  PersonsS.FIO 'Сотрудник' ('Сотрудник из приказа'): [50], Protect;
+end;
+end; // Panel pPersPrik
+
+//------------------------------------------------------------------------------
+HandleEvent
+
+cmDefault:
+{
+  set myNRec := SpPrikazS.NRec;
+
+  isMark := OnlyMarkPosition;
+
+  GetSumManyPersDoc;  // создаем список выбора сумм для формируемого ПП, считаем wKolPers
+
+  InitFields;  // настраиваем поля dForm, tDataVS.SumKol, vsValNew, PersonsFIO
+
+  if SelectExistent   // при необходимости переключаем SelectForm, проверяем wKolPers
+  {
+    CheckSelectForm;     // закрываем/открываем поля dForm, tDataVS.SumKol, vsValNew
+    SetViewFieldsSpec;   // при необходимости скрываем FormSpec
+  }
+
+  SetViewFieldsReestr;   // меняем при необходимости CreateReestr
+
+  AutoInfillOrgAndBank;  // автозаполнение организации и банка получателя
+
+  CloseWindow(wiPersPrik);
+}
+
+cmMarkUnMark:
+{
+  if (IsPicked <> '')
+    DeleteCurPickS;
+  else
+    SelectOnePers;
+
+  RedrawCurrentAndGo(GetCurrentFormat, true);
+}
+
+cmSelectAll:
+{
+  PushPos(#SpPrikazS);
+
+  DeleteAllPickS;
+
+  StartNewVisual(vtRotateVisual, vfTimer + vfBreak, 'Выбор всех сотрудников из приказа...'#13#3, 1);
+
+  _loop SpPrikazS
+    if NextVisual
+      SelectOnePers;
+    else
+    {
+      DeleteAllPickS;
+      Break;
+    }
+
+  PopPos(#SpPrikazS);
+  ReReadRecord(#SpPrikazS);
+  StopVisual('', 0);
+}
+
+cmUnSelectAll:
+{
+  DeleteAllPickS;
+  ReReadRecord(#SpPrikazS);
+}
+end; // HandleEvent Window wiPersPrik
+end; // Window wiPersPrik
+
+//------------------------------------------------------------------------------
+Window wiLinkDoc 'Выбирите документы для формирования связей...' Cyan, EscClose;
+  Show at (, , 60, 14);
+
+Panel pLinkDoc
+
+Browse brLinkDoc ('', hcNoContext, sci1EscIns);
+  Show at (, , , 11);
+  Table mt_DocPodot;
+    recMarker = lMarker {mt_DocPodot.cDoc};
+Fields
+  mt_DocPodot.NoDoc ''#3'Номер'           ('Номер документа') : [10], Protect;
+  mt_DocPodot.Name  ''#3'Тип документа'   ('Тип документа')   : [20], Protect;
+  mt_DocPodot.Summ  ''#3'Cумма документа' ('Cумма документа') : [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect;
+  vsValLink         ''#3'Валюта'          ('Валюта документа'): [5], Protect;
+end;
+
+Screen scButtonsLink ('', , sci1Esc);
+  Show at (, 12, ,);
+Buttons
+  cmOk, default, , 'Формирование связи документов';
+  cmCancel, , , 'Выход';
+<<
+          <.Сформировать.>           <.  Отмена  .>
+>>
+end;
+end; // Panel pPersPrik
+
+HandleEvent // Window wiLinkDoc
+
+cmInit:
+{
+  if (myTp = cgTip_RashDocAO)
+  {
+    ClearFieldState(#mt_DocPodot.Summ, sfVisible);
+    ClearFieldState(#vsValLink, sfVisible);
+  }
+  else
+  {
+    SetFieldState(#mt_DocPodot.Summ, sfVisible);
+    SetFieldState(#vsValLink, sfVisible);
+  }
+}
+
+cmOk:
+{
+  SubBounds(tbRMmt_DocPodot1);
+  AddBounds(tbRMmt_DocPodot2);
+
+  case myTp of
+    cgTip_RashDocKU:
+      _loop lMarker
+        if (RecordExists mt_DocPodot where ((lMarker.pNRec == mt_DocPodot.cDoc)) = tsOk)
+          DocPodotIns(myPersons, lMarker.pNRec, MyNR, cgLink_RashDocAO);
+    cgTip_RashDocAO:
+      _loop lMarker
+        if (RecordExists mt_DocPodot where ((lMarker.pNRec == mt_DocPodot.cDoc)) = tsOk)
+          DocPodotIns(myPersons, lMarker.pNRec, MyNR, cgLink_RashDocKU);
+    cgTip_AvnOtchKU:
+      _loop lMarker
+        if (RecordExists mt_DocPodot where ((lMarker.pNRec == mt_DocPodot.cDoc)) = tsOk)
+          DocPodotIns(myPersons, MyNR, lMarker.pNRec, cgLink_RashDocAO);
+  end;
+
+  SubBounds(tbRMmt_DocPodot2);
+  AddBounds(tbRMmt_DocPodot1);
+
+  lMarker.UnSelectAll;
+
+  CloseWindow(wiLinkDoc);
+}
+
+cmDefault:
+  PutCommand(cmOk);
+
+end;
+end; // Window wiLinkDoc
+
+//------------------------------------------------------------------------------
+Procedure GetValSpec;
+{
+  RunWindowModal(wiSumsByVal);
+
+  if (vbRetOk)
+  {
+    set tDataVS.SumKol := SumsByVal.Summ;
+    set tDataVS.cVal   := SumsByVal.cVal;
+  }
+
+  GetKolPersAO;
+}
+
+//------------------------------------------------------------------------------
+Panel pVal
+  Table tDataVS;
+
+Screen scSumVal ('', hcbrowInsDoc, sci13Esc);
+  Show at (, , , 14);
+Fields
+  PersonsFIO ('Подотчетное лицо'): protect,
+    {Font = {Bold = (myTp <> cgTip_PlatDocPr); BackColor = if (wKolPers = 0, ColorNeed, 0)}};
+  SDocType ('Тип документа'): protect,
+    {Font = {Bold = DocTypeBold; BackColor = if (myTiDkGal = 0, ColorNeed, 0)}};
+  SCashTitle ('Наименование раздела: кассы, р/с, в/с, б/с предприятия'): skip;
+  SCashName ('Наименование раздела: кассы, р/с, в/с, б/с предприятия'): protect,
+    {Font = {BackColor = if (myCash = 0, ColorNeed, 0)}};
+  KatOrg.Name ('Организация получателя'): protect, {Font = {BackColor = if (myOrg = 0, ColorNeed, 0)}};
+  KatBank.Name ('Банк получателя'): protect;
+  SelectForm ('Выбор существующих документов/Формирование нового', , sci1Esc): noprotect;
+  dForm ('Дата документа'): ['DD/MM/YYYY'], noprotect;
+  tDataVS.SumKol ('Сумма документа', , sci1Esc): [15.2, '\2p[|-]3666`666`666`666`666`667.88'], noprotect;
+  vsValNew ('Валюта документа'): protect, {Font = {Bold = AvansValBold}};
+  FormSpec ('Перенос информации из спецификации подвязываемых документов', , sci1Esc): noprotect;
+  Template ('Шаблон дла формирования назначения платежа (выбор из каталога шаблонов)'): protect, PickButton;
+  CreateReestr ('Реестр по перечислениям в банк', , sci1Esc):
+    [List 'Без реестра', 'Формировать реестр'], protect;
+  NomReestr ('Номер реестра по перечислениям в банк', , sci1Esc): noprotect;
+<<
+`Сотрудник`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Тип документа`    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Организация`      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Банк`             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  (.) Выбор существующих``Дата`      `Сумма`           `Валюта`
+  (.) Формирование нового`.@@@@@@@@@@ .@@@@@@@@@@@@@@@@ .@@@@@@@@
+
+  [.] Переносить информацию из подвязываемых документов`
+
+`Шаблон для назначения:`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+`Реестр по перечислениям` .@@@@@@@@@@@@@@@@@@@ `Номер`.@@@@@@@@@@
+>>
+end;
+
+Screen scButtonsV ('', , sci1Esc);
+  Show at (, 15, ,) FIXED_Y;
+Buttons
+  cmOk, default, , 'Формирование связи документов';
+  cmCancel, , , 'Выход';
+<<
+          <.  Выбрать  .>            <.  Отмена  .>
+>>
+end;
+
+Screen scButtonsF ('', , sci1Esc);
+  Show at (, 15, ,) FIXED_Y;
+Buttons
+  cmOk, default, , 'Формирование связи документов';
+  cmCancel, , , 'Выход';
+<<
+          <.Сформировать.>           <.  Отмена  .>
+>>
+end;
+end; // Panel pVal
+
+//------------------------------------------------------------------------------
+Panel pVal
+  Table tDataVS;
+
+HandleEvent
+
+cmUpdateRecord:
+  update current tDataVS;
+
+cmCheckField:
+{
+  case CurField of
+
+    #SelectForm:
+    {
+      if SelectExistent  // при необходимости переключаем SelectForm, проверяем wKolPers
+      {
+        if (myTp = cgTip_PlatDocAO)
+          Message('Выбор существующего документа возможен только для одного авансового отчета.'#13 +
+                  'Для нескольких авансовых отчетов только формирование нового документа.', Information);
+        else
+          Message('Выбор существующего документа возможен только для одного сотрудника.'#13 +
+                  'Для нескольких сотрудников возможно только формирование нового документа.', Information);
+      }
+
+      CheckSelectForm;
+      SetViewFieldsSpec;
+      SetViewFieldsReestr;
+
+      if (myOrg = 0)
+        AutoInfillOrgAndBank;   // автозаполнение организации и банка получателя
+    }
+
+    #CreateReestr:
+    {
+      SetViewFieldsReestr;
+
+      if IsFormPPAndReestr
+      {
+        if (myTp = cgTip_PlatDocAO)
+          Message('При формировании платежного поручения по нескольким'#13 +
+                  'авансовым отчетам реестр формируется обязательно.', Information);
+        else
+          Message('При формировании платежного поручения по нескольким'#13 +
+                  'сотрудникам реестр формируется обязательно.', Information);
+      }
+
+      if (myOrg = 0)
+        AutoInfillOrgAndBank;   // автозаполнение организации и банка получателя
+    }
+
+    #dForm:
+      if IsPlatAndReestr(myTiDkGal)
+        if (Year(StrToDate(OldFieldValue, 'DD/MM/YYYY')) <> Year(dForm))
+          InitNomReestr;   //ищем номер нового реестра в рамках года новой даты формирования
+
+    #tDataVS.SumKol:
+    {
+      if IsFormPPAndReestr
+      {
+        if (tDataVS.SumKol <> double(OldFieldValue))
+        {
+          if (myTp = cgTip_PlatDocAO)
+            Message('При формировании платежного поручения по нескольким'#13 +
+                    'авансовым отчетам изменение суммы в заданной валюте невозможно.', Information);
+          else
+            Message('При формировании платежного поручения по нескольким'#13 +
+                    'сотрудникам сумма рассчитывается по их спецификациям.'#13 +
+                    'Изменение суммы в заданной валюте невозможно.', Information);
+
+          set tDataVS.SumKol := double(OldFieldValue);
+
+          Abort;
+          Exit;
+        }
+      }
+    }
+  end;
+}
+end; // HandleEvent Panel pVal
+end; // Panel pVal
+
+//------------------------------------------------------------------------------
+HandleEvent // Interface
+
+cmInit:
+{
+  // В таблице tDataVS должна быть только одна запись
+  delete all tDataVS;
+
+  ClearBuffer(#tDataVS);
+  insert current tDataVS;
+
+  if not(LoadVipRef(iObjNDTunes, 'iNalDistrTunes'))
+    Message(''#3'Не удалось загрузить библиотеку ObjNalDistrTunes', Error);
+
+  markRashDoc := InitMarker('', 8, 100, 10);
+  isMark := false;
+
+  if not ((myTp = cgTip_PlatDocAO) or (myTp = cgTip_PrihDocAO) or (myTp = cgTip_RashDocAO))
+  {
+    isMarkPrikaz := iRashifr.GetMarker(markRashDoc);
+    isMark := OnlyMarkPosition;
+  }
+
+  ClearSumVal;  // чистятся таблицы SumsByVal, SumsByValAndPers
+
+  myTipRP := cgLink_ReesPlDoc;   // реестр по перечислениям в банк
+  piScreenV := scButtonsV;
+  piScreenF := scButtonsF;
+  piScreen := scSumVal;
+  wKolPers := 0;
+  PickKol := 0;
+
+  // обнуляем параметры окна
+
+  SDocType := '';
+  SelectForm := 0;
+  myOrg := 0;
+  myBank := 0;
+  myVal := 0;
+  FormSpec := 0;
+  CreateReestr := 0;
+
+  ClearCashName;
+
+  if (myTp <> cgTip_PlatDocPr) and (myTp <> cgTip_PlatVedKU)
+  {
+    if (myTp <> cgTip_PlatDocAO)
+      wKolPers := 1;
+
+    // выбор сотрудников доступен только для формирования ПП из приказов на командировку
+    ClearFieldOption(#PersonsFIO, ofSelectable);
+  }
+
+  if (myTp <> cgTip_AvnOtchKU)
+    myTiDkGal := 0;
+  else
+  {
+    myTiDkGal := cgDoc_0009;
+
+    ClearFieldOption(#SDocType, ofSelectable);
+  }
+
+  // чтение параметров из дск
+
+  if (not ReadMyDsk(myTiDkGal, 'myTiDkGal_' + string(myTp), true))
+    myTiDkUser := myTiDkGal;
+  else
+  {
+    if (not iDocSet.OkManyTipDoc(iDocSet.GetDocSetByTiDkGal(myTiDkGal)))
+      myTiDkUser := myTiDkGal;
+    else
+    {
+      if (not ReadMyDsk(myCash, 'myCash_' + string(myTp), true))
+        myTiDkUser := myTiDkGal;
+      else
+      {
+        if (not IsFindRecUsersDoc)  // определение myTiDkUser
+        {
+          myCash := 0;
+          myTiDkUser := myTiDkGal;
+        }
+      }
+    }
+
+    if (ReadMyDsk(myOrg, 'myOrg_' + string(myTp), true))
+    {
+      if (GetFirst KatOrg where ((myOrg == KatOrg.NRec)) = tsOk)
+        ReadMyDsk(myBank, 'myBank_' + string(myTp), true);
+      else
+        myOrg := 0;
+    }
+
+    ReadMyDsk(SelectForm, 'SelectForm_' + string(myTp), true)
+    ReadMyDsk(FormSpec, 'FormSpec_' + string(myTp), true)
+    ReadMyDsk(CreateReestr, 'CreateReestr_' + string(myTp), true)
+  }
+
+  case myTp of
+  // Приходные документы по авансовому отчету
+    cgTip_PrihDocAO:
+    {
+      myTiDk := 9;
+      myTip  := cgLink_PrihDocAO;
+
+      if (GetFirst PlPor where ((myNRec == PlPor.NRec)) = tsOk)
+      {
+        myPersons  := PlPor.cPersons;
+        myLschet   := PlPor.cLschet;
+        PersonsFIO := Persons.FIO;
+        myVal      := PlPor.cVal;
+        MyDesGr    := PlPor.DesGr;
+        MyDesCr    := PlPor.DesCr;
+
+        GetSumOnePersDoc(myNRec);   // закачка сумм в SumsByValAndPers, SumsByVal
+      }
+    }
+  // Расходные документы по авансовому отчету
+    cgTip_RashDocAO, cgTip_PlatDocAO:
+    {
+      myTiDk := 9;
+      myTip  := cgLink_RashDocAO;
+
+      if (GetFirst PlPor where ((myNRec == PlPor.NRec)) = tsOk)
+      {
+        if (myTp = cgTip_PlatDocAO)
+          GetSumManyPersDoc;      // закачка сумм в SumsByValAndPers, SumsByVal
+        else
+        {
+          myPersons  := PlPor.cPersons;
+          myLschet   := PlPor.cLschet;
+          PersonsFIO := Persons.FIO;
+          myVal      := PlPor.cVal;
+
+          GetSumOnePersDoc(myNRec);  // закачка сумм в SumsByValAndPers, SumsByVal
+        }
+
+        MyDesGr := PlPor.DesGr;
+        MyDesCr := PlPor.DesCr;
+      }
+    }
+  // Расходные и Платежные документы по командировочному удостоверению
+    cgTip_RashDocKU, cgTip_PlatDocPr, cgTip_PlatVedKU:
+    {
+      myTiDk := 2;
+      myTip  := cgLink_RashDocKU;
+
+      if (myTp = cgTip_PlatVedKU)
+      {
+        myTiDkGal := cgDoc_0023;
+        myTip  := cgLink_SpPlVedKU;
+      }
+
+      if (GetFirst SpPrikaz where ((myNRec == SpPrikaz.NRec)) = tsOk)
+      {
+        myPersons := SpPrikaz.cPersons;
+        myLschet  := SpPrikaz.cLsch;
+
+        if (GetFirst Prikaz where ((SpPrikaz.cPrikaz == Prikaz.NRec)) = tsOk)
+        {
+          MyDesGr := Prikaz.DesGr;
+          MyDesCr := Prikaz.DesCr;
+        }
+
+        if (myTp = cgTip_PlatDocPr) or (myTp = cgTip_PlatVedKU)
+          GetSumManyPersDoc;   // закачка сумм в SumsByValAndPers, SumsByVal
+        else
+        {
+          PersonsFIO := Persons.FIO;
+
+          GetSumOnePersDoc(myNRec);   // закачка сумм в SumsByValAndPers, SumsByVal
+        }
+      }
+    }
+  // Авансовые отчеты по командировочному удостоверению
+    cgTip_AvnOtchKU:
+    {
+      myTiDk := 2;
+      myTip  := cgLink_AvnOtchKU;
+
+      if (GetFirst SpPrikaz where ((myNRec == SpPrikaz.NRec)) = tsOk)
+      {
+        myPersons  := SpPrikaz.cPersons;
+        myLschet   := SpPrikaz.cLsch;
+        PersonsFIO := Persons.FIO;
+
+        if (GetFirst Prikaz where ((SpPrikaz.cPrikaz == Prikaz.NRec)) = tsOk)
+        {
+          MyDesGr := Prikaz.DesGr;
+          MyDesCr := Prikaz.DesCr;
+        }
+
+        GetSumOnePersDoc(myNRec);   // закачка сумм в SumsByValAndPers, SumsByVal
+      }
+    }
+  end;
+
+  if IsValAO(myTiDkGal)  // Формируем валютный документ АО, валюта суммы не задана
+  {
+    myTiDkGal := 0;   // очищаем тип документа (валюта суммы не соответствует типу)
+    myTiDkUser := 0;
+
+    ClearCashName;  // очистка раздела
+  }
+
+  set SDocType := GetTiDkGalName(myTiDkGal);  // формируем наименование типа документа для высветки
+
+  if (myTp = cgTip_PlatVedKU)
+    ClearFieldOption (#SDocType, ofSelectable );
+
+  PushBounds(tbbyPlPor);
+
+  // при необходимости переключаем SelectForm, проверяем wKolPers
+  SelectExistent;
+
+  // настраиваем поля dForm, tDataVS.SumKol, vsValNew, PersonsFIO
+  InitFields;
+
+  // настраиваем SCashName, KatOrg.Name, KatBank.Name,
+  // CreateReestr, NomReestr, FormSpec
+  SetViewFields;
+
+  if (myTp = cgTip_PlatVedKU)
+    myTempl := 0;
+  else
+    if not ReadMyDsk(myTempl, 'myTempl_myTiDkGal' + string(myTp)+ string(myTiDkGal), true)
+      myTempl := 0;
+
+  // автозаполнение организации и банка получателя
+  AutoInfillOrgAndBank;
+}
+
+cmOk:
+{
+  if (not ViewMessage)
+    Exit;
+
+  bInsDocPod := false;
+
+  if (SelectForm = 0)     // Выбор существующих документов
+  {
+    wMode := cgTip_DocDefs;
+
+    if (IsFRONotBuhSpr(myTiDkGal) and (CreateReestr = 2))
+      wMode := cgTip_DocRees;   // Платежные документы с подотчетным реестром
+
+    // определяем место, откуда выбираются документы
+    case myTp of
+
+      cgTip_PrihDocAO, cgTip_RashDocAO, cgTip_PlatDocAO:
+      {
+        if ((myTp = cgTip_PrihDocAO) and IsBuhSpravka(myTiDkGal))
+          wMode := wMode + cgTip_BuhSpPrihAO; // Бухгалтерская справка из АО с закладки "Приходы"
+        else
+          wMode := wMode + cgTip_DocAvns;     // Прочие документы из АО
+      }
+
+      cgTip_RashDocKU, cgTip_AvnOtchKU, cgTip_PlatDocPr:
+        wMode := wMode + cgTip_DocPrik;       // Документы из приказа
+    end;
+
+    if (GetFirst Pick where ((word(39) == Pick.wList)) = tsOk)
+      delete Pick where ((word(39) == Pick.wList));
+
+    if (not IsFRONotBuhSpr(myTiDkGal))
+      iRunInt := RunInterface('G_PlPor', cgiMulti, wMode, myTiDkGal, myTiDkUser, myPersons, 0, myNR);
+    else  // выбираем ПП, ВПП
+    {
+      if (CreateReestr = 2)  // с реестром
+        iRunInt := RunInterface('G_PlPor', cgiMulti, wMode, myTiDkGal, myTiDkUser, 0, myOrg, myNR);
+      else
+        iRunInt := RunInterface('G_PlPor', cgiMulti, wMode, myTiDkGal, myTiDkUser, myPersons, myOrg, myNR);
+    }
+
+    if (iRunInt <> cmDefault)
+    {
+      Abort;
+      Exit;
+    }
+    else
+    {
+      bMess := 0; // Запроса не было
+
+      if (GetFirst Pick where ((word(39) == Pick.wList)) = tsOk)
+      {
+        _loop Pick where ((word(39) == Pick.wList))
+        {
+          myNR := Pick.cRec;
+
+          // подвязка документа со спецификацией
+          if (InsDocPodotG and IsKassNotPrihDoc(myTiDkGal) and (FormSpec = 1))
+          {
+            if (bMess = 0)
+              Prn_Inf;
+
+            if (bMess = 1) // Ответ утвердительный
+              InsertRashDoc;
+          }
+        }
+
+        SaveAndClose;
+      }
+      else
+      {
+        if (myNR <> 0)
+        {
+          // подвязка документа со спецификацией
+          if (InsDocPodotG and IsKassNotPrihDoc(myTiDkGal) and (FormSpec = 1))
+          {
+            Prn_Inf;
+
+            if (bMess = 1) // Ответ утвердительный
+              InsertRashDoc;
+          }
+
+          SaveAndClose;
+        }
+      }
+    }
+  }
+  else   // SelectForm <> 0 Формирование нового документа
+  {
+    if (longint(dForm) = 0)
+    {
+      Message(cgMes_FldsCheck + 'Не указана дата документа!');
+      SelectField(#dForm);
+      Exit;
+    }
+
+    if (IsValutDoc(myTiDkGal))
+    {
+      if (tDataVS.cVal = 0)
+      {
+        Message(cgMes_FldsCheck + 'Не указана валюта документа!');
+        SelectField(#vsValNew);
+        Exit;
+      }
+    }
+
+    if (tDataVS.SumKol <= 0)
+    {
+      Message(cgMes_FldsCheck + 'Сумма документа должна быть больше 0!');
+      SelectField(#tDataVS.SumKol);
+      Exit;
+    }
+
+    // Формирование документа
+    PushPos(#PlPor);
+    PopBounds(tbbyPlPor);
+
+    myNR := 0;
+
+    case myTp of
+
+    // ПКО, ВПКО и БС в нац. валюте или в валюте
+      cgTip_PrihDocAO:
+      {
+        if (InsPlPor(myTiDkGal) = 0)
+          Abort;
+      }
+
+    // РКО, ВРКО, ПП, ВПП и БС в нац. валюте или в валюте
+      cgTip_RashDocAO, cgTip_RashDocKU, cgTip_PlatDocPr, cgTip_PlatDocAO:
+      {
+        if (InsPlPor(myTiDkGal) = 0)
+          Abort;
+
+        if (IsKassaDoc(myTiDkGal) and ((myTp = cgTip_RashDocKU) or (myTp = cgTip_RashDocAO)))
+          InsRashDoc;
+
+        cDocLink := 0;
+
+        if FindDocLink(myTp, myNRec, cDocLink)
+        {
+          if (myTp = cgTip_RashDocKU)
+          {
+            if (cDocLink <> 0)
+            {
+              if (Message('По командировочному удостоверению сформирован '#13 +
+                          'авансовый отчет на сумму ' + string(mt_DocPodot.Summ) + '.'#13 +
+                          'Связать его с расходным кассовым ордером?', YesNo + Confirmation) = cmYes)
+                DocPodotIns(myPersons, cDocLink, MyNR, cgLink_RashDocAO);
+            }
+            else
+            {
+              if (Message('По командировочному удостоверению сформировано несколько'#13 +
+                          'авансовых отчетов.'#13 +
+                          'Связать их с расходным кассовым ордером?', YesNo + Confirmation) = cmYes)
+                RunWindowModal(wiLinkDoc);
+            }
+          }
+
+          if (myTp = cgTip_RashDocAO)
+          {
+            if (cDocLink <> 0)
+            {
+              if (Message('Авансовый отчет связан с командировочным удостоверением. '#13 +
+                          'Привязать расходный документ к командировочному удостоверению?', YesNo + Confirmation) = cmYes)
+                DocPodotIns(myPersons, cDocLink, MyNR, cgLink_RashDocKU);
+            }
+            else
+            {
+              if (Message('Авансовый отчет связан с несколькими командировочными удостоверениями. '#13 +
+                          'Привязать расходный документ к командировочным удостоверениям?', YesNo + Confirmation) = cmYes)
+                RunWindowModal(wiLinkDoc);
+            }
+          }
+        }
+      }
+
+    // АО в нац. валюте или в валюте
+      cgTip_AvnOtchKU:
+      {
+        if (InsPlPor(myTiDkGal) = 0)
+          Abort;
+
+        InsRashDoc;
+!        ReInsRashDoc;
+
+        cDocLink := 0;
+
+        if FindDocLink(myTp, myNRec, cDocLink)
+        {
+          if (cDocLink <> 0)
+          {
+            if (Message('По командировочному удостоверению сформирован '#13 +
+                        'расходный кассовый ордер на сумму ' + string(mt_DocPodot.Summ) + ''#13 +
+                        'Связать его с авансовым отчетом?', YesNo + Confirmation) = cmYes)
+              DocPodotIns(myPersons, MyNR, cDocLink, cgLink_RashDocAO);
+          }
+          else
+          {
+            if (Message('По командировочному удостоверению сформированы '#13 +
+                        'расходные документы'#13 +
+                        'Связать их с авансовым отчетом?', YesNo + Confirmation) = cmYes)
+              RunWindowModal(wiLinkDoc);
+          }
+        }
+      }
+
+    // платежные ведомости из приказа на командировку
+      cgTip_PlatVedKU:
+      {
+        MrkPickedList := InitMarker('', 8, 100, 10, false);
+        markRashDocV  := InitMarker('', 8, 100, 10);
+
+        if (wKolPers > 1)
+        {
+          _Loop Pick where (( Word(45) == Pick.wList ))
+            if (GetFirst SpPrikaz1 where ((Pick.cRec == SpPrikaz1.Nrec)) = tsOk)
+              if (GetFirst SumsByValAndPers where ((SpPrikaz1.cPersons == SumsByValAndPers.cPers
+                                                  and     tDataVS.cVal == SumsByValAndPers.cVal)) = tsOk)
+                InsertMarker (MrkPickedList, SpPrikaz1.NRec);
+        }
+        else
+          InsertMarker (MrkPickedList, myNRec);
+
+        if isMark
+          CopyMarker(markRashDocV, markRashDoc);
+
+        DoneMarker(MrkPickedList, 'PickedPersForKU');
+        DoneMarker(markRashDocV,  'PickedRashForKU');
+
+        iGetVed.DefaultEvent(SpPrikaz.cPrikaz, dForm, cgLink_SpPlVedKU, tDataVS.SumKol, tDataVS.cVal, myCash);
+
+        CloseInterface(cmDefault);
+        Exit;
+      }
+    end;
+
+    if (myNR <> 0)
+    {
+      InsDocPodot;
+      CreaTempl(myTempl);
+
+      RunInterface('PlPor', PlPor.TiDkGal, PlPor.TiDk, PlPor.NRec);
+
+      if (GetFirst PlPor where ((myNR == PlPor.NRec)) = tsOk)
+        SaveAndClose;
+    }
+
+    PushBounds(tbbyPlPor);
+    PopPos(#PlPor);
+    ReReadRecord(#DocPodot); // 102.46987
+  }
+}
+
+cmPick:
+  case CurField of
+
+    #vsValNew:
+    {
+      // Три варианта выбора валюты:
+      // 1. Выбрано более одного сотрудника => выбор из списка распределения сумм спецификаций по валютам.
+      // 2. Выбран один сотрудник и для него нет спецификации => выбор из каталога валют.
+      // 3. В любом другом случае по выбору пользователя: или из списка распределения сумм спецификаций по валютам или из каталога валют.
+
+      if ((wKolPers > 1) or (myTp = cgTip_PlatDocAO))
+        PutCommand(cmValue1);
+      else
+      {
+        if (GetFirst SumsByVal <> tsOk)
+          PutCommand(cmValue2);
+        else
+          PutHotCommand(RunMenu('PickVal_HotKeys'));
+      }
+    }
+
+    #SDocType:
+    {
+      var myTiDkGalOld : word;
+
+      myTiDkGalOld := myTiDkGal;
+
+      if (DocPick_Type(myTp, myTiDkGal))
+      {
+        set SDocType := GetTiDkGalName(myTiDkGal);
+
+        if (myTiDkGalOld <> myTiDkGal)
+        {
+          if (not IsFindRecUsersDoc)   // определение myTiDkUser
+          {
+            myTiDkUser := myTiDkGal;
+
+            ClearCashName;
+          }
+        }
+
+        if not ReadMyDsk(myTempl, 'myTempl_myTiDkGal' + string(myTp)+ string(myTiDkGal), true)
+          myTempl := 0;
+
+        // настраиваем SCashName, KatOrg.Name, KatBank.Name,
+        // CreateReestr, NomReestr, FormSpec
+        SetViewFields;
+
+        if (myOrg = 0)
+          AutoInfillOrgAndBank;   // автозаполнение организации и банка получателя
+      }
+    }
+
+    #SCashName:
+    {
+      if (myTiDkGal = 0)
+      {
+        Message('Некорректно указан тип документа!');
+        Exit;
+      }
+
+      if (RunInterface('SelUsDoc', word(cgiNo), myTiDkGal, myTiDkUser, myCash, comp(0)) <> cmDefault)
+      {
+        Abort;
+        Exit;
+      }
+      else
+      {
+        if (not IsFindRecUsersDoc)   // определение myTiDkUser
+        {
+          myTiDkUser := myTiDkGal;
+
+          ClearCashName;
+        }
+      }
+    }
+
+    #KatOrg.Name:
+      RunInterface('GetKatOr', myOrg, comp(0), false, comp(0), myBank);
+
+    #KatBank.Name:
+      RunInterface('GetBank', myOrg, myBank);
+
+    #PersonsFIO:  // выбор доступен только для приказов на командировку
+    {
+      if (GetFirst SpPrikazS where ((Prikaz.NRec == SpPrikazS.cPrikaz and
+                                       myPersons == SpPrikazS.cPersons)) <> tsOk) {};
+
+      RunWindow(wiPersPrik);
+    }
+
+    #Template:
+    {
+      iTempl.PicTempl(myTidkGal, myTempl);
+      set myTempl := myTempl;
+    }
+  end;
+
+cmDelOnProtect:
+  case CurField of
+
+    #vsValNew:
+      InitFields;  // настраиваем поля dForm, tDataVS.SumKol, vsValNew, PersonsFIO
+
+    #SDocType:
+    {
+      set SDocType := '';
+      set myTiDkGal := 0;
+      set myTiDkUser := 0;
+      set myTempl := 0;
+
+      ClearCashName;
+
+      // настраиваем SCashName, KatOrg.Name, KatBank.Name,
+      // CreateReestr, NomReestr, FormSpec
+      SetViewFields;
+    }
+
+    #SCashName:
+    {
+      set myTiDkUser := 0;
+
+      ClearCashName;
+    }
+
+    #KatOrg.Name:
+    {
+      set myOrg := 0;
+      set myBank := 0;
+    }
+
+    #KatBank.Name:
+      set myBank := 0;
+
+    #PersonsFIO:
+    {
+      set PersonsFIO := '';
+      set myPersons := 0;
+      set myLschet := 0;
+      wKolPers := 0;
+
+      DeleteAllPickS;
+      ClearSumVal;   // чистятся SumsByVal, SumsByValAndPers
+      InitFields;    // настраиваем поля dForm, tDataVS.SumKol, vsValNew, PersonsFIO
+    }
+
+    #Template:
+      set myTempl := 0;
+  end;
+
+cmCancel:
+  ReReadRecord(#DocPodot);
+
+cmDone:
+{
+  if not(NullVipRef(iObjNDTunes))
+    FreeVipInterface(iObjNDTunes)
+
+  DoneMarker(markRashDoc, '');
+}
+
+cmHotKeys:
+{
+  if (not IsFormKasDocAO)
+  {
+    if (myTp = cgTip_PlatDocAO)
+      PutHotCommand(RunMenu('GetKO_FormAO_HotKeys'));
+    else
+      PutHotCommand(RunMenu('GetKO_Form_HotKeys'));
+  }
+}
+
+cmValue1:
+  GetValSpec;
+
+cmValue2:
+  GetValFromKat;
+end; // HandleEvent Interface
+end. // Interface
+
+//------------------------------------------------------------------------------
+GetKO_Form_HotKeys Menu
+{
+- 'Выбор из валют спецификации', cmValue1, '', hcNoContext, '', , sci1Esc;
+}
+
+GetKO_FormAO_HotKeys Menu
+{
+- 'Выбор из доступных валют', cmValue1, '', hcNoContext, '', , sci1Esc;
+}
+
+PickVal_HotKeys Menu
+{
+- 'Выбор из валют спецификации', cmValue1, '', hcNoContext, '', , sci1Esc;
+- 'Выбор из каталога валют', cmValue2, '', hcNoContext, '', , sci1Esc;
+}
+//------------------------------------------------------------------------------

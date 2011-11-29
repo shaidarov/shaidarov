@@ -1,0 +1,69 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2000 корпорация ГАЛАКТИКА                    ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Бухгалтерский контур                                      ║
+ ║ Версия        : 8.1x                                                      ║
+ ║ Назначение    : Анализируется Реестр по подотчётным суммам в платёжном    ║
+ ║                 документе - Платёжке или Кассовом ордере                  ║
+ ║ Ответственный : Шайдаров Игорь Александрович                              ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+#Component "F_TXO"
+
+VipInterface TXO_Podot_Reestr implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_Podot_Reestr;
+var
+  CurSoprDoc : comp  ;
+
+create view
+as select
+  *
+from
+     PlPor
+   , DocPodot
+   , SbBan
+   , SpPlBan
+
+
+where
+((
+       CurSoprDoc         == PlPor.nRec
+   and PlPor.nRec         == DocPodot.cPrDoc  (noIndex)
+   and DocPodot.cVtDoc    == SpPlBan.cSbBan
+))
+;
+
+
+
+function GetInfo : string; {
+   GetInfo := 'Анализируется Реестр по подотчётным суммам в Платёжных документах';
+}
+
+
+function ParamMaster : string; {
+   ParamMaster := '' ;
+}
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc); {
+  CurSoprDoc := buf.cSoprDoc;
+
+  _Loop SpPlBan {
+     TxoBodyClear(hTxo);
+     TxoBodySetSum (hTxo, SpPlBan.SumUd,  0, 0);
+     TxoBodyAddKau (hTxo, wFlKau_Mode0, cgKau_Persons, SpPlBan.tPerson);
+     TxoBodyAddKau (hTxo, wFlKau_Mode0, cgKau_KatPodr, SpPlBan.Cex);
+     TxoBodyInsert (hTxo);
+    }
+}
+
+
+handleevent
+end;
+
+end.

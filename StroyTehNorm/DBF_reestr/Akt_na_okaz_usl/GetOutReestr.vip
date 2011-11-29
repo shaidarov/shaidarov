@@ -1,0 +1,523 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2005    корпорация ГАЛАКТИКА                      ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Отчеты по оперативному контуру                            ║
+ ║ Версия        : 7.12                                                      ║
+ ║ Назначение    : Формирование отчета "Реестр накладных/актов"              ║
+ ║ Ответственный : Прокофьев Игорь Александрович                             ║
+ ║ Параметры     : нет                                                       ║
+ ║                                                                           ║
+ ║ nReport       := 17020;                                                   ║
+ ║                                                                           ║
+ ║    Изменения                                                              ║
+ ║        Автор: ____________________  Дата: ____________                    ║
+ ║        Цель : _______________________________________________________     ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+Interface GetOutReestr_R_Akt 'Выгрузка данных в DBF и Excel' DoAccept, EscClose;
+  show at (,,,);
+
+ Table struct tKatNalog
+ (
+     cKatNalog  : comp     "nRec Налога"           ,
+     npp        : string   "Номер по порядку"      ,
+     name       : string   "Наименование налога"   ,
+     proc       : double   "Процент налога"        ,
+     summ       : double   "Сумма налога в НДЕ"    ,
+     summV      : double   "Сумма налога в валюте"
+ )
+ with index
+ (
+     tKatNalog01 = cKatNalog
+ );
+
+create view
+var
+  nReport        : word
+  d1, d2         : date
+  idFile         : LongInt
+  fDBFFileName   : string
+  oper           : boolean
+// для процедуры GetPriceFromSpSopr
+  KoefP    : double
+  Price    : double  // цена со всеми налогами
+  NPrice   : double  // цена с НДС
+  UNPrice  : double  // цена без НДС
+  Stoim    : double  // стоимость без налогов (НДС)
+  NStoim   : double  // стоимость с НДС
+  VStoim   : double  // стоимость в валюте без налогов (НДС)
+  VNStoim  : double  // Стоимость в валюте с НДС
+  NDS      : double
+  NSP      : double
+  NalDr    : double
+  Itog     : double  // стоимость с налогами          (итог по позиции)
+  ItogV    : double  // стоимость с налогами в Валюте (итог по позиции)
+  ProcNDS  : double  // Ставка НДС
+  ProcNSP  : double  // ставка НСП
+  cVal     : comp    // валюта отчетов
+  cNDS     : comp
+  cProd    : comp
+  dSumm    : double // сумма налога
+  procN    : double // ставка налога
+  desc_n1, desc_n2 : string
+
+from
+  KatSopr,
+  Dogovor,
+  KatVidD,
+  KatNotes,
+  SpSopr,
+  SpdocNal,
+  Katorg,
+  KlVal,
+  KatEd,
+  KatOtpEd,
+  KatUsl,
+  GroupUsl,
+  UserDeskRep,
+  PickRep,
+  tKatNalog,
+  tunedef
+where
+  ((
+       word ( 211 )      == Katsopr.VidSopr      // 211 - акт на оказание услуг
+   and d1               <<= Katsopr.Dopr
+   and d2               >>= Katsopr.Dopr
+
+   and KatSopr.cDogovor  == Dogovor.nRec
+   and Dogovor.cVidDog   == KatVidD.nRec
+   and Dogovor.cNote     == KatNotes.nRec
+
+   and Dogovor.cVal      == KlVal.nRec
+
+   and KatSopr.cOrgBase  == KatOrg.nrec
+
+   and KatSopr.nrec      == SpSopr.cSopr
+   and SpSopr.cMCUSL     == KatUsl.NRec
+   and KatUsl.cGroupUsl  == GroupUsl.nRec
+   ))
+ ;
+
+!#ifndef GAL7_12
+#INCLUDE Valfunc.vpp
+!#end
+
+Function FindInPickRep ( _wList : word ; _cRec : comp ) : word ;
+{
+  FindInPickRep := GetFirst PickRep where ((
+                                            Username          == PickRep.OWNNAME       and
+                                            UserDeskRep.nrec  == PickRep.cUserDeskRep  and
+                                            _wList            == PickRep.wList         and
+                                            _cRec             == PickRep.crec
+                                          ))
+} // FindInPickRep
+
+
+Function ValidByGrUsl ( _GrUslNRec : comp) : boolean ;
+{
+  ValidByGrUsl := False ;
+  _Loop Spsopr
+  {
+   if( GetFirst KatUsl = tsOK)
+    if( GetFirst GroupUsl = tsOK)
+     if( GroupUsl.nrec = _GrUslNRec)
+     {
+       ValidByGrUsl := True ;
+       Break ;
+     }
+  }
+}
+
+// ------------------------   Проверить Katsopr и Spsopr на фильтры, исключить лишние KatSopr. ----------------------------
+// Функция добирается до TRUE только в конце,  если ВСЕ if() проходят и никакой не выходит в EXIT.
+// if'ами проверяем:
+//         - фильтр у одиночных полей: Базис поставки, Способ трансп, Группа МЦ, Внешний аттрибут к спецификации, т.к. нельзя поставить на них Bounds
+//         - множественные на попадание в диапазон фильтра :
+//            Если UserDeskRep.ResComp[N] = 0 и PickRep.ResWord[M] <> 0, то проверяем PickRep.crec:  нашел - валидна, не нашел - нет.
+//            Если UserDeskRep.ResComp[N] = 0 и PickRep.ResWord[M] = 0 - на этом поле фильтра нет, бежим дальше.
+
+Function ThisRecordIsOK  : boolean;
+var Found : boolean
+{
+  Found               := False;
+  ThisRecordIsOK      := False;
+
+  if( Not IsValid(tnSpSopr ))
+    Exit;
+
+ ThisRecordIsOK := true ;
+}
+
+
+// Проверка SpSopr на фильтры: Группа МЦ и внешняя аттрибутика
+Function SpSoprIsOK : boolean ;
+{
+ SpSoprIsOK := False;
+
+
+// Группы услуг
+ if ( SpSopr.prMc <> 1)
+ {
+  if( UserDeskRep.ResComp[16] <> 0 ) // Одна группа услуг
+    if( GetFirst KatUsl = tsOK)
+    {
+      if( GetFirst GroupUsl = tsOK)
+      {
+        if( UserDeskRep.ResComp[16] <> GroupUsl.nrec )  Exit;
+      }
+      else Exit;
+    }
+    else Exit ;
+
+  if( UserDeskRep.ResComp[16] = 0 ) // Множественный выбор групп услуг
+    if( UserDeskRep.ResWord[23] <> 0 )
+      if( GetFirst KatUsl= tsOK)
+      {
+        if( GetFirst GroupUsl= tsOK)
+        {
+          if ( Getfirst PickRep where
+                               ((
+                                   Username            == PickRep.OWNNAME       and
+                                   UserDeskRep.nrec    == PickRep.cUserDeskRep  and
+                                   word(Nreport + 16 ) == PickRep.wList         and
+                                   GroupUsl.nrec       == PickRep.cRec
+                               ))
+                                   <> tsOK )
+                Exit ;
+        }
+        else
+          Exit ;
+      }
+      else
+        Exit ;
+ } // if ( fAkt = 1 )
+
+SpSoprIsOK := True;
+
+}
+
+procedure GetPriceFromSpSopr;
+{
+  dSumm    := 0;
+  procN    := 0;
+  Price    := 0;
+  NPrice   := 0;
+  UNPrice  := 0;
+  Stoim    := 0;
+  NStoim   := 0;
+  NDS      := 0;
+  NSP      := 0;
+  NalDr    := 0;
+  Itog     := 0;
+  ItogV    := 0;
+  ProcNDS  := 0;
+  ProcNSP  := 0;
+
+  // Сначала соберем НДС
+  _LOOP SpDocNal where ((
+                           SpSopr.NRec       == SpDocNal.cSpDoc   and
+                           KatSopr.VidSopr   == spDocNal.TipDoc   and
+                           cNDS              == SpDocNal.cNalog
+                       ))
+
+  {
+      NDS  := NDS  +  SpDocNal.Summa  ;
+      ProcNDS := SpDocNal.nalog;
+  }
+
+  _LOOP SpDocNal where ((
+                           SpSopr.NRec       == SpDocNal.cSpDoc   and
+                           KatSopr.VidSopr   == spDocNal.TipDoc   and
+                           cProd            /== SpDocNal.cNalog
+                       ))
+  {
+      NSP  := NSP  +  SpDocNal.Summa  ;
+      ProcNSP := SpDocNal.nalog;
+  }
+
+  // сумма всех других
+  _LOOP SpDocNal where ((
+                           SpSopr.NRec      == SpDocNal.cSpDoc   and
+                           KatSopr.VidSopr  == spDocNal.TipDoc
+                       ))
+                       and (
+                             cProd <> SpDocNal.cNalog  and
+                             cNDS  <> SpDocNal.cNalog
+                           )
+  {
+      NalDr  := NalDr  + SpDocNal.Summa  ;
+  }
+
+  // и каждого в отдельности
+  if ( GetFirst tKatNalog = tsOk )
+  do
+  {
+    dSumm  := 0;
+    procN  := 0;
+
+    _LOOP SpDocNal where ((
+                            SpSopr.nRec           == SpDocNal.cSpDoc   and
+                            KatSopr.VidSopr       == SpDocNal.TipDoc   and
+                            tKatNalog.cKatNalog  /== SpDocNal.cNalog
+                         ))
+    {
+        dSumm  := dSumm  + SpDocNal.Summa ;
+        procN  := SpDocNal.nalog;
+    }
+
+    set tKatNalog.summ  := dSumm ;
+    set tKatNalog.proc  := procN ;
+    update current tKatNalog;
+  }
+  while ( GetNext tKatNalog = tsOk )
+
+
+  if( KatSopr.vhodnal = 1 )  // Налоги входят в цену
+  {
+    Price     :=   SpSopr.RPrice                                              ;
+    UNPrice   :=   SpSopr.RPrice - ( SpSopr.SUMNDS / SpSopr.Kolfact)          ;
+    UNPrice   :=   round(UNPrice, 2);
+    NPrice    :=   SpSopr.RPrice - ( SpSopr.SUMNDS / SpSopr.Kolfact ) + ( ProcNDS * SpSopr.rPrice / 100 );
+    NPrice    :=   round(NPrice, 2);
+    Stoim     :=   SpSopr.Rprice * SpSopr.KolFact  - SpSopr.SUMNDS            ; // стоимость без налогов
+    NStoim    :=   SpSopr.Rprice * SpSopr.KolFact  - SpSopr.SUMNDS + NDS      ;
+    Itog      :=   SpSopr.Rprice * SpSopr.KolFact                             ;
+
+if ( SpSopr.cVal <> coGetTune('BASECURRENCY') ) {
+    ItogV     :=   SpSopr.RvPrice * SpSopr.KolFact                            ;
+}
+  }
+  else   // Налоги не входят
+  {
+    UNPrice   :=   SpSopr.RPrice                                              ;
+    Price     :=   SpSopr.RPrice  + ( SpSopr.SUMNDS / SpSopr.Kolfact)         ;
+    Price     :=   round(Price, 2);
+    NPrice    :=   SpSopr.Rprice          +  ( procNDS * SpSopr.rPrice / 100 );
+    NPrice    :=   round(NPrice, 2);
+    Stoim     :=   ROUND(SpSopr.Rprice * SpSopr.KolFact)                      ; // без НДС
+    NStoim    :=   ROUND(SpSopr.Rprice * SpSopr.KolFact)      + NDS           ; // с НДС
+    Itog      :=   SpSopr.Rprice * SpSopr.KolFact + SpSopr.SUMNDS             ; // со всеми налогами
+
+if ( SpSopr.cVal <> coGetTune('BASECURRENCY') ) {
+    ItogV     :=   SpSopr.RvPrice * SpSopr.KolFact + SpSopr.SumVNDS           ; // со всеми налогами
+}
+  }
+
+  Itog := round(Itog, 0);
+
+} // procudure GetPriceFromSpSopr
+
+
+Procedure Create_Dbf ;
+{
+
+  fDBFFileName := UserDeskRep.ResName[1];
+  idFile      := DBFOpen( fDBFFileName, stCreate);  // Возвращает дескриптор файла или 0
+  if( idFile = 0)
+    {
+    Message( 'Ошибка создания DBF файла') ;
+    Exit ;
+    }
+
+//  _loop tKatNalog
+//  {
+//    DBFAddField(idFile, 'Nal' +tKatNalog.npp, DbNum, 20, 4);
+//    DBFAddField(idFile, 'pNal'+tKatNalog.npp, DbNum, 20, 4);
+//  }
+
+  if( DBFAddField(idFile, 'NSOPR'      ,   DbChar, 20,  0) <> 0  and
+      DBFAddField(idFile, 'DSOPR'      ,   DbDate, 10,  0) <> 0  and
+      DBFAddField(idFile, 'OrgBase'    ,   DbChar, 80,  0) <> 0  and
+
+      DBFAddField(idFile, 'Itogpos'    ,   DbNum,  20,  4) <> 0  and
+      DBFAddField(idFile, 'ItogposV'   ,   DbNum,  20,  4) <> 0  and
+      DBFAddField(idFile, 'NDS'        ,   DbNum,  20,  4) <> 0  and
+
+      DBFAddField(idFile, 'GrUsl'      ,   DbChar, 80,  0) <> 0  and
+      DBFAddField(idFile, 'NMCUsl'     ,   DbChar, 80,  0) <> 0  and
+
+      DBFAddField(idFile, 'Dogovor'    ,   DbChar, 20,  0) <> 0  and
+      DBFAddField(idFile, 'Dog_date'   ,   DbDate, 10,  0) <> 0  and
+      DBFAddField(idFile, 'Dog_Sum'    ,   DbNum,  20,  4) <> 0  and
+      DBFAddField(idFile, 'Dog_Val'    ,   DbChar, 20,  4) <> 0  and
+      DBFAddField(idFile, 'Dog_NDS'    ,   DbNum,  20,  4) <> 0  and
+      DBFAddField(idFile, 'Dog_s'      ,   DbDate, 10,  0) <> 0  and
+      DBFAddField(idFile, 'Dog_po'     ,   DbDate, 10,  0) <> 0  and
+      DBFAddField(idFile, 'Dog_vid'    ,   DbChar, 80,  0) <> 0  and
+      DBFAddField(idFile, 'Dog_status' ,   DbChar, 80,  0) <> 0
+    )
+    {
+      Message( 'Ошибка создания структуры DBF файла' + fDBFFileName);
+      DBFClose(idFile);
+      Exit;
+    }
+
+}
+
+
+Procedure WriteKSSPtoDBF   ;       // запись в DBF
+{
+
+  GetPriceFromSpSopr;              // расчет НДС и т.д.
+  DBFClearBuffer( idFile );
+
+  DBFPutFieldValue ( idFile, 'NSOPR'      , String( Katsopr.Nsopr )  )
+  DBFPutFieldValue ( idFile, 'DSOPR'      , DateToStr(KatSopr.DSopr, 'DD.MM.YYYY' ) )
+  DBFPutFieldValue ( idFile, 'OrgBase'    , String( Katorg.name   ) )
+
+  DBFPutFieldValue ( idFile, 'ItogPos'    , String(Itog   , 20,4 )  )  // Итого
+  DBFPutFieldValue ( idFile, 'ItogPosV'   , String(ItogV  , 20,4 )  )  // Итого в Валюте
+  DBFPutFieldValue ( idFile, 'NDS'        , String(NDS    , 20,4 )  )  // НДС
+
+  DBFPutFieldValue ( idFile, 'GrUsl'      , String( GroupUsl.Name ) )
+  DBFPutFieldValue ( idFile, 'NMCUSL'     , String( KatUsl.name ) )
+
+  DBFPutFieldValue ( idFile, 'Dogovor'    , String( Dogovor.NoDoc )  )
+  DBFPutFieldValue ( idFile, 'Dog_date'   , DateToStr(Dogovor.DDoc, 'DD.MM.YYYY' ) )
+  DBFPutFieldValue ( idFile, 'Dog_Sum'    , String(Dogovor.Summa, 20, 4 ) )
+
+if ( String( KlVal.SimvolV) <> '' ) {
+  DBFPutFieldValue ( idFile, 'Dog_Val'    , String( KlVal.SimvolV ) )
+} else {
+  DBFPutFieldValue ( idFile, 'Dog_Val'    , ' ' )
+  }
+
+  DBFPutFieldValue ( idFile, 'Dog_NDS'    , String(Dogovor.SumNDS, 20, 4 ) )
+  DBFPutFieldValue ( idFile, 'Dog_s'      , DateToStr(Dogovor.DBeg, 'DD.MM.YYYY' ) )
+  DBFPutFieldValue ( idFile, 'Dog_po'     , DateToStr(Dogovor.DEnd, 'DD.MM.YYYY' ) )
+  DBFPutFieldValue ( idFile, 'Dog_vid'    , String( KatVidD.Name ) )
+  DBFPutFieldValue ( idFile, 'Dog_status' , String( KatNotes.Name ) )
+
+  if( DBFInsertRecord ( idFile ) <> 0 )
+    Message ( 'Ошибка DBFInsertRecord ')
+}
+
+Function PutDBFtoExcel : boolean ;
+var
+   fActiveXLSName : string ;
+   fDBFFileName   : string ;
+   fVBFileName    : string ;
+   fXLTFileName   : string ;
+   fXLSFileName   : string ;
+   IsExcelOK      : boolean;
+   j              : longint;
+{
+  PutDBFtoExcel := false ;
+
+  fDBFFileName  := UserDeskRep.ResName[1] ;
+  fVBFileName   := UserDeskRep.ResName[2] ;
+  fXLTFileName  := UserDeskRep.ResName[3] ;
+  fXLSFileName  := UserDeskRep.ResName[4] ;
+  IsExcelOK     := xlDisplayAlerts ( true );
+  IsExcelOK     := xlCreateExcelWithTemplate ( fXLTFileName, true ) ;
+  IsExcelOK     := xlIsExcelValid ;
+  IsExcelOK     := xlGetActiveWorkBookName (fActiveXLSName );
+  IsExcelOK     := xlSetActiveSheetByName ('Параметры');
+  if( IsExcelOK )
+  {
+    xlSetCellStringValue(fDBFFileName, 1, 2, 1, 2 );  // B1 = путь на DBF
+    xlSetCellStringValue(' ' + D1, 1, 4, 1, 4 );
+    xlSetCellStringValue(' ' + D2, 2, 4, 2, 4 );
+
+    j := 73; // стартовый столбец для ввода шапки налогов
+
+    _loop tKatNalog
+    {
+      xlSetCellStringValue('Nal'+tKatNalog.npp        , 7, j, 7, j );
+      xlSetCellStringValue(tKatNalog.name + ' в НДЕ'  , 8, j, 8, j );
+      j := j + 1;
+      xlSetCellStringValue('vNal'+tKatNalog.npp       , 7, j, 7, j );
+      xlSetCellStringValue(tKatNalog.name + 'в валюте', 8, j, 8, j );
+      j := j + 1;
+      xlSetCellStringValue('pNal'+tKatNalog.npp       , 7, j, 7, j );
+      xlSetCellStringValue('Ставка: '+tKatNalog.name  , 8, j, 8, j );
+      j := j + 1;
+    } // _loop tKatNalog
+  }
+
+  IsExcelOK     := xlImportModule( fVBFileName ) ;
+  IsExcelOK     := xlRunMacro( 'Main' );
+  IsExcelOK     := xlSaveAsWorkBookByName( fActiveXLSName , fXLSFileName);
+  IsExcelOK     := xlKillExcel ;
+  PutDBFtoExcel := true ;
+}
+
+procedure loop_KatSopr;
+{
+  StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm, ''#3'Выгрузка данных в dbf', 1);
+
+  _loop Katsopr
+  {
+   if( NOT ThisRecordIsOK ) Continue;
+   _loop SpSopr
+   {
+     if ( not NextVisual ) { StopVisual('',0); exit; }
+     if ( NOT SpSoprIsOK ) Continue;
+     oper := true;
+     WriteKSSPtoDBF;
+   }
+  }
+!  if ( not NextVisual ) { StopVisual('',0); exit; }
+  StopVisual('',0);
+}
+
+  HandleEvent
+
+  cmInit:
+  {
+    nReport    := 17020;
+    oper := false;
+!    cVal := coGetTune('Rep.cVal');
+!    message(cVal);
+    oValFunc.InitVal;
+    cProd := coGetTune('Nalog.cNalogProd');
+    cNDS  := coGetTune('Nalog.cNalogNDS' );
+
+
+    if( RunInterface( GetInDataReestr_R_Akt ) <> cmCancel )
+      {
+      if( GetFirst UserdeskRep
+                   where ((
+                            UserName  ==  UserDeskRep.OwnName  and
+                            nReport   ==  UserDeskRep.nRep
+                         ))
+
+                          =  tsOK )
+        {
+          d1 := UserDeskRep.ResDate[1];
+          d2 := UserDeskRep.ResDate[2];
+
+          _loop KatNalog
+          {
+            if ( (KatNalog.nRec <> cNDS) and (KatNalog.nRec <> cProd) )
+            {  // заполняем временную таблицу налогами, кроме НДС и налога с продаж
+               ClearBuffer(#tKatNalog);
+                tKatNalog.cKatNalog  := KatNalog.nRec;
+                tKatNalog.npp        := KatNalog.npp;
+                tKatNalog.name       := KatNalog.name;
+               insert current tKatNalog;
+            }
+          }
+
+          Create_Dbf;
+
+          loop_KatSopr;
+
+          DBFClose(idFile);
+
+          if (oper) PutDBFtoExcel;
+          else message('Нет данных для отчета');
+        }
+     }
+  oValFunc.DoneVal;
+  CloseInterface(0);
+  }
+
+ end;
+
+
+end.
+
+

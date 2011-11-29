@@ -1,0 +1,522 @@
+//------------------------------------------------------------------------------
+//  test_check                                                    (c) корпорация Галактика
+// Галактика 5.5 - Спецодежда
+// Редактирование ЛК учета СФО
+//------------------------------------------------------------------------------
+
+#ifdef ComponentVersion
+#include GetMol.vih
+#end
+
+#include SfoUtils.vih // Полезные функции для работы с СФО
+#include GRP_Razr.vih
+#include TransLib.vih
+#include Confirm.vih
+#include Pers_SFO.vih
+#include MBP_Doc.vih
+#include MBP_In.vih
+#include MBP_Out.vih
+#include MBPAvtoN.vih
+#include spis_mbp.vih
+#include move_mbp.vih
+#include prih_mbp.vih
+#include IznMetod.vih
+#include PayCompens.vih // Информация о выплаченной компенсации
+#include toPersCard.vih // Табличный объект, расширяющий таблицу PersCard
+#include UnNacop.vih
+#include FurnUtils.vih
+#include ReqSFOEd.vih
+#include SFO_Docs.vih
+#include SopInMov.vih
+#include SfoSets.vih
+#include DblGiven.vih
+#include PersNrCt.vih
+#define __PERSCARD_VIP__
+
+#doc
+Интерфейс выбора и редактирования ЛК учета СФО.<br>
+#end
+Interface getPersCard '' (, hcSFOISelCard, sci178EnEsc) Cyan, escClose;
+  Show At (, 2,, 23);
+
+var
+  refPersNorm,
+  allPersNorm : comp;
+
+#include difmonth.vpp
+#include submonth.vpp
+#include SFO_Srok.vpp
+
+#include GRP_Razr.var
+#include TransLib.var
+#include Pers_SFO.var
+#include Confirm.var
+#include MBP_Doc.var
+#include MBP_In.var
+#include MBP_Out.var
+#include MBPAvtoN.var
+#include IznMetod.var
+#include PayCompens.var // Информация о выплаченной компенсации (iPayCompens)
+#include SfoUtils.var   // Полезные функции для работы с СФО (iSfoUtils)
+#include toPersCard.var // Табличный объект, расширяющий таблицу PersCard (iPersCard)
+#include UnNacop.var
+#include FurnUtils.var
+#include PersNrCt.var
+#include MBPCurTunes.vpp
+
+var
+  vSfoSets  : iSfoSets;
+  iDblGiven : DblGiven;
+    
+//-------------------------------------------------------------------------
+
+Table Struct Ved_Donach_Izn
+(
+  Nrec  : tNRec,
+  cPodF : Comp,
+  cMolF : Comp
+)
+With index
+(
+  Ved_Donach_Izn01 = cPodF + cMolF
+);
+
+//-------------------------------------------------------------------------
+Table Struct PrsCrdBasket
+(
+  PrsCrdNRec : comp,
+  PrsCrdNom  : string,
+  PrsFIO     : string,
+  PrsTabNum  : string
+)
+With Index
+(
+  PrsCrdBasket01 = PrsCrdNRec,
+  PrsCrdBasket02 = PrsCrdNom,
+  PrsCrdBasket03 = PrsFIO + PrsTabNum,
+  PrsCrdBasket04 = PrsTabNum
+)
+;
+
+Table Struct ChgValues
+(
+  PrsCrdNRec : comp,
+  ValueName  : string,
+  OldValName : string,
+  NewValName : string
+)
+With Index
+(
+  ChgValues01 = PrsCrdNRec
+)
+;
+
+//-------------------------------------------------------------------------
+Create view
+Var
+  prevAtt,
+  reglDate          : date;
+  CurFormat         : longint; // Выбранный Browse - brPersCard или brCurLSchet
+  UseStrTabN        : boolean;
+  lPodr,
+  c1,
+  nrBou,
+  PrevCrd           : comp;
+  titleStr          : string[80];
+  dSumCompens,
+  dStoimPredm,
+  inUsePrice        : double;
+  wKolVedDonachIzn,
+  brFormat,
+  wTypeSFO          : word;
+  statPersBreak     : string[25];
+
+  // Выбор ЛК учета СФО по лицевому счету
+  wSelCardMode      : word;
+  bSelPersCard      : boolean;
+
+  // Пометка карточек
+  CardMarker        : longint;
+
+As Select
+#include perscard.fld
+
+  PersCard.CardNom, PersCard.attDate,
+  PersCard.perDate, PersCard.disDate, PersCard.zvDate,
+  PersCard.chDate,
+  iPersCard.Size1, iPersCard.Size2, iPersCard.Size3,
+  iPersCard.Size4, iPersCard.Size5, iPersCard.Size6,
+  iPersCard.Size7, iPersCard.Size8,
+  Persons.FIO, Persons.Sex, LSchet.DatUv,
+  shKatPodr.Name, KatMOL.Name,
+  PersSFO.*, shPersSFO.*,
+  Zar_User.CurCex,
+  HiLevSFO.*,
+  MBPIn.NRec, MBPOut.NRec,
+  shFurnSFO.*,
+  shMainSFO.NRec
+
+From
+#include perscdfr.vpp
+Where
+((
+  PersCard.NRec     == iPersCard.NRec   and
+  Word(24)          == Pick.wList       and
+
+  // Ограничения на ЛК по подразделению.
+  UserName          == Zar_User.OwnName and
+  PersCard.cLSchet  == LSchet.NRec      and
+  LSchet.tPerson    == Persons.NRec     and
+  LSchet.cAppoint   == Catalogs.NRec    and
+  PersCard.cMol     == KatMOL.NRec      and
+  PersCard.cPodr    == shKatPodr.NRec   and
+  shKatPodr.cPodr   == HiKatPodr.NRec   and
+  PersCard.cHiPodr  == Catalogs2.NRec   and
+
+  // характер назначения
+  Persons.AppointCur   == Appointments.NRec     and
+  Appointments.KindApp == CatalogsApp.Nrec      and
+  
+  // Основная по форменной
+  PersCard.NRec == ofPersNorm.cPersCard and
+  (
+    (Word(0) = ofPersNorm.specFlag) and
+    (Word(0) = ofPersNorm.osnFlag)  and
+    (Word(1) = ofPersNorm.Status)
+  )                                     and
+  ofPersNorm.cNormSFO == ofNormSFO.NRec and
+
+  // Дополнительная по форменной
+  PersCard.NRec == dfPersNorm.cPersCard and
+  (
+    (Word(0) = dfPersNorm.specFlag) and
+    (Word(1) = dfPersNorm.osnFlag)  and
+    (Word(1) = dfPersNorm.Status)
+  )                                     and
+  dfPersNorm.cNormSFO == dfNormSFO.NRec and
+
+  // Основная по спецодежде
+  PersCard.NRec == osPersNorm.cPersCard and
+  (
+    (Word(1) = osPersNorm.specFlag) and
+    (Word(0) = osPersNorm.osnFlag)  and
+    (Word(1) = osPersNorm.Status)
+  )                                     and
+  osPersNorm.cNormSFO == osNormSFO.NRec and
+
+  // Дополнительная по спецодежде
+  PersCard.NRec == dsPersNorm.cPersCard and
+  (
+    (Word(1) = dsPersNorm.specFlag) and
+    (Word(1) = dsPersNorm.osnFlag)  and
+    (Word(1) = dsPersNorm.Status)
+  )                                     and
+  dsPersNorm.cNormSFO == dsNormSFO.NRec and
+
+  // Все нормы по личной карточке
+  PersCard.NRec == shPersNorm.cPersCard and
+    (Word(1) = shPersNorm.Status)       and
+  shPersNorm.cNormSFO == shNormSFO.NRec and
+
+  // Расчеты выдач СФО работнику
+  PersCard.NRec == PersSFO.cPersCard and
+//        Word(1) == PersSFO.zeroKol and
+
+  // Для расчетных алгоритмов PersSFO.vpp и CorrMBP.vpp
+  PersSFO.cCurMBPIn == MBPIn.NRec        and
+  PersSFO.cMBPOut   == MBPOut.NRec       and
+  PersSFO.cSpReqSFO == spReqSFO.NRec     and
+  PersSFO.cPersSFO  == HiLevSFO.NRec     and
+  PersSFO.cDocMBPIn == docMBPIn.NRec     and
+  PersSFO.cKatMBP  ==  KatMBP.NRec       and
+  // Спецификация, по которой выдана фурнитура
+  PersSFO.cSpReqSFO == KatKod.NRec       and
+
+  // Ручная цена СФО
+  coPersSFO  ==  AttrNam.wTable and
+  'SFOPrice' ==  AttrNam.Name   and
+     coPersSFO  ==  AttrVal.wTable and
+  PersSFO.NRec  ==  AttrVal.cRec   and
+  AttrNam.NRec  ==  AttrVal.cAttrNam and
+
+  // Отображение на экране
+        PersCard.NRec == shPersSFO.cPersCard and
+              Word(1) == shPersSFO.zeroKol and
+  shPersSFO.cKatMBP   == shKatMBP.NRec and
+  shPersSFO.cCurMBPIn == shMBPIn.NRec and
+  shPersSFO.cMBPOut   == shMBPOut.NRec and
+  shPersSFO.cPersSpec == shPersSpec.nRec and
+  shPersSFO.cPersSFO  == shHiLevSFO.NRec and
+  shPersSFO.nRec      == shLoLevSFO.cPersSFO and
+  shPersSFO.cExtOper  == shMainSFO.NRec and
+
+  // Отображение фурнитуры в отдельном окне
+  Word(0)        == shFurnSFO.ExtMod   and
+  shPersSFO.nRec == shFurnSFO.cExtOper and
+        (Word(1)  = shFurnSFO.zeroKol) and
+  shFurnSFO.cKatMBP == shFurnMBP.nRec  and
+
+  // Ручная цена СФО
+  coPersSFO  ==  shAttrNam.wTable and
+  'SFOPrice' ==  shAttrNam.Name   and
+  coPersSFO      == shAttrVal.wTable and
+  shPersSFO.NRec == shAttrVal.cRec   and
+  shAttrNam.NRec == shAttrVal.cAttrNam and
+
+  // Единицы измерения
+  shKatMBP.cEd == shKatEd.NRec and
+
+  // Приостановка срока
+  PersCard.Nrec == PersBreak.cPersCard and
+
+  // Перевод работника в другое подразделение
+  mbpPMovDoc    == PersMoveOper.Status and  // операции перевода работника
+  PersCard.Nrec == PersMoveOper.cRecs[2] (NoIndex) and
+
+  // Ручной ввод износа СФО
+  coPersSFO  ==  AttrNamS.wTable and
+  'SFOIznos' ==  AttrNamS.Name   and
+     coPersSFO  ==  AttrValS.wTable and
+  PersSFO.NRec  ==  AttrValS.cRec   and
+  AttrNamS.NRec ==  AttrValS.cAttrNam and
+
+  // Сравнение данных в ЛК учета СФО с лицевыми счетами
+  PrsCrdBasket.PrsCrdNRec == ChgValues.PrsCrdNRec
+))
+
+Order By PersCard.CardNom
+Order By PersSFO.cPersCard, PersSFO.zeroKol, PersSFO.giveDate
+Order By shPersSFO.cPersCard, shPersSFO.zeroKol, shPersSFO.giveDate
+Order By ofPersNorm.cPersCard, ofPersNorm.frDate
+Order By dfPersNorm.cPersCard, dfPersNorm.frDate
+Order By osPersNorm.cPersCard, osPersNorm.frDate
+Order By dsPersNorm.cPersCard, dsPersNorm.frDate
+Order By shPersNorm.cPersCard, shPersNorm.frDate
+Order By PrsCrdBasket.PrsCrdNom
+
+//--------------------------------------------
+
+// Различные варианты сортировки ЛК учета СФО
+Order byCard By PersCard.CardNom
+Order byTabN By CurLSchet.TabN, CurLSchet.StrTabN
+Order byFIO  By CurLSchet.FIO
+
+// Отбор карточек по подразделениям.
+Bounds ByPodrs as
+  PersCard.cLSchet /== CurLSchet.cLSchet
+
+Bounds BySchet as
+  CurLSchet.cLSchet /== PersCard.cLSchet
+
+// Фильтрация выдач работника
+
+Bounds  bySFOStatus  as  // В носке где не все списано.
+  PersCard.NRec == PersSFO.cPersCard and
+  sfoInUse == PersSFO.Status and
+  Word(1) == PersSFO.zeroKol
+ Ordered By PersSFO.cPersCard, PersSFO.Status, PersSFO.zeroKol, PersSFO.giveDate
+
+Bounds  ScrSFOByStatus  as  // Ограничить список на экране
+  PersCard.NRec == shPersSFO.cPersCard and
+  sfoInUse == shPersSFO.Status and
+  Word(1) == shPersSFO.zeroKol
+ Ordered By shPersSFO.cPersCard, shPersSFO.Status, shPersSFO.zeroKol, shPersSFO.giveDate
+
+Bounds ByReglDate =
+  PersCard.NRec == PersSFO.cPersCard and
+  sfoInUse == PersSFO.Status and
+  Word(1) == PersSFO.zeroKol and
+  From_Days(0)  <<  PersSFO.endDate and
+      reglDate  >>= PersSFO.endDate
+
+// ------ Специальная/форменная одежда --------
+Condition ByTypeSFO =
+  (shPersSFO.specFlag = wTypeSFO)
+
+// --------- Ограничение по фурнитуре ---------
+Condition ByFurnSFO =
+  (shPersSFO.cExtOper = 0)
+;
+
+Parameters
+  c1;        // NRec ЛК СФО
+
+Form frmPersCard('PersCard.OUT', 'PersCardProt') with NoVisual;
+
+//-------------------------------------------------------------------------
+
+#include round.vpp
+#include MBP_Const.vpp
+#include sfoUtils.vpp
+#include CloseCrd.vpp
+#include ClosSpec.vpp
+#include pers_spis.vpp
+#include Razr_Sum.vpp
+#include PersMess.vpp
+#include PersNrCh.vpp
+#include NormZam.inc
+#include pers_chk.vpp
+#include PersCard.vpp
+#include BreakCrd.vpp
+
+//-------------------------------------------------------------------------
+function GetColorCard : integer;
+{
+  GetColorCard := 0;
+
+  if (SearchMarker(CardMarker, PersCard.nRec, 0))
+    GetColorCard := ColorMark;
+  else
+    if (PersCard.Status = crdClosed)
+      GetColorCard := ColorGray;
+    else
+      if (Lic_ItemExists('Custom'))
+        if (isBreakCard(PersCard.nRec, Cur_Date, false))
+          GetColorCard := ColorError;
+}
+
+//-------------------------------------------------------------------------
+
+Browse brPersCard ('Выбор ЛК учета специальной (форменной) одежды',, sci178InsPM);
+  Table PersCard;
+Fields
+  {Font = {Color = GetColorCard; }};
+  PersCard.CardNom #3'№ карточки'    ('Номер личной карточки учета специальной (форменной) одежды') : [12], Protect, noAutoSize;
+  LSchet.TabN      #3'Таб. №'        ('Табельный номер сотрудника из ЛИЦЕВЫХ СЧЕТОВ')               : [10], Protect, noAutoSize;
+  LSchet.StrTabN   #3'Таб. №'        ('Табельный номер сотрудника из ЛИЦЕВЫХ СЧЕТОВ')               : [10], Protect, noAutoSize;
+  Persons.FIO      #3'Сотрудник'     ('ФИО сотрудника')                                             : [27], Protect;
+  shKatPodr.Name   #3'Подразделение' ('Структурное подразделение, к которому относится сотрудник')  : [15], Protect;
+  PersCard.attDate #3'Дата атт.'     ('Дата первой аттестации сотрудника для отсчета сроков носки') : [10, 'DD/MM/YYYY'], Protect, noAutoSize;
+  PrsCrdStat       #3'C'             ('Индикатор закрытия Личной Карточки учета СФО сотрудника. "X" - закрыта.') : [1],   Protect, noAutoSize;
+  isPicked         #3'√'             ('Признак выбора личной карточки учета СФО')                   : [1], skip, noAutoSize;
+end;
+
+Browse brCurLSchet ('Выбор ЛК учета специальной (форменной) одежды',, sci178InsPM);
+  Table CurLSchet;
+Fields
+  {Font = {Color = GetColorCard; }};
+  PersCard.CardNom  #3'№ карточки'    ('Номер личной карточки учета специальной (форменной) одежды') : [12], Protect, noAutoSize;
+  CurLSchet.TabN    #3'Таб. №'        ('Табельный номер сотрудника из ЛИЦЕВЫХ СЧЕТОВ')               : [10], Protect, noAutoSize;
+  CurLSchet.StrTabN #3'Таб. №'        ('Табельный номер сотрудника из ЛИЦЕВЫХ СЧЕТОВ')               : [10], Protect, noAutoSize;
+  CurLSchet.FIO     #3'Сотрудник'     ('ФИО сотрудника')                                             : [27], Protect;
+  shKatPodr.Name    #3'Подразделение' ('Структурное подразделение, к которому относится сотрудник')  : [15], Protect;
+  PersCard.attDate  #3'Дата атт.'     ('Дата первой аттестации сотрудника для отсчета сроков носки') : [10, 'DD/MM/YYYY'], Protect, noAutoSize;
+  PrsCrdStat        #3'C'             ('Индикатор закрытия Личной Карточки учета СФО сотрудника. "X" - закрыта.') : [1],   Protect, noAutoSize;
+  isPicked          #3'√'             ('Признак выбора личной карточки учета СФО')                   : [1], skip, noAutoSize;
+end;
+
+//-------------------------------------------------------------------------
+
+#include E:\!StroyTehNorm\!project\F_SFO\vip\perscard.win
+
+#include prscrdbasket.vpp
+//-------------------------------------------------------------------------
+
+#include aftChPod.vpp
+#include PersCard.pan
+#include PersInt.han
+
+end. // interface
+
+
+//-------------------------------------------------------------------------
+// Список Личных Карточек учета спецоснастки/СФО
+
+SFO_CardList_HotKeys Menu
+{
+- 'Фильтр по подразделениям', cmFilterSave, 'Изменить параметры фильтра по подразделениям', hcSFOLMListLK, 'Alt+B', kbAltB, sci1Esc;
+-----------;
+- 'Печать Личной карточки', cmPrintDoc, 'Печать документа', hcSFOLMListLK, 'Ctrl+P', kbCtrlP, sci1Esc;
+- 'Печать Личной карточки в FastReport', cmValue20, 'Печать документа в FastReport', hcSFOLMListLK,,, sci1Esc;
+-----------;
+- 'Групповая замена МОЛ', cmValue19, 'Переход к функции групповой замены МОЛ', hcSFOLMListLK,,, sci1Esc;
+- 'Групповая замена подразделения', cmValue23, 'Переход к функции группового перевода работников в другое подразделение', hcSFOLMListLK,,, sci1Esc;
+-----------;
+- 'Синхронизация с лицевыми счетами', cmValue24, 'Синхронизация с лицевыми счетами', hcSFOLMListLK,,, sci1Esc;
+-----------;
+- 'Внешние атрибуты', cmPickAttr, 'Заполнение внешних атрибутов по данной позиции', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+}
+
+//-------------------------------------------------------------------------
+// Личная Карточка учета СФО - шапка.
+
+SFO_PersCard_Up_HotKeys Menu
+{
+- 'Печать Личной карточки', cmPrintDoc, 'Печать документа', hcSFOLMPanelRekvLK, 'Ctrl+P', kbCtrlP, sci1Esc;
+!- 'Печать Личной карточки в FastReport', cmValue20, 'Печать документа в FastReport', hcSFOLMPanelRekvLK,,, sci1Esc;
+-----------;
+!- 'Ввод размеров', cmValue1, 'Ввод размеров одежды для сотрудника', hcSFOLMPanelRekvLK,,, sci1Esc;
+!- 'Выдать по нормам', cmValue4, 'Формирование нового требования на выдачу СФО', hcSFOLMPanelRekvLK,,, sci1Esc;
+!- 'Выбор требования', cmValue5, 'Просмотр списка требований на выдачу сформированных на сотрудника', hcSFOLMPanelRekvLK,,, sci1Esc;
+!-----------;
+!- 'Просмотр истории норм', cmValue2, 'Просмотр истории смен норм выдачи для сотрудника', hcSFOLMPanelRekvLK,,, sci1Esc;
+!- 'Просмотр истории начислений', cmValue3, 'Просмотр истории спецификаций норм выдачи для сотрудника', hcSFOLMPanelRekvLK,,, sci1Esc;
+-----------;
+- 'Перевод в другое подразделение', cmValue7, 'Переход к функции перевода спецодежды сотрудника на другой разрез хранения', hcSFOLMPanelRekvLK,,, sci1Esc;
+- 'Отмена перевода', cmValue13, 'Переход к функции отмены перевода спецодежды сотрудника на другой разрез хранения', hcSFOLMPanelRekvLK,,, sci1Esc;
+!- 'Смена персонального звания', cmValue22, 'Переход к функции установки нового персонального звания работника', hcSFOLMPanelRekvLK,,, sci1Esc;
+!-----------;
+!- 'Аттестат на вещевое довольствие', cmValue16, 'Переход в документ ввода начальных остатков по работнику', hcSFOLMPanelRekvLK,,, sci1Esc;
+!-----------;
+!- 'Регламентное списание', cmValue17, 'Переход к функции регламентного списания спецодежды сотрудника', hcSFOLMPanelRekvLK,,, sci1Esc;
+- 'Возврат', cmValue12, 'Переход к функции возврата спецодежды сотрудником', hcSFOLMPanelRekvLK,,, sci1Esc;
+- 'Выбытие', cmValue11, 'Переход к функции списания спецодежды находящейся в носке у сотрудника', hcSFOLMPanelRekvLK,,, sci1Esc;
+-----------;
+- 'Расчеты при увольнении', cmValue14, 'Переход к функции списания и расчета задолженности по СФО при увольнении', hcSFOLMPanelRekvLK,,, sci1Esc;
+!-----------;
+!- 'Внешние атрибуты', cmPickAttr, 'Заполнение внешних атрибутов по данной позиции', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+}
+
+//-------------------------------------------------------------------------
+// Личная Карточка учета СФО - спецификация.
+
+SFO_PersCard_Dn_HotKeys Menu
+{
+!- 'Переключение режима просмотра', cmPFormat, 'Переключение с табличного режима просмотра записи в анкетный и обратно', hcSFOLMPanelSpecLK, 'F9', kbF9, sci1Esc;
+- 'Показать/скрыть не в носке', cmFilterSave, 'Показать/скрыть списанные, возвращенные, утерянные позиции', hcSFOLMPanelSpecLK, 'Alt+B', kbAltB, sci1Esc;
+!- 'Форменная/специальная одежда', cmKauReff, 'Показать/скрыть форменную и специальную одежду', hcSFOLMPanelSpecLK, 'Alt+T', kbAltT, sci1Esc;
+!-----------;
+!- 'Печать Личной Карточки', cmPrintDoc, 'Печать документа', hcSFOLMPanelSpecLK, 'Ctrl+P', kbCtrlP, sci1Esc;
+!- 'Печать Личной Карточки в FastReport', cmValue20, 'Печать документа в FastReport', hcSFOLMPanelSpecLK,,, sci1Esc;
+-----------;
+- 'Перейти к операции в КУ СФО', cmDocBas, 'Переход к соответствующей записи в Карточке Учета СФО', hcSFOLMPanelSpecLK, 'Alt+D', kbAltD, sci1Esc;
+-----------;
+- 'Перейти к документу на выдачу', cmAkt, 'Переход к соответствующему Документу на ввод в эксплуатацию', hcSFOLMPanelSpecLK, 'Alt+E', kbAltE, sci1Esc;
+- 'Перейти к документу СФО на выдачу', cmSortMC, 'Переход к Требованию на выдачу / Аттестату на вещевое довольствие', hcSFOLMPanelSpecLK, 'Alt+R', kbAltR, sci1Esc;
+-----------;
+- 'Перейти к текущему документу', cmAccording, 'Переход к Документу на внутреннее перемещение, Акту на списание, и т.д.', hcSFOLMPanelSpecLK, 'Alt+S', kbAltS, sci1Esc;
+- 'Перейти к текущему документу СФО', cmNal, 'Переход к Акту выбытия, Возврату, Акту регламентного списания, и т.д.', hcSFOLMPanelSpecLK, 'Alt+F', kbAltF, sci1Esc;
+!-----------;
+!- 'Выбытие, списание', cmValue10, 'Списать отдельную позицию предметов СФО работника', hcSFOLMPanelSpecLK,,, sci1Esc;
+}
+
+SFO_PersCard_FurnWin_HotKeys Menu
+{
+- 'Показать/скрыть фурнитуру', cmIEHist, 'Показать/скрыть предметы фурнитуры', hcSFOLMPanelSpecLK, 'Alt+H', kbAltH, sci1Esc;
+- 'Знаки различия и фурнитура', cmAttrib, 'Показать знаки различия и фурнитуру, входящие в комплект к основному предмету', hcSFOLMPanelSpecLK, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+}
+
+SFO_PersCard_ReLinkFurn_HotKeys Menu
+{
+- 'Перепривязать фурнитуру', cmValue25, 'Перепривязать предмет фурнитуры к другому основному предмету', hcSFOLMPanelSpecLK,,, sci1Esc;
+}
+
+SFO_PersCard_Basket_HotKeys Menu
+{
+- 'Печать списка', cmPrintDoc, 'Печать списка ЛК учета СФО',, 'Ctrl+P', kbCtrlP, sci1Esc;
+}
+
+//-------------------------------------------------------------------------
+
+GetNewSrok DIALOG
+Fields
+  wSrkNew ('Укажите срок службы предметов',, scGalDial) : word;
+Buttons
+  cmOk, Default,, 'Продолжить',, scGalDial;
+  cmCancel,,, 'Отмена',, scGalDial;
+<<'Ввод срока службы'
+
+  Установить срок службы:.@@@@@@ мес.
+                                         
+   <.~П~родолжить.>   <.  ~О~тмена  .>
+>>

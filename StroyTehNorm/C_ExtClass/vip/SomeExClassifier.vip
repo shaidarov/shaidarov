@@ -1,0 +1,334 @@
+//------------------------------------------------------------------------------
+// Basta                                                 (c) корпорация Галактик
+// Версия      : 8.10
+// Назначение  : Множественный выбор значений внешнего классификатор
+//------------------------------------------------------------------------------
+
+#doc
+  Множественный выбор значений внешнего классификатора. <br>
+  </brief>
+    wObjType, - номер таблицы из словаря<br>
+    c1,       - NRec ExClassName<br>
+    c2        - NRec ExClassSeg<br>
+#end
+Interface  SomeExClassifier_STN  'Выбор внешнего классификатора'
+           ( ,hcGkatalM1ExtClass ,scClassifier) DoAccept, EscClose, Cyan;
+  show at ( 7,6,72,18);
+//'  pascal "pickexcl.inc";
+
+Create View
+  Var
+   wObjType, cCount, cTotal : Word;
+   CurGroup, c1, c2 : Comp;
+   CurrLevel : Integer;
+   cMark, cFlag : Boolean;
+as select
+  ExClassName.*
+from
+  ExClassName         (ReadOnly),
+  ExClassSeg          (ReadOnly),
+  Pick,
+  Synonym Pick Pick2,
+  Synonym Pick Pick3
+where
+((
+  wObjType              == ExClassName.wTable   and
+  ExClassName.ClassCode == ExClassSeg.ClassCode and
+  CurGroup              == ExClassSeg.cGroup    and
+  Word(632)             == Pick.WList           and
+  ExClassName.NRec      == Pick.cRec            and
+  Word(633)             == Pick2.WList          and
+  ExClassSeg.NRec       == Pick2.cRec
+))
+;
+
+Parameters
+  wObjType,  //'номер таблицы из словаря
+  c1,        //'NRec ExClassName
+  c2         //'NRec ExClassSeg
+;
+
+Browse brwClassName (,hcGkatalM1ExtClass,sci14Esc);
+Show at (,,,6)
+Table  ExClassName;
+Fields
+  { Font = { Color = if(IsValid(tnPick), ColorMark, 0) }};
+ if ( IsValid(tnPick), '√', '' ) : [1] , Protect, Skip;
+ ExClassName.Name 'Наименование классификации' ('Наименование классификации',,) : [59], Protect;
+end;  //'browse
+
+Tree trClassifier (,hcGkatalM1ExtClass,sci14EnInsTree);
+Show at (,7,,)
+Table  ExClassSeg;
+Fields
+  { Font = { Color = if(IsValid(tnPick2), ColorMark, 0) }};
+ ExClassSeg.Value 'Код классификатора' ('Код сегмента классификации',,) : [50], Protect;
+ ExClassSeg.Name  'Значение классификатора' ('Наименование сегмента классификации',,) : [59], Protect;
+ if ( IsValid(tnPick2), '√', '' ) : [1] , Protect, Skip;
+End;  //'tree
+
+Panel panClassName;
+Table ExClassName;
+HandleEvent
+cmPositionChanged :
+{
+ if (cFlag)
+ {
+  CurGroup := 0;
+  TreeGetFirstEx(trClassifier);
+  ReDrawPanel(#ExClassSeg);
+ }
+ else
+  cFlag := True;
+}
+End;  //'he
+End;  //'panel
+
+Panel panClassSeg;
+Table  ExClassSeg;
+HandleEvent  //'panel panClassSeg
+  cmTreeTop :        CurGroup:=0;
+  cmTreeUp  :        CurGroup:=ExClassSeg.cGroup;
+  cmTreeDown:        CurGroup:=ExClassSeg.NRec;
+  cmTreeNodeType  :  //'if ExClassSeg.isLeaf = 1 TreeSetNodeType(trClassifier,2);
+    if ( TreeIsTerminal(trClassifier) )
+     {
+      TreeSetNodeType(trClassifier,2);
+     }
+  cmTreeNeedOwner : TreeJumpToRecord(trClassifier, ExClassSeg.cGroup);
+
+cmMarkUnMark :
+ {
+  if ( IsValid(tnPick2) )
+    cMark := False;  //'снять пометку
+  else
+    cMark := True;   //'снять пометку
+
+  PushPos(#ExClassSeg);
+  CurrLevel := TreeLevel(trClassifier);
+  Do
+   {
+    if ( Not cMark )
+     {
+      if ( IsValid(tnPick2) )
+       {
+        Delete Current Pick2;
+       }
+     }
+    else
+     {
+      if ( Not IsValid(tnPick2) )
+       {
+        Insert Pick2 Set
+          Pick2.cRec    := ExClassSeg.NRec,
+          Pick2.wList   := Word(633),
+          Pick2.PickNum := ExClassSeg.ClassCode;
+       }
+     }
+   }
+  While( (TreeGetNextEx(trClassifier)) and (TreeLevel(trClassifier) > CurrLevel) );
+  PopPos(#ExClassSeg);
+  CurGroup := ExClassSeg.cGroup;
+  TreeJumpToRecord( trClassifier, ExClassSeg.NRec );
+
+  if ( TreeIsTerminal(trClassifier) )
+#ifdef ATL51
+    RedrawCurrentAndGo (GetCurrentFormat,true);
+#else // старый код
+    if ( TreeGetNextEx(trClassifier) )
+      CallToNeighbours( cmTreeDown, CurTable );
+#end
+
+  if ( GetFirst Pick3 Where ((
+                              Word(633)             == Pick3.wList   and
+                              ExClassName.ClassCode == Pick3.PickNum
+                            )) = tsOk )
+   {
+    if ( Not IsValid(tnPick) )
+     {
+      Insert Pick Set
+        Pick.cRec    := ExClassName.NRec,
+        Pick.wList   := Word(632),
+        Pick.PickNum := ExClassName.ClassCode;
+     }
+   }
+  else
+   {
+    if ( IsValid(tnPick) )
+      Delete Current Pick;
+   }
+
+  RescanPanel(#ExClassSeg);
+  RereadRecord(#ExClassName);
+ }
+
+cmSelectAll :
+ {
+  cCount := 0;
+  PushPos(#ExClassSeg);
+  if ( TreeGetFirstEx(trClassifier) )
+   {
+    StartNewVisual( vtNumericVisual, vfTimer+vfBreak+vfConfirm,
+                    ''#3'Помечаю все сегменты классификации...'#13#3, 1 );
+    Do
+     {
+      if (Not NextVisual)
+        Break;
+      else {};
+
+      if ( Not IsValid(tnPick2) )
+       {
+        Insert Pick2 Set
+        Pick2.cRec    := ExClassSeg.NRec,
+        Pick2.wList   := Word(633),
+        Pick2.PickNum := ExClassSeg.ClassCode;
+        cCount := cCount + 1;
+       }
+     }
+    While ( TreeGetNextEx(trClassifier) );
+    StopVisual('',0);
+   }
+  PopPos(#ExClassSeg);
+  CurGroup := ExClassSeg.cGroup;
+  TreeJumpToRecord( trClassifier, ExClassSeg.NRec );
+
+  if ( cCount > 0 )
+    if ( Not IsValid(tnPick) )
+     {
+      Insert Pick Set
+        Pick.cRec    := ExClassName.NRec,
+        Pick.wList   := Word(632),
+        Pick.PickNum := ExClassName.ClassCode;
+     }
+
+  RescanPanel(#ExClassSeg);
+  RereadRecord(#ExClassName);
+ }
+
+cmUnSelectAll :
+ {
+  PushPos(#ExClassSeg);
+  if ( TreeGetFirstEx(trClassifier) )
+   {
+    StartNewVisual( vtNumericVisual, vfTimer+vfBreak+vfConfirm,
+                    ''#3'Снимаю помеченные остатки по одной МЦ...'#13#3, 1 );
+    Do
+     {
+      if (not NextVisual)
+        Break;
+      else {};
+
+      if ( IsValid(tnPick2) )
+       {
+        Delete Current Pick2;
+        cCount := cCount - 1;
+       }
+     }
+    While ( TreeGetNextEx(trClassifier) );
+    StopVisual('',0);
+   }
+  PopPos(#ExClassSeg);
+  CurGroup := ExClassSeg.cGroup;
+  TreeJumpToRecord( trClassifier, ExClassSeg.NRec );
+
+  if ( IsValid(tnPick) )
+    Delete Current Pick;
+
+  RescanPanel(#ExClassSeg);
+  RereadRecord(#ExClassName);
+ }
+End;  //'he
+End;  //'panel
+
+//===========================================================================
+HandleEvent  //'interface
+//===========================================================================
+cmEdit:
+  {
+    RunInterface('ExExtClass',
+                   cgiNo,
+                   wObjType,
+                   ExClassSeg.nRec,
+                   ExClassName.UniqFeat
+                );
+    RereadRecord;
+    PushPos(#ExClassSeg);
+    if (GetFirst ExClassSeg <> tsOK)
+      if (GetFirst ExClassName <> tsOK)
+        PutCommand(cmClose);
+    PopPos(#ExClassSeg);
+  }
+
+cmInit:
+ {
+  CurGroup:=0;
+  if (Not IsValid(#ExClassName))
+   {
+      RunInterface('ExExtClass',
+                    cgiNo,
+                    wObjType,
+                    0,
+                    ExClassName.UniqFeat
+                  );
+      if (GetFirst ExClassName <> tsOK)
+        PutCommand(cmClose);
+      else
+       {
+        //'lClassSeg := ExClassSeg.NRec;
+       }
+   }
+
+  if ( c1 <> Comp(0) )
+   {
+    ResetBounds(tnExClassName);
+    if ( GetFirst ExClassName Where (( c1 == ExClassName.NRec )) = tsOk )
+     {
+      PushPos(#ExClassName);
+      SetBounds(tnExClassName);
+      PopPos(#ExClassName);
+     }
+    else
+      SetBounds(tnExClassName);
+   }
+
+  if (c2 <> Comp(0))
+  {
+   ResetBounds(tnExClassSeg);
+   if ( GetFirst ExClassSeg Where (( c2 == ExClassSeg.NRec )) = tsOk )
+   {
+    PushPos(#ExClassSeg);
+    SetBounds(tnExClassSeg);
+    PopPos(#ExClassSeg);
+    CurGroup := ExClassSeg.cGroup;
+    TreeJumpToRecord( trClassifier, ExClassSeg.NRec );
+    SelectPanel(#ExClassSeg);
+   }
+   else
+    SetBounds(tnExClassSeg);
+   cFlag := False;
+  }
+  else
+   cFlag := True;
+
+  cCount := 0;  //'Обнуляем счетчик выбранных позиций
+ }
+
+cmDefault:
+{
+ if ( GetFirst Pick3 Where ((
+                             Word(633) == Pick3.wList
+                           )) <> tsOk )
+  {
+   Insert Pick2 Set
+     Pick2.cRec    := ExClassSeg.NRec,
+     Pick2.wList   := Word(633),
+     Pick2.PickNum := ExClassSeg.ClassCode;
+
+   Insert Pick Set
+     Pick.cRec    := ExClassName.NRec,
+     Pick.wList   := Word(632),
+     Pick.PickNum := ExClassName.ClassCode;
+  }
+}
+End;
+End.

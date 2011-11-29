@@ -1,0 +1,67 @@
+/*
+ ษอออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออป
+ บ                     (c) 1994,2000 ชฎเฏฎเ ๆจ๏ €€’€                    บ
+ บ เฎฅชโ        : €€’€                                                 บ
+ บ ‘จแโฅฌ        : ใๅฃ ซโฅเแชจฉ ชฎญโใเ                                      บ
+ บ ฅเแจ๏        : 8.1x                                                      บ
+ บ  งญ ็ฅญจฅ    : ฎงขเ ้ ฅโ งญ ็ฅญจฅ NormGroupSFO.Article ( เ ฃเ ไ ญฎเฌ๋) บ
+ บ โขฅโแโขฅญญ๋ฉ :  ฉค เฎข ฃฎเ์ €ซฅชแ ญคเฎขจ็                              บ
+ บ  เ ฌฅโเ๋     : ญฅโ                                                       บ
+ ศอออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ
+*/
+
+#include TxoApi.vih // ฎคชซ๎็ฅญจฅ จญโฅเไฅฉแ  TxoApi
+
+VipInterface TXO_SFOnorm implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_SFOnorm;
+var
+  CurSoprDoc : comp  ;
+
+create view
+as select
+  *
+from
+     MBPout       (ReadOnly)
+   , PersSFO      (ReadOnly)
+   , PersSpec     (ReadOnly)
+   , NormGroupSFO (ReadOnly)
+where
+((    CurSoprDoc          == MBPout.nRec
+  and MBPout.cMBPin       == PersSFO.cDocMBPin     (noIndex)
+  and PersSFO.cPersSpec   == PersSpec.nRec
+  and PersSpec.cNormSpec  == NormGroupSFO.nRec
+  and ''                  << NormGroupSFO.Article  (noIndex)
+))
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := ' เ ฃเ ไ จง ญฎเฌ ข๋ค ็จ ‘ฏฅๆฎคฅฆค๋';
+}
+
+
+function ParamMaster : string;
+{
+   ParamMaster := '' ;
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   CurSoprDoc := buf.cSoprDoc;
+
+         if (GetFirst NormGroupSFO = tsOK)
+          {
+           TxoBodyClear    (hTxo);
+           TxoBodySetSum   (hTxo, 1,  0, 1);
+           TxoBodyInsert   (hTxo);
+          }
+
+}
+
+handleevent
+end;
+
+end.
