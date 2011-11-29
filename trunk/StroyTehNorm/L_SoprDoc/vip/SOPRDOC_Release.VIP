@@ -1,0 +1,2297 @@
+//********************************************************************************
+//                                                        (c) корпорация Галактика
+// Галактика 7.12 - логистика - сбыт
+// Накладная на отпуск МЦ
+//********************************************************************************
+
+#define _SOPRDOC_VIP
+#define _USE_SERIAL_
+#define _LINKMTR2SPEC_
+#define _Putlst_Attr_
+
+// все VIH-и и дефайны находятся здесь
+#include OperNakl.Vih
+#include oDEI.vih //Функции доп.ед.изм. (iKatDopEd)
+#include RasNeotg.vih
+#include ExtAttr.vih
+#include EntTranspAt.vih
+#include SoprcPO.vih
+#include ExtMenu.vih      // Точки расширения для дополнительного локалльного меню
+#ifdef __DSD__
+#include JournalProbPocDoc.vih
+#end
+#include AdrFunc.vih // функции для работы с почтовыми адресами
+//******************************************************************************
+
+#doc
+Назначение:
+  Накладная на отпуск МЦ
+
+Параметры:
+  TypeSopr - Тип сопроводительного документа
+  pNRec    - Указатель для автоматической установки на запись
+#end
+
+//******************************************************************************
+
+Interface SoprDoc_Release 'Список накладных на отпуск матценностей' EscClose, Cyan;
+  Show at (, , 110, 35)
+
+#include sfconst.inc   // Основные константы и функции СФ
+#include SoprType.vpp
+#include RasNeotg.var
+#include SoprcPO.var
+
+//********************************************************************************
+// Перерасчет средних цен в накладной
+Procedure CalcSrPrice; Forward;
+// Песесчет сумм по документу
+Procedure CheckSumma(full: boolean); forward;
+// автопересчет расчетных услуг
+Procedure ProcDocAutoCalcUsl; forward;
+
+Function GetKAUField(pNum : integer) : string; Forward;
+
+Function CheckDEISumm(pcKatSopr: comp; pwPrMC: word; pbOne: boolean; pwTipKol, pwNpp: word): double; Forward;
+Function CheckOsnSumm(pcKatSopr: comp; pwPrMC: word; pbOne: boolean; pwTipKol: word): double; Forward;
+Procedure DoDeleteCurrentSpSopr; forward;
+
+//********************************************************************************
+// По проекту для Метизного
+//
+
+Function GetKoefVolume1 : double; forward;
+Function GetKoefVolume2 : double; forward;
+Function GetKolTara     : integer; forward;
+
+//******************************************************************************
+
+#include KatSopr.var           // объектные переменные, общие для сопр.документов
+#include OtkatToOldState.var   // проверка накладной на возможность редактирования
+#include NormUbFuns.var
+
+//********************************************************************************
+
+Create view
+Var
+//--------------------------------------------------------------------------------
+  pNRec                 // для автоустановки на МЦ
+, CurrSpSoprNRec
+, SHT_CE_NRec
+, cOwn1
+#ifdef __SKYSHOP__
+, SkyNRec0
+#end
+                : comp;
+//--------------------------------------------------------------------------------
+  SHT_CE_tip
+, SHT_CE_vid
+, SHT_CE_ExitMet
+, SHT_CE_dUse
+, EditNaklWithOrder
+, old_TaraVoz
+, wDateInp              //для значения даты выписки накладной по умолчанию
+, wTimerCount
+, wPList
+                : word;
+//--------------------------------------------------------------------------------
+  SHT_CE_nSopr
+, NoAktrec
+, s_SimvRub
+, s_Field1
+, strTitle              //для смены заголовка интерфейса при использовании фильтра
+, DocUchNDS
+, sDEISumLabel
+, sDEI1Name
+, sDEI2Name
+                : string;
+
+  MyFieldOKED
+                : string[8];
+//--------------------------------------------------------------------------------
+  SHT_CE_nDate
+                : Date;
+//--------------------------------------------------------------------------------
+  Loaded                //загружен через GETVIPREF или обычно
+, init_scales           //инициализированы ли весы (раб.место весовщика)
+, SchFactFlag           //Признак необходимости предупреждения по счету-фактуре
+, isEditSoprVisible
+, DocTuneNDS
+                : boolean;
+//--------------------------------------------------------------------------------
+  MarkerNZ
+, IndexNZ
+                : longint;
+//--------------------------------------------------------------------------------
+  old_kol
+, _dOldKol
+, _dOldKolFact
+, CursV
+                : double;
+
+  fPriOtpDoc    : string; // наименование распоряжения
+
+
+#ifdef __DSD__
+  oJPPD        : iJournalProbPosDoc;
+#end
+//--------------------------------------------------------------------------------
+#include soprvar.vpp      // общие переменные сопроводительных документов
+//--------------------------------------------------------------------------------
+  piOsReal        : iOsReal;
+  refExClassifier : ExClassifier;
+  oSopInMov       : SopInMovObj;    // интерфейс накладной на вн.перемещение (для резервирования)
+  gldt            : GlobData;       // Для актов УКСа и ПП (резервирование)
+  insTbl          : InsertTblMnpl;  //
+  oEntTranspAt    : EntTranspAt;
+//--------------------------------------------------------------------------------
+
+As select
+  if(SpSopr.PrVoz = 1, 'возвратная', if(SpSopr.PrVoz = 2, 'невозвратная', ''))
+        ( FieldName = PrVoz_ )
+//--------------------------------------------------------------------------------
+, if(SearchMarker(MarkerNZ, KatSopr.NRec, IndexNZ), '√', ' ')
+        ( FieldName = picked )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cVal = 0, if(s_SimvRub <> '', s_SimvRub, 'руб.'), KlVal.SimVolV)
+        ( FieldName = Valut )
+//--------------------------------------------------------------------------------
+, SpSopr.KolFact * if(KatSopr.cVal = 0, SpSopr.price, SpSopr.VPrice)
+        ( FieldName = SumPrice )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cVal = 0, KatSopr.Summa, KatSopr.SumVal)
+        ( FieldName = Sum )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cVal = 0, SpSopr.rPrice, SpSopr.rVPrice)
+        ( FieldName = Prv )
+//--------------------------------------------------------------------------------
+, if(KatSopr.VhodNal = 1, 'Налоги входят в цену позиций', 'Налоги не входят в цену позиций')
+        ( FieldName = VhNal )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cVal = 0, KatSopr.sNalogs, KatSopr.svNalogs)
+        ( FieldName = DocNalSumma )
+//--------------------------------------------------------------------------------
+, PrintNumber(KatSopr.Descr, KatSopr.NSopr)
+        ( FieldName = NomDes )
+//--------------------------------------------------------------------------------
+, PrintNumber(BaseDoc.Descr, BaseDoc.NoDoc)
+        ( FieldName = BDNomDes )
+//--------------------------------------------------------------------------------
+, PrintNumber(NZakaz.Descr, NZakaz.NoDoc)
+        ( FieldName = NZakNomDes )
+//--------------------------------------------------------------------------------
+, if(wGetTune('Dog.DogNameInComment') = 0, Dogovor.NoDoc, Dogovor.NoDoc_Ext)
+        ( FieldName = DogNoDoc )
+//--------------------------------------------------------------------------------
+, if(SpSopr.cOtpEd = 0, KatEd.Name, if (wGetTune('Doc.BrAbbrEd')=0, KatOtpEd.ABBR, KatOtpEd.Name))
+        ( FieldName = OtpEd )
+//--------------------------------------------------------------------------------
+, if(SpSopr.cOtpEd = 0, KatEd.Name, KatOtpEd.Name)
+        ( FieldName = OtpEdFullName )
+//--------------------------------------------------------------------------------
+, if(KatSopr.Transp = 0, 'нет', 'да')
+        ( FieldName = trp )
+//--------------------------------------------------------------------------------
+, if(SpSopr.PrMC = 1, KatMC.Name, KatUsl.Name)
+        ( FieldName = NameMCUsl )
+//--------------------------------------------------------------------------------
+, if(SpSopr.PrMC = 1, KatMC.BarKod, KatUsl.Kod)
+        ( FieldName = KodMCUsl )
+//--------------------------------------------------------------------------------
+, if(SpSopr.PrMC = 1, 'Т', 'У')
+        ( FieldName = PrMCUsl )
+//--------------------------------------------------------------------------------
+, if((SpSopr.wMcProp AND 1) <> 0, 'Н', 'С')
+        ( FieldName = strOwnMc )
+//--------------------------------------------------------------------------------
+, if(KatSopr.dOpr = Date(0, 0, 0), '', '+')
+        ( FieldName = PrOrd )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cSchFact = 0, '', '+')
+        ( FieldName = PrSF )
+//--------------------------------------------------------------------------------
+, if(s_Field1 = '', '', s_Field1)
+        ( FieldName = FieldInfo )
+//--------------------------------------------------------------------------------
+, if(SpSopr.ManualTax = 0, 'расчетные', 'ручные')
+        ( FieldName = AutoNalogs )
+//--------------------------------------------------------------------------------
+, (DoubleToStr(SpSopr.SumNDS, '\2P[|-]3666666666666666.88') + ' '+ if(s_SimvRub = '', 'руб.', s_SimvRub))
+        ( FieldName = StrSumNal )
+//--------------------------------------------------------------------------------
+, if (KatSopr.cVal = 0, SpSopr.SumNDS, SpSopr.SumVNDS)
+        ( FieldName = SumSpNalog )
+//--------------------------------------------------------------------------------
+, if (KatSopr.cValut = 0, ' ', if (SpSopr.VPrice = 0, 'Курс не определен',
+     'Курс: ' + DoubleToStr(CursVal.SumRubl / KlVal.SumValut, '\4P[|-]3666666666666666.8888')))
+        ( FieldName = StrCurse )
+//--------------------------------------------------------------------------------
+, UsersDoc.Name + ' №' + SchFact.Num + ' ('
+    + if(SchFact.Status = 0, 'Зарегистрирован', if(SchFact.Status = 1, 'Не оплачен', 'Не зарегистрирован')) + ')'
+        ( FieldName = SchFactNum )
+//--------------------------------------------------------------------------------
+, if(SpDocNal.cVal = 0, s_SimvRub, NalValut.SimvolV)
+        ( FieldName = ValutNal )
+//--------------------------------------------------------------------------------
+//-- валюта ж\д тарифа
+, if(SpSopr.cValAvt <> 0, TTNKlVal.SimVolV, if(s_SimvRub <> '', s_SimvRub, 'руб.'))
+        ( FieldName = ValutAvt )
+//--------------------------------------------------------------------------------
+, (SpSopr.mTara + SpSopr.Netto)
+        ( FieldName = TTN_massa_all )
+//--------------------------------------------------------------------------------
+, PrintNumber(BaseDoc.Descr, BaseDoc.NoDoc)
+        ( FieldName = SHT_CE_BaseDoc )
+//--------------------------------------------------------------------------------
+, if(SpSopr.OilPlot = 0, 0, if(boGetTune('Doc.Capacity.Round')
+                             , Round(SpSopr.KolFact / SpSopr.OilPlot * KatOtpEd.Koef, wGetTune('Doc.Capacity.KolCapacitySym'))
+                             , SpSopr.KolFact / SpSopr.OilPlot * KatOtpEd.Koef ))
+        ( FieldName = Capacity )
+//--------------------------------------------------------------------------------
+, SpSopr.OilPlot * prv / KatOtpEd.Koef
+        ( FieldName = CapacityPrice )
+//--------------------------------------------------------------------------------
+#ifdef __SKYSHOP__
+//--------------------------------------------------------------------------------
+, Flight.IATA + if(PlanSbor.No > 1, ' ('+string(PlanSbor.No)+')', '')
+        ( FieldName = FlightCode )
+//--------------------------------------------------------------------------------
+#end
+//--------------------------------------------------------------------------------
+, oFPrice.GetFactoryPrice (SpSopr.NRec, CursV, TRUE)
+        ( FieldName = FactoryPrice )
+//--------------------------------------------------------------------------------
+, oFPrice.GetNDEFactoryPrice (SpSopr.NRec, TRUE)
+        ( FieldName = NDEFactoryPrice )
+//--------------------------------------------------------------------------------
+, oFPrice.GetValFactoryPrice (SpSopr.NRec, CursV, TRUE)
+        ( FieldName = ValFactoryPrice )
+//--------------------------------------------------------------------------------
+, oFPrice.FormatSpSoprProcNac (SpSopr.NRec)
+        ( FieldName = fSpSoprProcNac )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cVal = 0, SpSopr.rPrice, SpSopr.rVPrice) - FactoryPrice
+        ( FieldName = SummaNadbavki )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cVal = 0, if(s_SimvRub <> '', s_SimvRub, 'руб.'), KlVal.SimVolV)
+        ( FieldName = Valut2 )
+//--------------------------------------------------------------------------------
+, if(IsValid(tnSmetaStroy), SmetaStroy.NoSmet + ': ' + SmetaStroy.Name, '')
+        ( FieldName = SmetaMy )
+//--------------------------------------------------------------------------------
+, if(IsValid(tnSmetaSpec), string(SmetaSpec.NPP) + ' (' + SmetaSpec.Code + ') '
+                        + SmetaSpec.Name, '')
+        ( FieldName = SmetaSpMy )
+//--------------------------------------------------------------------------------
+, if(KatSopr.cNote <> 0,
+     KatNotes.Name, if(KatSopr.Status = 0, 'оформляемый', 'исполняемый'))
+        ( FieldName = KatNotesName )
+//--------------------------------------------------------------------------------
+, if(KatMC.MaxON = 0, 0, if(SpSopr.ProcNac > (KatMC.MaxON-KatMC.VhodON), ColorSysPurple, 0))
+        ( FieldName = MyCheckPurple )
+//--------------------------------------------------------------------------------
+, if(SpSopr.ProcNac > (KatParty.MaxON-KatParty.VhodON), ColorError, 0)
+        ( FieldName = MyCheckError )
+//--------------------------------------------------------------------------------
+, if(SpSopr.cParty = 0, MyCheckPurple, if(KatParty.MaxON = 0, MyCheckPurple, MyCheckError))
+        ( FieldName = ColorForPercent )
+//--------------------------------------------------------------------------------
+#define __HozOperViewName__
+, if(IsValid(tnSoprHoz), iTxoBind.ShowName(SoprHoz.BufferP), '')
+        ( FieldName = HozOperViewName )
+//--------------------------------------------------------------------------------
+, if(isValid(tnSpOrderSpis), SpOrderSpis.srPrice * KatOtpEd.Koef, SpOrderWasSpis.srPrice * KatOtpEd.Koef)
+        (FieldName = spisPrice)
+
+//--------------------------------------------------------------------------------
+, CheckDEISumm(KatSopr.nRec, 1, true, 1, 1)
+        ( FieldName = fDEI1Kol )
+//------------------------------------------------------------------------------
+, CheckDEISumm(KatSopr.nRec, 1, true, 1, 2)
+        ( FieldName = fDEI2Kol )
+//------------------------------------------------------------------------------
+, CheckOsnSumm(KatSopr.nRec, 1, true, 1)
+        ( FieldName = fOsnKol )
+//------------------------------------------------------------------------------
+, if (KatSopr.VidSopr = 203,
+    if (IsValid(tnBaseDocA), PrintNumber(BaseDocA.Descr, BaseDocA.NoDoc) , ''), '')
+        ( FieldName = NumDoOsnv)
+//--------------------------------------------------------------------------------
+, PrintNumber(KSSopr.Descr, KSSopr.NSopr)
+    ( FieldName = PriOtpDoc )
+//--------------------------------------------------------------------------------
+
+, GetKAUField(1)  ( FieldName = vsKau1 )
+, GetKAUField(2)  ( FieldName = vsKau2 )
+, GetKAUField(3)  ( FieldName = vsKau3 )
+, GetKAUField(4)  ( FieldName = vsKau4 )
+, GetKAUField(5)  ( FieldName = vsKau5 )
+, GetKAUField(6)  ( FieldName = vsKau6 )
+, GetKAUField(7)  ( FieldName = vsKau7 )
+, GetKAUField(8)  ( FieldName = vsKau8 )
+, GetKAUField(9)  ( FieldName = vsKau9 )
+, GetKAUField(10) ( FieldName = vsKau10 )
+
+//********************************************************************************
+// По проекту для Метизного
+//
+, (GetKoefVolume1)
+    (FieldName = sEdVolume1)
+//-------------------------------
+, (GetKoefVolume2)
+    (FieldName = sEdVolume2)
+//-------------------------------
+, (GetKolTara)
+    (FieldName = sKolTara)
+//********************************************************************************
+
+, KatSopr.*
+, SpSopr.*
+, KatOrg.Name
+, KatOtpEd.Name
+, KatOtpEd.Abbr
+, KatOrgF.Name
+, KatOrgT.Name
+, OrgVzr.Name
+, KatPodr.Name
+, KatMol.Name
+, KlVal.SimvolV
+, BaseDoc.NoDoc
+, KatNazna.Name
+, Persons.FIO
+, ATP.Name
+, KnDriver.Name
+, Transp.Nomer
+, NPunkts.npName
+, Catalogs.Name
+, KatPodrTo.Name
+, KatMolTo.Name
+, CatalogsTo.Name
+, MoveCellUzbek.Name
+, TTNMoveCell.Name
+, CursVal.SumRubl
+, KlVal.SumValut
+, ExClassName.*
+, AttrNam.*
+, KatOrgPlat.Name
+, KatStroy.Name
+, KatStroy.KoefVal
+, AddSumTune.*
+, SpecZatr.*
+, KatMC.*
+, Katparty.*
+, OtvPodr.Name
+, Shipment.Name
+, KuratPodr.Name
+
+From
+  SDocBuf
+, SpDocBuf
+, SpDocBuf_Ex
+, SDocBufEx2
+, SpSopr(SpSopr02)
+, KatOrg KatOrgF
+, KatOrg KatOrgT
+, KatOrg OrgVzr
+, KatOrg KatOrgPlat
+, KatSopr KSopr//использую для связи накладная-сопутствующая услуга
+, KatOrg Atp
+, KatOrg NalOrg
+, KlVal NalValut
+, KatOrgDescr KatOrgDescr1
+, Vagon VagonSP
+, NPunkts
+, CursVal (CursVal05)
+, SpDocNal
+, SpStep
+, KlPrice KlPrice2
+, SpOtpEd
+, GrNal
+, TempNo
+, SpDocs
+, StatLog
+, KatNotes
+, TTNDoc
+, KatPayment
+, Dogovor
+, Dogovor AppDogovor
+, CalPlan
+, LISTPAR
+, KATPAR
+, KATED
+, CellVal  TTNCellVal
+, MoveCell TTNMoveCell
+, KlVal    TTNKlVal
+, KatED    TTNKatED
+, ResOtgr  TTNResOtgr
+, MetMassa TTNMetMassa
+, KatOtpEd KatOtpEdGrM
+, MoveCell MoveCellUzbek
+, DocInfo
+#ifdef __SKYSHOP__
+, SkyLinks
+, SkyHistState
+, SkySopr
+, ContType
+, Container
+, AirSteward
+, Airline
+, PlanSbor
+, Flight
+, Airport AirportTo
+, Airport AirportFrom
+, Complects
+, Persons Ps
+, AirSteward StewardOp
+#end //__SKYSHOP__
+, OborCfg
+, Prices
+, KatOtpEd KatOtpEd_SHT_CE
+, KatUsl
+, KatUsl KatUsl_SHT_CE
+, SchFact
+, BookPrZk
+, Catalogs
+, Persons Persons2
+, SklOrder
+, SpecZatr
+, AddSumTune
+, PickSmeta
+, SpDocSmeta
+, SmetaStroy
+, SmetaSpec
+, SpSopr SpSoprSmet
+, FPCO OtvPodr
+, AttrVal AttrVKaz
+, GrSopr
+, AttrNam AttrNKaz
+, KatPodr KatPodrTo
+, KatMol KatMolTo
+, Persons PersonsTo
+, Appointments AppointmentsTo
+, Catalogs CatalogsTo
+, KatSopr
+, KLVAL
+, BASEDOC
+, NZAKAZ
+, KATOTPED
+, KATOTPED KATOTPED2
+, KATMC
+, USERSDOC
+, KATPARTY
+, KATSTROY
+, KATORG
+, KATPODR
+, KATMOL
+, KATNAZNA
+, PERSONS
+, KNDRIVER
+, TRANSP
+, SPORDER
+, KATZAK
+, MARAVT
+, SYSTRAN
+, GRUZAK
+, SPZAKAZ
+, PLPOR
+, CELLVAL
+, DOCONVAGON
+, MOVECELL
+, MARPUNKT
+, SPSOPHOZ
+, TEKSALDO
+, TEKMC
+, SKLOST
+, SOPRORDB
+, SALDOMC
+, DORES
+, WAYITEM
+, MARREL
+, PUTLST
+, TIPTEX
+, NONALMC
+, KONTRAS
+, PICK
+, PUTGSM
+, KLPRICE
+, SPNZRASP
+, SPOTGORD
+, TMPSKLMOL
+, TMPNAKLOST
+, PICKPRIC
+, KAUREFF
+, SALDOOBJ
+, DOVER
+, DOVFIO
+, SOPRHOZ
+, OBOROT
+, GroupParty
+, WayMove
+, SpOrder SpOrderSpis
+, SpOrder SpOrderWasSpis
+, Shipment
+, SpecMTR
+, SaldTune
+, X$Users
+, SpDopEd    SpDopEd1
+, SpDopEd    SpDopEd2
+, KatDopEd   KatDopEd1
+, KatDopEd   KatDopEd2
+, KatSopr KSSopr
+, SpOrder    SpOrder2
+, KatPodr KatPodr2
+, SpSopr     SpSoprDEI
+, SpDopEd    SpDopEdCalc
+, StepDoc StepDocA
+, BaseDoc BaseDocA
+, SpOrder SpOrderSrc
+, KatPodr KuratPodr
+, AttrDog AttrDogD
+, AttrDog AttrDogS
+
+Where
+((
+     TypeSopr                == KatSopr.VidSopr
+AND  KatSopr.NRec            == SpSopr.cSopr
+AND  KatSopr.VidSopr         == SoprHoz.TipDoc
+AND  KatSopr.NRec            == SoprHoz.cSoprDoc
+AND  KatSopr.cOrgBase        == KatOrg.NRec
+AND  KatSopr.cOrg            == Filial.cOrg
+AND  KatSopr.cOrg            == OrgVzr.NRec
+AND  KatSopr.cGruzFrom       == KatOrgF.NRec
+AND  KatSopr.cGruzTo         == KatOrgT.NRec
+AND  KatSopr.cOrgPlat        == KatOrgPlat.NRec
+AND  KatSopr.cValut          == KlVal.NRec
+AND  KatSopr.cPodrFrom       == KatPodr.NRec
+AND  KatSopr.cPodrTo         == KatPodrTo.NRec
+AND  KatSopr.cMolTo          == KatMolTo.NRec
+AND  KatSopr.Atl_LastUser    == X$Users.Atl_NRec
+AND  KatSopr.cGrSopr         == GrSopr.NRec
+
+AND  KatMolTo.cPersons       == PersonsTo.NRec
+AND  PersonsTo.AppointCur    == AppointmentsTo.NRec
+AND  AppointmentsTo.Post     == CatalogsTo.Nrec
+
+AND  KatSopr.cMolFrom        == KatMOL.NRec
+
+AND  KatMol.cPersons         == Persons2.NRec
+AND  Persons2.AppointCur     == Appointments.NRec
+AND  Appointments.Post       == Catalogs.NRec
+
+AND  KatSopr.cNazna          == KatNazna.NRec
+AND  KatSopr.cPerson         == Persons.NRec
+AND  KatSopr.cSchFact        == SchFact.NRec
+AND  KatSopr.cNZakaz         == NZakaz.NRec
+AND  SchFact.TipUser         == UsersDoc.TipUsers
+AND  SchFact.NRec            == BookPrZk.cSchFact
+
+AND  KatSopr.cDogovor        == Dogovor.NRec       // ссылка на договор
+AND  KatSopr.cAppDogovor     == AppDogovor.NRec    // ссылка на соглашение
+AND  KatSopr.cCalPlan        == CalPlan.NRec       // ссылка на пункт кал.плана
+
+AND  KatSopr.cDogovor        == AttrDogD.cDogovor
+AND  KatSopr.cAppDogovor     == AttrDogS.cDogovor
+
+AND  KatSopr.cNote           == KatNotes.NRec
+
+AND  coKatSopr               == TTNDoc.wTable
+AND  KatSopr.NRec            == TTNDoc.cDoc
+AND  TTNDoc.cShipment        == Shipment.NRec      //способ отгрузки 102.69163
+
+AND  TTNDoc.cOrgAvt          == Atp.NRec
+AND  TTNDoc.cDriver          == KnDriver.NRec
+AND  TTNDoc.cTransp          == Transp.NRec
+AND  TTNDoc.cPunktR          == NPunkts.NRec
+
+AND  KatSopr.cStepDoc        == StepDoc.NRec
+AND  StepDoc.cBaseDoc        == BaseDoc.NRec
+
+AND  SpSopr.NRec             == SpDocNal.cSpDoc
+AND  TypeSopr                == SpDocNal.TipDoc
+AND  SpDocNal.cNalog         == KatNalog.NRec
+AND  SpDocNal.cOrg           == NalOrg.NRec
+AND  SpDocNal.cVal           == NalValut.NRec
+AND  SpdocNal.cGrNal         == GrNal.NRec
+AND  SpSopr.cOtpEd           == KatOtpEd.NRec
+AND  SpSopr.cMCUSL           == KatMC.NRec
+AND  SpSopr.cMCUsl           == KatUsl.NRec
+AND  SpSopr.cParty           == KatParty.NRec
+AND  KatParty.cGroupParty    == GroupParty.NRec //пир 180.1500
+
+AND  if(SpSopr.PrMc = 1,
+      KatMc.cEd, KatUsl.cEd) == KatEd.NRec
+
+AND  KatSopr.cPayment        == KatPayment.NRec
+
+AND  SpSopr.cCellVal         == TTNMoveCell.NRec
+AND  SpSopr.cMCUSL           == TTNCellVal.cMC
+AND  word(0)                 == TTNCellVal.PrMC
+AND  TTNMoveCell.NRec        == TTNCellVal.cMoveCell
+
+AND  SpSopr.cValAvt          == TTNKlVal.NRec
+AND  SpSopr.cMasEd           == TTNKatED.NRec
+AND  SpSopr.cResOtgr         == TTNResOtgr.NRec
+AND  SpSopr.cMasVid          == TTNMetMassa.NRec
+
+#ifdef __SKYSHOP__
+AND  KatSopr.NRec            == SkyLinks.cKatSopr
+AND  SkyLinks.cPlanSbor      == PlanSbor.NRec
+AND  PlanSbor.cAirportFrom   == AirportFrom.NRec
+AND  PlanSbor.cFlight        == Flight.NRec
+AND  PlanSbor.cAirportTo     == AirportTo.NRec
+AND  PlanSbor.cComplects     == Complects.NRec
+
+AND  KatSopr.NRec            == SkyHistState.cKatSopr
+
+AND  KatSopr.NRec            == SkySopr.cKatSopr
+AND  SkySopr.cContType       == ContType.NRec
+AND  SkySopr.cContainer      == Container.NRec
+
+AND  KatOrg.NRec             == AirSteward.cKontr
+AND  AirSteward.cAirline     == Airline.NRec
+AND  AirSteward.cSchet       == LSchet.NRec
+AND  LSchet.tPerson          == Ps.NRec
+
+AND  KatSopr.NSopr           == AccountSpec.OnDoc
+#include w_oprsky.bnd
+#end //__SKYSHOP__
+
+AND  SpSopr.cOtpEdGRM        == KatOtpEdGrM.NRec
+AND  KatSopr.cCellVal        == MoveCellUzbek.NRec
+
+//--для memo-поля
+AND  KatSopr.NRec            ==  DocInfo.cDoc
+AND  word(1109)              ==  DocInfo.DocType
+AND  KatSopr.cNMoveCell      ==  Vagon.NRec
+AND  SpSopr.cNMoveCell       ==  VagonSP.NRec
+
+// для вывода курса
+AND  KatSopr.cValut          == CursVal.KodValut
+AND  KatSopr.dPrice         <<= CursVal.DatVal
+AND  SpSopr.cUKS             == KatStroy.NRec
+AND  KatSopr.NRec            == SklOrder.cSopr
+AND  SpSopr.NRec             == SpecZatr.cSpec
+AND  coSpSopr                == SpecZatr.coTable
+AND  SpecZatr.cAddSumTune    == AddSumTune.NRec
+AND  coSpSopr                == SpDocSmeta.coTable
+AND  SpSopr.NRec             == SpDocSmeta.cSpec
+AND  SpDocSmeta.cSmeta       == SmetaStroy.NRec
+AND  SpDocSmeta.cPosition    == SmetaSpec.NRec
+AND  KatSopr.cOtvPodr        == OtvPodr.NRec
+AND  coKatSopr               == AttrNKaz.wTable
+AND  #EX_ATTR_OKED           == AttrNKaz.Name
+AND  coKatSopr               == AttrVKaz.wTable
+AND  KatSopr.NRec            == AttrVKaz.cRec
+AND  AttrNKaz.NRec           == AttrVKaz.cAttrNam
+AND  KatParty.cSertific      == Sertific.NRec
+
+//  для связи спецификации накладной с ДО
+AND  SpSopr.cSPSTEP          == SPSTEP.NRec
+AND  SpStep.cStepDoc         == StepDocA.nRec
+AND  StepDocA.cBaseDoc       == BaseDocA.nRec
+AND  SpSopr.cPriceList       == klPrice2.NRec
+//------------------------------------------------------------------------------
+AND  KatSopr.VidSopr         == Oborot.TiDk
+AND  KatSopr.NRec            == Oborot.cSoprDoc
+//------------------------------------------------------------------------------
+AND  SpSopr.cSpOrder   == SpOrderSpis.NRec
+AND  SpSopr.NRec       == SpOrderWasSpis.cSpSopr
+
+and  coSpSopr                == SpecMTR.coTable
+and  SpSopr.nRec             == SpecMTR.cSpec
+and  SpecMTR.cSaldTune       == SaldTune.nRec
+
+AND  if (TypeSopr = 201,
+         KatSopr.cOtgOrder,
+         KatSopr.cKatSopr)   == KSSopr.NRec
+
+AND  Dogovor.cCurPodr        == KuratPodr.nRec
+
+AND  coSpSopr                == SpDopEd1.wTable
+AND  SpSopr.nRec             == SpDopEd1.cRec
+AND  1                       == SpDopEd1.wTipKol
+AND  1                       == SpDopEd1.Npp
+AND  SpDopEd1.cDopEd         == KatDopEd1.nRec
+
+AND  coSpSopr                == SpDopEd2.wTable
+AND  SpSopr.nRec             == SpDopEd2.cRec
+AND  1                       == SpDopEd2.wTipKol
+AND  2                       == SpDopEd2.Npp
+AND  SpDopEd2.cDopEd         == KatDopEd2.nRec
+))
+
+//********************************************************************************
+
+#include soprdes1.vpp // Подключение обработки дескрипторов
+#include FltInDoc.vp
+
+//********************************************************************************
+
+Bounds SHT_CE =
+  SHT_CE_NRec == KatSopr.NRec (NoIndex)
+
+//********************************************************************************
+
+condition PrnGrSopr  = (KatSopr.wADoc <> word(13))
+;
+
+//********************************************************************************
+
+Parameters
+  TypeSopr,
+  pNRec;
+
+//********************************************************************************
+
+Function CanLinkDogovor(Msg: boolean): boolean; forward;
+Function OtkatToOldState(mess: boolean;TW: word): boolean;forward;
+Function CanChangeRazrez: boolean;forward;
+
+#include KontrBal.var
+
+//********************************************************************************
+#ifdef ComponentVersion
+ToolBar
+    F_Common::tbBuhFilter
+  , F_Common::tbPrintDoc
+  , F_Common::tbSaveRestoreDoc
+  , F_Common::tbAttrClass
+;
+#else
+ToolBar
+    tbBuhFilter
+  , tbPrintDoc
+  , tbSaveRestoreDoc
+  , tbAttrClass
+;
+#end
+//********************************************************************************
+
+Form FPrRashNak ('tovn.out',      'tovn')        with novisual;
+Form frm1wed    ('err2wed.OUT',   'ERRR')        with novisual;
+Form sprForm    ('sprsoprp.OUT',  'sprsopr')     with novisual;
+form FrmZhdn    ('zdNkl.out',     'zhdnakl01')   with novisual;
+form FrmSamVivoz('samvivoz.out',  'naksamvivoz') with novisual;
+form frmmonak   ('matotk.out',    'matotgrnak')  with novisual;
+Form prot       ('price.out',     'errr')        with novisual;
+#ifdef __SKYSHOP__
+form frm_Fee    ('fee.OUT',       'FeeSum');
+#end
+
+//********************************************************************************
+
+#ifdef _CheckLinks_VIH_
+  var oChkLink: CheckLinksObj;
+#else
+  #include chklink.vpp
+#end
+
+var UseDEI: boolean;       // признак использования ДЕИ
+var AutoDEI: boolean;       // автоформирование ДЕИ
+var pPlanOut: tBoxPlOutIntf;
+var oGetDover2: GetDover2;
+
+//********************************************************************************
+
+File FFLst;
+
+//********************************************************************************
+
+#include SoprAll.vpp  // общие функции сопроводительных документов
+#include fNaklVag.vpp
+#include soprd99.vpp
+#include Batch_b.vpp
+#include FltInFun.vpp
+#include CheckDEISumm.vpp
+#include makemove.vpp
+//********************************************************************************
+
+Procedure RecalcSrPrice;
+{
+  if not (boGetTune('Doc.AvtoCalcSrCenaMontaj'))
+    exit
+
+  if not( oMSview.CheckVidSopr(KatSopr.VidSopr) )
+    Exit; // проверка вида документа, для которого работает методика списания - по фактической цене прихода
+
+  if oMSview.GetTuneMSForPodr(KatSopr.cPodrFrom) = 1
+    Exit; // проверить атрибут "Методика списания" для KatPodr 1 - списание по фактической цене прихода
+
+  if (KatSopr.VidSopr <> 210 AND
+      KatSopr.VidSopr <> 229 )
+    Exit;
+
+  CalcSrPrice;
+
+  CheckSumma(true);
+}
+
+//******************************************************************************
+// заглушка - ф-ия перенесена на объектный MakeOrder
+Function MakeRashOrderByKatSopr(cSopr_: comp; needMsg_: boolean; pDateOrd_: date): boolean;
+{
+  MakeRashOrderByKatSopr := False;
+}
+
+//******************************************************************************
+
+#include ShowKau.vpp
+
+Function GetKAUField(pNum : integer) : string;
+{
+  GetKAUField := #ShowKau(if(pNum = 1, SaldTune.wObj, SaldTune.wKau[pNum - 1]), if(pNum = 1, SpecMTR.cObj, SpecMTR.cKau[pNum - 1]));
+
+}
+
+//********************************************************************************
+
+#doc
+  Редактирование спецификации
+#end
+
+Window SpecifInfo 'Спецификация документа' EscClose;
+  Show at (, , 110, 30);
+
+Panel pnSpecifInfo
+  Table  SpSopr;
+
+Screen scrSpecifInfo 'Спецификация' ('', hcSellWNaklEditSpec, sci178Esc)
+  Show at (, , , 17);
+
+Fields
+#ifdef __DSD__
+  NameMCUsl         ('Наименование. Выбирается из классификатора', , sci13478Esc): protect, NoDel, QuickChoice, {font = {bold = TRUE}};
+  KodMcUsl          ('Номенклатурный номер', , sci13478Esc): protect, NoDel, QuickChoice, {font = {bold = TRUE}};
+#else
+  NameMCUsl         ('Наименование. Выбирается из классификатора', , sci1378Esc): protect, NoDel, QuickChoice, {font = {bold = TRUE}};
+  KodMcUsl          ('Номенклатурный номер', , sci1378Esc): protect, NoDel, QuickChoice, {font = {bold = TRUE}};
+#end
+  OtpEdFullName     ('Наименование отпускной единицы', , sci1378Esc): protect, NoDel;
+  SpSopr.ProcUb     ('Процент нормативной убыли МЦ'): [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'];
+  SpSopr.Kol        ('Количество по документу-основанию'): [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], noprotect;
+  SpSopr.rPrice     ('Отпускная цена'): [brForSopr_Price, '\2p[|-]36`666`666`666`666.88'];
+  s_SimvRub: skip, {font = {bold = TRUE}};
+  SpSopr.KolFact    ('Поступившее количество МЦ'): [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], noprotect;
+  SpSopr.rVPrice    ('Цена приобретения в валюте'): [brForSopr_VPrice, '\2p[|-]36`666`666`666`666.88'];
+  KlVal.Simvolv     ('Валюта спецификации', , sci1378Esc): protect;
+  StrCurse: skip, {font = {bold = TRUE}};
+  SpSopr.KolOpl     ('Подлежащее оплате по накладной количество '): [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], noprotect;
+  AutoNalogs        ('Налоги рассчитываются: автоматически или вручную', , sci1378Esc): protect;
+  StrSumNal         ('Сумма налогов по позиции в НДЕ'): skip;
+  KatParty.Name     ('Ссылка на партию', , sci1378Esc): protect, QuickChoice;
+  TTNResOtgr.Name   ('Ресурс отгрузки', , sci1378Esc): protect, QuickChoice;
+  TTNKatEd.Name     ('Единица веса', , sci1378Esc): protect, QuickChoice;
+  TTNMetMassa.Name  ('Способ определения веса', , sci1378Esc): protect, QuickChoice;
+  SpSopr.Netto      ('Вес нетто'): [prSignsInKol, '\3p[|-]36`666`666`666`666.888'];
+  SpSopr.NKvit      ('Номер ж/д квитанции');
+  SpSopr.mTara      ('Вес тары'): [prSignsInKol, '\3p[|-]36`666`666`666`666.888'];
+  SpSopr.SumAvt     ('Ж/д тариф'): [brForSopr_Price, '\2p[|-]36`666`666`666`666.88'];
+  ValutAvt          ('Символ валюты', , sci1378Esc): protect;
+  TTN_massa_all     ('Вес брутто'): [prSignsInKol, '\3p[|-]36`666`666`666`666.888'];
+  PrVoz_            ('Признак возврата/невозврата тары', , sci1378Esc): skip;
+  SpSopr.KolGrM     ('Количество грузовых мест'): [prSignsInKol, '\3p[|-]36`666`666`666`666.888'];
+  KatOtpEdGrM.Name  ('Единица измерения грузовых мест', , sci1378Esc): protect, QuickChoice,
+                        {Font = {BackColor = if(not CheckOtpEdGrM, ColorNeed, 0)}};
+  TTNMoveCell.Name  ('Единица подвижного состава', , sci1378Esc): protect, QuickChoice;
+  SpSopr.NVagon     ('Номер единицы подвижного состава', , sci1378Esc): protect, QuickChoice;
+  fSpSoprProcNac    ('Процент надбавки', , sci1378Esc): noprotect,
+                        {Font = {BackColor = ColorForPercent}};
+  SummaNadbavki     ('Сумма надбавки', , sci1378Esc): [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect;
+  FactoryPrice      ('Заводская(контрактная) цена', , sci1378Esc): [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect;
+  Valut2: skip;
+Buttons
+  cmAttrib  , , , 'Просмотр/редактирование налогов к позиции документа <Ctrl><Enter>';
+  cmKauReff , , , 'Вызов окна с товарно-транспортной информацией <Alt><T>';
+<<
+ Наименование                                                                        Номенклатурный номер
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@
+ Отпускная ед.измерения .@@@@@@@@@@@@@@@@ Процент убыли.@@@@@@@@@@@@@@@@@@@
+ Количество по документу.@@@@@@@@@@@@@@@@ Цена в НДЕ   .@@@@@@@@@@@@@@@@@@@.@@@@@
+ Количество фактически  .@@@@@@@@@@@@@@@@ Цена в валюте.@@@@@@@@@@@@@@@@@@@.@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@
+ Количество к оплате    .@@@@@@@@@@@@@@@@`Налоги`      .@@@@@@@@@@@@@@@@@@@`На сумму`.@@@@@@@@@@@@@@@@@@@@@
+ Партия .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Ресурс отгрузки .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.      ~Н~алоги к позиции     .>
+ Ед.веса   .@@@@@@@@@@@@@@@@@@ Способ определения веса .@@@@@@@@@@@@@@@@@@@
+ Вес нетто .@@@@@@@@@@@@@@@@@@ Номер ж/д квитанции.@@@@@@@@@@@@@@@@@@@@@@@@ <.~Т~оварно-трансп.информация  .>
+ Вес тара  .@@@@@@@@@@@@@@@@@@ Сумма ж/д тарифа   .@@@@@@@@@@@@@@@@@@.@@@@@
+ Вес брутто.@@@@@@@@@@@@@@@@@@ Тара               .@@@@@@@@@@@@@@@@@@@@@@@@
+ Количество грузовых мест.@@@@@@@@@@@@@@ Ед.измерения.@@@@@@@@@@@@@@@@@@@@@
+ Ед.подвижного состава   .@@@@@@@@@@@@@@@@@@@@@@@@@ № ед.подвижного состава .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ %.@@@@@@@@@@ Cумма.@@@@@@@@@@@ Заводская цена.@@@@@@@@@@@@@@@.@@@@@
+>>
+end; // Screen
+
+TabbedSheet Bottom tsSpecifInfo
+  Show at (, 18, , );
+
+Embedded scKauEdit 'Целевой учет' Interface;
+end;
+
+Embedded brExClassifier 'Внешняя классификация' Interface;
+end;
+
+#include LongNameMC.pan
+
+Embedded brRaspPlat 'Распределение платежей' Interface oRaspPlat;
+end;
+
+end; // TabbedSheet
+
+HandleEvent
+#include soprd07.vpp
+
+cmPositionChanged:
+  SetTabbedSheetVisible(scLongName, boGetTune(if (SpStep.PrMC = 1, 'McUsl.VarNameMC_IsUse', 'McUsl.VarNameUsl_IsUse')));
+
+end;
+end; // Panel;
+
+HandleEvent
+#include soprd06.vpp
+#ifdef __DSD__
+cmEdit:
+  case CurField of
+    #NameMCUsl
+  , #KodMcUsl:  RunInterface(iViewMCUslCatal,   SpSopr.PrMC,   SpSopr.cMcUsl, 0, coSpSopr, SpSopr.NRec);
+  end;
+#end
+end;
+end; // Window specifinfo
+
+//********************************************************************************
+
+#doc
+  Расширенная информация
+#end
+
+Window ExtendetInfo 'Расширенная информация' EscClose;
+  Show at (, , 110, 23);
+
+Panel pnExtendetInfo
+  Table  KatSopr;
+
+Screen scrExtendetInfo ('', hcSellWNaklEditTopPanDop, sci178Esc)
+Fields
+  DogNoDoc         ('Номер договора', , sci1378Esc): protect, QuickChoice;
+  Dogovor.dDoc     ('Дата заключения договора', , sci178Esc): [, 'DD/MM/YYYY'], protect, QuickChoice;
+  AttrDogD.SUBJECT1 ('Предмет договора', , sci1Esc): Protect;
+  AppDogovor.NoDoc ('Номер соглашения', , sci1378Esc): protect, QuickChoice;
+  AppDogovor.dDoc  ('Дата заключения соглашения', , sci178Esc): [, 'DD/MM/YYYY'], protect, QuickChoice;
+  AttrDogS.SUBJECT1 ('Предмет соглашения', , sci1Esc): Protect;
+  CalPlan.NoDoc    ('Номер пункта календарного плана', , sci1378Esc): protect, QuickChoice;
+  CalPlan.dInput   ('Дата ввода пункта календарного плана', , sci178Esc): [, 'DD/MM/YYYY'], protect, QuickChoice;
+  piExtAttr.mGetAttr(coCalPlan, KatSopr.cCalPlan, 'НИОКР. Наименование этапа')
+                 ('Наименование этапа', hcKouDocFDog, sci1Esc): Protect;
+  KuratPodr.Name   ('Курирующее подразделение', , sci178Esc): Protect, NoDel;
+  KatOrgF.Name     ('Грузоотправитель', , sci1378Esc): protect, QuickChoice;
+  KatOrgT.Name     ('Грузополучатель', , sci1378Esc): protect, QuickChoice;
+  OrgVzr.Name      ('Контрагент взаиморасчетов', , sci1378Esc): protect, QuickChoice;
+  KatOrgPlat.Name  ('Контрагент заказчик(плательщик) грузоперевозки', , sci1378Esc): protect, QuickChoice;
+  KatNazna.Name    ('Назначение', , sci1378Esc): protect, QuickChoice;
+  FIO              ('Лицо, ответственное за проведение операции', , sci1378Esc): protect, QuickChoice;
+  Trp              ('Используется транспорт предприятия в данной операции', , sci1378Esc): protect;
+  KatSopr.dPrice   ('Дата оплаты по накладной', , sci1378Esc): [10, 'DD/MM/YYYY'];
+  VhNal            ('Входимость налогов в цену позиций накладной', , sci1378Esc): protect;
+  KatSopr.dOpr     ('Дата отпуска МЦ по накладной'): [10, 'DD/MM/YYYY'], skip, {font = {bold = TRUE}};
+  FieldInfo: skip;
+  UserField        ('Поле пользователя');
+  KatSopr.sDover   ('Доверенное лицо', , sci1378Esc): noprotect;
+  KatSopr.nDover   ('Номер доверенности, <Ctrl><F3> - выбор из доверенностей контрагентов', , sci1378Esc): noprotect;
+  KatSopr.dDover   ('Дата доверенности'): [10, 'DD/MM/YYYY'];
+  OtvPodr.Name     ('Центр ответственности, ответственный за выполнение.', , sci1378Esc), PickButton, protect;
+  AttrVKaz.vString ('Код ОКЭД организации', , sci1378Esc), PickButton, protect;
+  fPriOtpDoc       ('Распоряжение', , sci1378Esc) : Skip;
+  PriOtpDoc        ('Распоряжение', , sci1378Esc) : Protect;
+Buttons
+  cmAttrib   , , , 'Услуги, отнесенные на другого контрагента';
+  cmValue6   , , , 'Авизо сформированные по документу';// АВИЗО (Sanny ICQ-47012798)
+  cmValue2   , , , 'Вызов окна с товарно-транспортной информацией ';
+  cmTextWind , , , 'Примечание';
+  cmValFld2  , , , 'Группы платежных средств по накладной';
+  cmValue15  , , , 'Отмена списания (удаление связанных ордеров)';
+<<
+
+ `Договор`           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`от`.@@@@@@@@@@@ <. Услуги на другого контрагента .>
+ `Предмет договора`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Соглашение`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`от`.@@@@@@@@@@@ <.             Авизо             .>
+ `Предмет соглашения`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Календарный план`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`от`.@@@@@@@@@@@ <.Товарно-транспортная информация.>
+ `Наименование этапа`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Курирующее подразделение`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Грузоотправитель`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.           Примечание          .>
+ `Грузополучатель`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Контрагент взаиморасчетов`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.    Группы платежных средств   .>
+ `Заказчик(плательщик)`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Назначение`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.        Отмена списания        .>
+ `Операцию провел`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Используется транспорт предприятия`.@@@@
+ `Дата цен`          .@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Дата отпуска`      .@@@@@@@@@@@@
+  .@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Доверенное лицо`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `№ доверенности`    .@@@@@@@@@@@@@@@@`Дата доверенности`.@@@@@@@@@@@
+ `Центр ответственности`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Код ОКЭД`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // Screen
+
+//********************************************************************************
+
+Screen scrExtendetInfo210 ('', hcSellWNaklEditTopPanDop, sci178Esc)
+Fields
+  DogNoDoc         ('Номер договора', , sci1378Esc): protect, QuickChoice;
+  Dogovor.dDoc     ('Дата заключения договора', , sci178Esc): [, 'DD/MM/YYYY'], protect, QuickChoice;
+  AttrDogD.SUBJECT1 ('Предмет договора', , sci1Esc): Protect;
+  AppDogovor.NoDoc ('Номер соглашения', , sci1378Esc): protect, QuickChoice;
+  AppDogovor.dDoc  ('Дата заключения соглашения', , sci178Esc): [, 'DD/MM/YYYY'], protect, QuickChoice;
+  AttrDogS.SUBJECT1 ('Предмет соглашения', , sci1Esc): Protect;
+  CalPlan.NoDoc    ('Номер пункта календарного плана', , sci1378Esc): protect, QuickChoice;
+  CalPlan.dInput   ('Дата ввода пункта календарного плана', , sci178Esc): [, 'DD/MM/YYYY'], protect, QuickChoice;
+  piExtAttr.mGetAttr(coCalPlan, KatSopr.cCalPlan, 'НИОКР. Наименование этапа')
+                 ('Наименование этапа', hcKouDocFDog, sci1Esc): Protect;
+  KuratPodr.Name   ('Курирующее подразделение', , sci178Esc): Protect, NoDel;
+  KatOrgF.Name     ('Грузоотправитель', , sci1378Esc): protect, QuickChoice;
+  KatOrgT.Name     ('Грузополучатель', , sci1378Esc): protect, QuickChoice;
+  KatOrgPlat.Name  ('Контрагент заказчик(плательщик) грузоперевозки', , sci1378Esc): protect, QuickChoice;
+  KatNazna.Name    ('Назначение', , sci1378Esc): protect, QuickChoice;
+  FIO              ('Лицо, ответственное за проведение операции', , sci1378Esc): protect, QuickChoice;
+  Trp              ('Используется транспорт предприятия в данной операции', , sci1378Esc): protect;
+  if (KatSopr.Reserved = 1, 'зарезервированы', 'не зарезервированы'): skip;
+  KatSopr.dPrice   ('Дата оплаты по накладной', , sci1378Esc): [10, 'DD/MM/YYYY'];
+  KatSopr.dOpr     ('Дата отпуска МЦ по накладной'): [10, 'DD/MM/YYYY'], skip, {font = {bold = TRUE}};
+  FieldInfo: skip;
+  UserField        ('Поле пользователя');
+  KatSopr.sDover   ('Доверенное лицо', , sci1378Esc): noprotect;
+  KatSopr.nDover   ('Номер доверенности, <Ctrl><F3> - выбор из доверенностей контрагентов', , sci1378Esc): noprotect;
+  KatSopr.dDover   ('Дата доверенности'): [10, 'DD/MM/YYYY'];
+  OtvPodr.Name     ('Центр ответственности, ответственный за выполнение.', , sci1378Esc), PickButton, protect;
+Buttons
+  cmAttrib   , , , 'Услуги, отнесенные на другого контрагента';
+  cmValue2   , , , 'Вызов окна с товарно-транспортной информацией';
+  cmTextWind , , , 'Примечание';
+  cmDoRes    , , , 'Резервирование матценностей по накладной', hcSoprInMovBMakeReserve, sci178Esc;
+  cmSkipRes  , , , 'Снятие с резерва зарезервированных матценностей', hcSoprInMovBReserveBack, sci178Esc;
+  cmValue15  , , , 'Отмена списания (удаление связанных ордеров)';
+<<
+ `Договор`           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`от`.@@@@@@@@@@@ <. Услуги на другого контрагента .>
+ `Предмет договора`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Соглашение`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`от`.@@@@@@@@@@@ <.Товарно-транспортная информация.>
+ `Предмет соглашения`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Календарный план`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`от`.@@@@@@@@@@@ <.          Примечание           .>
+ `Наименование этапа`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Курирующее подразделение`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Грузоотправитель`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Грузополучатель`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.        Резервирование         .>
+ `Заказчик(плательщик)`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Назначение`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.       Снятие с резерва        .>
+ `Операцию провел`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Используется транспорт предприятия` .@@@@
+ `Матценности по накладной`.@@@@@@@@@@@@@@@@@@@@
+ `Дата цен`          .@@@@@@@@@@@@         `Дата отпуска`.@@@@@@@@@@@ <.        Отмена списания        .>
+  .@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Доверенное лицо`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `№ доверенности`    .@@@@@@@@@@@@@@@@`Дата доверенности`.@@@@@@@@@@@
+ `Центр ответственности`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // Screen
+end; // Panel
+
+HandleEvent
+#include soprd05.vpp
+cmInit:
+  {
+    IF (not boGetTune('Doc.PickOtvPodr'))
+       ClearFieldOption(#OtvPodr.Name,ofSelectable);
+    //Казахстан
+    var isKaz: boolean;  isKaz := (wGetTune('Country') = 3);
+
+    cfsSetCurrentContainer('ExtendetInfo');
+    cfsSetProp('t_scrExtendetInfo_Код_ОКЭД', 'Visible', isKaz);
+    cfsSetProp('i_scrExtendetInfo_AttrVKaz.vString', 'Visible', isKaz);
+
+    if (isNew)
+      if (GetFirst AttrVKaz where (( comp(0) == AttrVKaz.NRec )) = tsOk)
+        {};
+
+    if (TypeSopr = 210 OR TypeSopr = 229)
+      SetFormat(scrExtendetInfo210);
+  }
+
+end; // HandleEvent
+end; // Window
+
+
+#ifdef __SKYSHOP__
+#include w_dopSky.vpp
+#include w_oprsky.vpp
+#end //__SKYSHOP__
+
+//********************************************************************************
+
+#doc
+  Редактирование накладной на отпуск МЦ
+#end
+
+Window EditSopr 'Редактирование накладной на отпуск МЦ' EscClose;
+  Show at (, , 110, 30);
+
+Panel pnHeader
+  Show at (, , , 12)
+  Table  KatSopr;
+
+#ifdef __SKYSHOP__
+Screen scrHeaderSkyShop('', hcSellWNaklEditTopPan, sci178Esc)
+
+Fields
+  KatSopr.DesGr('Код группы пользователей', , sci1378Esc): protect, QuickChoice;
+  KatSopr.Descr('Дескриптор(идентификатор) пользователя.', , sci1378Esc): protect, QuickChoice;
+  KatSopr.NSopr('Номер накладной. Вводится путем набора');
+  KatSopr.dSopr('Дата выписки накладной'): [, 'DD/MM/YYYY'];
+  BDnomdes ('Номер документа-основания накладной.', , sci1378Esc): Protect, QuickChoice;
+  KatNotesName ('Статус документа', , sci1378Esc): Protect, QuickChoice;
+  KatSopr.Name ('Примечание для накладной. Вводится вручную либо выбирается по <F3>', , sci1378Esc): noProtect;
+  KatOrg.Name ('Организация-контрагент.', , sci1378Esc): QuickChoice, Protect,
+        {Font = {BackColor = if (KatSopr.cOrgBase = 0, ColorNeed, 0)}};
+  Sum ('Сумма по документу'): [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect;
+  myField1: skip;
+  HozOperViewName ('Типовая хозяйственная операция.', , sci1378Esc): protect;
+  if (Longint(KatSopr.dOpr) = 0, '   МЦ не отпущены', 'МЦ отпущены '+DateToStr(KatSopr.dOpr, 'DD/MM/YYYY')): skip;
+
+Buttons
+  cmDop4Sky     , , , 'Дополнительная информация для модуля SkyShop';
+  cmDop5Sky     , , , 'Форм-е приходного кассового ордера и начисление комиссионных для модуле SkyShop';
+  cmExtendetInfo, , , 'Вызов окна с расширенной информацией <Ctrl><Enter>';
+  cmMakeOrder   , , , 'Списание по накладной матценностей на складе';
+<<
+ Группа   &Дескр.  &Номер накладной&Выписана   &Документ-основание №
+ .@@@@@@@@@.@@@@@@@@.@@@@@@@@@@@@@@@.@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Статус    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@<.Информация для SkyShop.>
+ Примечание.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Контрагент.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@<. Операции для SkyShop .>
+ На сумму  .@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@<.  Списание на складе  .>
+                               .@@@@@@@@@@@@@@@@@@@@
+>>
+end; // Screen
+
+//********************************************************************************
+
+Procedure _DockPosition;
+{
+  SHT_CE_NRec := KatSopr.NRec;
+
+  if not BoundActive(tbSHT_CE)
+    PushBounds(tbSHT_CE);
+}
+
+//********************************************************************************
+
+Procedure _UnDockPosition;
+{
+  if BoundActive(tbSHT_CE)
+    PopBounds(tbSHT_CE);
+}
+
+//********************************************************************************
+
+Function _GetPosition: comp;
+{
+  _GetPosition := KatSopr.NRec;
+}
+
+//********************************************************************************
+
+Procedure SelectSkyButton;
+{
+  SelectButton(scrHeaderSkyShop, cmDop4Sky);
+}
+
+//********************************************************************************
+
+Procedure InitSkyShopEditWindow;
+{
+  SetHelpAndStatusContext(scrHeaderSkyShop, -1            , sci13Esc, 0);
+  SetHelpAndStatusContext(scrHeaderSkyShop, #KatSopr.NSopr, sci1Esc , 0);
+  SetHelpAndStatusContext(scrHeaderSkyShop, #Sum          , sci1Esc , 0);
+  _try
+    ActivateEmbeddedWindow(-1, EditSopr);
+  _except
+    on ExCantActivateEmbedded: {};
+}
+#end
+
+//********************************************************************************
+// По проекту для Метизного
+//
+
+Function GetKoefVolume1 : double;
+{
+  GetKoefVolume1 := 0;
+
+  if (NOT ExistTune('Doc.ChTaraVolume.Used'))
+    Exit
+  else
+    if (NOT boGetTune('Doc.ChTaraVolume.Used'))
+      Exit;
+
+  if (IsValid(#SaldTune)) AND (UpCase(Trim(SaldTune.Name)) = 'ТАРА')
+    if (IsValid(#KatMC) AND IsValid(#KatOtpEd))
+      if (GetFirst SpOtpEd where ((KatOtpEd.NRec == SpOtpEd.cOtpEd
+                               AND SpecMTR.cObj  == SpOtpEd.cMCTara)) = tsOk)
+        GetKoefVolume1 := SpOtpEd.Koef;
+}
+
+Function GetKoefVolume2 : double;
+{
+  GetKoefVolume2 := 0;
+
+  if (NOT ExistTune('Doc.ChTaraVolume.Used'))
+    Exit
+  else
+    if (NOT boGetTune('Doc.ChTaraVolume.Used'))
+      Exit;
+
+  if (IsValid(#SaldTune)) AND (UpCase(Trim(SaldTune.Name)) = 'ТАРА')
+    if (IsValid(#KatMC))
+      if (GetFirst KatOtpEd2 where ((word(1)    == KatOtpEd2.PrMC
+                                 AND KatMC.NRec == KatOtpEd2.cMCUsl
+                                 AND word(1)    == KatOtpEd2.Akt)) = tsOk)
+        if (KatOtpEd2.NRec = KatOtpEd.NRec)
+          {
+            if (GetFirst KatOtpEd2 where ((word(1)    == KatOtpEd2.PrMC
+                                      AND  KatMC.NRec == KatOtpEd2.cMCUsl
+                                      AND  word(0)    == KatOtpEd2.Akt)) = tsOk)
+              if (GetFirst SpOtpEd where ((KatOtpEd2.NRec == SpOtpEd.cOtpEd
+                                      AND  SpecMTR.cObj   == SpOtpEd.cMCTara)) = tsOk)
+                GetKoefVolume2 := SpOtpEd.Koef;
+          }
+        else
+          if (GetFirst SpOtpEd where ((KatOtpEd2.NRec == SpOtpEd.cOtpEd
+                                  AND  SpecMTR.cObj   == SpOtpEd.cMCTara)) = tsOk)
+            GetKoefVolume2 := SpOtpEd.Koef;
+
+}
+
+Function GetKolTara : integer;
+var koef : double;
+{
+  GetKolTara := 0;
+
+  if (NOT ExistTune('Doc.ChTaraVolume.Used'))
+    Exit
+  else
+    if (NOT boGetTune('Doc.ChTaraVolume.Used'))
+      Exit;
+
+  koef := GetKoefVolume1;
+
+  if (koef = 0)
+    Exit;
+
+  GetKolTara := (SpSopr.KolFact / koef);
+
+  if (Round(SpSopr.KolFact / koef, 6) > GetKolTara)
+    GetKolTara := GetKolTara + 1;
+}
+//********************************************************************************
+
+Screen scrHeader  ('', hcSellWNaklEditTopPan, sci178Esc)
+  Show at (, , , 13);
+
+Fields
+  KatSopr.DesGr ('Код группы пользователей', , sci1378Esc): protect, QuickChoice;
+  KatSopr.Descr ('Дескриптор(идентификатор) пользователя.', , sci1378Esc): protect, QuickChoice;
+  KatSopr.NSopr ('Номер накладной. Вводится путем набора');
+  KatSopr.dSopr ('Дата выписки накладной'): [, 'DD/MM/YYYY'];
+  KatNotesName  ('Статус документа', , sci1378Esc): Protect;
+  BDnomdes      ('Номер документа-основания накладной.', , sci1378Esc): Protect, QuickChoice;
+  NZaknomdes    ('Номер наряд-заказа накладной.', , sci1378Esc): Protect, QuickChoice;
+  DogNoDoc      ('Номер договора', , sci1378Esc): protect, QuickChoice;
+  KatSopr.Name  ('Примечание для накладной. Выбирается по <F3>', , sci1378Esc): noProtect;
+  KatOrg.Name   ('Организация-контрагент.', , sci1378Esc): QuickChoice, Protect,
+        {Font = {BackColor = if (KatSopr.cOrgBase = 0, ColorNeed, 0)}};
+  KatOrg.Code   ('Внутренний учетный номер контрагента.', , sci1378Esc): Protect, QuickChoice,
+        {Font = {BackColor = if (KatSopr.cOrgBase = 0, ColorNeed, 0)}};
+  KatOrg.UNN    ('УНН/ИНН контрагента.', , sci1378Esc): Protect, QuickChoice,
+        {Font = {BackColor = if (KatSopr.cOrgBase = 0, ColorNeed, 0)}};
+  KatPodr.Name  ('Наименование склада', , sci1378Esc): QuickChoice, Protect;
+  if (Longint(KatSopr.dOpr) = 0, 'МЦ не отпущены', 'МЦ отпущены '+DateToStr(KatSopr.dOpr, 'DD/MM/YYYY')):
+        skip, {font = {bold = TRUE}}, Centered;
+  KatMol.Name   ('Фамилия И.О. материально-ответственного лица.', , sci1378Esc): QuickChoice, Protect;
+  KatSopr.dPrice('Дата оплаты по накладной', , sci1378Esc): [10, 'DD/MM/YYYY'];//, skip;
+  KatPayment.Name('Форма расчета', , sci1378Esc): protect, QuickChoice;
+  Sum           ('Сумма по документу'): [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect;
+  Valut         ('Валюта, в которой производилась оплата. Выбирается из классификатора.', , sci1378Esc): protect;
+  DocNalSumma   ('Сумма налогов по документу', , sci1378Esc): [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect, PickButton;
+  VhNal         ('Входимость налогов в цену позиций', , sci1378Esc): protect;
+  myField1: skip;
+  HozOperViewName    ('Типовая хозяйственная операция.', , sci1378Esc): protect;
+  KatSopr.TaraVoz    ('Тара', , sci1378Esc): [LIST 1 'возвратная', 'невозвратная'], protect;  //andr
+  KatSopr.TypeDoc    ('тип документа', , sci1378Esc): [LIST ' На маршрут ', ' Повагонная '], protect;
+  MoveCellUzbek.Name ('Единица подвижного состава', , sci1378Esc): protect, QuickChoice;
+  KatSopr.NVagon     ('Номер единицы подвижного состава', , sci1378Esc): protect, QuickChoice;
+  DocUchNDS     ('') : Skip;//, {Font = {Color = ColorSysblack; bold = true}};
+  SchFactNum    ('Документ для учета НДС', , sci1378Esc): protect, PickButton;
+  sDEISumLabel  ('') : Skip;
+  fOsnKol       ('') : [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], Protect;
+  sDEI1Name     ('') : Skip;
+  fDEI1Kol      ('') : [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], Protect;
+  sDEI2Name     ('') : Skip;
+  fDEI2Kol      ('') : [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], Protect;
+
+Buttons
+  cmExtendetInfo, , , 'Вызов окна с расширенной информацией <Ctrl><Enter>';
+  cmMakeOrder   , , , 'Списание по накладной матценностей на складе';
+  cmValue1      , , , 'Формирование ДО по накладной';
+  cmKauReff     , , , 'Вызов окна с товарно-транспортной информацией <Alt><T>';
+<<
+ &Группа    &Дескр. &Номер накладной &Выписана    &Статус         &Основание    &Наряд-заказ     &Договор
+ .@@@@@@@@ .@@@@@@@@ .@@@@@@@@@@@@@ .@@@@@@@@@@ .@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@ .@@@@@@@@@@@@ .@@@@@@@@@@@@@
+ Примечание.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@<.Расширенная информация   .>
+ Контрагент.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@.@@@@@@@@@@
+ Склад     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@  &Дата цен            Форма расчета    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ МОЛ       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@      .@@@@@@@@@@@@@@@@@@@@<.Списание на складе       .>
+ На сумму  .@@@@@@@@@@@@@@@@@     .@@@@@
+ Налоги    .@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@                    <.Формирование ДО          .>
+ .@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@       Тара.@@@@@@@@@@@@@@@
+ Транспортировка.@@@@@@@@@@@@@@@@@                                             <.Товарно-трансп.информация.>
+ Единица подв.состава .@@@@@@@@@@@@@@@@@@ № вагона.@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@   .@@@@@@@@@ .@@@@@@.@@@@@@@@@@ .@@@@@@.@@@@@@@@@@
+>>
+end; // Screen
+
+//********************************************************************************
+
+Screen scrHeader210  ('', hcSellWNaklEditTopPan, sci1378Esc)
+  Show at (, , , 13);
+
+Fields
+  KatSopr.DesGr ('Код группы пользователей'): protect, QuickChoice;
+  KatSopr.Descr ('Дескриптор(идентификатор) пользователя.'): protect, QuickChoice;
+  KatSopr.NSopr ('Номер накладной. Вводится путем набора', , sci178Esc);
+  KatSopr.dSopr ('Дата выписки накладной. Вводится путем набора', , sci178Esc): [, 'DD/MM/YYYY'];
+  KatNotesName  ('Статус документа'): Protect;
+  DogNoDoc      ('Номер договора'): protect, QuickChoice;
+  KatSopr.Name  ('Примечание для накладной. Выбирается по <F3>.'): noProtect;
+  fPriOtpDoc    ('Распоряжение', , sci1378Esc) : Skip;
+  KatOrg.Name   ('Организация-контрагент.'): QuickChoice, Protect,
+        {Font = {BackColor = if (KatSopr.cOrgBase = 0, ColorNeed, 0)}};
+  KatOrg.Code   ('Внутренний учетный номер контрагента.'): Protect, QuickChoice,
+        {Font = {BackColor = if (KatSopr.cOrgBase = 0, ColorNeed, 0)}};
+  KatOrg.UNN    ('УНН/ИНН контрагента.'): Protect, QuickChoice,
+        {Font = {BackColor = if (KatSopr.cOrgBase = 0, ColorNeed, 0)}};
+  PriOtpDoc     ('Распоряжение', , sci1378Esc) : Protect;
+  Sum           ('Сумма по документу', , sci178Esc): [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect;
+  Valut         ('Валюта, в которой производилась оплата. Выбирается из классификатора.'): protect;
+  KatSopr.dPrice('Дата оплаты по накладной'): [10, 'DD/MM/YYYY'];//, skip;
+  KatPodr.Name  ('Наименование склада.'): QuickChoice, Protect;
+  KatMol.Name   ('Фамилия И.О. материально-ответственного лица.'): QuickChoice, Protect;
+  if (Longint(KatSopr.dOpr) = 0, 'МЦ не отпущены', 'МЦ отпущены '+DateToStr(KatSopr.dOpr, 'DD/MM/YYYY')): skip, Centered;
+  myField1: skip;
+  HozOperViewName ('Типовая хозяйственная операция.'): protect;
+  KatPodrTo.Name('Подразделение, куда был отпуск'): QuickChoice;
+  KatMolTo.Name ('Фамилия И.О. материально-ответственного лица, принявшего МЦ'): QuickChoice;
+  KatSopr.TypeDoc('тип документа'):  [LIST ' На маршрут ', ' Повагонная '], protect;
+  MoveCellUzbek.Name ('Единица подвижного состава'): protect, QuickChoice;
+  KatSopr.NVagon     ('Номер единицы подвижного состава'): protect, QuickChoice;
+Buttons
+  cmExtendetInfo, , , 'Вызов окна с расширенной информацией <Ctrl><Enter>', , sci178Esc;
+  cmMakeOrder   , , , 'Списание по накладной матценностей на складе', , sci178Esc;
+  cmKauReff     , , , 'Вызов окна с товарно-транспортной информацией <Alt><T>';
+<<
+  Группа    Дескр.    Номер накладной  Выписана           Статус                        Договор
+ .@@@@@@@@ .@@@@@@@@ .@@@@@@@@@@@@@   .@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Примечание.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@          .@@@@@@@@@@@@
+ Контрагент.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@.@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ На сумму  .@@@@@@@@@@@@@@@@@   .@@@@@@@    Дата цен .@@@@@@@@@@            <.Расширенная информация   .>
+ Склад     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ МОЛ       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.Списание на складе       .>
+ В подразделение.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Принял МОЛ     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.Товарно-трансп.информация.>
+
+ Транспортировка.@@@@@@@@@@@@@@@@@ Единица подв.состава .@@@@@@@@@@@@@@@@@@  № вагона .@@@@@@@@@@@@@@@@@@
+>>
+end; // Screen
+
+#include fltfun.vpp
+
+HandleEvent
+#include soprd04.vpp
+end; // HandleEvent
+end; // Panel
+
+//********************************************************************************
+
+Panel pnSpecif
+  Table  SpSopr;
+
+Browse brSpecif ('<Ctrl><Enter> - расширенная информация', hcSellWNaklEditSpec, sci178Esc)
+  Show at (, 14, , )
+Fields
+#ifdef __DSD__
+  {Font = { BackColor = if(oJPPD.GetNotCloseProblem(coKatSopr, KatSopr.NRec, coSpSopr, SpSopr.NRec), 0, ColorNeed)}};
+#end
+  SpSopr.Npp      #3'№'#13#3'п/п'                              : [ 3], Centered, NoAutoSize, NoProtect;
+  PrMCUsl         #3'Т'#13#3'У' ('Товар/услуга', , sci1378Esc) : [ 1], protect, NoPickButton, NoAutoSize;
+  strOwnMC        #3'С'#13#3'Н' ('Регистрация НДС по договорам комиссии (С-собственная/Н-несобственная позиция спецификации)', , sci1378Esc)
+                                : [1], protect, NoPickButton, Centered, NoAutoSize;
+#ifdef __DSD__
+  NameMCUsl       #3'Наименование' (, , sci13478Esc)            : [25], protect, NoDel, QuickChoice;
+  KodMCUsl        #3'Код' (, , sci13478Esc)                     : [10], protect, NoDel, QuickChoice, NoAutoSize;
+#else
+  NameMCUsl       #3'Наименование' (, , sci1378Esc)            : [25], protect, NoDel, QuickChoice;
+  KodMCUsl        #3'Код' (, , sci1378Esc)                     : [10], protect, NoDel, QuickChoice, NoAutoSize;
+#end
+  OtpEd           #3'ЕдИзм' (, , sci1378Esc)                   : [ 5], protect, NoDel, NoAutoSize;
+  SpSopr.KolFact  #3'Количество'                               : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], noprotect, NoAutoSize;
+
+  KatDopEd1.ShortName  #3'ДЕИ 1' ('', , sci178Esc) : [5], protect, NoAutoSize, NoPickButton;
+  SpDopEd1.Kol         #3'Количество' ('')         : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], Protect, NoAutoSize, NoPickButton;
+  KatDopEd2.ShortName  #3'ДЕИ 2' ('', , sci178Esc) : [5], protect, NoAutoSize, NoPickButton;
+  SpDopEd2.Kol         #3'Количество' ('')         : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], Protect, NoAutoSize, NoPickButton;
+
+  Capacity        #3'Объем' (, , sci1378Esc)                   : [12], [prCapacity, '\3p[|-]36`666`666`666`666.888'], noprotect, NoAutoSize;
+  CapacityPrice   #3'Цена для'#13#3'объемн.ЕдИзм' ('Цена для объемных единиц измерения') // DEI
+                                                               : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  PrV             #3'Цена'                                     : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  spisPrice       #3'Цена списания' ('Нажмите любую алфавитно-цифровую клавишу для выбора цены из приходов, <Del> для отмены')
+                                                               : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect, NoAutoSize;
+  SumPrice        #3'Стоимость'                                : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  SumSpNalog      #3'Налоги'                                   : [17], [brForSopr_Price, '\2p[|-]36`666`666`666`666.88'], protect, NoAutoSize;
+  fSpSoprProcNac  #3'%' ('Процент скидки/надбавки по текущей позиции документа(входящий/исходящий)', , sci1378Esc)
+                                : [6], noprotect, Centered, NoAutoSize, {Font = {BackColor = ColorForPercent}};
+  FactoryPrice    #3'Заводская'#13#3'цена' ('Заводская(контрактная) цена по текущей позиции документа', , sci1378Esc)
+                                                               : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  SpSopr.rPrice   #3'Цена'#13#3'в НДЕ'                         : [17], [brForSopr_Price, '\2p[|-]36`666`666`666`666.88'], NoAutoSize;
+  SpSopr.rVPrice  #3'Цена'#13#3'в валюте'                      : [17], [brForSopr_VPrice, '\2p[|-]36`666`666`666`666.88'], NoAutoSize;
+  KlVal.Simvolv   #3'Вал.' (, , sci1378Esc)                    : [ 5], protect, NoAutoSize;
+  KlPrice2.Name   #3'Прайс-лист' (, , sci1378Esc)              : [12], protect, QuickChoice, NoAutoSize;
+  SpSopr.NVagon   #3'Номер'#13#3'вагона' ('Номер единицы подвижного состава'): [6], NoAutoSize;
+  SpSopr.Netto    #3'Вес'#13#3'нетто'                          : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], LessNull, NoAutoSize;
+  SpSopr.mTara    #3'Вес'#13#3'тары'                           : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], LessNull, NoAutoSize;
+  TTN_massa_all   #3'Вес'#13#3'брутто'                         : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], LessNull, NoAutoSize;
+  KatParty.Name   #3'Партия'#13#3'матценности' (, , sci1378Esc): [15], protect, QuickChoice, NoAutoSize;
+  SpSopr.NKvit    #3'Номер ж/д'#13#3'квитанции'                : [ 9], NoAutoSize;
+  NumDoOsnv       #3'ДО'                                       : [ 7], Skip;
+  SaldTune.Name   #3'Объект ЦУ' (,, sci1378Esc): [10], Protect, NoAutoSize, PickButton;
+  vsKau1          #3'КАУ 1' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau2          #3'КАУ 2' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau3          #3'КАУ 3' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau4          #3'КАУ 4' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau5          #3'КАУ 5' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau6          #3'КАУ 6' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau7          #3'КАУ 7' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau8          #3'КАУ 8' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau9          #3'КАУ 9' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau10         #3'КАУ 10' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  SmetaMy         #3'Смета' ('Локальная смета: "Номер": "Наименование"',, sci1378Esc): [12], protect, NoAutoSize, PickButton;
+  SmetaSpMy       #3'Спецификация'#13#3'сметы' ('Спецификация сметы: "№ п/п" ("Код") "Наименование"',, sci1378Esc): [12], protect, NoAutoSize, PickButton;
+end; // Browse
+
+Browse brSpecif210 ('<Ctrl><Enter> - расширенная информация', hcSellWNaklEditSpec, sci178Esc)
+  Show at (, 14, , )
+Fields
+#ifdef __DSD__
+  {Font = { BackColor = if(oJPPD.GetNotCloseProblem(coKatSopr, KatSopr.NRec, coSpSopr, SpSopr.NRec), 0, ColorNeed)}};
+#end
+  SpSopr.Npp      #3'№'#13#3'п/п'                              : [ 3], Centered, NoAutoSize, NoProtect;
+  PrMCUsl         #3'Т'#13#3'У' ('Товар/услуга', , sci1378Esc) : [ 1], protect, NoPickButton, NoAutoSize;
+  strOwnMC        #3'С'#13#3'Н' ('Регистрация НДС по договорам комиссии (С-собственная/Н-несобственная позиция спецификации)', , sci1378Esc)
+                                : [1], protect, NoPickButton, Centered, NoAutoSize;
+#ifdef __DSD__
+  NameMCUsl       #3'Наименование' (, , sci13478Esc)            : [25], protect, NoDel, QuickChoice;
+  KodMCUsl        #3'Код' (, , sci13478Esc)                     : [10], protect, NoDel, QuickChoice, NoAutoSize;
+#else
+  NameMCUsl       #3'Наименование' (, , sci1378Esc)            : [25], protect, NoDel, QuickChoice;
+  KodMCUsl        #3'Код' (, , sci1378Esc)                     : [10], protect, NoDel, QuickChoice, NoAutoSize;
+#end
+  if(SpSopr.vPriceN <> 0, '+', '')
+                  #3'P' ('+ - позиция зарезервирована')        : [ 1], protect, NoAutoSize;
+  OtpEd           #3'ЕдИзм' (, , sci1378Esc)                   : [ 5], protect, NoDel, NoAutoSize;
+  SpSopr.KolFact  #3'Количество'                               : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], noprotect, NoAutoSize;
+
+  KatDopEd1.ShortName  #3'ДЕИ 1' ('', , sci178Esc) : [5], protect, NoAutoSize, NoPickButton;
+  SpDopEd1.Kol         #3'Количество' ('')         : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], Protect, NoAutoSize, NoPickButton;
+  KatDopEd2.ShortName  #3'ДЕИ 2' ('', , sci178Esc) : [5], protect, NoAutoSize, NoPickButton;
+  SpDopEd2.Kol         #3'Количество' ('')         : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], Protect, NoAutoSize, NoPickButton;
+
+  Capacity        #3'Объем' (, , sci1378Esc)                   : [12], [prCapacity, '\3p[|-]36`666`666`666`666.888'], noprotect, NoAutoSize;
+  CapacityPrice   #3'Цена для'#13#3'объемн.ЕдИзм' ('Цена для объемных единиц измерения') // DEI
+                                                               : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  PrV             #3'Цена'                                     : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  spisPrice       #3'Цена списания' ('Нажмите любую алфавитно-цифровую клавишу для выбора цены из приходов, <Del> для отмены')
+                                                               : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect, NoAutoSize;
+
+  SumPrice        #3'Стоимость'                                : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  SumSpNalog      #3'Налоги'                                   : [17], [brForSopr_Price, '\2p[|-]36`666`666`666`666.88'], protect, NoAutoSize;
+  fSpSoprProcNac  #3'%' ('Процент скидки/надбавки по текущей позиции документа(входящий/исходящий)', , sci1378Esc)
+                                : [6], noprotect, Centered, NoAutoSize, {Font = {BackColor = ColorForPercent}};
+  FactoryPrice    #3'Заводская'#13#3'цена' ('Заводская(контрактная) цена по текущей позиции документа', , sci1378Esc)
+                                                               : [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], noprotect, NoAutoSize;
+  SpSopr.rPrice   #3'Цена'#13#3'в НДЕ'                         : [brForSopr_Price, '\2p[|-]36`666`666`666`666.88'], NoAutoSize;
+  SpSopr.rVPrice  #3'Цена'#13#3'в валюте'                      : [brForSopr_VPrice, '\2p[|-]36`666`666`666`666.88'], NoAutoSize;
+  KlVal.Simvolv   #3'Вал.' (, , sci1378Esc)                    : [ 5], protect, NoAutoSize;
+  KlPrice2.Name   #3'Прайс-лист' (, , sci1378Esc)              : [12], protect, QuickChoice, NoAutoSize;
+  SpSopr.NVagon   #3'Номер'#13#3'вагона' ('Номер единицы подвижного состава'): [6], NoAutoSize;
+  SpSopr.Netto    #3'Вес'#13#3'нетто'                          : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], LessNull, NoAutoSize;
+  SpSopr.mTara    #3'Вес'#13#3'тары'                           : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], LessNull, NoAutoSize;
+  TTN_massa_all   #3'Вес'#13#3'брутто'                         : [12], [prSignsInKol, '\3p[|-]36`666`666`666`666.888'], LessNull, NoAutoSize;
+  KatParty.Name   #3'Партия'#13#3'матценности' (, , sci1378Esc): [15], protect, QuickChoice, NoAutoSize;
+  SpSopr.NKvit    #3'Номер ж/д'#13#3'квитанции'                : [ 9], NoAutoSize;
+  SaldTune.Name   #3'Объект ЦУ' (,, sci1378Esc): [10], Protect, NoAutoSize, PickButton;
+  vsKau1          #3'КАУ 1' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau2          #3'КАУ 2' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau3          #3'КАУ 3' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau4          #3'КАУ 4' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau5          #3'КАУ 5' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau6          #3'КАУ 6' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau7          #3'КАУ 7' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau8          #3'КАУ 8' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau9          #3'КАУ 9' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  vsKau10         #3'КАУ 10' ('',, sci1378Esc): [12], Protect, NoAutoSize, PickButton;
+  SmetaMy         #3'Смета' ('Локальная смета: "Номер": "Наименование"',, sci1378Esc): [12], protect, NoAutoSize, PickButton;
+  SmetaSpMy       #3'Спецификация'#13#3'сметы' ('Спецификация сметы: "№ п/п" ("Код") "Наименование"',, sci1378Esc): [12], protect, NoAutoSize, PickButton;
+end; // Browse
+
+HandleEvent
+
+  #include soprd03.vpp
+
+end; // HandleEvent
+end; // Panel
+
+//********************************************************************************
+
+#ifdef __MTR_TO_SPEC__
+#include lm2sautopick.vpp
+#end
+
+HandleEvent //Window EditSopr(2)
+
+cmAlt3:
+  if ((TypeSopr = 201) OR (TypeSopr = 0))
+    {
+      var PhoneCard: iPhoneCard;
+      if PhoneCard.CheckAttrPhoneCardOfNakl(frm1wed.Handle, KatSopr.NRec)
+        Message('Проверка закончена.'#13'Атрибуты корректны.', Information)
+      else
+        frm1wed.ShowFile('Протокол проверки накладной')
+    }
+
+#ifdef __SKYSHOP__
+cmInit:
+{
+  if (KatSopr.vidSopr <> 202)
+    SetFormat(scrHeader);
+  else
+    {
+      SkyNRec0 := if (KatSopr.Status = 0, KatSopr.NRec, comp(0));
+      SelectButton(scrHeaderSkyShop, cmDop4Sky);
+      SetFormat(scrHeaderSkyShop)
+    }
+}
+
+Always
+  if (KatSopr.VidSopr = 202)
+    case CurCommand of
+    //----------------
+      cmCancel,
+      cmClose:
+          SetStateSpecOk(KatSopr.NRec);
+    //----------------
+      cmInsert:
+        if (CurTable  = #KatSopr)
+          SetStateSpecOk(KatSopr.NRec);
+    //----------------
+    end;
+
+#end //__SKYSHOP__
+
+cmInit:
+  {
+    DocUchNDS := 'Документ для учета НДС';
+
+    case KatSopr.vidSopr of
+    //---------------------
+      210:
+        {
+          SetFormat(scrHeader210);
+          SetFormat(brSpecif210);
+          SetWindowTitle(EditSopr, 'Редактирование акта передачи оборудования в монтаж');
+        }
+    //---------------------
+      229:
+        {
+          SetFormat(scrHeader210);
+          SetFormat(brSpecif210);
+          SetWindowTitle(EditSopr, 'Редактирование акта передачи материалов на строительство');
+#ifdef Atl52
+          SetHelpAndStatusContext(scrHeader210, -1, -1, 'UKS_RedAktPeredMater');
+#else
+          SetHelpAndStatusContext(scrHeader210, -1, -1, hcUKS_RedAktPeredMater);
+#end
+        }
+    //---------------------
+      else
+       {
+        SetFormat(scrHeader);
+        SetFormat(brSpecif);
+        SetWindowTitle(EditSopr, 'Редактирование накладной на отпуск МЦ');
+       }
+    //---------------------
+    end;
+
+    Var bViewSumm: boolean;
+    bViewSumm := boGetTune('Doc.DEI.ViewSumm');
+
+    sDEISumLabel := 'Количество';
+    sDEI1Name    := 'в ДЕИ 1:';
+    sDEI2Name    := 'в ДЕИ 2:';
+
+    if ( (not ExistTune('Doc.DEI.ViewDoc'))
+        or
+         ( (KatSopr.VidSopr <> 201) and (KatSopr.VidSopr <> 210) and (KatSopr.VidSopr <> 229) )
+        or
+         (not DopEd_Used2(KatSopr.VidSopr)) )
+      {
+        SetFieldVisible(#KatDopEd1.ShortName, false);
+        SetFieldVisible(#KatDopEd2.ShortName, false);
+        SetFieldVisible(#SpDopEd1.Kol, false);
+        SetFieldVisible(#SpDopEd2.Kol, false);
+
+        SetFieldVisible(#sDEISumLabel, bViewSumm);
+        SetFieldVisible(#fOsnKol, bViewSumm);
+        SetFieldVisible(#fDEI1Kol, false);
+        SetFieldVisible(#sDEI1Name, false);
+        SetFieldVisible(#fDEI2Kol, false);
+        SetFieldVisible(#sDEI2Name, false);
+      }
+    else
+      case wGetTune('Doc.DEI.ViewDoc') of
+
+        0:
+          {
+            SetFieldVisible(#KatDopEd1.ShortName, false);
+            SetFieldVisible(#KatDopEd2.ShortName, false);
+            SetFieldVisible(#SpDopEd1.Kol, false);
+            SetFieldVisible(#SpDopEd2.Kol, false);
+
+            SetFieldVisible(#sDEISumLabel, bViewSumm);
+            SetFieldVisible(#fOsnKol, bViewSumm);
+            SetFieldVisible(#fDEI1Kol, false);
+            SetFieldVisible(#sDEI1Name, false);
+            SetFieldVisible(#fDEI2Kol, false);
+            SetFieldVisible(#sDEI2Name, false);
+          }
+
+        1:
+          {
+            SetFieldVisible(#KatDopEd1.ShortName, true);
+            SetFieldVisible(#KatDopEd2.ShortName, false);
+            SetFieldVisible(#SpDopEd1.Kol, true);
+            SetFieldVisible(#SpDopEd2.Kol, false);
+
+            SetFieldVisible(#sDEISumLabel, bViewSumm);
+            SetFieldVisible(#fOsnKol, bViewSumm);
+            SetFieldVisible(#fDEI1Kol, bViewSumm);
+            SetFieldVisible(#sDEI1Name, bViewSumm);
+            SetFieldVisible(#fDEI2Kol, false);
+            SetFieldVisible(#sDEI2Name, false);
+          }
+
+        2:
+          {
+            SetFieldVisible(#KatDopEd1.ShortName, true);
+            SetFieldVisible(#KatDopEd2.ShortName, true);
+            SetFieldVisible(#SpDopEd1.Kol, true);
+            SetFieldVisible(#SpDopEd2.Kol, true);
+
+            SetFieldVisible(#sDEISumLabel, bViewSumm);
+            SetFieldVisible(#fOsnKol, bViewSumm);
+            SetFieldVisible(#fDEI1Kol, bViewSumm);
+            SetFieldVisible(#sDEI1Name, bViewSumm);
+            SetFieldVisible(#fDEI2Kol, bViewSumm);
+            SetFieldVisible(#sDEI2Name, bViewSumm);
+          }
+
+      end;
+
+  Var wKauCount, i1: word;
+  Var fKau         : array [1..10] of longint;
+
+  if ( (KatSopr.VidSopr = 210) or (KatSopr.VidSopr = 229) )
+    if ( oLinkMTR2Spec.InitKauU(0, true, wKauCount) )
+      {
+        fKau[1]  := #vsKau1;
+        fKau[2]  := #vsKau2;
+        fKau[3]  := #vsKau3;
+        fKau[4]  := #vsKau4;
+        fKau[5]  := #vsKau5;
+        fKau[6]  := #vsKau6;
+        fKau[7]  := #vsKau7;
+        fKau[8]  := #vsKau8;
+        fKau[9]  := #vsKau9;
+        fKau[10] := #vsKau10;
+
+        for ( i1 := 1; i1 <= wKauCount; i1 := i1 + 1 )
+          SetColumnTitle(brSpecif210, fKau[i1], ''#3 + oLinkMTR2Spec.GetRole(i1));
+
+        for ( i1 := wKauCount + 1; i1 <= 10; i1 := i1 + 1 )
+          ClearFieldState(fKau[i1], sfVisible);
+
+        //ClearFieldOption(#SaldTune.Name, ofSelectable);
+      }
+
+  if ( (not Lic_ItemExists('SmetaDocs'))  or (TypeSopr <> 201 and TypeSopr <> 210 and TypeSopr <> 229) )
+    {
+      ClearFieldState(#SmetaMy,   sfVisible);
+      ClearFieldState(#SmetaSpMy, sfVisible);
+      DisableCommand(cmMulSelDO);
+    }
+  }
+!end;//he Window
+
+//********************************************************************************
+
+!HandleEvent
+
+#ifdef Kachestvo2
+  #define _Qual_ES_HE_201_
+  #include QualSopr.vpp
+#end
+
+#include soprd02.vpp
+#ifdef __DSD__
+cmEdit:
+  case CurField of
+    #NameMCUsl
+  , #KodMcUsl:  RunInterface(iViewMCUslCatal,   SpSopr.PrMC,   SpSopr.cMcUsl, 0, coSpSopr, SpSopr.NRec);
+  end;
+#end
+end; // HandleEvent
+end; //Window
+
+//********************************************************************************
+
+#include sht_ce.vpp   // Штерн Цемент
+
+//********************************************************************************
+
+Panel pnSelect
+  Table KatSopr;
+
+Browse brSelectNakl
+    ('Для редактирования документа нажмите <Enter>, <Ctrl><P> - печать', hcSoprDocVMain, sci178InsPM);
+
+Fields {Font = {Color = if (Picked = '√', ColorMark, 0)}};
+  picked            #13#3'V'                 : [ 1], skip, NoAutoSize, Centered;
+  ''+KatNotesName   #3'Статус'               : [14], skip, NoAutoSize, Centered;
+  KatSopr.dSopr     #3'Дата'#13#3'выписки'   : [10], protect, NoAutoSize, Centered;
+  KatSopr.DesGr     #3'Группа'               : [ 5], Protect, NoAutoSize, Centered;
+  KatSopr.Descr     #3'Дескр.'               : [ 5], protect, NoAutoSize, Centered;
+  KatSopr.NSopr     #3'Номер'#13#3'накладной': [10], protect, NoAutoSize;
+  ''+KatOrg.Name    #3'Контрагент'           : [25], protect;
+  Sum               #3'Сумма'                : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect, LessNull, NoAutoSize;
+  ''+Valut          #3'Вал.'                 : [ 3], skip, NoAutoSize, Centered, { Font = { Italic = TRUE } };
+  ''+PrOrd          #3'О'                    : [ 1], skip, NoAutoSize, Centered, {font = {bold = (PrOrd = '+')}};
+  KatSopr.dOpr      #3'Дата'#13#3'списания'  : [10], protect, NoAutoSize, Centered, NoDel;
+  PrSF              #3'С'#13#3'Ф'            : [ 1], skip, NoAutoSize, Centered, {font = {bold = (PrSF = '+')}};
+  ''+KatSopr.nVagon #3'Номер'#13#3'вагона'   : [10], skip, NoAutoSize;
+  if (IsValid(#Oborot), '+', '')
+                    #3'П'                    : [ 1], skip, NoAutoSize, Centered;
+end; // Browse
+
+Browse brSelectNakl210
+    ('Для редактирования документа нажмите <Enter>, <Ctrl><P> - печать', hcSoprDocVMain, sci178InsPM);
+
+Fields {Font = {Color = if (Picked = '√', ColorMark, 0)}};
+  picked            #13#3'V'                 : [ 1], skip, NoAutoSize, Centered;
+  ''+KatNotesName   #3'Статус'               : [14], skip, NoAutoSize, Centered;
+  KatSopr.dSopr     #3'Дата'#13#3'выписки'   : [10], protect, NoAutoSize, Centered;
+  KatSopr.DesGr     #3'Группа'               : [ 5], Protect, NoAutoSize, Centered;
+  KatSopr.Descr     #3'Дескр.'               : [ 5], protect, NoAutoSize, Centered;
+  KatSopr.NSopr     #3'Номер'#13#3'накладной': [10], protect, NoAutoSize;
+  ''+KatOrg.Name    #3'Контрагент'           : [25], protect;
+  Sum               #3'Сумма'                : [17], [brForSopr_RVPrice, '\2p[|-]36`666`666`666`666.88'], protect, LessNull, NoAutoSize;
+  ''+Valut          #3'Вал.'                 : [ 3], skip, NoAutoSize, Centered, { Font = { Italic = TRUE } };
+  ''+PrOrd          #3'О'                    : [ 1], skip, NoAutoSize, Centered, {font = {bold = (PrOrd = '+')}};
+  if (KatSopr.reserved = 0, '', 'Р')
+                    #3'Р'                    : [ 1], skip, NoAutoSize;
+  KatSopr.dOpr      #3'Дата'#13#3'списания'  : [10], protect, NoAutoSize, Centered, NoDel;
+  PrSF              #3'С'#13#3'Ф'            : [ 1], skip, NoAutoSize, Centered, {font = {bold = (PrSF = '+')}};
+  ''+KatSopr.nVagon #3'Номер'#13#3'вагона'   : [10], skip, NoAutoSize;
+  if (IsValid(#Oborot), '+', '')
+                    #3'П'                    : [ 1], skip, NoAutoSize, Centered;
+end; // Browse
+
+HandleEvent
+#include soprd01.vpp
+
+cmPositionChanged:
+  SaveMyDsk(comp(0), '_KatSoprNRec_');
+//********************************************************************************
+cmValue36 :
+  RunInterface('PrintSopr', KatSopr.NRec, if (CurWindow = wnMainWindow, MarkerNZ, 0), word(4))
+//********************************************************************************
+
+end; // HandleEvent
+end; // Panel
+
+//********************************************************************************
+
+HandleEvent // Interface
+
+#include soprd00.vpp
+
+cmDone:
+  #include ModifSalDone.vpp // для корректной работы объекта ModifSal.vih
+
+cmInit:
+{
+  #include ModifSalInit.vpp // для корректной работы объекта ModifSal.vih
+  #ifNdef ATL51
+  if not DemoMode
+    if DemoMode('EXP_IMP;TAXES')
+!      #CheckOperLicense
+  #end
+
+  SaveMyDsk(comp(0), '_KatSoprNRec_');
+
+  fPriOtpDoc := 'Распоряжение';
+
+  if (KatSopr.VidSopr <> 201) AND (KatSopr.VidSopr <> 210)  AND (KatSopr.VidSopr <> 229)
+    {
+      ClearFieldState(#fPriOtpDoc, sfVisible);
+      ClearFieldState(#PriOtpDoc , sfVisible);
+    }
+
+  case TypeSopr of
+    210:
+    {
+      SetFormat(brSelectNakl210);
+      SetTitle('Список актов на передачу оборудования в монтаж');
+
+      SetHelpAndStatusContext(brSelectNakl, -1, sci178InsPM, 'SkladVActEquip2Mount');
+    }
+    229:
+    {
+      SetFormat(brSelectNakl210);
+      SetTitle('Список актов на передачу материалов на строительство');
+
+      SetHelpAndStatusContext(brSelectNakl, -1, sci178InsPM, 'UKS_Spisok_AktPeredMat');
+    }
+    else
+      SetFormat(brSelectNakl);
+  end;
+
+  // для производственного планирования
+  if (KatSopr.VidSopr = 210) OR (KatSopr.VidSopr = 229)
+    if (GetVipRef (gldt,'GlobDataSource'))
+      insTbl := gldt.GetInsertTblMnpl
+    else
+      message('Не проинициализировался объект GlobDataSource из производственного планирования!');
+
+  //фильтр на временные накладные
+  PushCondition(tcPrnGrSopr)
+
+  sTypeDoc := 'SoprDoc';
+  SaveMyDSK(TRUE, '_InitKatSopr_' + sTypeDoc);
+
+  if NOT ReadMyDSK(bFilterNakl, 'Filter_Nakl_bFilterNakl_' + sTypeDoc, TRUE)
+    bFilterNakl := FALSE;
+
+  if NOT ReadMyDSK(wFilterDate, 'Filter_What_Date_' + sTypeDoc, TRUE)
+    wFilterDate := 0;
+
+  if ( (bFilterNakl OR wFilterDate <> 0) and (pNRec = 0) )
+    ProcessCommand(cmCallFilter);
+
+  SaveMyDSK(FALSE, '_InitKatSopr_' + sTypeDoc);
+
+  if (KatSopr.VidSopr <> 203)
+    ClearFieldState(#NumDoOsnv, sfVisible);
+
+  wPList := word(3333);
+
+  if ( Lic_ItemExists('CEL_UCH') )
+    BindEmbeddedInterface(scKauEdit, oLinkMtr2Spec);
+  else
+    SetTabbedSheetVisible(scKauEdit, false);
+
+  if ( (not Lic_ItemExists('CEL_UCH')) or (not boGetTune('Oper.CelUch.ShowKAU')) )
+    {
+      SetFieldVisible(#SaldTune.Name, false);
+      SetFieldVisible(#vsKau1, false);
+      SetFieldVisible(#vsKau2, false);
+      SetFieldVisible(#vsKau3, false);
+      SetFieldVisible(#vsKau4, false);
+      SetFieldVisible(#vsKau5, false);
+      SetFieldVisible(#vsKau6, false);
+      SetFieldVisible(#vsKau7, false);
+      SetFieldVisible(#vsKau8, false);
+      SetFieldVisible(#vsKau9, false);
+      SetFieldVisible(#vsKau10, false);
+    }
+
+  SetPrecisionGroup('prCapacity', wGetTune('Doc.Capacity.KolCapacitySym'));
+}
+
+cmSetCurTable:
+  if (TypeSopr = 201 OR TypeSopr = 210 OR TypeSopr = 229)
+    if (Target = #KatSopr AND isEditSoprVisible)
+      if UpdateTable
+        if (TypeSopr = 201)
+          oUKSfuns.JoinNakl(KatSopr.NRec);
+        else
+          oUKSfuns.JoinAkt(KatSopr.NRec, KatSopr.VidSopr);
+
+#include FltInDoc.vpp //фильтры по документу
+
+end; // HandleEvent Interface
+
+End. // Interface
+
+//********************************************************************************
+
+#doc
+Просмотр пумевых листов <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Накладные на отпуск МЦ</link>
+#end
+
+SoprDocExtendetInfo_0 Menu
+{
+-'Просмотр путевых', cmSeePutLst, 'Просмотр путевых листов ', hcAvtoLFProsmotrPutevyh, '', , sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню расширенной информации спецификации интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Накладные на отпуск МЦ</link>
+#end
+
+SoprDocSpecifInfo Menu
+{
+-'Выбор группы налогов', cmSetGrNal, 'Выбор группы налогов для позиции спецификации документа', hcSpSoprSetGrNal, '', , sci1Esc;
+-'Просмотр/редактирование налогов', cmAttrib, 'Просмотр/редактирование налогов к позиции документа', hcSellM1DocNal, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню спецификации интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Накладные на отпуск МЦ</link>
+#end
+
+mnuSoprUslSpSopr Menu
+{
+-'Выбор из каталога', cmRestoreDoc, 'Выбор позиции из каталога', hcSellLocMFromKatal, 'Ctrl+F3', kbCtrlF3, sci1Esc;
+-----------;
+-'Расчет стоимости услуги', cmValue20, 'Отчет - Расчет стоимости услуги', hccuMCalc, '', , sci1Esc;
+-'Параметры расчетной услуги', cmValue17, 'Просмотр и изменение параметров расчетной услуги', hccuMInPar, '', , sci1Esc;
+-'Объединение одноименных позиций накладной', cmValue4, 'Объединение одноименных позиций накладной', hcUnionSpecification, , , sci1Esc;
+-'Запрет на пересчет суммы', cmValue11, 'Отключить пересчет на время редактирования документа', hcZapret, '', , sci1Esc;
+#ifdef __MTR_TO_SPEC__
+-----------;
+-'Целевой учет', cmIerarchy, '', hcUKS_LokM_Chelev, 'Ctrl+U', kbCtrlU, sci1Esc;
+#end
+-----------;
+-'Внешняя классификация', cmPickClass, 'Установка внешней классификации к позиции', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+-'Внешние атрибуты', cmPickAttr, 'Установка внешних атрибутов к позиции', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+-----------;
+-'Расширенная информация', cmAttrib, 'Открыть окно расширенной информации', hcSellWNaklEditSpec, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню спецификации интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Накладные на отпуск МЦ</link>
+#end
+
+mnuSopDocRashSpSopr1 Menu
+{
+-'Печать паспорта качества', cmPlansNo, 'Печать паспорта качества для текущей МЦ', hcPrintPKach, 'Alt+P', kbAltP, sci1Esc;
+------------;
+-'Наличие МЦ', cmNal, 'Получение информации по наличию МЦ', hcctxSoprNalMC, 'Alt+F', kbAltF, sci1Esc;
+------------;
+-'Проcмотр остатков МЦ', cmShowAll, 'Получение информации об остатках МЦ', hcAllASaldDat, 'Ctrl+''+''', kbCtrlGrayPlus, sci1Esc;
+------------;
+-'Перечень серийных номеров',cmXchangeMCSetup,'',hcManufLocMSerNumList,'',,sci1Esc;
+------------;
+-'Распределение МЦ по разрезу', cmAlt2, 'Распределение спецификации по тек.наличию МЦ с учетом выбранного разреза хранения', hcm_sell_Raspred_MC_Razrez, 'Alt+2', kbAlt2, sci1Esc;
+------------;
+//_SKS_
+='План списания МЦ из ячеек хранения','Формирование и редактирование плана списания МЦ из ячеек хранения',hcPrihNaklLocMFormRaspedCell,sci1Esc;
+ {
+  -'Редактирование плана списания МЦ',cmHandBoxPlan,'Ручное редактирование плана списания МЦ из ячеек хранения',hcm_sell_lokPedPlanSpisan,'',,sci1Esc;
+  -'Печать плана списания',cmPrintBoxPlan,'Печать плана списания для всех спецификаций накладной',hcm_sell_PechPlanSpisan,,,sci1Esc;
+ }
+#ifdef Kachestvo2
+  #define _Qual_SS_LM_201_
+  #include QualSopr.vpp
+#end // #ifdef Kachestvo2
+------------;
+-'Выбор партии из текущих остатков', cmSaveDoc, 'Выбор партии МЦ из текущих остатков', hciGTekOst, 'Ctrl+F2', kbCtrlF2, sci1Esc;
+-'Выбор матценностей из каталога', cmRestoreDoc, 'Выбор МЦ из каталога', hcZakupLocMFromPrice, 'Ctrl+F3', kbCtrlF3, sci1Esc;
+------------;
+-'Дублирование позиции', cmValue9, 'Дублирование текущей позиции', hcSellDublPos, '', , sci1Esc;
+-'Объединение одноименных позиций накладной', cmValue4, 'Объединение одноименных позиций накладной', hcUnionSpecification, , , sci1Esc;
+------------;
+-'Запрет на пересчет суммы', cmValue11, 'Отключить пересчет на время редактирования документа', hcZapret, '', , sci1Esc;
+-----------;
+-'Целевой учет', cmIerarchy, '', hcUKS_LokM_Chelev, 'Ctrl+U', kbCtrlU, sci1Esc;
+-----------;
+-'Внешняя классификация', cmPickClass, 'Установка внешней классификации к позиции', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+-'Внешние атрибуты', cmPickAttr, 'Установка внешних атрибутов к позиции', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+-'Документы, поставляемые с грузом',cmDocOfGdsInNakl,'Документы, поставляемые с грузом',hcuks_Dok_Gruz,,,sci1Esc;
+-----------;
+-'Расширенная информация', cmAttrib, 'Открыть окно расширенной информации', hcSellWNaklEditSpec, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню окна редактирования интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Накладные на отпуск МЦ</link>
+#end
+
+mnuSoprDocRashKatSopr Menu
+{
+-'Сортировка МЦ', cmSortMC, 'Сортировка МЦ по наименованию или бар-коду', hcctxSortMC, 'Alt+R', kbAltR, sci1Esc;
+------------;
+-'Смена дескриптора', cmManagerID, 'Изменение/установка дескриптора пользователя', hcIGetDescr, 'Alt+M', kbAltM, sci1Esc;
+------------;
+= 'Печать', 'Печать документа',,sci1Esc;
+ {
+  -'Печать документа', cmPrintDoc, 'Печать текущего документа', hcctxSoprPrintDoc, 'Ctrl+P', kbCtrlP, sci1Esc;
+  -'Печать документа в FastReport', cmPlansNo, 'Печать документа в FastReport', hcctxSoprPrintDoc,'Alt+P', kbAltP, sci1Esc;
+  -'Печать сертификатов партий МЦ', cmValFld14, 'Печать сертификатов по внешним атрибутам партий МЦ', hcSellM1PrnSert, , , sci1Esc;
+  -'Печать накладных с группировкой спецификации МЦ', cmValFld15, 'Печать накладных с группировкой спецификации МЦ', hcSellNaklLocMPrintGroupMC, , , sci1Esc;
+ }
+------------;
+-'Справка по документу', cmValue36, 'Просмотр краткой справки по документу', hcctxSoprSpravDoc,,, sci1Esc;
+-'Справка об объеме и массе позиций спецификации документа', cmValue25, 'Справка об объеме и массе позиций спецификации документа', hcm_zakup_LokSpravka, , , sci1Esc;
+------------;
+-'Просмотр ордеров', cmAccording, 'Просмотр информации по сформированным ордерам документа', hcOrder4SoprVMain, 'Alt+S', kbAltS, sci1Esc;
+-'Просмотр налогов', cmSeeDopInfo, 'Просмотр налогов по документу', hcSellM1DocNal, '', , sci1Esc;
+-'Просмотр схем связей между документами', cmLegend, 'Просмотр схем связей между документами', hcdgDocRelationView, 'Alt+U', kbAltU, sci1Esc;
+------------;
+-'Пропуск-отвес', cmValue8, 'Ввод/редактирование пропуск-отвеса', hcSopr_PropOtves, '', , sci1Esc;
+------------;
+-'Автораспределение МЦ по разрезу', cmAlt2, 'Автораспределение спецификации по тек.наличию МЦ с учетом выбранного разреза хранения', hci_nakl_avtorasped_razrez, 'Alt+2', kbAlt2, sci1Esc;
+------------;
+-'Установка цен из прайс-листа', cmSetFlag, 'Установка цен в спецификации из выбранного прайс-листа', hcCtxPriceIzm, '', , sci1Esc;
+-'Синхронизация данных с ДО', cmValue38, 'Синхронизация данных с ДО', hcm_sell_Sinxron_DO, '', , sci1Esc;
+-'Выбор партии для всех позиций документа', cmSelectPar, 'Выбор партии для всех позиций документа', hcSopr_SetOnePartyDoc, '', , sci1Esc;
+------------;
+-'Дублируемые позиции', cmDublSopr, 'Отчет по дублируемым позициям', hcctxDublSopr, 'Alt+O', kbAltO, sci1Esc;
+#ifdef Kachestvo2
+  #define _Qual_KS_LM_201_
+  #include QualSopr.vpp
+#end // #ifdef Kachestvo2
+-----------;
+-'Дата формирования документа', cmVal1, 'Дата выписки накладной по умолчанию', hcNastrDocDateDefault, , , sci1Esc;
+------------;
+-'Пересчет средних цен в документе', cmDocBas, 'Пересчет средних цен в документе', hcctxRecalcSrPrice, 'Alt+D', kbAltD, sci1Esc;
+------------;
+-'Внешняя классификация', cmPickClass, 'Установка внешней классификации документа', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+-'Внешние атрибуты', cmPickAttr, 'Установка внешних атрибутов к документу', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+------------;
+-'Расширенная информация', cmAttrib, 'Открыть окно расширенной информации', hcSellWNaklEditTopPanDop, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню спецификации интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Накладные. АРМ весовщика</link>
+#end
+
+mnuSHT_CE_SopDocRashSpSopr Menu
+{
+-'Прочитать результат взвешивания', cmValue17, 'Прочитать значение из автоматических весов', , , , sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню спецификации интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Накладные. АРМ весовщика</link>
+#end
+
+mnuSHT_CE_2_SpSopr Menu
+{
+-'Прочитать результат ~в~звешивания', cmValue17, 'Прочитать значение из автоматических весов', , , , sci1Esc;
+-----------;
+-'Добавить ~М~Ц из прайс-листа'     , cmValue18, 'Добавить в спецификацию МЦ из прайс-листа', , , , sci1Esc;
+-'Добавить МЦ из ~с~пецификации ДО' , cmValue19, 'Добавить в спецификацию МЦ из спецификации документа-основания', , , , sci1Esc;
+-----------;
+-'Добавить ~У~слугу из прайс-листа' , cmValue20, 'Добавить в спецификацию Услугу из прайс-листа', , , , sci1Esc;
+-'Добавить Услугу из ~к~аталога'    , cmValue14, 'Добавить в спецификацию Услугу из каталога услуг', , , , sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню окна редактирования интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Акты передачи оборудования в монтаж</link>
+#end
+
+mnuSoprDocRashKatSopr210 Menu
+{
+-'Сортировка МЦ', cmSortMC, 'Сортировка МЦ по наименованию или бар-коду', hcctxSortMC, 'Alt+R', kbAltR, sci1Esc;
+------------;
+-'Смена дескриптора', cmManagerID, 'Изменение/установка дескриптора пользователя', hcIGetDescr, 'Alt+M', kbAltM, sci1Esc;
+------------;
+= 'Печать', 'Печать документа',,sci1Esc;
+ {
+  -'Печать документа', cmPrintDoc, 'Печать текущего документа', hcctxSoprPrintDoc, 'Ctrl+P', kbCtrlP, sci1Esc;
+  -'Печать сертификатов партий МЦ', cmValFld14, 'Печать сертификатов по внешним атрибутам партий МЦ', hcSellM1PrnSert, , , sci1Esc;
+  -'Справка по документу', cmPlansNo, 'Просмотр краткой справки по документу', hcctxSoprSpravDoc, 'Alt+P', kbAltP, sci1Esc;
+ }
+------------;
+-'Просмотр ордеров', cmAccording, 'Просмотр информации по сформированным ордерам документа', hcOrder4SoprVMain, 'Alt+S', kbAltS, sci1Esc;
+------------;
+-'Пропуск-отвес', cmValue8, 'Ввод/редактирование пропуск-отвеса', hcSopr_PropOtves, '', , sci1Esc;
+------------;
+-'Установка цен из прайс-листа', cmSetFlag, 'Установка цен в спецификации из выбранного прайс-листа', hcCtxPriceIzm, '', , sci1Esc;
+-----------;
+-'Выбор партии для всех позиций документа', cmSelectPar, 'Выбор партии для всех позиций документа', hcSopr_SetOnePartyDoc, '', , sci1Esc;
+-----------;
+-'Дублируемые позиции', cmDublSopr, 'Отчет по дублируемым позициям', hcctxDublSopr, 'Alt+O', kbAltO, sci1Esc;
+-----------;
+-'Дата формирования документа', cmVal1, 'Дата выписки накладной по умолчанию', hcNastrDocDateDefault, , , sci1Esc;
+------------;
+-'Пересчет средних цен в документе', cmDocBas, 'Пересчет средних цен в документе', hcctxRecalcSrPrice, 'Alt+D', kbAltD, sci1Esc;
+------------;
+-'Внешняя классификация', cmPickClass, 'Установка внешней классификации документа', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+-'Внешние атрибуты', cmPickAttr, 'Установка внешних атрибутов к документу', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+------------;
+-'Расширенная информация', cmAttrib, 'Открыть окно расширенной информации', hcSellWNaklEditTopPanDop, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Локальное меню окна редактирования интерфейса <link Interface L_SOPRDOC::SOPRDOC>L_SOPRDOC::SOPRDOC - Акты передачи оборудования в монтаж</link>
+#end
+
+mnuSoprDocRashKatSopr229 Menu
+{
+-'Сортировка МЦ', cmSortMC, 'Сортировка МЦ по наименованию или бар-коду', hcctxSortMC, 'Alt+R', kbAltR, sci1Esc;
+------------;
+-'Смена дескриптора', cmManagerID, 'Изменение/установка дескриптора пользователя', hcIGetDescr, 'Alt+M', kbAltM, sci1Esc;
+------------;
+= 'Печать', 'Печать документа',,sci1Esc;
+ {
+  -'Печать документа', cmPrintDoc, 'Печать текущего документа', hcctxSoprPrintDoc, 'Ctrl+P', kbCtrlP, sci1Esc;
+  -'Печать сертификатов партий МЦ', cmValFld14, 'Печать сертификатов по внешним атрибутам партий МЦ', hcSellM1PrnSert, , , sci1Esc;
+  -'Справка по документу', cmPlansNo, 'Просмотр краткой справки по документу', hcctxSoprSpravDoc, 'Alt+P', kbAltP, sci1Esc;
+ }
+------------;
+-'Просмотр ордеров', cmAccording, 'Просмотр информации по сформированным ордерам документа', hcOrder4SoprVMain, 'Alt+S', kbAltS, sci1Esc;
+------------;
+-'Пропуск-отвес', cmValue8, 'Ввод/редактирование пропуск-отвеса', hcSopr_PropOtves, '', , sci1Esc;
+------------;
+-'Установка цен из прайс-листа', cmSetFlag, 'Установка цен в спецификации из выбранного прайс-листа', hcCtxPriceIzm, '', , sci1Esc;
+-----------;
+-'Выбор партии для всех позиций документа', cmSelectPar, 'Выбор партии для всех позиций документа', hcSopr_SetOnePartyDoc, '', , sci1Esc;
+-----------;
+-'Распределение МЦ по разрезу', cmAlt2, 'Распределение спецификации по тек.наличию МЦ с учетом выбранного разреза хранения', hcm_sell_Raspred_MC_Razrez, 'Alt+2', kbAlt2, sci1Esc;
+-----------;
+-'Дублируемые позиции', cmDublSopr, 'Отчет по дублируемым позициям', hcctxDublSopr, 'Alt+O', kbAltO, sci1Esc;
+-----------;
+-'Дата формирования документа', cmVal1, 'Дата выписки накладной по умолчанию', hcNastrDocDateDefault, , , sci1Esc;
+------------;
+-'Пересчет средних цен в документе', cmDocBas, 'Пересчет средних цен в документе', hcctxRecalcSrPrice, 'Alt+D', kbAltD, sci1Esc;
+------------;
+-'Внешняя классификация', cmPickClass, 'Установка внешней классификации документа', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+-'Внешние атрибуты', cmPickAttr, 'Установка внешних атрибутов к документу', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+------------;
+-'Расширенная информация', cmAttrib, 'Открыть окно расширенной информации', hcSellWNaklEditTopPanDop, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Просмотр путевых листов
+#end
+
+ProizvObjEdit Menu
+{
+-'Внешняя классификация', cmPickClass, 'Установка внешней классификации к позиции', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+-'Внешние атрибуты', cmPickAttr, 'Установка внешних атрибутов к позиции', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+-'Просмотр путевых', cmSeePutLst, 'Просмотр путевых листов ', hcAvtoLFProsmotrPutevyh, '', , sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Выбор из смет
+#end
+
+mnuSopDocSpSoprPickSmet Menu
+{
+-'Выбор из смет', cmMulSelDO, 'Выбор позиции из смет', hcm_zakup_Lok_Smeta, 'Ctrl+I', kbCtrlI, sci1Esc;
+}
+
+//******************************************************************************
+
+#doc
+Пересчет средних цен
+#end
+
+mnuSoprDocCalcSrPrice Menu
+{
+-'Пересчет средних цен в документе', cmCalcSrPrice, 'Пересчет средних цен в документе', hcctxRecalcSrPrice, '', , sci1Esc;
+}
+
+//********************************************************************************
+#doc
+Элемент локального меню для фильтров
+#end
+
+mnuFltSoprDocInList Menu
+{
+-'Фильтр...',cmFilterSave,'Установить/снять фильтр',hcNoContext,'Alt+B',kbAltB,sci1Esc;
+}
+#doc
+Элемент локального меню
+#end
+//********************************************************************************
+mnuMakeDocByRasp Menu
+{
+-'Сформировать по распоряжению на прием-отпуск'  , cmValFld1, 'Сформировать по распоряжению на прием-отпуск'  , hcNoContext, , , sci1Esc;
+-'Сформировать по распоряжению на возврат-отпуск', cmValFld2, 'Сформировать по распоряжению на возврат-отпуск', hcNoContext, , , sci1Esc;
+-'Сформировать по распоряжению на перемещение'   , cmValFld3, 'Сформировать по распоряжению на перемещение'   , hcNoContext, , , sci1Esc;
+}
+
+
+//********************************************************************************
+DlgPickReport210 DIALOG
+Fields
+  wType ('Выберите тип отчета'): word;
+
+Buttons
+  cmOk, Default, , 'Ввод';
+  cmCancel, , , 'Отмена';
+<<'Выберите тип отчета'
+┌───────────────────────────┐
+│ (.)  формы накладных  `   │
+│ (.)  форма ОС-15      `   │
+└───────────────────────────┘
+
+ <.Продолжить.> <. Отмена .>
+>>
+//********************************************************************************
+DlgNormUb DIALOG
+  HelpCtx hci_nakl_Param_Yb;
+Fields
+  wNormUb ('Работа с нормами убыли'): word;
+
+Buttons
+  cmOk, Default, , 'Ввод';
+  cmCancel, , , 'Отмена';
+<<'Установите параметр'
+ [.] Работа с нормами убыли`
+
+ <.Продолжить.> <. Отмена .>
+>>
+//********************************************************************************

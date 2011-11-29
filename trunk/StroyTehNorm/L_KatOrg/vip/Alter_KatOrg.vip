@@ -1,0 +1,55 @@
+
+alter interface KatOrg;
+
+ window wKatOrg;
+          HandleEvent
+            cmInit:
+            {
+              if (inherited::handleEvent (cmInit) = heAbort )
+                Abort;
+
+              SetTabbedSheetVisible(TaxationInfoEmbedded, false);
+              SetTabbedSheetVisible(AccountsInfoEmbedded, false);
+!              SetTabbedSheetVisible(AdditionalInfoScreen, false);
+            }
+
+            cmDone: {
+              if (wGetTune('KatOrg.Needed.UNN') > 0) and (Trim(KatOrgImp.UNN) = '' )
+                and (KatOrg.cState = 0) {
+                message ('Необходимо указать адрес организации')
+                  abort;
+                }
+
+                ReReadRecord(#KatOrgImp);
+
+                // проверка заполнения ИНН
+                if (wGetTune('KatOrg.Needed.UNN') > 0) and (Trim(KatOrgImp.UNN) = '' )
+                  and (if (oWA.ValueExists(coKatState, KatState.NRec, NameAttrStateUNN),
+                         if (oWA.doGetAttr(coKatState, KatState.NRec, NameAttrStateUNN) = 0, TRUE, FALSE), TRUE)) // TRUE - ведение ИНН в данной стране
+                  {
+
+                    if (wGetTune('KatOrg.Needed.UNN') = 1) // предупреждение
+                    {
+                      if (Message('Не заполнено поле "' + sGetTune('KATORG.FLDVIEW.UNN') + '"' + Chr(13) + 'Продолжить?', Warning + yesNo) = cmNo)
+                      {
+                        abort;
+                        exit;
+                      }
+                    }
+                    else // обязательное заполнение
+                    {
+                      Message('Заполните поле "' +  sGetTune('KATORG.FLDVIEW.UNN')+ '"!', Warning + OkButton);
+                      abort;
+                      exit;
+                    }
+                  }
+
+                if DefaultOrganizationRef <> 0
+                  PutCommand(cmCancel);
+            }
+
+
+          end;
+ end; //windows
+
+end.

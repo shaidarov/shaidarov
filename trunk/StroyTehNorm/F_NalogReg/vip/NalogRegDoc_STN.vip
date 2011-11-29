@@ -1,0 +1,1481 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.84 - ФРО и Налоговый учет
+// Интерфейс редактирования налоговых регистров и расходов будущих периодов
+//------------------------------------------------------------------------------
+
+#include Commission.fun  // Функции для вывода комиссии
+#include Commission.vih  // Вывод комиссии в отчет
+#include SoprHoz.vih
+#include TXOPick.vih     // Выбор ТХО для SoprHoz
+#include NalogReg.vih    // Бизнес-логика
+#include E:\!StroyTehNorm\!project\F_NalogReg\vip\NalogRegDoc_STN.vih
+#include AllOborot.Vih   // Обработка бухпроводок и финопераций по регистрам учета
+#include xlReport.Vih    // Формирование Excel-отчетов
+#include PSManager.vih
+#include ExtAttr.vih     // Внешние атрибуты
+#include ExtClass.vih    // Внешняя классификация
+
+#ifdef ComponentVersion
+  #include GetAlgam.vih  // Выбор алгоритма
+  #include MoveOS.vih    // Операции с ОС и НМА
+#end
+
+#doc
+Интерфейс редактирования налоговых регистров и расходов будущих периодов
+#end
+
+Interface NalogRegDoc_STN 'Налоговые регистры'
+                     ('Интерфейс редактирования налоговых регистров',,sci178Esc) Cyan, EscClose;
+  Show at (,,,);
+
+Var
+  SavedRecord : Type$NalRegDc;
+  rTXOPick    : iTXOPick;
+  pXL         : XLSRepBuilder; // Объект формирования Excel-отчетов
+  pxlrepsetup : xlrepsetup;
+  #ifdef Atl51
+  tPropBuf    : TNalRegDoc;
+  #end
+#include NalogReg.var          // Бизнес-логика
+#include AllEditOborot.var
+#include PSManagerNew.var      // Работа с регистрами учета и планами счетов
+#include Commission.var        // Вывод комиссии в отчет
+#include ExtAttr.var           // Внешние атрибуты
+#include ExtClass.var          // Внешняя классификация
+
+Const
+  // Формат отчета
+  cgRepFilFormatFCOM = 0;
+  cgRepFilFormatXLS  = 1;
+
+  fcCommissionMember_RashFuture = 11279;    // igor
+  fcRASHFUTURE_BODY = 33987;
+  fcTHISISLEVITOG = 26294;
+
+  // Пути по умолчанию
+#ifdef Gal8_1
+  IDInv11            = 'F_NalogReg\Inv11';
+#else
+  IDInv11            = 'Buh\Inv11';
+#end
+
+#ifdef Gal8_1
+  cgXltRepPath       = '%StartPath%XLS\F_NalogReg\Inv11.xlt';
+#else
+  cgXltRepPath       = '%StartPath%XLS\Buh\Inv11.xlt';
+#end
+
+  // Для фильтра
+  cgFil_Period  = 1;  // По диапазону дат
+  cgFil_DesCr   = 2;  // По пользователю (дескриптору)
+  cgFil_DesGr   = 4;  // По рабочей группе
+  cgFil_VidOper = 8;  // По виду операций
+  cgFil_VidRash = 16; // По виду расходов
+  cgFil_AlgRasp = 32; // По алгоритму распределения
+  cgFil_SrokSp  = 64; // По сроку списания
+end;
+
+#include GetCurTunes.vpp
+
+Procedure ResetScr; Forward;
+
+Create view
+Var
+  winAborted    : boolean;
+  dFrom,
+  dTo,
+  dDate,
+  dDate1,
+  dDate2        : date;
+  sNumber       : string;
+  pNRec,
+  cPlansSch     : tNRec;
+  pTiDk,
+  pMode,
+  RaspCur       : word;
+  #ifndef Atl51
+  tPropBuf      : TNalRegDoc;
+  #end
+  Marker,
+  IndexNo,
+  SaldoMarker   : longint;
+  CurProcProtect: byte;       // Для S_Close.vpp
+  // Настройка отчета
+  FilFormat     : word;
+  FilLabel,
+  sXLTFileName,
+  sXLSFileName  : string;
+
+  sCommission   : string;
+
+  // Фильтры
+  wInitPar,
+  FilwMask,                   // Параметр накладываемой маски для закрытия кластера на редактирование
+  FilCheck,
+  FilBAlgRasp,
+  FilAlgRasp    : word;
+  FilBDateBeg,
+  FilBDateEnd,
+  FilDateBeg,
+  FilDateEnd    : date;
+  sCurMyDesCr,
+  FilBDesCr,
+  FilDesCr      : string[20];
+  sCurMyDesGr,
+  FilBDesGr,
+  FilDesGr      : string[4];
+  FilVidOper,
+  FilVidRash    : string;
+  FilBSrokSp,
+  FilSrokSp     : double;
+  pSopr,
+  cFBVidOper,
+  cFBVidRash,
+  cFVidOper,
+  cFVidRash     : comp;
+  bDoUndo,
+  bRestore      : boolean;
+  piFilScreen   : longint;
+
+As select
+  iNalogReg.PosByNRec(NalRegDc.NRec)
+                                             (FieldName = iNRec)
+//---------------------------------
+ ,iNalogReg.GetAllProps(tPropBuf)
+                                             (FieldName = iProp)
+//---------------------------------
+ ,if (NalRegDc.RsSyn = 0, '-', '+')
+                                             (FieldName = InFuture)
+//---------------------------------
+ ,if (NalRegDc.RsSyn = 0, 'Не входит', 'Входит')
+                                             (FieldName = InFutureStr)
+//---------------------------------
+ ,if (isValid(tnSoprHoz), rTXOPick.GetHozOperName(cPlansSch, SoprHoz.BufferP), '')
+                                             (FieldName = HozOpName)
+//---------------------------------
+ ,if (NalRegDc.RasprMode = nrRasprByMonth, 'мес.',
+    if (NalRegDc.RasprMode = nrRasprByMnDt, 'мес!',
+      if (NalRegDc.RasprMode = nrRasprByYear, 'год',
+        if (NalRegDc.RasprMode = nrRasprByPerc, '%',
+          if (NalRegDc.RasprMode = nrRasprByKvart, 'кв.',
+            if (NalRegDc.RasprMode = nrRasprByKvDt, 'кв!',
+              if (NalRegDc.RasprMode = nrRasprByDay, 'дн.',
+              '?')))))))
+                                             (FieldName = TimeEd)
+//---------------------------------
+ ,if ((NalRegDc.RasprMode = nrRasprByMonth) or (NalRegDc.RasprMode = nrRasprByMnDt) or
+      (NalRegDc.RasprMode = nrRasprByKvart) or (NalRegDc.RasprMode = nrRasprByKvDt) or
+      (NalRegDc.RasprMode = nrRasprByYear), integer(NalRegDc.Kol),
+    if (NalRegDc.RasprMode = nrRasprByDay, Months_Between(NalRegDc.DopDat2,
+      if (pTiDk = cgDoc_1058, NalRegDc.DatEnd, NalRegDc.DopDat1)) + 1,
+        if (NalRegDc.RasprMode = nrRasprByPerc, NalRegDc.RasprVal, 0)))
+                                             (FieldName = Srok)
+//---------------------------------
+ ,if (NalRegDc.RasprMode = nrRasprByMonth, 'мес',
+    if (NalRegDc.RasprMode = nrRasprByMnDt, 'мес!',
+      if (NalRegDc.RasprMode = nrRasprByYear, 'год',
+        if (NalRegDc.RasprMode = nrRasprByPerc, 'дн.',
+          if (NalRegDc.RasprMode = nrRasprByKvart, 'кв.',
+            if (NalRegDc.RasprMode = nrRasprByKvDt, 'кв!',
+              if (NalRegDc.RasprMode = nrRasprByDay, 'мес.',
+              '?')))))))
+                                             (FieldName = SrokEd)
+//---------------------------------
+ ,if (SearchMarker(Marker, NalRegSp.NRec, IndexNo), '√', '')
+                                             (FieldName = Picked)
+//---------------------------------
+ ,if (NalRegDc.SumPr = 0, '', sGetTune('NDE.SimvRub'))
+                                             (FieldName = SimVal)
+//---------------------------------
+ ,if (isValid(tnSaldMoun),
+    'Сальдо ' + if (SaldMoun.ViOb = 1, 'Дебетовое', 'Кредитовое') + ' по счету ' + SaldMoun.dbSchetO +
+      if (SaldMoun.SubOsSch = '', '', ' субсчет ' + SaldMoun.SubOsSch) +
+        ' (' + PlansSchSaldo.Name + ')', '')
+                                             (FieldName = Saldo)
+//---------------------------------
+ ,if (not isValid(tnNalRegSp), True, False)
+                                             (FieldName = SpBold)
+//---------------------------------
+ ,if (not isValid(tnNalRegSp), ColorSysNavy, 0)
+                                             (FieldName = SpColor)
+//---------------------------------
+
+ ,*
+
+From
+  Synonym KatKlass KatKlProch    (ReadOnly),
+  Synonym PlansSch PlansSchSaldo (ReadOnly),
+  Synonym NalRegDc NalRegDcSaldo (ReadOnly),
+  NalRegDc                       (ReadOnly),
+  NalRegSp,
+  NalRegTt                       (ReadOnly),
+  KatOs                          (ReadOnly),
+  OSAlg                          (ReadOnly),
+  OsSpAlg                        (ReadOnly),
+  KatKlass                       (ReadOnly),
+  Refin                          (ReadOnly),
+  KatOrg                         (ReadOnly),
+  SaldMoun                       (ReadOnly),
+  AttrVal,
+  ExClassVal,
+  SpMoveOS,
+  SpStep,
+  BaseDoc,
+  SoprHoz
+
+Where
+((
+  pSopr              == NalRegDc.cSoprDoc (noIndex)  and          // igor
+
+  pTiDk              == NalRegDc.TiDk      and
+  NalRegDc.NRec      == NalRegSp.cNalRegDc and
+  NalRegDc.cVid      == KatKlass.NRec      and
+
+  pTiDk              == SoprHoz.TipDoc     and
+  NalRegSp.NRec      == SoprHoz.cSoprDoc   and
+
+  NalRegDc.cRegTmpl  == NalRegTt.NRec      and
+  NalRegDc.cAlgoritm == OSAlg.NRec         and
+
+  SpMoveOs.cKatOs    == KatOs.NRec         and
+  // Shaf
+  SpStep.cStepDoc    == StepDoc.NRec       and
+  StepDoc.cBaseDoc   == BaseDoc.NRec       and
+  // Копирование Внешних атрибутов и Внешней классификации
+  coNalRegDc         == AttrVal.wTable     and
+  SavedRecord.NRec   == AttrVal.cRec       and
+  coNalRegDc         == ExClassVal.wTable  and
+  SavedRecord.NRec   == ExClassVal.cRec    and
+  // Для отчета "Акт Инвентаризации Расходов Будущих периодов ИНВ-11"
+  coGetTune('MYORG') == KatOrg.NRec
+))
+
+Order by NalRegDc.TiDk, NalRegDc.DatDoc, NalRegDc.NoDoc
+Order by NalRegSp.cNalRegDc, NalRegSp.DatOb
+
+// Ограничение списка по диапазону дат
+Bounds ForInterval as dFrom <<= NalRegDc.DatDoc (NoIndex) and
+                        dTo >>= NalRegDc.DatDoc (NoIndex)
+
+// Ограничение расчетной суммы от даты составления акта и до конца месяца
+Bounds SumInDate as dDate1 <<= NalRegSp.DatOb and
+                    dDate2 >>= NalRegSp.DatOb
+
+// Ограничение суммы списания до даты составления акта
+Bounds SumOfDate as dDate >> NalRegSp.DatOb
+
+// Ограничение списка регистров по группе/пользователю
+Bounds byDescr as CurDesCr == NalRegDc.Descr (NoIndex)
+Bounds byDesGr as CurDesGr == NalRegDc.DesGr (NoIndex)
+
+// Подцепки, используемые отдельными типами документов
+Bounds ForAmortUbyt as NalRegDc.cSoprDoc  == SpMoveOs.NRec
+Bounds ForUstupUbyt as NalRegDc.cSoprDoc  == SpStep.NRec      // BaseDoc.NRec
+Bounds ForRefinans  as word(0)            == Refin.KolMin and // Рублевая шкала
+                       NalRegDc.DopDat2  >>= Refin.DatRec     // Индекс по убыванию - изменение сортировки не нужно
+
+Bounds ForProchOper as NalRegDc.cSoprDoc  == KatKlProch.NRec
+Bounds ForSaldo     as NalRegDc.cDopNR1   == SaldMoun.NRec
+Bounds ForPlansSch  as SaldMoun.cPlansSch == PlansSchSaldo.NRec
+
+// Для фильтра
+Bounds byFilPeriod  as FilBDateBeg <<= NalRegDc.DatDoc (NoIndex) and
+                       FilBDateEnd >>= NalRegDc.DatDoc (NoIndex)
+Bounds byFilDesCr   as FilBDesCr    == NalRegDc.Descr (NoIndex)
+Bounds byFilDesGr   as FilBDesGr    == NalRegDc.DesGr (NoIndex)
+Bounds byFilVidOper as cFBVidOper   == NalRegDc.cSoprDoc (NoIndex)
+Bounds byFilVidRash as cFBVidRash   == NalRegDc.cVid (NoIndex)
+Bounds byFilAlgRasp as FilBAlgRasp  == NalRegDc.RasprMode (NoIndex)
+Bounds byFilSrokSp  as FilBSrokSp   == NalRegDc.Kol (NoIndex)
+;
+
+Parameters
+  pMode, // Режим вызова интерфейса.
+  pTiDk, // Тип документов к просмотру (ограничения на корневую таблицу).
+  pNRec, // Позиционироваться на запись.
+  pSopr; // nRec накладной, откуда вызывает этот Интерфейс                   // igor
+
+Form frmNalRegDoc('NalRegDc.OUT', 'NalRegDoc') With NoVisual;
+Form frmNalRegSb ('NalRegSb.OUT', 'NalRegSb')  With NoVisual;
+
+#include AlgProc.vpp
+#include S_Close.vpp
+#include NalogRegDoc.vpp
+#include NalogRegDoc.rep
+#include E:\!StroyTehNorm\!project\F_NalogReg\vip\NalogRegDoc_STN.win
+#include NalogRegRep.vpp
+
+//------------------------------------------------------------------------------
+// Нельзя менять пользователя
+Function IsProtectFilterDesCr : boolean;
+{
+  IsProtectFilterDesCr := (CurVisible = cgDocVisible_MySelf);
+}
+
+//------------------------------------------------------------------------------
+// Нельзя менять рабочую группу
+Function IsProtectFilterDesGr : boolean;
+{
+  IsProtectFilterDesGr := ((CurVisible = cgDocVisible_GrRead) or (CurVisible = cgDocVisible_GrAll));
+}
+
+// Документ ПНО или РБП
+Function IsProchNalOpRashBudPer : boolean;
+{
+  IsProchNalOpRashBudPer := ((pTiDk = cgDoc_1056) or (pTiDk = cgDoc_1058));
+}
+
+//------------------------------------------------------------------------------
+Function SetFilCheckMask(cgFil_Const : word) : word;
+{
+  if (IsProchNalOpRashBudPer)
+    SetFilCheckMask := (cgFil_Const);
+  else
+    SetFilCheckMask := (cgFil_Const / 2);
+}
+
+//------------------------------------------------------------------------------
+Procedure SaveMyFilterDskParams;
+{
+  SaveMyDsk(FilCheck,     'FilCheck_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilDateBeg,   'FilDateBeg_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilDateEnd,   'FilDateEnd_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilDesCr,     'FilDesCr_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilDesGr,     'FilDesGr_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilVidOper,   'FilVidOper_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilVidRash,   'FilVidRash_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilAlgRasp,   'FilAlgRasp_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(FilSrokSp,    'FilSrokSp_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(cFVidOper,    'cFVidOper_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(cFVidRash,    'cFVidRash_NalogRegDoc' + Trim(string(pTiDk)));
+  SaveMyDsk(wInitPar,     'wInitPar_NalogRegDoc' + Trim(string(pTiDk)));
+}
+
+//------------------------------------------------------------------------------
+Procedure ReadMyFilterDskParams;
+{
+  if (not ReadMyDsk(FilCheck,    'FilCheck_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilCheck := 0;
+
+  if (not ReadMyDsk(FilDateBeg,  'FilDateBeg_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilDateBeg := 0;
+
+  if (not ReadMyDsk(FilDateEnd,  'FilDateEnd_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilDateEnd := 0;
+
+  if (not ReadMyDsk(FilDesCr,    'FilDesCr_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilDesCr := sCurMyDesCr;
+
+  if (not ReadMyDsk(FilDesGr,    'FilDesGr_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilDesGr := sCurMyDesGr;
+
+  if (not ReadMyDsk(FilVidOper,  'FilVidOper_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilVidOper := '';
+
+  if (not ReadMyDsk(FilVidRash,  'FilVidRash_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilVidRash := '';
+
+  if (not ReadMyDsk(FilAlgRasp,  'FilAlgRasp_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilAlgRasp := nrRasprDefMode;
+
+  if (not ReadMyDsk(FilSrokSp,   'FilSrokSp_NalogRegDoc' + Trim(string(pTiDk)), True))
+    FilSrokSp := 0;
+
+  if (not ReadMyDsk(cFVidOper,   'cFVidOper_NalogRegDoc' + Trim(string(pTiDk)), True))
+    cFVidOper := 0;
+
+  if (not ReadMyDsk(cFVidRash,   'cFVidRash_NalogRegDoc' + Trim(string(pTiDk)), True))
+    cFVidRash := 0;
+
+  if (not ReadMyDsk(wInitPar,    'wInitPar_NalogRegDoc' + Trim(string(pTiDk)), True))
+    wInitPar := 0;
+}
+
+//------------------------------------------------------------------------------
+Procedure ClearFieldsFilter;
+{
+  set FilCheck   := 0;
+  set FilDateBeg := 0;
+  set FilDateEnd := 0;
+  set FilDesCr   := sCurMyDesCr;
+  set FilDesGr   := sCurMyDesGr;
+  set FilVidOper := '';
+  set FilVidRash := '';
+  set cFVidOper  := 0;
+  set cFVidRash  := 0;
+  set FilAlgRasp := nrRasprDefMode;
+  set FilSrokSp  := 0;
+
+  if (IsProtectFilterDesCr)
+    set FilCheck := (FilCheck or cgFil_DesCr);
+
+  if (IsProtectFilterDesGr)
+    set FilCheck := (FilCheck or cgFil_DesGr);
+}
+
+//------------------------------------------------------------------------------
+Procedure SubMyBounds(FilBound : longint);
+{
+  if (BoundActive(FilBound))
+    SubBounds(FilBound);
+}
+
+//------------------------------------------------------------------------------
+Procedure AddMyBounds(FilBound : longint);
+{
+  if (not BoundActive(FilBound))
+    AddBounds(FilBound);
+}
+
+//------------------------------------------------------------------------------
+// Снятие дополнительных ограничений (по Alt+B)
+Procedure ReSetFilterBounds;
+{
+  if (not IsProtectFilterDesCr)
+    SubMyBounds(tbbyFilDesCr);
+
+  if (not IsProtectFilterDesGr)
+    SubMyBounds(tbbyFilDesGr);
+
+  SubMyBounds(tbbyFilPeriod);
+  SubMyBounds(tbbyFilVidOper);
+  SubMyBounds(tbbyFilVidRash);
+  SubMyBounds(tbbyFilAlgRasp);
+  SubMyBounds(tbbyFilSrokSp);
+}
+
+//------------------------------------------------------------------------------
+Procedure SetFieldBounds;
+{
+  set FilBDateBeg := FilDateBeg;
+  set FilBDateEnd := FilDateEnd;
+  set FilBDesCr   := FilDesCr;
+  set FilBDesGr   := FilDesGr;
+  set cFBVidOper  := cFVidOper;
+  set cFBVidRash  := cFVidRash;
+  set FilBAlgRasp := FilAlgRasp;
+  set FilBSrokSp  := FilSrokSp;
+}
+
+//------------------------------------------------------------------------------
+// Установка дополнительных ограничений (по Alt+B)
+Procedure SetFilterBounds;
+{
+  ReSetFilterBounds;
+  SetFieldBounds;
+
+  if ((FilCheck and cgFil_Period) = cgFil_Period)
+    AddMyBounds(tbbyFilPeriod);
+
+  if ((FilCheck and cgFil_DesCr) = cgFil_DesCr)
+    AddMyBounds(tbbyFilDesCr);
+
+  if ((FilCheck and cgFil_DesGr) = cgFil_DesGr)
+    AddMyBounds(tbbyFilDesGr);
+
+  if (IsProchNalOpRashBudPer)
+    if ((FilCheck and cgFil_VidOper) = cgFil_VidOper)
+      AddMyBounds(tbbyFilVidOper);
+
+  if ((FilCheck and SetFilCheckMask(cgFil_VidRash)) = SetFilCheckMask(cgFil_VidRash))
+    AddMyBounds(tbbyFilVidRash);
+
+  if ((FilCheck and SetFilCheckMask(cgFil_AlgRasp)) = SetFilCheckMask(cgFil_AlgRasp))
+    AddMyBounds(tbbyFilAlgRasp);
+
+  if ((FilCheck and SetFilCheckMask(cgFil_SrokSp)) = SetFilCheckMask(cgFil_SrokSp))
+    AddMyBounds(tbbyFilSrokSp);
+}
+
+//------------------------------------------------------------------------------
+Procedure SetFilterDesCrGrBounds;
+{
+  FilwMask := 0;
+
+  SetFieldOption(#FilDesCr, ofSelectable);
+  SetFieldOption(#FilDesGr, ofSelectable);
+
+  if (IsProtectFilterDesCr)
+  {
+    set FilDesCr  := sCurMyDesCr;
+    set FilBDesCr := FilDesCr;
+    set FilCheck  := (FilCheck or cgFil_DesCr);
+    set FilwMask  := (FilwMask or cgFil_DesCr);
+
+    if ((FilCheck and cgFil_DesGr) = cgFil_DesGr)
+      SubMyBounds(tbbyFilDesGr);
+
+    AddMyBounds(tbbyFilDesCr);
+
+    ClearFieldOption(#FilDesCr, ofSelectable);
+  }
+
+  if (IsProtectFilterDesGr)
+  {
+    set FilDesGr  := sCurMyDesGr;
+    set FilBDesGr := FilDesGr;
+    set FilCheck  := (FilCheck or cgFil_DesGr);
+    set FilwMask  := (FilwMask or cgFil_DesGr);
+
+    if ((FilCheck and cgFil_DesCr) <> cgFil_DesCr)
+      SubMyBounds(tbbyFilDesCr);
+
+    AddMyBounds(tbbyFilDesGr);
+
+    ClearFieldOption(#FilDesGr, ofSelectable);
+  }
+
+  ClusterDisabledField(#FilCheck, FilwMask);
+}
+
+//------------------------------------------------------------------------------
+Procedure SetViewListFilAlgRasp;
+Var
+  sMyArray1 : array [0..2] of string;
+  sMyArray2 : array [0..6] of string;
+  iMyArray1 : array [0..2] of integer;
+  iMyArray2 : array [0..6] of integer;
+{
+  if (pTiDk = cgDoc_1058)
+  {
+    iMyArray1[0] := nrRasprByMonth;
+    iMyArray1[1] := nrRasprByMnDt;
+    iMyArray1[2] := nrRasprByDay;
+
+    sMyArray1[0] := 'Пропорционально по месяцам';
+    sMyArray1[1] := 'По месяцам с учетом даты';
+    sMyArray1[2] := 'Пропорционально по дням';
+
+    SetEnumList(piFilScreen, #FilAlgRasp, sMyArray1, iMyArray1);
+  }
+  else
+  {
+    iMyArray2[0] := nrRasprByMonth;
+    iMyArray2[1] := nrRasprByMnDt;
+    iMyArray2[2] := nrRasprByKvart;
+    iMyArray2[3] := nrRasprByKvDt;
+    iMyArray2[4] := nrRasprByYear;
+    iMyArray2[5] := nrRasprByPerc;
+    iMyArray2[6] := nrRasprByDay;
+
+    sMyArray2[0] := 'Пропорционально по месяцам';
+    sMyArray2[1] := 'По месяцам с учетом даты';
+    sMyArray2[2] := 'Пропорционально по кварталам';
+    sMyArray2[3] := 'По кварталам с учетом даты';
+    sMyArray2[4] := 'Пропорционально по годам';
+    sMyArray2[5] := 'В текущем периоде';
+    sMyArray2[6] := 'Пропорционально по дням';
+
+    SetEnumList(piFilScreen, #FilAlgRasp, sMyArray2, iMyArray2);
+  }
+}
+
+//------------------------------------------------------------------------------
+Window wiFiltrNalogRegDoc 'Установка ограничений' EscClose, Gray;
+  Show at (,,66,14);
+
+Panel pFiltrNalogRegDoc;
+// Для pTiDk cgDoc_1056 и cgDoc_1058
+Screen scFiltrNalogRegDocVidOp ('',,sci13Esc);
+  Show at (,,,8);
+Fields
+  FilCheck   ('Установка фильтров',,sci1Esc)           : NoProtect;
+  FilDateBeg ('Дата формирования (начало периода)')    : ['DD/MM/YYYY'], NoProtect;
+  FilDateEnd ('Дата формирования (окончание периода)') : ['DD/MM/YYYY'], NoProtect;
+  FilDesCr   ('Дескриптор пользователя')               : Protect;
+  FilDesGr   ('Рабочая группа')                        : Protect;
+  FilVidOper ('Вид операции')                          : Protect;
+  FilVidRash ('Вид расхода')                           : Protect;
+  FilAlgRasp ('Алгоритм распределения')                : [List ''], Protect;
+  FilSrokSp  ('Срок списания',,sci1Esc)                : NoProtect;
+<<
+
+   [.] Период        `   `с` .@@@@@@@@@@   `по` .@@@@@@@@@@
+   [.] Пользователь  `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Рабочая группа`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Вид операции  `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Вид расхода   `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Алгоритм      `.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Срок списания `.@@@@@
+>>
+end;
+
+// Для остальных pTiDk
+Screen scFiltrNalogRegDocOutVid ('',,sci13Esc);
+  Show at (,,,8);
+Fields
+  FilCheck   ('Установка фильтров',,sci1Esc)           : NoProtect;
+  FilDateBeg ('Дата формирования (начало периода)')    : ['DD/MM/YYYY'], NoProtect;
+  FilDateEnd ('Дата формирования (окончание периода)') : ['DD/MM/YYYY'], NoProtect;
+  FilDesCr   ('Дескриптор пользователя')               : Protect;
+  FilDesGr   ('Рабочая группа')                        : Protect;
+  FilVidRash ('Вид расхода')                           : Protect;
+  FilAlgRasp ('Алгоритм распределения')                : [List ''], Protect;
+  FilSrokSp  ('Срок списания',,sci1Esc)                : NoProtect;
+<<
+
+   [.] Период        `   `с` .@@@@@@@@@@   `по` .@@@@@@@@@@
+   [.] Пользователь  `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Рабочая группа`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Вид расхода   `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Алгоритм      `.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Срок списания `.@@@@@
+>>
+end;
+
+Screen scFiltrNalogRegDocButton ('',,sci1Esc);
+  Show at (,9,,);
+Fields
+  wInitPar ('Обработка параметров') : NoProtect;
+
+Buttons
+  cmValue2,,,   'Снять наложение фильтра';
+  cmValue3,,,   'Очистить все поля';
+  cmOk,Default,,'Ввод ограничений';
+  cmCancel,,,   'Выход';
+<<
+ `Обработка параметров...`
+   [.] применить ограничения при загрузке интерфейса`
+
+  <.Снять фильтр.>  <. Очистить .>  <.Продолжить.>  <.  Отмена  .>
+>>
+end;
+
+//------------------------------------------------------------------------------
+HandleEvent // Panel pFiltrNalogRegDoc
+cmCheckField:
+{
+  case CurField of
+    #FilDateBeg, #FilDateEnd:
+      set FilCheck := (FilCheck or cgFil_Period);
+
+    #FilAlgRasp:
+      set FilCheck := (FilCheck or SetFilCheckMask(cgFil_AlgRasp));
+
+    #FilSrokSp:
+    {
+      if (FilSrokSp < 0)
+        set FilSrokSp := 0;
+
+      set FilCheck  := (FilCheck or SetFilCheckMask(cgFil_SrokSp));
+    }
+  end;
+}
+
+cmPick:
+{
+  case CurField of
+    #FilDesCr:
+    {
+      var tmpFilDesCr : string[20]
+
+      set tmpFilDesCr := FilDesCr;
+
+      if (RunInterface('GetDesCr', FilDesCr, FilDesGr, word(12345)) <> cmCancel)
+      {
+        set FilCheck := (FilCheck or cgFil_DesCr);
+
+        if ((FilDesGr <> sCurMyDesGr) and IsProtectFilterDesGr)
+        {
+          set FilDesCr := tmpFilDesCr;
+          set FilDesGr := sCurMyDesGr;
+
+          Message('Вам запрещено работать в другой группе!', CancelButton);
+        }
+      }
+    }
+
+    #FilDesGr:
+    {
+      if (RunInterface('GetGrDesCr', FilDesGr, False, False, comp(0)) <> cmCancel)
+        set FilCheck := (FilCheck or cgFil_DesGr);
+    }
+
+    #FilVidOper:
+    {
+      var iRunInt : integer;
+
+      case pTiDk of
+        cgDoc_1058:
+          iRunInt := RunInterface('KatKlass', cgDoc_1058, word(0), cFVidOper, word(0), True, comp(0));
+
+      else
+        iRunInt := RunInterface('KatKlass', cgDoc_1056, word(0), cFVidOper, word(0), True, comp(0));
+      end;
+
+      if (iRunInt <> cmCancel)
+      {
+        if (GetFirst KatKlProch where ((cFVidOper == KatKlProch.NRec)) = tsOk)
+        {
+          set FilCheck   := (FilCheck or cgFil_VidOper);
+          set FilVidOper := KatKlProch.Name;
+        }
+      }
+    }
+
+    #FilVidRash:
+    {
+      if (RunInterface('KatKlass', cgDoc_1050, word(0), cFVidRash, word(0), True, comp(0)) <> cmCancel)
+      {
+        if (GetFirst KatKlass where ((cFVidRash == KatKlass.NRec)) = tsOk)
+        {
+          set FilCheck   := (FilCheck or SetFilCheckMask(cgFil_VidRash));
+          set FilVidRash := KatKlass.Name;
+        }
+      }
+    }
+  end;
+}
+
+cmDelOnProtect:
+{
+  case CurField of
+    #FilDesCr:
+      set FilDesCr := '';
+
+    #FilDesGr:
+      set FilDesGr := '';
+
+    #FilVidOper:
+    {
+      set cFVidOper  := 0;
+      set FilVidOper := '';
+    }
+
+    #FilVidRash:
+    {
+      set cFVidRash  := 0;
+      set FilVidRash := '';
+    }
+
+    #FilAlgRasp:
+      set FilAlgRasp := nrRasprDefMode;
+  end;
+
+  ReReadRecord;
+}
+end; // HandleEvent Panel pFiltrNalogRegDoc
+end; // Panel pFiltrNalogRegDoc
+
+//------------------------------------------------------------------------------
+HandleEvent // Window wiFiltrNalogRegDoc
+cmInit:
+{
+  bRestore := False;
+}
+
+// Снять наложение фильтра
+cmValue2:
+{
+  ReSetFilterBounds;
+
+  bDoUndo := False;
+
+  CloseWindow(CurWindow);
+}
+
+// Очистить все поля
+cmValue3:
+{
+  ClearFieldsFilter;
+  ReReadRecord;
+}
+
+// Ввод ограничений
+cmOk:
+{
+  bRestore := False;
+
+  if ((FilCheck and cgFil_Period) = cgFil_Period)
+  {
+    if (FilDateBeg > FilDateEnd)
+    {
+      SelectField(#FilDateBeg);
+      Message('Дата начала периода больше даты окончания!', Error);
+      Exit;
+    }
+  }
+
+  SetFilterBounds;
+
+  if (not IsValidNew(#NalRegDc))
+  {
+    if (GetLast NalRegDc <> tsOk)
+    {
+      Message('Нет записей, удовлетворяющих заданному ограничению!', CancelButton);
+      bRestore := True;
+      Exit;
+    }
+    else
+    {
+      bDoUndo := True;
+
+      SaveMyFilterDskParams;
+      CloseWindow(CurWindow);
+    }
+  }
+  else
+  {
+    bDoUndo := True;
+
+    SaveMyFilterDskParams;
+    CloseWindow(CurWindow);
+  }
+
+  ReReadRecord(#NalRegDc);
+}
+
+cmDone:
+{
+  if (not bDoUndo)
+    set FilCheck := 0;
+  else
+    ReadMyFilterDskParams;
+
+  if (bDoUndo or bRestore)
+    SetFilterBounds;
+
+  if (not bDoUndo)
+    ReadMyFilterDskParams;
+}
+end; // HandleEvent Window wiFiltrNalogRegDoc
+end; // Window wiFiltrNalogRegDoc
+
+//------------------------------------------------------------------------------
+#ifdef ComponentVersion
+ToolBar
+    F_Common  ::tbBuhFilter
+  , F_Common  ::tbPlansNo
+  , F_Common  ::tbManagerId
+  , F_Common  ::tbPrintDoc
+  , F_Common  ::tbSaveRestoreDoc
+  , F_NalogReg::tbCalculation
+  , F_Common  ::tbAttrClass
+;
+#else
+ToolBar
+    tbBuhFilter
+  , tbPlansNo
+  , tbManagerId
+  , tbPrintDoc
+  , tbSaveRestoreDoc
+  , tbCalculation
+  , tbAttrClass
+;
+#end
+
+//------------------------------------------------------------------------------
+Browse brDefaultList (,,sci1478EnEsc);
+  Show at (,,,);
+  Table NalRegDc;
+Fields
+                  {Font = {Bold = SpBold; Color = SpColor}};
+  NalRegDc.DatDoc #3'Дата'           ('Дата документа')                                  : [10], Protect, NoAutoSize;
+  NalRegDc.Descr  #3'Дескр.'         ('Дескриптор пользователя, создавшего документ')    : [6],  Protect, NoAutoSize;
+  NalRegDc.NoDoc  #3'Номер'          ('Порядковый номер регистра')                       : [10], Protect;
+  NalRegDc.SumPr  #3'Принятая сумма' ('Принятая в уменьшение облагаемой базы сумма')     : [14.2, '\+2p[|-]366`666`666`666`667.88'], Protect;
+  Srok            #3'Срок'           ('Срок списания принятой суммы в единицах')         : [5],  Protect;
+  SrokEd          #3'Ед.'            ('Единица измерения срока списания принятой суммы') : [5],  Protect, NoAutoSize;
+  InFuture        #3'Буд.'           ('Признак включения суммы в расходы буд. периодов') : [3],  Protect, NoAutoSize;
+  iNRec;            // Позиционирование перед запросом свойств или вызовом функций бизнес-логики
+  //iProp;          // Запрос буфера со свойствами у интерфейса бизнес-логики
+  //tPropBuf.NoDoc; // Отображение свойства из буфера
+end;
+
+Browse brRashFutur (,hcBankOknoRashBudPeriod,sci1478EnEsc);
+  Show at (,,,);
+  Table NalRegDc;
+Fields
+                  {Font = {Bold = SpBold; Color = SpColor}};
+  NalRegDc.DatDoc #3'Дата'           ('Дата документа')                                  : [10], Protect, NoAutoSize;
+  NalRegDc.Descr  #3'Дескр.'         ('Дескриптор пользователя, создавшего документ')    : [6],  Protect, NoAutoSize;
+  NalRegDc.NoDoc  #3'Номер'          ('Порядковый номер регистра')                       : [10], Protect;
+  NalRegDc.SumPr  #3'Принятая сумма' ('Принятая в уменьшение облагаемой базы сумма')     : [14.2, '\+2p[|-]366`666`666`666`667.88'], Protect;
+  Srok            #3'Срок'           ('Срок списания принятой суммы в единицах')         : [5],  Protect;
+  SrokEd          #3'Ед.'            ('Единица измерения срока списания принятой суммы') : [5],  Protect, NoAutoSize;
+  iNRec;            // Позиционирование перед запросом свойств или вызовом функций бизнес-логики
+  //iProp;          // Запрос буфера со свойствами у интерфейса бизнес-логики
+  //tPropBuf.NoDoc; // Отображение свойства из буфера
+end;
+
+Browse brAmortUbyt (,,sci1478EnEsc);
+  Show at (,,,);
+  Table NalRegDc;
+Fields
+                  {Font = {Bold = SpBold; Color = SpColor}};
+  NalRegDc.DatDoc #3'Дата'                 ('Дата документа-регистра')                      : [10], Protect, NoAutoSize;
+  NalRegDc.Descr  #3'Дескр.'               ('Дескриптор пользователя, создавшего документ') : [6],  Protect, NoAutoSize;
+  NalRegDc.NoDoc  #3'Номер'                ('Порядковый номер регистра')                    : [10], Protect;
+  KatOS.InNum     #3'Инв.номер'            ('Инвентарный номер объекта')                    : [10], Protect;
+  KatOS.NameOS    #3'Наименование'         ('Наименование объекта')                         : [20], Protect;
+  NalRegDc.SumRs1 - NalRegDc.SumRs2 + NalRegDc.SumRs3 - NalRegDc.SumRs4
+                  #3'Убыток от реализации' ('Сумма убытка от реализации объекта')           : [14.2, '\+2p[|-]366`666`666`666`667.88'], Protect;
+  NalRegDc.SumPr  #3'Принятая сумма'       ('Принятая в уменьшение облагаемой базы сумма')  : [14.2, '\+2p[|-]366`666`666`666`667.88'], Protect;
+  iNRec;            // Позиционирование бизнес-логики
+end;
+
+Browse brUstDoUbyt (,,sci1478EnEsc);
+  Show at (,,,);
+  Table NalRegDc;
+Fields
+                  {Font = {Bold = SpBold; Color = SpColor}};
+  NalRegDc.DatDoc #3'Дата'              ('Дата документа')                                                  : [10], Protect, NoAutoSize;
+  NalRegDc.Descr  #3'Дескр.'            ('Дескриптор пользователя, создавшего документ')                    : [6],  Protect, NoAutoSize;
+  NalRegDc.NoDoc  #3'Номер'             ('Порядковый номер регистра')                                       : [10], Protect;
+
+  BaseDoc.dDoc    #3'Дата уступки'      ('Дата уступки права требования')                                   : [10], Protect, NoAutoSize;
+  BaseDoc.NoDoc   #3'Номер уступки'     ('Номер уступки права требования')                                  : [10], Protect;
+  NalRegDc.DatEnd #3'Дата погашения'    ('Дата погашения задолженности по договору')                        : [10], Protect, NoAutoSize;
+  [UstTotUbyt] NalRegDc.SumRs2 - NalRegDc.SumRs1
+                  #3'Убыток от уступки' ('Сумма убытка, полученного в результате уступки права требования') : [14.2, '\+2p[|-]366`666`666`666`667.88'], Protect;
+  NalRegDc.SumPr  #3'Принятый убыток'   ('Убыток, принимаемый в уменьшение облагаемой базы')                : [14.2, '\+2p[|-]366`666`666`666`667.88'], Protect;
+  iNRec;
+end;
+
+Browse brSmnDlgRez (,,sci1478EnEsc);
+  Show at (,,,);
+  Table NalRegDc;
+Fields
+                  {Font = {Bold = SpBold; Color = SpColor}};
+  NalRegDc.DatDoc #3'Дата'          ('Дата документа')                                  : [10], Protect, NoAutoSize;
+  NalRegDc.Descr  #3'Дескр.'        ('Дескриптор пользователя, создавшего документ')    : [6],  Protect, NoAutoSize;
+  NalRegDc.NoDoc  #3'Номер'         ('Порядковый номер регистра')                       : [10], Protect;
+  NalRegDc.SumPr  #3'Сумма резерва' ('Сумма резерва по сомнительной задолженности')     : [15.2, '\+2p[|-]3666`666`666`666`667.88'], Protect;
+  InFuture        #3'Буд.'          ('Признак включения суммы в расходы буд. периодов') : [2],  Protect, NoAutoSize;
+  iNRec;
+end;
+
+//------------------------------------------------------------------------------
+Function PosOnInit : boolean;
+{
+  PosOnInit := False;
+
+  if (pNRec > 1 or pNRec < -1)
+    if (GetFirst NalRegDc where ((pNRec == NalRegDc.NRec)) = tsOk)
+      if (IsValidNew(#NalRegDc)) // Документ внутри текущих ограничений
+        PosOnInit := True;
+}
+
+//------------------------------------------------------------------------------
+Procedure AdjustDescrBounds;
+{
+  case CurVisible of
+
+    dcAllModif:
+    {
+      if (BoundActive(tbByDescr))
+        SubBounds(tbByDescr);
+
+      if (BoundActive(tbByDesGr))
+        SubBounds(tbByDesGr);
+    }
+
+    dcOwnOnly:
+    {
+      if (BoundActive(tbByDesGr))
+        SubBounds(tbByDesGr);
+
+      if (not BoundActive(tbByDescr))
+        AddBounds(tbByDescr);
+    }
+
+    dcGrpRead, dcGrpModif:
+    {
+      if (BoundActive(tbByDescr))
+        SubBounds(tbByDescr);
+
+      if (not BoundActive(tbByDesGr))
+        AddBounds(tbByDesGr);
+    }
+
+  end;
+}
+
+#include E:\!StroyTehNorm\!project\F_NalogReg\vip\NalogRegDoc_STN.pan
+#include NalogRegSald.vpp
+
+//------------------------------------------------------------------------------
+HandleEvent // Interface
+cmInit:
+{
+  if (not iPSManager.GetTuneRegUch(cPlansSch))
+  {
+    Abort;
+    Exit;
+  }
+
+  AdjustDescrBounds;
+  SelectFormat(brDefaultList);
+  SelectFormat(scProchOper);
+
+  // Обработка форматов для типов налоговых регистров
+  case (pTiDk) of
+
+    cgDoc_1050:
+    {
+      PushBounds(tbForAmortUbyt);
+      SelectFormat(brAmortUbyt);
+      SelectFormat(scAmortUbyt);
+    }
+
+    cgDoc_1051:
+    {
+      PushBounds(tbForRefinans);
+      PushBounds(tbForUstupUbyt);
+      SelectFormat(brUstDoUbyt);
+      SelectFormat(scUstDoUbyt);
+    }
+
+    cgDoc_1052:
+    {
+      PushBounds(tbForUstupUbyt);
+      SelectFormat(brUstDoUbyt);
+      SelectFormat(scUstPoUbyt);
+    }
+
+    cgDoc_1053:
+      SelectFormat(scProshUbyt);
+
+    cgDoc_1054:
+      SelectFormat(scStrahRash);
+
+    cgDoc_1055:
+    {
+      PushBounds(tbForRefinans);
+      SelectFormat(brSmnDlgRez);
+      SelectFormat(scSmnDlgRez);
+    }
+
+    cgDoc_1056:
+    {
+      PushBounds(tbForProchOper);
+      SelectFormat(scProchOper);
+    }
+
+    cgDoc_1058:
+    {
+      PushBounds(tbForProchOper);
+      PushBounds(tbForSaldo);
+      PushBounds(tbForPlansSch);
+      SelectFormat(brRashFutur);
+      SelectFormat(scRashFutur);
+    }
+
+  end;
+
+  sCurMyDesCr := sGetTune('User.DesCr');
+  sCurMyDesGr := sGetTune('User.DesGr');
+  bDoUndo     := False;
+
+  if (IsProchNalOpRashBudPer)
+  {
+    SetFormat(scFiltrNalogRegDocVidOp);
+    piFilScreen := scFiltrNalogRegDocVidOp;
+  }
+  else
+  {
+    SetFormat(scFiltrNalogRegDocOutVid);
+    piFilScreen := scFiltrNalogRegDocOutVid;
+  }
+
+  ReadMyFilterDskParams;
+  SetViewListFilAlgRasp;
+  SetFilterDesCrGrBounds;
+  SetTitle(GetRegTypeName(pTiDk, word(0)));
+  SetWindowTitle(NalRegWin, GetRegTypeName(pTiDk, word(0)));
+
+  // Обработка режимов вызова интерфейса
+  if ((pMode <> cgiNo) and (pMode <> cgiSingleEdit))
+  {
+    Message('Указанный режим вызова интерфейса не поддерживается.', Warning);
+    Abort;
+    Exit;
+  }
+
+  // Позиционирование при входе в интерфейс
+  if (not PosOnInit)
+  {
+    if (pMode = cgiSingleEdit)
+    {
+      Message('Документ для редактирования не найден.', Warning);
+      Abort;
+      Exit;
+    }
+
+    if ((wInitPar and 1) = 1)
+    {
+      SetFilterBounds;
+
+      if (GetLast NalRegDc <> tsOk)
+      {
+        if (Message('Не найдено ни одного документа, попадающего под установленные ограничения!'#13#13 +
+                    'Снять ограничения?', Confirmation + YesNo) <> cmYes)
+          bDoUndo := True;
+        else
+        {
+          ReSetFilterBounds;
+
+          bDoUndo := False;
+        }
+      }
+      else
+        bDoUndo := True;
+    }
+    else
+    {
+      if (GetLast NalRegDc = tsOk) {};
+    }
+
+    // Вставка новой записи
+    if (pNRec = -1)
+      PutCommand(cmInsert);
+  }
+  else
+  {
+    if (pMode = cgiSingleEdit)
+      PutCommand(cmEdit);
+  }
+
+  // Скрыть фиктивное поле для позиционирования бизнес-логики
+  ClearFieldState(#iNRec, sfVisible);
+  SaveMyFilterDskParams;
+  RedrawPanel(#NalRegDc);
+
+  Marker := InitMarker('', 8, 100, 10);
+}
+
+cmDone:
+{
+  DoneMarker(Marker, '');
+
+  if (not NullVipRef(iEditOborot))
+    iEditOborot.FreeLinks;
+}
+
+cmManagerId:
+{
+  if (not UpdateTable)
+    Exit;
+
+  if (not boGetTune('Doc.ChangeDescr'))
+  {
+    Message('Вам запрещено изменять дескриптор.', CancelButton);
+    Exit;
+  }
+
+  if (wGetTune('Doc.Visible') = dcOwnOnly)
+  {
+    Message('У Вас права на данные только со своим дескриптором.'#13 +
+            'Не могу переключиться на другой дескриптор.', CancelButton);
+    Exit;
+  }
+
+  if (not PickNewDescriptor(CurDesGr, CurDesCr))
+    Exit;
+
+  AdjustDescrBounds;
+  SetProtectDoc(#NalRegDc);
+  SetProtectDoc(#NalRegSp);
+  ReReadRecord(#NalRegDc);
+
+  if (CurWindow = NalRegWin)
+    iEditOborot.ShowContent;
+}
+
+cmPlansNo :
+{
+  if (UpdateTable)
+    iPSManager.PickRegUch(cPlansSch);
+    set cPlansSch := cPlansSch;
+}
+
+cmInsert:
+  winAborted  := False;
+
+cmEdit:
+  if (CurWindow <> NalRegWin)
+    RunWindow(NalRegWin);
+
+cmDefault: // Для выбора по F3 интерфейс пока не используется
+{
+  winAborted := False;
+
+  if (isValid(#NalRegDc))
+    PutCommand(cmEdit);
+  else
+    PutCommand(cmInsert);
+}
+
+cmHotKeys:
+{
+  case (pTiDk) of
+
+    cgDoc_1058:
+      PutHotCommand(RunMenu('NalogRegDocRash_HotKeys'))
+
+  else
+    PutHotCommand(RunMenu('NalogRegDoc_HotKeys'))
+
+  end;
+}
+
+cmDocBas: // Расчет принятой к учету суммы по алгоритму
+{
+  if (IsProtected(#NalRegDc))
+  {
+    Message(StrMesProtected(NalRegDc.DesGr, NalRegDc.Descr), CancelButton);
+    Exit;
+  }
+
+  if (not UpdateTable)
+    Exit;
+
+  case (pTiDk) of
+
+    cgDoc_1058:
+    {
+      PackFields;
+
+      if (not CheckDatDoc)
+        Exit;
+
+      SelectSaldo;
+    }
+
+  else
+  {
+    if (not isValid(#OsAlg))
+    {
+      Message('Не определен алгоритм расчета.', Warning);
+      Exit;
+    }
+
+    var tVal : double;
+
+    // Позиционирование
+    iNalogReg.PosByNRec(NalRegDc.NRec);
+
+    if (iNalogReg.CalcAlgSumPr(tVal))
+      set NalRegDc.SumPr := tVal;
+  }
+
+  end;
+}
+
+cmSortMC: // Формирование план-графика
+{
+  if (IsProtected(#NalRegDc))
+  {
+    Message(StrMesProtected(NalRegDc.DesGr, NalRegDc.Descr), CancelButton);
+    Exit;
+  }
+
+  // Проверяет дату записи на попадание в закрытый период и выдает свое сообщение
+  if (iNalogReg.IsChekRecCloseBuhPeriod(NalRegSp.NRec, Marker, True))
+    Exit;
+
+  if (not UpdateTable)
+    Exit;
+
+  // Позиционирование
+  iNalogReg.PosByNRec(NalRegDc.NRec);
+
+  if (not iNalogReg.CanRaspr)
+    Exit;
+
+  if (GetMarkerCount(Marker) <> 0)
+    ClearMarker(Marker);
+
+  // Можно обработать исключения
+  iNalogReg.MakeRaspr;
+
+  ReReadRecord(#NalRegDc);
+  ReReadRecord(#NalRegSp);
+
+  if (CurWindow = NalRegWin)
+    iEditOborot.ShowContent;
+}
+
+cmCalc:
+{
+  if (IsProtected(#NalRegDc))
+  {
+    Message(StrMesProtected(NalRegDc.DesGr, NalRegDc.Descr), CancelButton);
+    Exit;
+  }
+
+  if (not UpdateTable)
+    Exit;
+
+  var tSum, rSum : double;
+
+  // Позиционирование
+  iNalogReg.PosByNRec(NalRegDc.NRec);
+
+  tSum := iNalogReg.CalcSpecsSum(rSum);
+
+  var rStr : string;
+
+  rStr := if (Abs(tSum - rSum) < 0.005, '', ''#13'C учетом заданного округления: ' + string(rSum) + '.');
+
+  if (Abs(rSum - NalRegDc.SumPr) < 0.005)
+    Message('Сумма по строкам спецификации: ' + string(tSum) + '.' + rStr);
+  else
+    if (Message('Сумма по строкам спецификации: ' + string(tSum) + '.' + rStr + ''#13 +
+                'Перенести это значение в поле принятой'#13 +
+                'к учету суммы по документу?', YesNo) = cmYes)
+    {
+      NalRegDc.SumPr := rSum;
+
+      iNalogReg.UpdateRec(TNalRegDoc(NalRegDc.Buffer));
+      ReReadRecord(#NalRegDc);
+    }
+}
+
+cmPrintDoc:
+{
+  if (UpdateTable)
+  {
+    case (pTiDk) of
+
+      cgDoc_1058:
+        PrintNalDoc;
+
+    else
+      PrintReestr;
+
+    end;
+  }
+}
+
+cmValue11:
+{
+  if (UpdateTable)
+    RunWindowModal(wiInputDateAndNumber); // Окно с параметрами для печати отчета
+}
+
+cmAttrib:
+{
+  if (UpdateTable)
+  {
+    if (CurTable = #NalRegSp)
+      RunInterface('SoprHoz', integer(1), SoprHoz.TiDkGal, word(0), SoprHoz.NRec);
+    else
+      Message('Для просмотра хозопераций выберите'#13 +
+              'конкретную строку спецификации регистра.', Warning);
+  }
+}
+
+cmFilterSave:
+{
+  RunWindowModal(wiFiltrNalogRegDoc);
+  Stop;
+}
+
+cmSaveDoc:
+{
+  SaveNalRegDc;
+}
+
+cmRestoreDoc:
+{
+  RestoreNalRegDc;
+}
+
+cmPickClass:
+{
+  if (IsProtected(CurTable))
+  {
+    Message(StrMesProtected(NalRegDc.DesGr, NalRegDc.Descr), CancelButton);
+    Exit;
+  }
+
+  if (UpdateTable)
+  {
+    if (isValid(CurTable)) // CurTableCode -> coNalRegDc ?
+    {
+      if (CurTable = #NalRegDc)
+        RunInterface('ExClassifier', word(CurTableCode), NalRegDc.NRec);
+
+      if (CurTable = #NalRegSp)
+        RunInterface('ExClassifier', word(CurTableCode), NalRegSp.NRec);
+    }
+  }
+}
+
+cmPickAttr:
+{
+  if (IsProtected(CurTable))
+  {
+    Message(StrMesProtected(NalRegDc.DesGr, NalRegDc.Descr), CancelButton);
+    Exit;
+  }
+
+  if (UpdateTable)
+  {
+    if (isValid(CurTable))
+    {
+      if (CurTable = #NalRegDc)
+        RunInterface('Attribute', word(CurTableCode), NalRegDc.NRec);
+
+      if (CurTable = #NalRegSp)
+        RunInterface('Attribute', word(CurTableCode), NalRegSp.NRec);
+    }
+  }
+}
+end; // HandleEvent Interface
+end. // Interface
+
+//------------------------------------------------------------------------------
+NalogRegDoc_HotKeys Menu
+{
+  - 'Фильтр...', cmFilterSave, 'Установка ограничений', hcBankMLFilterRBP, 'Alt+B', kbAltB, sci1Esc;
+  -----------;
+  - 'Смена дескриптора', cmManagerId, 'Перейти на другой дескриптор', hcHotKeyManagerId, 'Alt+M', kbAltM, sci1Esc;
+  - 'Смена регистра учета', cmPlansNo, 'Смена регистра учета', hcKonsM1PlanSch, 'Alt+P', kbAltP, sci1Esc;
+  -----------;
+  = 'Печать', 'Печать',, scMenuCtx;
+  {
+    - 'Печать документа...', cmPrintDoc, 'Печать документа', hcBankMLRBPPrint, 'Ctrl+P', kbCtrlP, sci1Esc;
+    - 'Печать ИНВ-11...', cmValue11, 'Печать ИНВ-11', hcBankMLRBPPrintInv11,,, sci1Esc;
+  }
+  -----------;
+  - 'Сохранение записи', cmSaveDoc, 'Сохранить документ для его дальнейшего копирования', hcHotKeySaveDoc, 'Ctrl+F2', kbCtrlF2, sci1Esc;
+  - 'Вставка сохраненной записи', cmRestoreDoc, 'Создает новый документ, копируя ранее сохраненный документ', hcHotKeyRestoreDoc, 'Ctrl+F3', kbCtrlF3, sci1Esc;
+  -----------;
+  - 'Расчет суммы по строкам спецификации', cmCalc, 'Расчет суммы по строкам спецификации', hcBankRaschSumSpec, 'Ctrl+C', kbCtrlC, sci1Esc;
+  -----------;
+  - 'Формирование план-графика', cmSortMC, 'Формировать спецификацию документа в соответствии с заданным алгоритмом', hcBankMLRBPCreatePlanGr, 'Alt+R', kbAltR, sci1Esc;
+  -----------;
+  - 'Пересчет принятой к учету суммы документа', cmDocBas, 'Пересчет суммы, принятой к учету по документу',, 'Alt+D', kbAltD, sci1Esc;
+  -----------;
+  - 'Внешняя классификация', cmPickClass, 'Внешняя классификация', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+  - 'Внешние атрибуты', cmPickAttr, 'Заполнение внешних атрибутов по карточке МБП', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+}
+
+NalogRegDocRash_HotKeys Menu
+{
+  - 'Фильтр...', cmFilterSave, 'Установка ограничений', hcBankMLFilterRBP, 'Alt+B', kbAltB, sci1Esc;
+  -----------;
+  - 'Смена дескриптора', cmManagerId, 'Перейти на другой дескриптор', hcHotKeyManagerId, 'Alt+M', kbAltM, sci1Esc;
+  - 'Смена регистра учета', cmPlansNo, 'Смена регистра учета', hcKonsM1PlanSch, 'Alt+P', kbAltP, sci1Esc;
+  -----------;
+  = 'Печать', 'Печать',, scMenuCtx;
+  {
+    - 'Печать документа', cmPrintDoc, 'Печать документа', hcBankMLRBPPrint, 'Ctrl+P', kbCtrlP, sci1Esc;
+    - 'Печать ИНВ-11...', cmValue11, 'Печать ИНВ-11', hcBankMLRBPPrintInv11,,, sci1Esc;
+  }
+  -----------;
+  - 'Сохранение записи', cmSaveDoc, 'Сохранить документ для его дальнейшего копирования', hcHotKeySaveDoc, 'Ctrl+F2', kbCtrlF2, sci1Esc;
+  - 'Вставка сохраненной записи', cmRestoreDoc, 'Создает новый документ, копируя ранее сохраненный документ', hcHotKeyRestoreDoc, 'Ctrl+F3', kbCtrlF3, sci1Esc;
+  -----------;
+  - 'Расчет суммы по строкам спецификации', cmCalc, 'Расчет суммы по строкам спецификации', hcBankRaschSumSpec, 'Ctrl+C', kbCtrlC, sci1Esc;
+  -----------;
+  - 'Формирование план-графика', cmSortMC, 'Формировать спецификацию документа в соответствии с заданным алгоритмом', hcBankMLRBPCreatePlanGr, 'Alt+R', kbAltR, sci1Esc;
+  -----------;
+  - 'Выбор сальдо по счету', cmDocBas, 'Выбор сальдо по счету', hcBankVibrSalSchet, 'Alt+D', kbAltD, sci1Esc;
+  -----------;
+  - 'Внешняя классификация', cmPickClass, 'Внешняя классификация', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+  - 'Внешние атрибуты', cmPickAttr, 'Заполнение внешних атрибутов по карточке МБП', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+}

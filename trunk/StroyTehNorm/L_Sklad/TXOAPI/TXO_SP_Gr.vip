@@ -1,0 +1,129 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2000 корпорация ГАЛАКТИКА                    ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Бухгалтерский контур                                      ║
+ ║ Версия        : 8.1x                                                      ║
+ ║ Назначение    : Проставляет счета бух. учёта в зависимости                ║
+ ║                 от кода группы МЦ по складским ордерам,                   ║
+ ║                 план счетов с кодом "0"                                   ║
+ ║ Ответственный : Шайдаров Игорь Александрович                              ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_Sp_Gr implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_Sp_Gr;
+var
+  CurSoprDoc : comp   ;
+
+create view
+as select
+  *
+from
+     KatSopr   (ReadOnly)
+   , SklOrder  (ReadOnly)
+   , SpOrder   (ReadOnly)
+   , KatMC     (ReadOnly)
+   , GroupMC   (ReadOnly)
+   , synonym SklOrder  SklOrder_R
+   , synonym SpOrder   SpOrder_R
+   , synonym KatMC     KatMC_R
+   , synonym GroupMC   GroupMC_R
+
+where
+((
+    CurSoprDoc    == KatSopr.nRec
+))
+;
+
+
+
+function GetInfo : string; {
+   GetInfo := 'Проставляет бух. счета в зависимости от группы МЦ (по ордерам). Режим счетов - <режим 1 и 0>';
+}
+
+function ParamMaster : string; {
+   ParamMaster := ''  ;
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   TxoAllowRecallStoreCycles(hTxo);
+   CurSoprDoc := buf.cSoprDoc;
+   InitGetCur;
+
+if( GetFirst KatSopr where ((CurSoprDoc == KatSopr.nRec)) <> tsOk ) {Exit;}
+
+Case KatSopr.VidSopr of
+   600, 630 : {
+     if (GetFirst SklOrder   where (( KatSopr.nRec == SklOrder.cSopr
+                                  and 0            == SklOrder.VidOrder   )) <> tsOK) {Exit;}
+     if (GetFirst SklOrder_R where (( KatSopr.nRec == SklOrder_R.cSopr
+                                  and 1            == SklOrder_R.VidOrder )) <> tsOK) {Exit;}
+
+        _Loop SpOrder_R where (( SklOrder_R.nRec == SpOrder_R.cSklOrder )) {
+
+           if (GetFirst SpOrder where ((SklOrder.nRec      == SpOrder.cSklOrder
+                                    and SpOrder_R.NPP      == SpOrder.NPP            (noIndex)
+                                    and SpOrder_R.Kol      == SpOrder.Kol            (noIndex)
+                                    and SpOrder_R.rSrPrice == SpOrder.rSrPrice       (noIndex)
+                                      )) <> tsOK) {Exit;}   // сделаю соответствие по Порядковым номерам
+
+
+           if(GetFirst KatMC     where ((SpOrder.cMC      == KatMC.nRec    )) <> tsOk) {Exit;}
+           if(GetFirst GroupMc   where ((KatMC.cGroupMC   == GroupMc.nRec  )) <> tsOk) {Exit;}
+
+           if(GetFirst KatMC_R   where ((SpOrder_R.cMC    == KatMC_R.nRec  )) <> tsOk) {Exit;}
+           if(GetFirst GroupMc_R where ((KatMC_R.cGroupMC == GroupMc_R.nRec)) <> tsOk) {Exit;}
+
+           TxoBodyClear   (hTxo);
+           TxoBodySetSum  (hTxo, SpOrder_R.Kol * SpOrder_R.RsRPrice,  0, SpOrder_R.Kol);
+           TxoBodyAddSchet(hTxo, wFlKau_Mode1, '0' + SubStr(GroupMC_R.Kod, 1, 2),  SubStr(GroupMC_R.Kod, 3, 2) );
+           TxoBodyAddSchet(hTxo, wFlKau_Mode0, '0' + SubStr(GroupMC.Kod, 1, 2),  SubStr(GroupMC.Kod, 3, 2) );
+
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatPodr, SklOrder_R.cPodr);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMOL , SklOrder_R.cMOL);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMC  , SpOrder_R.cMC);
+
+           TxoBodyAddKau  (hTxo, wFlKau_Mode0, cgKau_KatPodr, SklOrder.cPodr);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode0, cgKau_KatMOL , SklOrder.cMOL);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode0, cgKau_KatMC  , SpOrder.cMC);
+           TxoBodyInsert  (hTxo);
+          }
+       }
+
+
+   else {
+     _Loop SklOrder where (( KatSopr.nRec == SklOrder.cSopr )) {
+
+        _Loop SpOrder where (( SklOrder.nRec == SpOrder.cSklOrder )) {
+
+           if(GetFirst KatMC   where ((SpOrder.cMC    == KatMC.nRec  )) <> tsOk) {Exit;}
+           if(GetFirst GroupMc where ((KatMC.cGroupMC == GroupMc.nRec)) <> tsOk) {Exit;}
+
+           TxoBodyClear   (hTxo);
+           TxoBodySetSum  (hTxo, SpOrder.Kol * SpOrder.RsRPrice,  0, SpOrder.Kol);
+           TxoBodyAddSchet(hTxo, wFlKau_Mode1, '0' + SubStr(GroupMC.Kod, 1, 2),  SubStr(GroupMC.Kod, 3, 2) );
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatPodr, SklOrder.cPodr);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMOL , SklOrder.cMOL);
+           TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMC  , SpOrder.cMC);
+           TxoBodyInsert  (hTxo);
+          }
+       }
+     }
+
+end;
+
+
+
+}
+
+handleevent
+end;
+
+end.

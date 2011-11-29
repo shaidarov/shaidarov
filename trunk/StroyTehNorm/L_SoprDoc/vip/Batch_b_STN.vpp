@@ -1,0 +1,97 @@
+#doc
+Создание ДО по Акту сбыта
+Разработал: Шайдаров Игорь
+#end
+
+Create view loMakeDO_STN
+
+From
+  SpSopr
+, KatSopr
+, KatUsl
+, StepDoc
+, BaseDoc
+;
+
+Procedure do_Batch_Button_STN (type_: word; NRec_: comp; dSopr_: Date; _Del: boolean);
+{
+var _Usl0314 : Boolean;
+
+    _Usl0314 := false;
+
+  if ( loMakeDO_STN.GetFirst KatSopr where (( NRec_ == KatSopr.NRec )) <> tsOk )
+    Exit;
+
+ if (loMakeDO_STN.KatSopr.cOrg = comp(79)) { // Министерство Архитектуры и Строительства
+     _Usl0314 := true;
+  } else {
+       loMakeDO_STN._Loop SpSopr Where (( NRec_ == SpSopr.cSopr )) {
+
+          if (loMakeDO_STN.GetFirst KatUsl Where (( loMakeDO_STN.SpSopr.cMCUsl == KatUsl.nRec
+                                                and '0314'                     == KatUsl.kGroupUsl (noIndex) )) = tsOK )
+               _Usl0314 := true;
+       }
+  }
+
+  if (not _Usl0314)
+    Exit;
+
+
+  if (_Del) {
+   if ( loMakeDO_STN.GetFirst StepDoc where (( loMakeDO_STN.KatSopr.cStepDoc == StepDoc.NRec )) = tsOK ) {
+     if ( loMakeDO_STN.GetFirst BaseDoc where (( loMakeDO_STN.StepDoc.cBaseDoc  == BaseDoc.NRec )) = tsOK ) {
+       Delete current BaseDoc;
+       Delete current StepDoc;
+      }
+     }
+    Exit;
+    }  else {
+         if ( loMakeDO_STN.GetFirst StepDoc where (( loMakeDO_STN.KatSopr.cStepDoc == StepDoc.NRec )) = tsOK ) {
+           if ( loMakeDO_STN.GetFirst BaseDoc where (( loMakeDO_STN.StepDoc.cBaseDoc  == BaseDoc.NRec )) = tsOK ) {
+             BaseDoc.NoDoc := KatSopr.nSopr;
+             BaseDoc.dDoc  := KatSopr.dSopr
+             BaseDoc.cOrg  := KatSopr.cOrg;
+             if (UpDate current BaseDoc = tsOK) {}
+            }
+           }
+      }
+
+  var wDate: word;
+  var dDate: date;
+
+      wDate:=loMakeDO_STN.KatSopr.dSopr;
+      dDate:=loMakeDO_STN.KatSopr.dSopr;
+
+//  if ( RunInterface('Batch_DateParam', loMakeDO_STN.KatSopr.nRec, wDate, dDate) = cmCancel )
+//    Exit;
+
+  var pDO: GroupBatchGenereteDO;
+  pDO.Set_typeSopr   (type_);
+  pDO.Set_BegEndDate (dSopr_, dSopr_);
+  pDO.Set_UseFilter  (1);
+  pDO.Set_NoGroupGP  (2 + 4 + 8);
+  pDO.Set_dDate      (dDate);
+  pDO.Set_wDate      (if(wDate <= 3, wDate, wDate + 2));
+
+  SaveMyDsk(wDate, 'wDate_GroupBatchGenereteDO');
+
+  if ((type_ = 101 OR type_ = 111 OR type_ = 110 OR type_ = 1411) AND boGetTune('Doc.Buy.NumSopr=DO' ))
+   OR ((type_ = 201 OR type_ = 1421) AND boGetTune('Doc.Sell.NumSopr=DO'))
+   OR (type_ = 211 AND boGetTune('Doc.Sell.NumAkt=DO' ))
+   OR ((type_ = 551 OR type_ = 553 OR type_ = 554 OR type_ = 557) AND boGetTune('Doc.Remont.NumSopr=DO' ))
+    pDO.Set_nNoDoc (loMakeDO_STN.KatSopr.NSopr);
+
+  delete Pick where ((22 == Pick.wList));
+
+  insert Pick set Pick.wList := 22, Pick.cRec := NRec_;
+
+  SaveMyDsk(word(7), '_FormBaseDocName_');
+  SaveMyDsk('Batch_b', 'make_at_batch_b');
+
+  pDO.Set_MultiProtocol(True);    // Чтобы не выводился протокол после выполнения
+  pDO.GenerateDOs;
+
+  SaveMyDsk(word(0), '_FormBaseDocName_');
+  SaveMyDsk('', 'make_at_batch_b');
+}
+

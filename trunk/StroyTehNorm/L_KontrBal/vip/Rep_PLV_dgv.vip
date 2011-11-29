@@ -1,0 +1,1832 @@
+//********************************************************************************
+//                                                        (c) корпорация Галактика
+// Галактика 7.12 - логистика
+// Акт сверки взаиморасчетов с контрагентом в разрезе договоров
+//********************************************************************************
+
+#include CalcOper.vih     // Обьектный интерфес для расчета баланса
+#include xlReport.Vih     // Обьектный интерфес для работы с Excel
+#include PickBuh.vih      // Обьектный интерфес для работы с таблицей PickBuh
+#include pMarkFun.vih     // Функции для работы с маркерами и Pick-таблицами
+#include KatOrg.vih       // Обьектный интерфес для работы с каталогом организаций
+
+#doc
+ Акт сверки взаиморасчетов с контрагентом в разрезе договоров
+#end
+
+Interface Rep_plv_ByDgv 'Акт сверки в разрезе договоров' (,hcPs_PlARepAktSverkiParam,) EscClose, Gray;
+  show at (5, 1, 115, 24);
+
+// Для сортировки договоров
+table struct tmpDogovor
+(
+  cDogovor     : Comp       "Договор",
+  cAppDogovor  : Comp       "Соглашение",
+  SortName     : String[80] "Для сортировки, номер и дата договора",
+  cVal         : Comp       "Код валюты",
+  SumDebet     : Double     "Сумма дебетовая",
+  SumKredit    : Double     "Сумма кредитовая",
+  BegSumDebet  : Double     "Входящее сальдо дебетовое",
+  BegSumKredit : Double     "Входящее сальдо кредитовое",
+  wDeleting    : Word       "Служебное, для удаления"
+)
+with index
+(
+  tmpDogovor01 = cDogovor + cAppDogovor,
+  tmpDogovor02 = cVal + SortName,
+  tmpDogovor03 = wDeleting
+);
+
+// Для сортировки договоров по валюте
+table struct tmpValSort
+(
+  cValut    : Comp       "Код валюты",
+  SumValD   : Double     "Сумма дебетовая",
+  SumValK   : Double     "Сумма кредитовая",
+  BegValD   : Double     "Сумма дебетовая",
+  BegValK   : Double     "Сумма кредитовая",
+  wDeleting : Word       "Служебное, для удаления"
+)
+with index
+(
+  tmpValSort01 = cValut,
+  tmpValSort02 = wDeleting
+);
+
+// Для сортировки документов по договорам
+table struct tmpDocSort
+(
+  cDogovor    : Comp       "Договор",
+  cAppDogovor : Comp       "Соглашение",
+  cDoc        : Comp       "Документ",      // сопроводительный или финанансовый
+  TypeDoc     : Word       "Тип документа", // 1 - BaseFin, 2 - KatSopr, 3 - RzDoc, 4 - PlPor
+  // Дополнительные поля. Сохраняю, чтобы при выгрузке в форму не искать документы в базе
+  SummaDb     : Double     "Сумма дебетовая",
+  SummaKr     : Double     "Сумма кредитовая",
+//  SummaType : Word       "Тип суммы",     // 1 - дебетовая, 2 - кредитовая
+  dDoc        : Date       "Дата документа",
+  NoDoc       : String     "Номер и тип документа",
+  TiDkGal     : Word       "Тип документа системный",
+  Name        : String[80] "Наименование",
+  dProv       : Date       "Дата проведения",
+  NameR       : String[80] "Наименование МЦ, работ, услуг",
+  cPost       : Comp       "Поставщик",
+  // Для объединения BaseFin'ов по платежам
+  DopType     : Word       "Тип документа",           // 1 - PlPor, 2 - Veksl, 0 - не задан
+  cDopDoc     : Comp       "Дополнительный документ",  // PlPor или Veksl
+  sNamePL1    : string     "Наимен.товара,работ один",
+  sNamePL2    : string     "Наимен.товара,работ два",
+  sNamePL3    : string     "Наимен.товара,работ три",
+  sNamePL4    : string     "Приложение"
+)
+with index
+(
+  tmpDocSort01 = cDogovor + TypeDoc + dDoc,
+  tmpDocSort02 = cDogovor + cAppDogovor + TypeDoc + cDoc,
+  tmpDocSort03 = cDogovor + cAppDogovor + TypeDoc + DopType + cDopDoc,
+  tmpDocSort04 = cDogovor + cAppDogovor + dDoc
+);
+
+const
+  MyCode   = 7779;
+  MyMess   = 'Не добавлены документы: ';
+  BuchSopr = 60000;
+  NoBuhSchet = 'не учитывать';
+  MinDouble  = 0.001;
+  cnstDel    = 101; // Признак того, что запись нужно удалить
+end;
+
+function GroupDocS(C : Word) : Boolean;
+{
+  GroupDocS := False;
+
+  case C of
+    /* 10, 21, 22 - бух.справка, вх.авизо, исх.авизо как сопроводительные */
+    101..111, 151, 201..211, 251, 700, 114, 10, 21, 22 : GroupDocS := True;
+  end;
+}
+
+function GroupDocF(C : Word) : Boolean;
+{
+  GroupDocF := False;
+/*
+  1004 - Стороннее заявление на аккредитив
+  1005 - Стороннее заявление об отказе от акцепта
+  1011 - Стороннее платежное требование-поручение
+  1030 - Сторонний реестр счетов
+  1032 - Стороннее платежное требование
+  1044 - Стороннее валютное заявление на аккредитив
+*/
+
+  case C of
+    1..11, 17, 18, 21, 22, 27,
+    30..36, 70, 90..92,
+    1004, 1005, 1011, 1030, 1032, 1044 : GroupDocF := True;
+  end;
+}
+
+function GroupDocR(C : Word) : Boolean;
+{
+  GroupDocR := False;
+
+  if (C = 911)
+    GroupDocR := True;
+}
+
+function GroupDocV(C : Word) : Boolean;
+{
+  case C of
+    81..89 : GroupDocV := True;
+  else
+    GroupDocV := False;
+  end;
+}
+
+Var pxlrepsetup : xlrepsetup;
+
+Create view vRep_plV
+
+var
+  // Переменные для настройки отчета
+  BegDate
+, EndDate
+                   : Date;
+  wDirect
+, SoprInRep
+, wPlPorSopr
+                   : Word;
+  MrkStatusSopr
+, MarkerDoc
+, IndexNoDoc
+, MarkerTree
+, IndexNoTree
+, BuhSchCount    // Кол-во выбранных счетов и субсчетов для фильтрации проводок
+                   : LongInt;
+  CurGroup
+, cRec_Org
+, cRecNotes
+, myPlansNo
+, pDogovor_BaseFin
+, pDogovor_KatSopr
+, cBankOrg
+                   : Comp;
+  Flag
+                   : Boolean;
+  RepName
+, NameTG
+, Soob
+, sBuhSchet
+, ID
+                   : String;
+
+  // Фильтрация по договорам
+  wFilter
+, NumFilterDogovor
+                   : Word;
+  wDopParam
+                   : Word;
+  cFilterDogovor
+                   : Comp;
+  MrkDogovorFilter
+                   : LongInt;
+  bIsFilterDogovor
+                   : Boolean;
+  pKatorg
+                   : KatOrg; // Объект для работы с каталогом организаций
+
+as select
+  if (TempDescr.cRecKat = Comp(0), TempDescr.Name, KatDoc.Name)
+        (FieldName = KatDocN),
+
+  if (TempDescr.cRecKat = Comp(0), '' , Trim(String(Katdoc.TiDKGal)))
+        (FieldName = KatDocT),
+
+  if (SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree) and
+      TempDescr.cRecKat <> 0, 'V', ' ')
+        (FieldName = MarkerTree_V),
+
+  if (SearchMarker(MarkerDoc, KatDocTmp.NRec, IndexNoDoc), 'V', ' ')
+        (FieldName = MarkerDoc_V),
+
+  if ((cRecNotes <> Comp(0)), KatNotes.Name,
+    if (GetMarkerCount(MrkStatusSopr) > 1, 'множественный выбор (' +
+                                           String(GetMarkerCount(MrkStatusSopr)) + ')', 'все'))
+        (FieldName = StatusSopr),
+
+  if (NumFilterDogovor = 1, if (IsValid(tnDogovorFilter), '№ ' + DogovorFilter.NoDoc + DateToStr(DogovorFilter.dDoc, ' от DD/MM/YYYY'), ''),
+    if (NumFilterDogovor > 1, 'множественный выбор (' + String(NumFilterDogovor) + ')', ''))
+        (FieldName = fDogovor),
+
+  *
+from
+  KatOrg,
+  KatSopr,
+  SpSopr (SpSopr02),
+  KatMC,
+  GroupMC,
+  KatUsl,
+  GroupUsl,
+  BaseFin,
+  Dogovor,
+  RzDoc,
+  RzSpDoc (RzSPDOC03),
+  KatDoc  (KatDoc01),
+  TempDescr (TempDescr02),
+  tmpDocSort (tmpDocSort01),
+  tmpValSort,
+  tmpDogovor,
+  KatNotes,
+  HozOper,
+  BuhSchet,
+  KlVal,
+  PlPor,
+  Dogovor Dog_KS,
+  KatDoc KatDocTmp (KatDoc02),
+  KatDoc KatDocS,
+  PlPor PlP_Sopr,
+  KatOrg KatOrgSelf,
+  KatOrg KatOrgGr,
+  SoprHoz SoprHozBF,
+  SoprHoz SoprHoz70,
+  Oborot OborotBF,
+  Oborot OborotBF70,
+  Oborot OborotPlP,
+  Oborot OborotRz,
+  SoprHoz SoprHozKS,
+  Oborot OborotKS,
+  Dogovor DogovorFilter,
+  Dogovor Dogovor_Dop,
+  KatBank
+where
+((
+  coGetTune('MyOrg')   == KatOrgSelf.NRec     and
+  cRec_Org             == KatOrg.NRec         and
+
+  pDogovor_BaseFin     == Dogovor.NRec        and  // Договор или соглашение
+  BaseFin.cSoprHoz     == SoprHozBF.NRec      and
+  SoprHozBF.NRec       == OborotBF.cSoprHoz   and
+  SoprHoz70.cSoprDoc   == BaseFin.nRec        and
+  SoprHoz70.NRec       == OborotBF70.cSoprHoz and
+  myPlansNo            == OborotBF.cPlansSch  and
+  PlP_Sopr.nRec        == OborotPlP.cSoprDoc  and
+  PlP_Sopr.TiDk        == OborotPlP.TiDk      and
+  myPlansNo            == OborotPlP.cPlansSch and
+
+  pDogovor_KatSopr     == Dog_KS.NRec         and
+  KatSopr.cNazna       == KatNazna.NRec       and
+  KatSopr.cHozOper     == HozOper.NRec        and
+  KatSopr.VidSopr      == SoprHozKS.TipDoc    and
+  KatSopr.NRec         == SoprHozKS.cSoprDoc  and
+  SoprHozKS.NRec       == OborotKS.cSoprHoz   and
+  myPlansNo            == OborotKS.cPlansSch  and
+  KatSopr.NRec         == SpSopr.cSopr        and
+  SpSopr.cMCUsl        == KatMC.NRec          and
+  KatMC.cGroupMC       == GroupMC.NRec        and
+  SpSopr.cMCUsl        == KatUsl.NRec         and
+  KatUsl.cGroupUsl     == GroupUsl.NRec       and
+
+  tmpValSort.cValut    == tmpDogovor.cVal     and
+  RzDoc.NRec           == RzSpDoc.cSopr       and
+
+  RzDoc.TypeMove       == OborotRz.TiDk       and
+  RzDoc.NRec           == OborotRz.cSoprDoc   and
+  myPlansNo            == OborotRz.cPlansSch  and
+
+  Word(MyCode)         == TempDescr.Code      and // Номер отчета
+  CurGroup             == TempDescr.cGroup    and // Для прохода по дереву
+  TempDescr.cRecKat    == KatDoc.NRec         and
+
+  cRecNotes            == KatNotes.NRec       and
+  cFilterDogovor       == DogovorFilter.NRec
+))
+// Документы на дату периода отчета
+bounds byBaseFinDat =
+       cRec_Org         == BaseFin.cOrg and
+       BegDate         <<= BaseFin.dDoc and
+       EndDate         >>= BaseFin.dDoc
+
+bounds byKatSoprDatAll =
+       cRec_Org         == KatSopr.cOrg  and
+       BegDate         <<= KatSopr.dSopr and
+       EndDate         >>= KatSopr.dSopr
+
+bounds byKatSoprDatOpr =
+       cRec_Org         == KatSopr.cOrg and
+       BegDate         <<= KatSopr.dOpr and
+       EndDate         >>= KatSopr.dOpr
+
+bounds byRzDocDatAll =
+       Word(911)        == RzDoc.TypeMove      and
+       BegDate         <<= RzDoc.dDoc          and
+       EndDate         >>= RzDoc.dDoc          and
+       cRec_Org         == RzDoc.cOrg (NoIndex)
+
+bounds byRzDocDatOpr =
+       Word(911)        == RzDoc.TypeMove       and
+       cRec_Org         == RzDoc.cOrg (NoIndex) and
+       BegDate         <<= RzDoc.dOpr (NoIndex) and
+       EndDate         >>= RzDoc.dOpr (NoIndex)
+
+// Для сопроводительных PLPOR
+bounds byPlPorDat1 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal and
+       BegDate         <<= PlP_Sopr.DatVip  and
+       EndDate         >>= PlP_Sopr.DatVip  and
+       cRec_Org         == PlP_Sopr.cPlat (NoIndex)
+
+bounds byPlPorDatOb1 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal and
+       BegDate         <<= PlP_Sopr.DatOb   and
+       EndDate         >>= PlP_Sopr.DatOb   and
+       cRec_Org         == PlP_Sopr.cPlat (NoIndex)
+
+bounds byPlPorDat2 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal and
+       BegDate         <<= PlP_Sopr.DatVip  and
+       EndDate         >>= PlP_Sopr.DatVip  and
+       cRec_Org         == PlP_Sopr.cPlatNew(NoIndex)
+
+bounds byPlPorDatOb2 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal and
+       BegDate         <<= PlP_Sopr.DatOb   and
+       EndDate         >>= PlP_Sopr.DatOb   and
+       cRec_Org         == PlP_Sopr.cPlatNew (NoIndex)
+
+// Для расчета баланса на дату начала периода
+bounds byBaseFinDatBeforeBeg =
+       cRec_Org         == BaseFin.cOrg and
+       Date(0,0,0)      << BaseFin.dDoc and
+       BegDate          >> BaseFin.dDoc
+
+bounds byKatSoprDatBeforeBegAll =
+       cRec_Org         == KatSopr.cOrg  and
+       Date(0,0,0)      << KatSopr.dSopr and
+       BegDate          >> KatSopr.dSopr
+
+bounds byKatSoprDatBeforeBegOpr =
+       cRec_Org         == KatSopr.cOrg and
+       Date(0,0,0)      << KatSopr.dOpr and
+       BegDate          >> KatSopr.dOpr
+
+bounds byRzDocDatBeforeBegAll =
+       Word(911)        == RzDoc.TypeMove      and
+       Date(0,0,0)      << RzDoc.dDoc          and
+       BegDate          >> RzDoc.dDoc          and
+       cRec_Org         == RzDoc.cOrg (NoIndex)
+
+bounds byRzDocDatBeforeBegOpr =
+       Word(911)        == RzDoc.TypeMove       and
+       cRec_Org         == RzDoc.cOrg (NoIndex) and
+       Date(0,0,0)      << RzDoc.dOpr (NoIndex) and
+       BegDate          >> RzDoc.dOpr (NoIndex)
+
+bounds byPlPorDatBeforeBeg1 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal and
+       Date(0,0,0)      << PlP_Sopr.DatVip  and
+       BegDate          >> PlP_Sopr.DatVip  and
+       cRec_Org         == PlP_Sopr.cPlat (NoIndex)
+
+bounds byPlPorDatObBeforeBeg1 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal and
+       Date(0,0,0)      << PlP_Sopr.DatOb   and
+       BegDate          >> PlP_Sopr.DatOb   and
+       cRec_Org         == PlP_Sopr.cPlat (NoIndex)
+
+bounds byPlPorDatBeforeBeg2 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal and
+       Date(0,0,0)      << PlP_Sopr.DatVip  and
+       BegDate          >> PlP_Sopr.DatVip  and
+       cRec_Org         == PlP_Sopr.cPlatNew (NoIndex)
+
+bounds byPlPorDatObBeforeBeg2 =
+       wPlPorSopr       == PlP_Sopr.TiDkGal  and
+       Date(0,0,0)      << PlP_Sopr.DatOb    and
+       BegDate          >> PlP_Sopr.DatOb    and
+       cRec_Org         == PlP_Sopr.cPlatNew (NoIndex)
+
+// Наименование типа документа в отчете
+bounds byKatDoc_BF =
+       BaseFin.TiDkGal == KatDocS.TiDkGal
+
+bounds byKatDoc_KS =
+       KatSopr.VidSopr == KatDocS.TiDkGal
+
+bounds byKatDoc_Rz =
+       RzDoc.TypeMove == KatDocS.TiDkGal
+
+
+condition byKatDocS  =
+          (GroupDocS(KatDocTmp.TiDKGal))
+condition byKatDocF  =
+          (GroupDocF(KatDocTmp.TiDKGal))
+condition byKatDocR  =
+          (GroupDocR(KatDocTmp.TiDKGal))
+condition byKatDocV  =
+          (GroupDocV(KatDocTmp.TiDKGal))
+
+condition byPlP_Sopr =
+          ((PlP_Sopr.ModeDoc and 4) <> 0 and         // тип - "сопроводительный"
+           (PlP_Sopr.ModeDoc and 2) = 0)             // во взаиморасчетах участвует
+;
+
+!form frmAktSvDO('AktSvDO.out', 'AktSvDO') with NoVisual;
+
+var
+  iCOper : CalcOper;       // Для расчета баланса
+  pXL    : XLSRepBuilder;  // Объект формирования Excel-отчетов
+  iMarkFuncs : pMarkFun;   // Объект для работы с маркерами и Pick'ами
+
+#include PickBuh.var       // Переменная "Интерфес работы с таблицей PickBuh"
+#include E:\!StroyTehNorm\!project\L_KontrBal\vip\raskontr_dgv.vpp  // Функции расчета и печати отчета
+
+Panel pnScreen;
+
+Screen scRep_Pl_Dgv;
+  show at (,,61,);
+  table TempDescr;
+Fields
+  BegDate   ('Введите начальную дату интервала',, sci13Esc) : [, 'DD/MM/YYYY'], NoProtect;
+  EndDate   ('Введите конечную дату интервала',, sci13Esc)  : [, 'DD/MM/YYYY'], NoProtect;
+  KatOrg.Name ('Выбор контрагента',, sci13Esc) : Protect, PickButton,
+      {Font = {BackColor = if (cRec_Org = 0, ColorNeed, 0)}};
+  wFilter   ('Установите фильтры',,) : NoProtect;
+  fDogovor  ('Установите фильтр по договорам',,sci13Esc) : PickButton, Protect;
+  wDirect   ('Контролировать при расчете все документы или только по продаже/закупке',,) : NoProtect;
+  wDopParam ('Дополнительные параметры',,) : NoProtect;
+  SoprInRep ('Накладные в расчетах с контрагентом',, sci13Esc) :
+    [LIST 'все', 'только проведенные'], Protect;
+  StatusSopr('Статус накладных/актов',, sci13Esc) : PickButton, Protect;
+  sBuhSchet ('Фильтр по наличию оборотов по счету',, sci13Esc) : PickButton, Protect;
+Buttons
+  cmValue1, Default,, 'Сформировать отчет',,;
+  cmValue14, , ,'Настройка Excel', , sci1Esc;
+  cmCancel,,, 'Отмена',,;
+<<
+  Период формирования:  c .@@@@@@@@@@@  по .@@@@@@@@@@@
+
+  Контрагент  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  Фильтр:
+   [.] Договор` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  Направление: [.] продажа`
+               [.] закупка`
+
+  Дополнительные параметры:
+   [.] отображать договоры с нулевым сальдо     `
+   [.] договоры без движения не включать в отчет`
+   [.] отображать в разрезе соглашений          `
+
+  Учитывать накладные       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  Статус накладных/актов    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  Наличие оборотов по счетам / субсчетам:
+   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ <. Сформировать .> <.Настройка шаблона.> <.    Отмена    .>
+>>
+end;
+end; // Panel pnScreen
+
+Panel pnTree;
+
+Tree 1 trTemp 'Документы' (,,sci178InsExPMTree);
+  show at (62,,,)
+  NoMove, NoReSize
+  table TempDescr;
+Fields
+  {Font = {Color = if (SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree),
+                       ColorMark, 0)}};
+  MarkerTree_V #3'√' ('Отметить',,) : [1], Skip, NoAutoSize;
+  KatDocN      #3'Наименование документа' ('Наименование платежного средства',,) : [37], Protect;
+  KatDocT      #3'Код' ('Код документа',,) : [3], Protect, NoAutoSize;
+end;
+end;  // Panel pnTree
+
+// Считает кол-во отмеченных листьев в дереве
+function GetMarkerTree(ITemp : LongInt): LongInt;
+var
+  uz : LongInt;
+{
+  uz := 0;
+  TreePushPos(ITemp);
+  if (TreeGetFirstEx(ITemp))
+  {
+    do
+    {
+      if ((TempDescr.IsLeaf = 0) and (SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree)))
+        uz := uz + 1;
+    }
+    while (TreeGetNextEx(ITemp));
+  }
+
+  TreePopPos(ITemp);
+  GetMarkerTree := GetMarkerCount(MarkerTree) - uz;
+}
+
+function GetNaznCount(ITemp : LongInt) : LongInt;
+var
+  uz : LongInt;
+{
+  uz := 0;
+  TreePushPos(ITemp);
+  if (TreeGetFirstEx(ITemp))
+  {
+    if (TempDescr.cRec = 1)
+      uz := uz + 1;
+
+    while TreeGetNextEx(ITemp) do
+    {
+      if (TempDescr.cRec = 1)
+        uz := uz + 1;
+    }
+  }
+
+  TreePopPos(ITemp);
+  GetNaznCount := uz;
+}
+
+// Считает кол-во включенных назначений в дереве
+function GetNaznTree(ITemp : LongInt) : LongInt;
+var
+  uz : LongInt;
+{
+  uz := 0;
+  TreePushPos(ITemp);
+  if (TreeGetFirstEx(ITemp))
+  {
+    do
+    {
+      if ((TempDescr.cRec = 1) and (TempDescr.IsLeaf = 0))
+        uz := uz + 1;
+    }
+    while (TreeGetNextEx(ITemp));
+  }
+
+  TreePopPos(ITemp);
+  GetNaznTree := GetNaznCount(trTemp) - uz;
+}
+
+// Считает кол-во отмеченных листьев в ветке
+function GetMarkerLeaf(ITemp : LongInt) : LongInt;
+var
+  uz : LongInt;
+{
+  uz := 0;
+  TreePushPos(ITemp);
+  TreeGetNext(ITemp);
+
+  do
+  {
+    if (SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree))
+      uz := uz + 1;
+  }
+  while (TreeGetNextEx(trTemp) and TempDescr.IsLeaf = 1);
+
+  TreePopPos(ITemp);
+  GetMarkerLeaf := uz;
+}
+
+// Считает кол-во листьев в ветке
+function GetLeafTree(ITemp : LongInt) : LongInt;
+var
+  uz : LongInt;
+{
+  uz := 0;
+  TreePushPos(ITemp);
+
+  while (TreeGetNextEx(ITemp)) do
+  {
+    if (TempDescr.IsLeaf = 1)
+      uz := uz + 1;
+    else
+      Break;
+  }
+
+  TreePopPos(ITemp);
+  GetLeafTree := uz;
+}
+
+// Считает кол-во листьев в дереве
+function GetLeafTreeAll(ITemp : LongInt) : LongInt;
+var
+  uz : LongInt;
+{
+  uz := 0;
+  TreePushPos(ITemp);
+
+  if (TreeGetFirstEx(ITemp))
+  {
+    do
+    {
+      if (TempDescr.IsLeaf = 1)
+        uz := uz + 1;
+    }
+    while (TreeGetNextEx(ITemp));
+  }
+
+  TreePopPos(ITemp);
+  GetLeafTreeAll := uz;
+}
+
+// Считает кол-во включенных назначений в ветке
+function GetNaznLeaf(ITemp : LongInt) : LongInt;
+var
+  uz : LongInt;
+{
+  uz := 0;
+  TreePushPos(ITemp);
+  TreeGetNext(ITemp);
+
+  do
+  {
+    if (TempDescr.cRec = 1)
+      uz := uz + 1;
+  }
+  while (TreeGetNextEx(ITemp) and TempDescr.IsLeaf = 1);
+
+  TreePopPos(ITemp);
+  GetNaznLeaf := uz ;
+}
+
+procedure SetPusto(ITemp : LongInt);
+{
+  TreePushPos(ITemp);
+  TreeGetFirstEx(ITemp);
+
+  do
+  {
+    if ((TempDescr.IsLeaf = 0 and TempDescr.cGroup <> 0))
+      if (GetLeafTree(trTemp) = 0)
+      {
+        DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+        UpDate current TempDescr
+          Set TempDescr.cRec := 0;
+        NextVisual;
+      }
+  }
+  while (TreeGetNextEx(ITemp));
+
+  TreePopPos(ITemp);
+}
+
+procedure SetMyTitle(ITemp : LongInt);
+{
+  SetColumnTitle(ITemp, #KatDocN, 'Наименование документов' +
+                 ' (выбрано ' + Trim(String(GetMarkerTree(trTemp))) + ')');
+}
+
+procedure PopCondDoc;
+{
+  SetBounds(#KatDocTmp);
+
+  case NameTG of
+    'Сопроводительные документы' : PopCondition(tcbyKatDocS);
+    'Финансовые документы'       : PopCondition(tcbyKatDocF);
+    'Розничная торговля'         : PopCondition(tcbyKatDocR);
+    'Векселя'                    : PopCondition(tcbyKatDocV);
+  end;
+}
+
+#doc
+Окно выбора документа
+#end
+
+Window wndVyborDoc 'Выбор документа'
+  ('Выбор документа', hcPs_PlARepAktSverkiParam, sci1EnIns) EscClose, DoAccept, Gray;
+  show at (5,5,47,25)
+
+Browse brVDoc;
+  table KatDocTmp
+Fields
+  {Font = {Bold  = if (SearchMarker(MarkerDoc, KatDocTmp.NRec, IndexNoDoc), True, False);
+           Color = if (SearchMarker(MarkerDoc, KatDocTmp.NRec, IndexNoDoc), ColorMark, 0)}};
+  MarkerDoc_V       #3'√' ('Отметить',,) : [1], Skip, NoAutoSize;
+  KatDocTmp.Name    '   Тип документа' ('Тип документа',,) : [37], Protect;
+  KatDocTmp.TiDkGal #3'Код' ('Код типа документа',,) : [5], Protect, NoAutoSize;
+end;
+
+HandleEvent
+
+cmInit :
+{
+  ReSetBounds(#KatDocTmp);
+
+  case NameTG of
+    'Сопроводительные документы' : PushCondition(tcbyKatDocS);
+    'Финансовые документы'       : PushCondition(tcbyKatDocF);
+    'Розничная торговля'         : PushCondition(tcbyKatDocR);
+    'Векселя'                    : PushCondition(tcbyKatDocV);
+  end;
+
+  if (GetFirst FastFirstRow KatDocTmp = tsOk) {}
+}
+
+cmDefault :
+{
+  Flag := True;
+  if (GetMarkerCount(MarkerDoc) = 0)
+    InvertMarker(MarkerDoc, KatDocTmp.NRec);
+}
+
+cmCancel :
+{
+  PopCondDoc;
+  ClearMarker(MarkerDoc);
+}
+
+cmClose :
+{
+  PopCondDoc;
+  ClearMarker(MarkerDoc);
+}
+
+cmMarkUnMark :
+{
+  InvertMarker(MarkerDoc, KatDocTmp.NRec);
+  if (GetNext KatDocTmp <> tsOk) {}
+
+  RescanPanel(#KatDocTmp);
+}
+
+cmSelectAll :
+{
+  StartNewVisual(vtRotateVisual, vfTimer, 'Помечаю все', 1);
+  PushPos(#KatDocTmp);
+
+  _loop KatDocTmp
+  {
+    InsertMarker(MarkerDoc, KatDocTmp.NRec);
+    NextVisual;
+  }
+
+  PopPos(#KatDocTmp);
+  RescanPanel(#KatDocTmp);
+  StopVisual('', 0);
+}
+
+cmUnSelectAll :
+{
+  ClearMarker(MarkerDoc);
+  RescanPanel(#KatDocTmp);
+}
+
+end;
+end; // Window wndVyborDoc
+
+function GetUge : Boolean;
+var
+  L : Integer;
+{
+  TreePushPos(trTemp);
+  if (TempDescr.IsLeaf = 1)
+    TreeJumpToRecord(trTemp, TempDescr.cGroup);
+
+  L := TreeLevel(trTemp);
+  GetUge := True;
+
+  while (TreeGetNextEx(trTemp)) do
+  {
+    NextVisual;
+    if (TreeLevel(trTemp) <= L)
+      Break;
+
+    if (TempDescr.cRecKat = KatDocTmp.NRec)
+    {
+      Soob := Soob + if (Soob <> MyMess,
+        ', ' + Trim(String(KatDocTmp.TiDKGal)),
+         Chr(13) + Trim(String(KatDocTmp.TiDKGal)));
+      GetUge := False;
+      Break;
+    }
+  }
+
+  TreePopPos(trTemp);
+}
+
+function SetNewGroup(Gr : Comp; SName, SN : String) : Comp;
+{
+  ClearBuffer(#TempDescr);
+  TempDescr.Code     := Word(MyCode);
+  TempDescr.CGroup   := Gr;
+  TempDescr.Name     := SName;
+  TempDescr.SortName := SN;
+  Insert current TempDescr;
+  SetNewGroup := TempDescr.NRec;
+}
+
+procedure SetLeafTreeDoc(Gr : Comp; ITable : Word);
+{
+  ClearBuffer(#TempDescr);
+  TempDescr.Code    := Word(MyCode);
+  TempDescr.CGroup  := Gr;
+  TempDescr.CRecKat := KatDoc.NRec;
+  TempDescr.Name    := KatDoc.Name;
+  TempDescr.isLeaf  := 1;
+  TempDescr.Level   := ITable;
+
+  if ((ITable = coKatSopr)    and
+      ((KatDoc.TiDkGal = 10)  or
+       (KatDoc.TiDkGal = 21)  or
+       (KatDoc.TiDkGal = 22)))
+    TempDescr.SortName := String(BuchSopr + KatDoc.TiDKGal, 5);
+  else
+    TempDescr.SortName := String(KatDoc.TiDKGal, 5);
+
+  Insert current TempDescr;
+}
+
+procedure AddLeafTreeDoc;
+var
+  L       : Comp;
+  tmpName : String;
+{
+  if (GetFirst FastFirstRow TempDescr where(('   70' == TempDescr.SortName (NoIndex))) = tsOk)
+  {
+    L := TempDescr.cRec;
+    tmpName := TempDescr.Name;
+    ClearBuffer(#TempDescr);
+    TempDescr.Code     := Word(MyCode);
+    TempDescr.isLeaf   := 1;
+    TempDescr.cRec     := L;
+    TempDescr.Name     := tmpName;
+    TempDescr.Level    := coBaseFin;
+    TempDescr.SortName := String(Word(71), 5);
+    Insert current TempDescr;
+  }
+
+  if (GetFirst FastFirstRow TempDescr where(('   90' == TempDescr.SortName (NoIndex))) = tsOk)
+  {
+    L := TempDescr.cRec;
+    tmpName := TempDescr.Name;
+    ClearBuffer(#TempDescr);
+    TempDescr.Code     := Word(MyCode);
+    TempDescr.isLeaf   := 1;
+    TempDescr.cRec     := L;
+    TempDescr.Name     := tmpName;
+    TempDescr.Level    := coBaseFin;
+    TempDescr.SortName := String(Word(94), 5);
+    Insert current TempDescr;
+  }
+
+  if (GetFirst FastFirstRow TempDescr where(('   91' == TempDescr.SortName (NoIndex))) = tsOk)
+  {
+    L := TempDescr.cRec;
+    tmpName := TempDescr.Name;
+    ClearBuffer(#TempDescr);
+    TempDescr.Code     := Word(MyCode);
+    TempDescr.isLeaf   := 1;
+    TempDescr.cRec     := L;
+    TempDescr.Name     := tmpName;
+    TempDescr.Level    := coBaseFin;
+    TempDescr.SortName := String(Word(93), 5);
+    Insert current TempDescr;
+  }
+
+  if (GetFirst FastFirstRow TempDescr where(('   92' == TempDescr.SortName (NoIndex))) = tsOk)
+  {
+    L := TempDescr.cRec;
+    tmpName := TempDescr.Name;
+    ClearBuffer(#TempDescr);
+    TempDescr.Code     := Word(MyCode);
+    TempDescr.isLeaf   := 1;
+    TempDescr.cRec     := L;
+    TempDescr.Name     := tmpName;
+    TempDescr.Level    := coBaseFin;
+    TempDescr.SortName := String(Word(95), 5);
+    Insert current TempDescr;
+  }
+}
+
+procedure DelAddLeafTreeDoc;
+{
+  Delete TempDescr where(('   71'      == TempDescr.SortName (NoIndex) and
+                          Word(MyCode) == TempDescr.Code));
+
+  Delete TempDescr where(('   93'      == TempDescr.SortName (NoIndex) and
+                          Word(MyCode) == TempDescr.Code));
+
+  Delete TempDescr where(('   94'      == TempDescr.SortName (NoIndex) and
+                          Word(MyCode) == TempDescr.Code));
+
+  Delete TempDescr where(('   95'      == TempDescr.SortName (NoIndex) and
+                          Word(MyCode) == TempDescr.Code));
+}
+
+procedure SetDefaultTreeDoc;
+var
+  GroupT, GroupT1, GroupT2, GroupT3, GroupT4 : Comp;
+{
+  StartNewVisual(vtRotateVisual, vfTimer, 'Документы по умолчанию', 1);
+  Delete TempDescr where((Word(MyCode) == TempDescr.Code));
+  ClearMarker(MarkerTree);
+  GroupT  := 0;
+  GroupT  := SetNewGroup(GroupT, 'Документы', '11111');
+  GroupT1 := SetNewGroup(GroupT, 'Сопроводительные документы', '22222');
+  GroupT2 := SetNewGroup(GroupT, 'Финансовые документы', '33333');
+  GroupT3 := SetNewGroup(GroupT, 'Векселя', '44444');
+  GroupT4 := SetNewGroup(GroupT, 'Розничная торговля', '55555');
+
+  ReSetBounds(#KatDoc);
+
+/*
+    44 - Собственное валютное заявление на аккредитив
+  1004 - Стороннее заявление на аккредитив
+  1005 - Стороннее заявление об отказе от акцепта
+  1011 - Стороннее платежное требование-поручение
+  1030 - Сторонний реестр счетов
+  1032 - Стороннее платежное требование
+  1044 - Стороннее валютное заявление на аккредитив
+*/
+  _loop KatDoc
+  {
+    case KatDoc.TiDKGal of
+
+      101..111, 201, 203..211, 251,700 : SetLeafTreeDoc(GroupT1, coKatSopr);
+
+      10, 21, 22 :
+      {
+        SetLeafTreeDoc(GroupT1, coKatSopr);
+        SetLeafTreeDoc(GroupT2, coBaseFin);
+      }
+
+      1..9, 11, 17, 18, 27,
+      30..36, 44, 70, 90..92,
+      1004, 1005, 1011, 1030, 1032, 1044 : SetLeafTreeDoc(GroupT2, coBaseFin);
+
+      911 : SetLeafTreeDoc(GroupT4, coRzDoc);
+
+      81..89 : SetLeafTreeDoc (GroupT3, coAppVeks);
+    end;
+
+    NextVisual;
+  }
+
+  SetBounds(#KatDoc);
+  CurGroup := 0;
+  TreeCloseAllOpenedNode(trTemp);
+  if (GetFirst TempDescr = tsOk) {}
+
+  SetMyTitle(trTemp);
+  ReReadRecord(tnTempDescr);
+  RescanPanel(tnTempDescr);
+  StopVisual('', 0);
+}
+
+procedure SetHeadTree(ITemp : LongInt);
+{
+  if (GetMarkerTree(ITemp) = 0)
+  {
+    TreePushPos(ITemp);
+    TreeGetFirst(ITemp);
+    DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+    TreePopPos(ITemp);
+  }
+  else
+  {
+    TreePushPos(ITemp);
+    TreeGetFirst(ITemp);
+    InsertMarker(MarkerTree, Comp(TempDescr.SortName));
+    TreePopPos(ITemp);
+  }
+}
+
+// Установка полей фильтра
+procedure SetFilterFields;
+{
+  if (wFilter = 1)
+    SetFieldState(#fDogovor, sfVisible);
+  else
+    ClearFieldState(#fDogovor, sfVisible);
+}
+
+// Удаление фильтра по договору
+procedure DelDogovorFilter;
+{
+  MrkDogovorFilter := InitMarker('Dogovor_AktSv_Dog', 8, 100, 10);
+  ClearMarker(MrkDogovorFilter);
+  DoneMarker(MrkDogovorFilter, 'Dogovor_AktSv_Dog');
+
+  Set NumFilterDogovor := 0;
+  Set cFilterDogovor   := Comp(0);
+}
+
+Panel pnTreeHandle
+  table TempDescr;
+
+HandleEvent
+
+cmInsert :
+{
+var l   : Word;
+var CTG : Comp;
+
+  Soob := MyMess;
+  if (TempDescr.cGroup = 0)
+  {
+    Message('Нельзя добавить в корень!', OKButton);
+    Stop;
+  }
+  else
+  {
+    if (TempDescr.IsLeaf = 1)
+    {
+      CTG := TempDescr.cGroup;
+      l   := TempDescr.Level;
+      TreePushPos(trTemp);
+      TreeJumpToRecord(trTemp, TempDescr.cGroup);
+      NameTG := TempDescr.Name;
+      TreePopPos(trTemp);
+    }
+    else
+    {
+      CTG    := TempDescr.NRec;
+      NameTG := TempDescr.Name;
+      if (not TreeNodeIsOpen (trTemp))
+      {
+        TreeOpenNode(trTemp);
+        RescanPanel(#TempDescr);
+        TreePushPos(trTemp);
+        TreeGetNextEx(trTemp);
+        l := TempDescr.Level;
+        TreePopPos(trTemp);
+      }
+      else
+      {
+        TreePushPos(trTemp);
+        TreeGetNextEx(trTemp);
+        l := TempDescr.Level;
+        TreePopPos(trTemp);
+      }
+    }
+
+    Flag := False;
+    RunWindowModal(wndVyborDoc);
+
+    StartNewVisual(vtRotateVisual, vfTimer, 'Добавляю', 1);
+    if (not Flag)
+      StopVisual('', 0);
+    else
+    {
+      _loop KatDocTmp
+      {
+        if (not SearchMarker(MarkerDoc, KatDocTmp.NRec, IndexNoDoc))
+          Continue;
+
+        if (GetUge)
+        {
+          ClearBuffer(#TempDescr);
+          TempDescr.CRecKat := KatDocTmp.NRec;
+          TempDescr.Name    := KatDocTmp.Name;
+          TempDescr.isLeaf  := 1;
+          TempDescr.cGroup  := CTG;
+          TempDescr.Level   := l;
+          if ((l = coKatSopr) and
+              ((KatDocTmp.TiDkGal = 10) or
+               (KatDocTmp.TiDkGal = 21) or
+               (KatDocTmp.TiDkGal = 22)))
+            TempDescr.SortName := String(BuchSopr + KatDocTmp.TiDKGal, 5);
+          else
+            TempDescr.SortName := String(KatDocTmp.TiDKGal, 5);
+
+          Insert current TempDescr;
+          TreeJumpToRecord(trTemp, TempDescr.NRec);
+          RescanPanel(#TempDescr);
+          NextVisual;
+        }
+      }
+
+      StopVisual('', 0);
+    }
+
+    PopCondDoc;
+    ClearMarker(MarkerDoc);
+    if (Soob <> MyMess)
+      Message(Soob + ',' + Chr(13) + 'т.к. уже были в группе!', OkButton);
+
+    Stop;
+  }
+}
+
+cmDeleteRecord :
+{
+var L  : Integer;
+var Gr : Comp;
+
+  if (TempDescr.IsLeaf = 0)
+  {
+    if (TempDescr.cGroup = 0)
+    {
+      if (Message('Удалить все документы?', YesNo + Confirmation) = cmYes)
+      {
+        if (GetLeafTreeAll(trTemp) = 0)
+          Message('Нет документов!', OkButton);
+        else
+        {
+          TreePushPos(trTemp);
+          StartNewVisual(vtRotateVisual, vfTimer, 'Удаляю', 1);
+          ClearMarker(MarkerTree);
+          Delete TempDescr where((Word(MyCode) == TempDescr.Code and
+                                  Word(1)      == TempDescr.IsLeaf));
+
+          UpDate TempDescr where((Word(MyCode) == TempDescr.Code))
+            Set TempDescr.cRec := 0;
+
+          NextVisual;
+          TreePopPos(trTemp);
+          SetMyTitle(trTemp);
+          RescanPanel(#TempDescr);
+          StopVisual('', 0);
+        }
+      }
+    }
+    else
+      if (Message('Удалить все документы из группы?', YesNo + Confirmation) = cmYes)
+      {
+        if (GetLeafTree(trTemp) = 0)
+          Message('Нет документов в группе!', OkButton);
+        else
+        {
+          TreePushPos(trTemp);
+          StartNewVisual(vtRotateVisual, vfTimer, 'Удаляю', 1);
+          L  := TreeLevel(trTemp);
+          Gr := TempDescr.NRec;
+
+          while TreeGetNextEx(trTemp) do
+          {
+            if (TreeLevel(trTemp) <= L)
+              Break;
+
+            if (SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree))
+            {
+              DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+              NextVisual;
+            }
+          }
+
+          if (GetMarkerTree(trTemp) = 0)
+          {
+            TreeGetFirst(trTemp);
+            DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+            NextVisual;
+          }
+
+          Delete TempDescr where((Word(MyCode) == TempDescr.Code and
+                                  Gr           == TempDescr.cGroup));
+
+          TreePopPos(trTemp);
+
+          DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+          UpDate current TempDescr Set TempDescr.cRec := 0;
+
+          if (GetNaznTree(trTemp) = 0)
+          {
+            TreePushPos(trTemp);
+            TreeGetFirst(trTemp);
+            UpDate current TempDescr
+              Set TempDescr.cRec := 0;
+            NextVisual;
+            TreePopPos(trTemp);
+          }
+
+          NextVisual;
+          SetMyTitle(trTemp);
+          RescanPanel(#TempDescr);
+          StopVisual('', 0);
+        }
+      }
+  } // if (TempDescr.IsLeaf = 0)
+  else
+    if (Message('Вы уверены?', YesNo + Confirmation) = cmYes)
+    {
+      if ((SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree)) or (TempDescr.cRec = 1))
+      {
+        TreePushPos(trTemp);
+        TreeJumpToRecord(trTemp, TempDescr.cGroup);
+        if (GetMarkerLeaf(trTemp) = 1)
+          DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+
+        if (GetNaznLeaf(trTemp) = 1)
+          UpDate current TempDescr
+            Set TempDescr.cRec := 0;
+
+        TreePopPos(trTemp);
+
+        DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+        UpDate current TempDescr
+          Set TempDescr.cRec := 0;
+
+        if (GetMarkerTree(trTemp) = 0)
+        {
+          TreePushPos(trTemp);
+          TreeGetFirst(trTemp);
+          DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+          TreePopPos(trTemp);
+        }
+
+        if (GetNaznTree(trTemp) = 0)
+        {
+          TreePushPos(trTemp);
+          TreeGetFirst(trTemp);
+          UpDate current TempDescr
+            Set TempDescr.cRec := 0;
+
+          TreePopPos(trTemp);
+        }
+      }
+
+      Delete current TempDescr;
+      TreeGetPrev(trTemp);
+      SetMyTitle(trTemp);
+      RescanPanel(tnTempDescr);
+    } // if Message
+}
+
+cmCheckField :
+{
+  var wOld : Word;
+  var M    : Boolean;
+  var L    : Integer;
+
+  case CurField of
+
+    #wFilter : SetFilterFields;
+
+    #TempDescr.cRec :
+    {
+      StartNewVisual(vtRotateVisual, vfTimer, 'Помечаю', 1);
+      UpDate current TempDescr;
+      M := (TempDescr.cRec = 1);
+      if (TempDescr.IsLeaf = 1)
+      {
+        TreePushPos(trTemp);
+        TreeJumpToRecord(trTemp, TempDescr.cGroup);
+        if (GetNaznLeaf(trTemp) = 0)
+          UpDate current TempDescr Set TempDescr.cRec := 0;
+        else
+          UpDate current TempDescr Set TempDescr.cRec := 1;
+
+        TreePopPos(trTemp);
+        NextVisual;
+      }
+      else
+      {
+        if (GetLeafTree(trTemp) = 0)
+          UpDate current TempDescr Set TempDescr.cRec := 0;
+
+        L := TreeLevel(trTemp);
+        TreePushPos(trTemp);
+
+        while TreeGetNextEx(trTemp) do
+        {
+          if (TreeLevel(trTemp) <= L)
+            Break;
+
+          if (M)
+          {
+            if (TempDescr.cRec = 0)
+              UpDate current TempDescr Set TempDescr.cRec := 1;
+          }
+          else
+            if (TempDescr.cRec = 1)
+              UpDate current TempDescr Set TempDescr.cRec := 0;
+
+          NextVisual;
+        }
+
+        TreePopPos(trTemp);
+        SetPusto(trTemp);
+      }
+
+      if (GetNaznTree(trTemp) = 0)
+      {
+        TreePushPos(trTemp);
+        TreeGetFirst(trTemp);
+        UpDate current TempDescr Set TempDescr.cRec := 0;
+        TreePopPos(trTemp);
+      }
+      else
+      {
+        TreePushPos(trTemp);
+        TreeGetFirst(trTemp);
+        UpDate current TempDescr Set TempDescr.cRec := 1;
+        TreePopPos(trTemp);
+      }
+
+      NextVisual;
+      RescanPanel(tnTempDescr);
+      StopVisual('', 0);
+    }
+
+    #wDopParam :
+    {
+      wOld := Word(OldFieldValue); // Старое значение доп.параметров
+      if (((wOld and 4) <> 0) and ((wDopParam and 4) = 0))
+      {
+        // Удаление фильтра по договору при смене режима соглашений на договора
+        DelDogovorFilter;
+      }
+    }
+  end;
+}
+
+cmUpdateRecord :
+{
+  Update current TempDescr;
+}
+
+cmTreeTop :
+  CurGroup := 0;
+
+cmTreeUp :
+  CurGroup := TempDescr.cGroup;
+
+cmTreeDown :
+  CurGroup := TempDescr.NRec;
+
+cmTreeNodeType :
+{
+  if (TempDescr.isLeaf = 1)
+    TreeSetNodeType (trTemp, 2);
+}
+
+cmTreeNeedOwner :
+  TreeJumpToRecord(trTemp, TempDescr.cGroup);
+
+cmMarkUnMark :
+{
+var M : Boolean;
+var L : Integer;
+
+  StartNewVisual(vtRotateVisual, vfTimer, 'Помечаю', 1);
+  InvertMarker(MarkerTree, Comp(TempDescr.SortName));
+
+  if ((TempDescr.IsLeaf = 0) and (GetLeafTree(trTemp) = 0) and (TempDescr.cGroup <> 0))
+    DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+
+  M := SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree);
+  if (TempDescr.IsLeaf = 1)
+  {
+    TreePushPos(trTemp);
+    TreeJumpToRecord(trTemp, TempDescr.cGroup);
+    if (GetMarkerLeaf(trTemp) = 0)
+      DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+    else
+      InsertMarker(MarkerTree, Comp(TempDescr.SortName));
+
+    NextVisual;
+    TreePopPos(trTemp);
+  }
+  else
+  {
+    L := TreeLevel(trTemp);
+    TreePushPos(trTemp);
+
+    while TreeGetNextEx(trTemp) do
+    {
+      if (TreeLevel(trTemp) <= L)
+        Break;
+
+      if (M)
+      {
+        if (not SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree))
+          InsertMarker(MarkerTree, Comp(TempDescr.SortName));
+      }
+      else
+        if (SearchMarker(MarkerTree, Comp(TempDescr.SortName), IndexNoTree))
+          DeleteMarker(MarkerTree, Comp(TempDescr.SortName));
+
+      NextVisual;
+    }
+
+    TreePopPos(trTemp);
+    SetPusto(trTemp);
+  }
+
+  SetHeadTree(trTemp);
+  TreeGetNext(trTemp);
+  SetMyTitle(trTemp);
+  NextVisual;
+  RescanPanel(tnTempDescr);
+  StopVisual('', 0);
+}
+
+cmSelectAll :
+{
+  StartNewVisual(vtRotateVisual, vfTimer, 'Помечаю все', 1);
+  TreePushPos(trTemp);
+
+  if (TreeGetFirst(trTemp))
+  {
+    do
+    {
+      InsertMarker(MarkerTree, Comp(TempDescr.SortName));
+      NextVisual;
+    }
+    while (TreeGetNextEx(trTemp));
+  }
+
+  TreePopPos(trTemp);
+  SetHeadTree(trTemp);
+  SetMyTitle(trTemp);
+  NextVisual;
+  SetPusto(trTemp);
+  RescanPanel(tnTempDescr);
+  StopVisual('', 0);
+}
+
+cmUnSelectAll :
+{
+  ClearMarker(MarkerTree);
+  SetMyTitle(trTemp);
+  RescanPanel(#TempDescr);
+}
+
+cmHotKeys :
+{
+  PutHotCommand(RunMenu('StartTree_Rep'));
+}
+
+cmDocBas :
+{
+  SetDefaultTreeDoc;
+}
+
+end;
+end;  // Panel pnTreeHandle
+
+
+procedure SaveParamOtch;
+{
+  SaveMyDsk(BegDate,   'Rep_Pl_Dgv_d0');
+  SaveMyDsk(EndDate,   'Rep_Pl_Dgv_d1');
+  SaveMyDsk(cRec_Org,  'Rep_Pl_Dgv_cOrg');
+  SaveMyDsk(wDirect,   'Rep_Pl_Dgv_wDirect');
+  SaveMyDsk(wFilter,   'Rep_Pl_Dgv_wFilter');
+  SaveMyDsk(wDopParam, 'Rep_Pl_Dgv_wDopParam');
+}
+
+procedure ReadParamOtch;
+var
+  DateChanged : Boolean;
+{
+  if (not ReadMyDsk(BegDate, 'Rep_Pl_Dgv_d0', DateChanged))
+    BegDate := Sub_Months(Cur_Date, 1);
+
+  if (not ReadMyDsk(EndDate, 'Rep_Pl_Dgv_d1', DateChanged))
+    EndDate := Cur_Date;
+
+  if (not ReadMyDsk(cRec_Org, 'Rep_Pl_Dgv_cOrg', DateChanged))
+    cRec_Org := 0;
+
+  if (not ReadMyDsk(wDirect, 'Rep_Pl_Dgv_wDirect', DateChanged))
+    wDirect := 1 + 2;
+
+  if (not ReadMyDsk(wFilter, 'Rep_Pl_Dgv_wFilter', DateChanged))
+    wFilter := 0;
+
+  if (not ReadMyDsk(wDopParam, 'Rep_Pl_Dgv_wDopParam', DateChanged))
+    wDopParam := 0;
+
+  ID := 'L_KontrBal\AktSvDO';
+
+  if (not ReadMyDsk(RepName, ID, DateChanged))
+    RepName := TranslatePath('%ClientStartPath%XLS\' + ID + '.xlt');
+
+  if (Trim(RepName) = '')
+    RepName := TranslatePath('%ClientStartPath%XLS\' + ID + '.xlt');
+
+  // Определение плана счетов (сначала пользователя, а потом - общесистемный)
+  myPlansNo := coGetTune('Fin.User.cPlansSch');
+  if (myPlansNo = 0)
+    myPlansNo := coGetTune('Konsolid.cPlansSch');
+
+  BuhSchCount := 0;
+  if (myPlansNo = 0)
+  {
+    sBuhSchet := NoBuhSchet + ', нет текущего плана счетов';
+    ClearFieldOption(#sBuhSchet, ofSelectable);
+  }
+  else
+  {
+    sBuhSchet := NoBuhSchet;
+    SetFieldOption(#sBuhSchet, ofSelectable);
+  }
+
+  SaveParamOtch;
+}
+
+function CheckParamOtch : Boolean;
+var
+  IsNastrOk : Boolean;
+{
+  CheckParamOtch := False;
+
+  IsNastrOk := True;
+  if (boGetTune('Oper.AutoCalcBalance'))
+    if (SoprInRep <> wGetTune('Oper.SoprInBalans'))
+      IsNastrOk := False;
+
+  if ((BegDate > Date(0,0,0))      and
+      (EndDate > Date(0,0,0))      and
+      (BegDate <= EndDate)         and
+      (GetMarkerTree(trTemp) <> 0) and
+      (cRec_Org <> Comp(0))        and
+      (wDirect > 0)                and
+      (IsNastrOk))
+  {
+    CheckParamOtch := True;
+    Exit;
+  }
+
+  if ((GetMarkerTree(trTemp)) = 0)
+  {
+    Message(''#3'Выберите хотя бы один документ...', CancelButton + Warning);
+    Exit;
+  }
+
+  if (BegDate = Date(0, 0, 0))
+  {
+    Message(''#3'Первая дата не может быть нулевой...', CancelButton + Warning);
+    Exit;
+  }
+
+  if (EndDate = Date(0, 0, 0))
+  {
+    Message(''#3'Вторая дата не может быть нулевой...', CancelButton + Warning);
+    Exit;
+  }
+
+  if (BegDate > EndDate)
+  {
+    Message(''#3'Вторая дата должна быть не меньше первой...', CancelButton + Warning);
+    Exit;
+  }
+
+  if (cRec_Org = Comp(0))
+  {
+    Message(''#3'Выберите контрагента...', CancelButton + Warning);
+    Exit;
+  }
+
+  if (wDirect = 0)
+  {
+    Message(''#3'Выберите направление...', CancelButton + Warning);
+    Exit;
+  }
+
+  if (not IsNastrOk)
+  {
+    Message('Использование входящего сальдо невозможно, ' + ''#13 +
+            'поскольку в настройке системы и в параметрах отчета ' + ''#13 +
+            'установлены разные методы расчета баланса взаиморасчетов' + ''#13 +
+            'и учета накладных в расчетах с контрагентами...' + ''#13, CancelButton + Warning);
+    Exit;
+  }
+}
+
+// Формирование строки с информацией о множественном выборе
+function GetMultiString(NumElementsSch, NumElementsSub : Word) : String;
+{
+  GetMultiString := 'множественный выбор ( ' +
+                    String(NumElementsSch) + ' / ' + String(NumElementsSub) + ' )';
+}
+
+// Возвращает наименование счета/субсчета
+function GetNameSch(Sch : tSchet3; Sub : tSubSch) : String;
+{
+  // Всегда буду перечитывать субсчет,
+  // так как возможна куча ситуаций когда GetBuhSchet вернет в поле sSubSchet непонятно что
+  if (Sub <> cgDefSub)
+    iPickBuh.FoundFirstSub(Sch, Sub);
+
+  if (GetFirst FastFirstRow BuhSchet where ((Sch == BuhSchet.Schet and
+                                             Sub == BuhSchet.SubSch)) = tsOk)
+    GetNameSch := BuhSchet.Code + ' ' + BuhSchet.Name;
+}
+
+
+HandleEvent
+
+cmInit :
+{
+  ReadParamOtch;
+  SoprInRep := wGetTune('Rep.SoprKontr');
+
+  oValFunc.InitVal;
+
+  MrkStatusSopr := InitMarker('Rep_Pl_Dgv_StatusSopr', 8,10,10, False);
+  if (GetMarkerCount(MrkStatusSopr) = 1)
+    if (GetMarker(MrkStatusSopr, 0, cRecNotes)) {}
+
+  Set cRecNotes := cRecNotes;
+  SetTitle('Параметры отчета акт сверки в разрезе договоров');
+  MarkerTree := InitMarker('TreeKatDoc_Dgv', 8, 100, 10);
+  MarkerDoc  := InitMarker('VybKatDoc_Dgv', 8, 100, 10);
+
+  if (GetFirst FastFirstRow TempDescr <> tsOK)
+    SetDefaultTreeDoc;
+
+  // Фильтр по договорам
+  MrkDogovorFilter := InitMarker('Dogovor_AktSv_Dog', 8, 100, 10);
+  NumFilterDogovor := GetMarkerCount(MrkDogovorFilter);
+
+  if (NumFilterDogovor = 1)
+    GetMarker(MrkDogovorFilter, 0, cFilterDogovor);
+
+  DoneMarker(MrkDogovorFilter, 'Dogovor_AktSv_Dog');
+
+  SetFilterFields;
+  SetMyTitle(trTemp);
+  ReScanPanel(tnTempDescr);
+  SetFormat(scRep_Pl_Dgv);
+  SetFormat(trTemp);
+  RereadRecord;
+}
+
+cmDone :
+{
+  DoneMarker(MarkerTree,    'TreeKatDoc_Dgv');
+  DoneMarker(MarkerDoc,     'VybKatDoc_Dgv');
+  DoneMarker(MrkStatusSopr, 'Rep_Pl_Dgv_StatusSopr');
+  SaveParamOtch;
+  oValFunc.DoneVal;
+}
+
+cmvalue14: // настройка Excel печати
+{
+  runinterface('xlrepsetup',1,ID,RepName);
+  ReadMyDsk(RepName,ID,true);
+}
+
+cmValue1 :
+{
+  if (CheckParamOtch)
+  {
+    if not pxlrepsetup.checkParam(0, ID, RepName)
+      Exit;
+
+    SaveParamOtch;
+    AddLeafTreeDoc;
+    if (SearchMarker(MarkerTree, Comp(90), IndexNoTree))
+      InsertMarker(MarkerTree, Comp(94));
+
+    if (SearchMarker(MarkerTree, Comp(91), IndexNoTree))
+      InsertMarker(MarkerTree, Comp(93));
+
+    if (SearchMarker(MarkerTree, Comp(92), IndexNoTree))
+      InsertMarker(MarkerTree, Comp(95));
+
+    if (SearchMarker(MarkerTree, Comp(70), IndexNoTree))
+      InsertMarker(MarkerTree, Comp(71));
+
+    MrkDogovorFilter := InitMarker('Dogovor_AktSv_Dog', 8, 100, 10); // Маркер с фильтром по договорам
+
+    if (CalcTempTable)  // Расчеты и заполнение временных таблиц, по которым строится отчет
+      CreateRasKontr_Excel(False);
+
+    DoneMarker(MrkDogovorFilter, 'Dogovor_AktSv_Dog');
+
+    if (SearchMarker(MarkerTree, Comp(90), IndexNoTree))
+      DeleteMarker(MarkerTree, Comp(94));
+
+    if (SearchMarker(MarkerTree, Comp(91), IndexNoTree))
+      DeleteMarker(MarkerTree, Comp(93));
+
+    if (SearchMarker(MarkerTree, Comp(92), IndexNoTree))
+      DeleteMarker(MarkerTree, Comp(95));
+
+    if (SearchMarker(MarkerTree, Comp(70), IndexNoTree))
+      DeleteMarker(MarkerTree, Comp(71));
+
+    DelAddLeafTreeDoc;
+
+    CloseInterface(cmDone);
+  }
+}
+
+cmPick :
+{
+var MultiSch, MultiSub, aPickDogApp : Word;
+var sSchet      : tSchet3;
+var sSubSchet   : tSubSch;
+var sTmp        : String;
+var cOldRec_Org : Comp;
+
+  case CurField of
+
+    #StatusSopr :
+    {
+      DoneMarker(MrkStatusSopr, 'MKatNotes');
+      if (RunInterface('GetSomKatNotes', Word(100), Word(0), Word(0), True, cRecNotes) <> cmCancel)
+      {
+        MrkStatusSopr := InitMarker('MKatNotes',8,10,10, False);
+        if (GetMarkerCount(MrkStatusSopr) = 1)
+        {
+          if (not (GetMarker(MrkStatusSopr, 0, cRecNotes)))
+            cRecNotes := Comp(0)
+        }
+        else
+          cRecNotes := Comp(0);
+
+        DoneMarker(MrkStatusSopr, 'Rep_Pl_Dgv_StatusSopr');
+      }
+
+      MrkStatusSopr := InitMarker('Rep_Pl_Dgv_StatusSopr', 8,10,10, False);
+      Set cRecNotes := cRecNotes;
+    }
+
+    #KatOrg.Name :
+    {
+      cOldRec_Org := cRec_Org;
+
+      if (RunInterface('GetKatOr', cRec_Org, 0, False, 0, cBankOrg) <> cmCancel)
+      {
+        Set cRec_Org := cRec_Org;
+        Set cBankOrg := cBankOrg;
+
+        if (cOldRec_Org <> cRec_Org)
+          DelDogovorFilter;  // Удаление фильтра по договору при изменении контрагента
+      }
+    }
+    #fDogovor :
+    {
+      var aOwn : Comp;
+
+      iMarkFuncs.MarkerToMarker('Dogovor_AktSv_Dog', 'MDogovor', True, True);
+      // Фильтр по контрагенту
+      SaveMyDsk(True,     'GetSDog_NeedFilterOnKontr2');
+      SaveMyDsk(32,       'GetSDog_optView');
+      SaveMyDsk(cRec_Org, 'GetSDog_pKontr2');
+      SaveMyDsk(True,     'GetSDog_SaveSelect');
+
+      // 0 - выбирать только договора, 1 - и соглашения тоже
+      aPickDogApp := if ((wDopParam and 4) <> 0, Word(1), Word(0));
+
+      if (RunInterface('GetSomeDogovor',
+                        Word(0),            // pVidDog,    вид документа - если задан будет установлен фильтр
+                        Word(0FFFFh),       // pStatus,    0-все документы, иначе маска РАЗРЕШЕННЫХ статусов
+                        Word(0),            // pDirect,    0-все документы, 1-продажа, 2-закупка
+                        aPickDogApp,        // pAttach,    0-выбирать соглашения нельзя, 1-можно, 2-только соглашения
+                        True,               // OkOne,      TRUE - груповой выбор FALSE - только один
+                        cFilterDogovor,     // prmDogovor, возвращаемый указатель на договор
+                        False,              // OneLevel,   показывать записи одного уровня (True), False - нет
+                        aOwn                // pOwn        ссылка на владельца уровня (действует если OneLevel = True) - ВОЗВРАЩАЕМЫЙ!
+                      ) <> cmCancel)
+      {
+        Set NumFilterDogovor := iMarkFuncs.MarkerToMarker('MDogovor', 'Dogovor_AktSv_Dog', True, True);
+        Set cFilterDogovor := cFilterDogovor;
+      }
+    }
+
+    #sBuhSchet :
+    {
+      if (RunInterface('GetBuhSchet', cgiPickMult, myPlansNo, sSchet, sSubSchet) = cmDefault)
+      {
+        MultiSch := iPickBuh.GetCountItem(cgPick_Schet);
+        MultiSub := iPickBuh.GetCountItem(cgPick_SubSch);
+        BuhSchCount := MultiSch + MultiSub;
+
+        if ((MultiSch = 1) and (MultiSub <= 1)) // Единичный выбор счета или субсчета
+          Set sBuhSchet := GetNameSch(sSchet, sSubSchet);
+        else
+          if ((BuhSchCount) > 1)  // Множественный выбор
+            Set sBuhSchet := GetMultiString(MultiSch, MultiSub);
+          else
+          {
+            Set sBuhSchet := NoBuhSchet;  // Нет выбора
+            BuhSchCount   := 0;
+          }
+      }
+    }
+
+  end;
+
+  ReReadRecord(#TempDescr);
+}
+
+cmDelOnProtect :
+{
+  case CurField of
+
+    #StatusSopr :
+    {
+      Set cRecNotes := Comp(0);
+      ClearMarker(MrkStatusSopr);
+    }
+
+    #KatOrg.Name : Abort;
+
+    #sBuhSchet :
+    {
+      BuhSchCount   := 0;
+      Set sBuhSchet := NoBuhSchet;
+    }
+
+    #fDogovor : DelDogovorFilter;
+
+  end
+
+  ReReadRecord(#TempDescr);
+}
+end;
+end.

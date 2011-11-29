@@ -1,0 +1,344 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 8.10 - Спецодежда
+// Окна редактирования Личной Карточки учета СФО
+//------------------------------------------------------------------------------
+
+//-------------------------------------------------------------------------
+
+Window wiFurnSFOList 'Знаки различия и фурнитура' EscClose;
+  Show At (,, 75, 10);
+
+Browse brFurnBrowse ('Знаки различия и фурнитура, входящие в комплект к основному предмету',, sci1Esc);
+  Table shFurnSFO;
+Fields
+  {Font = {Color = if (shFurnSFO.Status <> sfoInUse, ColorGray, 0)}};
+  shFurnMBP.NNumber #3'Номенкл. №'   ('Номенклатурный номер предмета') : [20], protect;
+  shFurnMBP.Name    #3'Наименование' ('Наименование предмета') : [40], protect;
+  shFurnSFO.CurKol  #3'Количество'   ('Количество предметов') : [15], protect;
+End; // Browse brFurnBrowse
+
+HandleEvent // Window wiFurnSFOList
+//---------------------------------
+  cmHotKeys:
+    PutHotCommand(RunMenu('SFO_PersCard_ReLinkFurn_HotKeys'));
+//---------------------------------
+  cmValue25: // Перепривязать предмет фурнитуры к другому основному предмету
+    ProcessCommand(cmValue25);
+//---------------------------------
+End; // HandleEvent Window wiFurnSFOList
+End; // Window wiFurnSFOList
+
+//-------------------------------------------------------------------------
+
+Window editPersSizes 'Размеры одежды' (, hcSFOIPersSizes, ) doAccept, escClose;
+  Show at (,,41,12);
+
+screen scPersSizes
+  ('Размеры специальной (форменной) одежды работника',, sci1Esc);
+  Table iPersCard;
+Fields
+  iPersCard.Size1 ('Рост специальной (форменной) одежды сотрудника');
+  iPersCard.Size2 ('Первый размер специальной (форменной) одежды сотрудника');
+  iPersCard.Size3 ('Второй размер специальной (форменной) одежды сотрудника');
+  iPersCard.Size4 ('Размер специальной (форменной) обуви сотрудника');
+  iPersCard.Size5 ('Размер специального (форменного) головного убора сотрудника');
+  iPersCard.Size6 ('Размер перчаток сотрудника');
+  iPersCard.Size7 ('Размер индивидуальных средств защиты сотрудника');
+  iPersCard.Size8 ('Размер погон сотрудника');
+<<
+
+ `Рост`                   .@@@@@@@@@@@@
+
+  Размеры :
+    `Одежды 1`            .@@@@@@@@@@@@
+    `Одежды 2`            .@@@@@@@@@@@@
+    `Обуви`               .@@@@@@@@@@@@
+    `Головного убора`     .@@@@@@@@@@@@
+    `Перчаток`            .@@@@@@@@@@@@
+    `Инд. средств защиты` .@@@@@@@@@@@@
+    `Погон`               .@@@@@@@@@@@@
+
+>>
+end;
+
+handleEvent
+
+cmInit:
+{
+  if (not Lic_ItemExists('Custom'))
+  {
+    HideLabel4Field(#iPersCard.Size8);
+    ClearFieldState(#iPersCard.Size8, sfVisible);
+  }
+}
+
+cmDone :
+  if (not UpdateTable)
+    Abort;
+
+end; // handleEvent
+end; // Window editPersSizes
+
+TableEvent Table iPersCard;
+//-------------------------
+  cmUpdateRecord:
+    update current iPersCard;
+//-------------------------
+  cmCheckField:
+  {
+    if (isClosedCard)
+    {
+      ReReadRecord(#iPersCard);
+      Abort; Stop; Exit;
+    }
+  }
+//-------------------------
+End; // TableEvent Table iPersCard
+
+//-------------------------------------------------------------------------
+
+Window wiGetNormSFO 'Нормы выдачи СФО' ('Выбор нормы работника',, sci1EnPM) Cyan, EscClose, DoAccept;
+  Show At (,, 70, 10);
+
+Browse brGetNormSFO;
+  Table shPersNorm;
+Fields
+  {Font = {Color = if (allPersNorm = 1, ColorMark, 0)}};
+  shNormSFO.Kod   #3'Код'          ('Код нормы специальной (форменной) одежды') : [11], Protect;
+  shNormSFO.Name  #3'Наименование' ('Название нормы - как правило категория (профессия, должность, звание, пол ...)') : [40], Protect;
+  if (shNormSFO.Nacop = 0, '-', '+')
+                  #3'Накоп.' ('Свойство накопительности нормы') : [7], Protect, NoAutoSize;
+  if (shNormSFO.indep = 0, '-', '+')
+                  #3'Един.'        ('Единовременная выдача по норме или периодически') : [7], Protect, NoAutoSize;
+end;
+
+HandleEvent // Window getNormSFO
+//----------------
+  cmInit:
+  {
+    refPersNorm := 0;
+    allPersNorm := 0;
+
+    if (not isValid(#shNormSFO))
+    {
+      Abort;
+      Message('Нет предметов, положенных работнику к выдаче!');
+    }
+  }
+//----------------
+  cmSelectAll:
+  {
+    allPersNorm := 1;
+    ReScanPanel(#shPersNorm);
+  }
+//----------------
+  cmUnSelectAll:
+  {
+    allPersNorm := 0;
+    ReScanPanel(#shPersNorm);
+  }
+//----------------
+  cmDefault:
+    if (allPersNorm = 1)
+      refPersNorm := 0;
+    else
+      refPersNorm := shPersNorm.nRec;
+//----------------
+end; // HandleEvent Window getNormSFO
+end; // Window getNormSFO
+
+//-------------------------------------------------------------------------
+
+Window editPersCard '' (, hcSFOMPersCard,)  escClose;
+  Show at (, 0,, 31);
+
+Screen scPersCard  ('Личная карточка учета специальной (форменной) одежды',, sci178Esc);
+  Show At(,,, 18);
+  Table PersCard, EventNavigation;
+Fields
+  PersCard.CardNom ('Номер личной карточки учета специальной (форменной) одежды'),
+    {Font = {BackColor = if (Trim( PersCard.CardNom) = '', ColorNeed, 0)}};
+  PrsCrdStatus     ('Статус личной карточки учета специальной (форменной) одежды') : Protect,
+    {Font = {Bold = True; Color = if (PersCard.Status = crdClosed, ColorError, if(statPersBreak = 'Не действует', 0, ColorError))}};
+  STabN            ('Табельный номер сотрудника',, sci1378Esc) : Protect,
+    {Font = {BackColor = if (PersCard.cLSchet = 0, ColorNeed, 0)}};
+  CatalogsApp.Name ('Характер назначения') : Protect;
+  Persons.FIO      ('ФИО сотрудника',, sci1378Esc) : Protect,
+    {Font = {BackColor = if (PersCard.cLSchet = 0, ColorNeed, 0)}};
+  Persons.Sex      ('Пол сотрудника') : Protect;
+  shKatPodr.Name   ('Подразделение, к которому относится сотрудник') : Protect;
+  HiKatPodr.Name   ('Вышестоящее структурное подразделение (если есть)') : Protect;
+  KatMOL.Name      ('Материально ответственное лицо на котором числятся выданные предметы',, sci1378Esc) : Protect;
+  LSchet.DatPos    ('Дата приема сотрудника на работу') : [,'DD/MM/YYYY'], Protect;
+  PersCard.perDate ('Дата последнего перевода из одного подразделения в другое') : [,'DD/MM/YYYY'], Protect;
+  PersCard.disDate ('Дата увольнения сотрудника') : [,'DD/MM/YYYY'], Protect;
+  Catalogs.Name    ('Должность, занимаемая сотрудником') : Protect;
+  PersCard.attDate ('Дата первой аттестации сотрудника для отсчета сроков носки') : [,'DD/MM/YYYY'],
+    {Font = {BackColor = if ( longint( PersCard.attDate) = 0, ColorNeed, 0)}};
+  Catalogs2.Name   ('Звание сотрудника') : Protect;
+  PersCard.chDate  ('Дата последнего изменения норм') : [,'DD/MM/YYYY'];
+  shOS             ('Текущая основная норма по спецодежде',, sci1378Esc);
+//  shOF             ('Текущая основная норма по форменной одежде',, sci1378Esc);
+  shDS             ('Текущая дополнительная норма по спецодежде',, sci1378Esc);
+//  shDF             ('Текущая дополнительная норма по форменной одежде',, sci1378Esc);
+  inUsePrice       ('Стоимость выданных и не списанных, не возвращенных предметов') : [16.2];
+Buttons
+  cmValue1,,, 'Редактирование размеров одежды для сотрудника', hcSFOIPersSizes, sci1Esc;
+//  cmValue4,,, 'Формирование требований на выдачу для сотрудника', hcSFOINewReqBut, sci1Esc;
+  cmValue5,,, 'Просмотр и обработка требований на выдачу СФО по сотруднику', hcSFOIReqBut, sci1Esc;
+  cmValue2,,, 'Просмотр и редактирование истории норм и их спецификации по работнику',, sci1Esc;
+  cmValue18,,, 'Просмотр и редактирование периодов приостановки по работнику',, sci1Esc;
+<<
+ `Номер личной карточки`.@@@@@@@@@                                                                .@@@@@@@@@@@
+ `Табельный номер`      .@@@@@@@@@@@@@   `Хар-р назначения`.@@@@@@@@@@@@@@@@@@
+ `Сотрудник`            .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  Пол  .@@@@
+ `Подразделение`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Вышестоящее`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `МОЛ`                  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ `Дата поступления`     .@@@@@@@@@@@      `Дата перевода`.@@@@@@@@@@@          `Дата увольнения`  .@@@@@@@@@@@
+ `Профессия (должность)`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Дата аттестации`  .@@@@@@@@@@@
+ `Перcональное звание`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Дата изменения`   .@@@@@@@@@@@
+  Нормы :
+   `Основная`           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   `Дополнительная`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ `Стоимость предметов в пользовании`.@@@@@@@@@@@@@@@
+
+       <. Размеры .>       <.     Требования на выдачу     .>      <.  Нормы  .>     <.Приостановка.>
+
+>>
+end;
+
+//-------------------------------------------------------------------------
+Function GetColorPersSFO: word;
+{
+  // Для фурнитуры, связанной с компенсированным предметом
+  if (isValid(#shMainSFO))
+    if (shMainSFO.Status = sfoCmps) and (Cur_Date < shMainSFO.EndDate)
+    {
+      GetColorPersSFO := ColorSysBlue;
+      Exit;
+    }
+
+  if (shPersSFO.Status = sfoInUse)
+    GetColorPersSFO := 0;
+  else
+    if (shPersSFO.Status = sfoCmps) and (Cur_Date < shPersSFO.EndDate)
+      GetColorPersSFO := ColorSysBlue;
+    else
+      GetColorPersSFO := ColorGray;
+}
+
+//-------------------------------------------------------------------------
+
+Browse brPersSFO ('Выдачи специальной (форменной) одежды по карточке',, sciSFO189Esc);
+  Show At(, 19,,);
+  Table shPersSFO;
+Fields
+  {Font = { Italic = (shPersSFO.cExtOper <> 0); Color = GetColorPersSFO; }};
+  IsMaterial         #3'Ф'            ('Признак наличия знаков различия и фурнитуры') : [2],      Protect, noAutoSize;
+  shKatMBP.NNumber   #3'Номенкл №'    ('Номенклатурный номер предметов СФО') : [10],              Protect, noAutoSize;
+  shKatMBP.Name      #3'Наименование' ('Название предметов СФО')             : [19],              Protect;
+  shKatEd.Name       #3'Ед.'          ('Единица измерения')                  : [4],               Protect, noAutoSize;
+  shPersSFO.giveDate #3'Выдано'       ('Дата выдачи предметов')              : [10,'DD/MM/YYYY'], Protect, noAutoSize;
+  shPersSFO.explDate #3'Экспл.'       ('Дата отсчета срока эксплуатации')    : [10,'DD/MM/YYYY'], Protect, noAutoSize;
+  shPersSFO.curKol   #3'Кол'          ('Количество единиц')                  : [3],               Protect, noAutoSize;
+  shSrok             #3'Срок'         ('Срок службы предметов СФО')          : [9],               Protect, noAutoSize;
+  shSFOSumma         #3'Стоимость'    ('Первоначальная стоимость предметов') : [11.2],            Protect, noAutoSize;
+  SFOStatBr          'С'              ('Состояние предметов : "Н"-носится, "В"-возвращено, "У"-утеряно, "С"-списано') : [1], Protect, noAutoSize;
+  SFOBalans          'Б'              ('"+" - числится на балансе, "-" - списано с баланса') : [1], Protect, noAutoSize,
+    {Font = {BackColor = if ((shPersSFO.cSpReqSFO <> 0) and (SFOBalans = '?'), ColorError, 0);
+             Color = if (isValid( #shMBPIn) and ((shMBPIn.cPodr <> PersCard.cPodr) or (shMBPIn.cMol <> PersCard.cMol)),
+                            ColorMark, 0)}
+    };
+  isByNorm           'Н'              ('"+" - выдано по нормам, "-" - вне норм') : [1], Protect, noAutoSize;
+end;
+
+screen scPersSFO ('Выдачи специальной (форменной) одежды по карточке',, sciSFO189Esc);
+  Show At(, 19,,);
+  Table shPersSFO;
+Fields
+  shKatMBP.Name      ('Название предметов СФО') : Protect;
+  shKatMBP.NNumber   ('Номенклатурный номер предметов СФО') : Protect;
+  shPersSFO.giveDate ('Дата выдачи предметов') : [10,'DD/MM/YYYY'], Protect;
+  shPersSFO.explDate ('Дата отсчета срока службы') : [10,'DD/MM/YYYY'], Protect;
+  shPersSFO.giveNom  ('Номер требования, по которому осуществлялась выдача СФО') : Protect;
+  shPersSFO.curKol   ('Количество единиц') : Protect;
+  shKatEd.Name       ('Единица измерения') : Skip;
+  shPersSFO.endDate  ('Дата окончания срока службы') : [10,'DD/MM/YYYY'], Protect;
+  shSrok             ('Срок службы предметов специальной СФО') : Protect,
+    {Font = {Color = if (shPersSFO.DopAttr > 0, ColorMark, 0)}};
+  shSFOPrice         ('Цена за единицу') : [17.2], Protect;
+  shSFOSumma         ('Первоначальная стоимость предметов') : [17.2], Protect;
+  SFOStatFull        ('Состояние предметов',, sciSFO1389Esc) : Protect;
+  shMBPIn.tPercent   ('Процент износа предметов') : [6.2], Protect;
+  shPersSFO.spisDate ('Дата списания предметов в Личной Карточке',, sciSFO1389Esc) : [,'DD/MM/YYYY'], Protect;
+  shPersSFO.spisNom  ('Номер документа, по которому списаны предметы в Личной Карточке') : Protect;
+  shMBPOut.dOut      ('Дата списания предметов в Карточке Учета специальной и форменной одежды') : [,'DD/MM/YYYY'], Protect;
+  shMBPOut.Nom       ('Номер документа, по которому списаны предметы в Карточке Учета СФО') : Protect;
+<<
+
+ `Наименование` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Номенклатурный №`.@@@@@@@@@@@@@@@
+ `Выдано`       .@@@@@@@@@@@@@@@     `Отсчет срока службы`   .@@@@@@@@@@@@ `Требование №`    .@@@@@@@@@@@@@@@
+ `Количество`   .@@@@@ .@@@@@@@@     `Окончание срока службы`.@@@@@@@@@@@@ `Срок службы`     .@@@@@@@@@@ мес.
+ `Цена`         .@@@@@@@@@@@@@@@
+ `Стоимость`    .@@@@@@@@@@@@@@@                  `Состояние`.@@@@@@@@@@@@
+ `Износ`        .@@@@@%
+
+ По карточке работника списано:   `дата` .@@@@@@@@@@@ `по документу` .@@@@@@@@@
+     По карточке учета списано:   `дата` .@@@@@@@@@@@ `по документу` .@@@@@@@@@
+>>
+end;
+
+screen scPersSFOCompens ('Выдачи специальной (форменной) одежды по карточке',, sciSFO189Esc);
+  Show At(, 19,,);
+  Table shPersSFO;
+Fields
+  shKatMBP.Name      ('Название предметов СФО')                                                  : Protect;
+  shKatMBP.NNumber   ('Номенклатурный номер предметов СФО')                                      : Protect;
+  shPersSFO.giveDate ('Дата выдачи предметов')                                                   : [10,'DD/MM/YYYY'], Protect;
+  shPersSFO.explDate ('Дата отсчета срока службы')                                               : [10,'DD/MM/YYYY'], Protect;
+  shPersSFO.giveNom  ('Номер требования, по которому осуществлялась выдача СФО')                 : Protect;
+  shPersSFO.curKol   ('Количество единиц')                                                       : Protect;
+  shKatEd.Name       ('Единица измерения')                                                       : Skip;
+  shPersSFO.endDate  ('Дата окончания срока службы')                                             : [10,'DD/MM/YYYY'], Protect;
+  shSrok             ('Срок службы предметов специальной СФО')                                   : Protect,
+    {Font = {Color = if (shPersSFO.DopAttr > 0, ColorMark, 0)}};
+  shSFOPrice         ('Цена за единицу')                                                         : [17.2], Protect;
+  shSFOSumma         ('Первоначальная стоимость предметов')                                      : [17.2], Protect;
+  SFOStatFull        ('Состояние предметов',, sciSFO1389Esc)                                     : Protect;
+  shMBPIn.tPercent   ('Процент износа предметов')                                                : [6.2], Protect;
+  dSumCompens        ('Сумма компенсации')                                                       :
+                     [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect, Skip, LessNull, {Font = {Bold = True}};
+  dStoimPredm        ('Стоимость предмета из справочника')                                       :
+                     [15.2, '\2p[|-]3666`666`666`666`666`667.88'], Protect, Skip, LessNull, {Font = {Bold = True; Color = ColorSysRed}};
+  shPersSFO.spisDate ('Дата списания предметов в Личной Карточке',, sciSFO1389Esc)               : [,'DD/MM/YYYY'], Protect;
+  shPersSFO.spisNom  ('Номер документа, по которому списаны предметы в Личной Карточке')         : Protect;
+  shMBPOut.dOut      ('Дата списания предметов в Карточке Учета специальной и форменной одежды') : [,'DD/MM/YYYY'], Protect;
+  shMBPOut.Nom       ('Номер документа, по которому списаны предметы в Карточке Учета СФО')      : Protect;
+
+Buttons
+  cmValue21,,, 'Компенсация';
+<<
+
+ `Наименование` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Номенклатурный №`.@@@@@@@@@@@@@@@
+ `Выдано`       .@@@@@@@@@@@@@@@     `Отсчет срока службы`   .@@@@@@@@@@@@ `Требование №`    .@@@@@@@@@@@@@@@
+ `Количество`   .@@@@@ .@@@@@@@@     `Окончание срока службы`.@@@@@@@@@@@@ `Срок службы`     .@@@@@@@@@@ мес.
+ `Цена`         .@@@@@@@@@@@@@@@
+ `Стоимость`    .@@@@@@@@@@@@@@@                  `Состояние`.@@@@@@@@@@@@  <.Компенсация.>
+ `Износ`        .@@@@@%
+                                                                        `Сумма компенсации`  .@@@@@@@@@@@@@@@
+                                                                        `Стоимость предметов`.@@@@@@@@@@@@@@@
+ По карточке работника списано:   `дата` .@@@@@@@@@@@ `по документу` .@@@@@@@@@
+     По карточке учета списано:   `дата` .@@@@@@@@@@@ `по документу` .@@@@@@@@@
+>>
+end;
+
+! Сюда можно добавить информацию о Подразделении/МОЛ из КУ СФО
+
+#include PersCard.han
+
+end; // Window editPersCard
+

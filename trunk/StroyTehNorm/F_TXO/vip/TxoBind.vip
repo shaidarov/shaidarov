@@ -1,0 +1,1909 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Бухгалтерский контур
+// Сложная привязка TXO по регистрам учета
+//******************************************************************************
+
+#include TxoBind.vih
+#include TxoUnBind.vih
+#include TxoDocLink.vih
+#include MakeStorno.vih
+
+#doc
+Сложная привязка TXO по регистрам учета
+#end
+interface TxoBinder 'Сложная привязка TXO';
+show at (,1,,21);
+
+const
+  wModeNone      = 0; // нельзя разносить
+  wModeThrough   = 1; // разносить сквозную
+  wModeSeparate  = 2; // разносить по регистру
+end;
+
+var iTxoUnBind  : TxoUserUnbinder;
+var SavedRecord : type$Oborot;
+var iMkStorno   : iMakeStorno;
+var curDate_New, curDate_Storno: date;
+var TuneTProvUseMagOper : boolean;
+var SimpleBinding : Boolean;
+var SimpleBindingTiDk : word;
+
+table struct KatH // в KatH хранится сложная привязка ТХО.
+(
+  Nrec      : comp       "Nrec",
+  cNode     : comp       "cNode",
+  Name      : string[80] "Name",
+  Mode      : word       "Режим разноски", // wModeXXXX
+  Priority  : word       "Приоритет регистра учета",
+  cPlansSch : comp       "регистр учета",
+  cHozOper  : comp       "типовая операция",
+  Oper      : word       "Операция",
+  CorParam  : word       "Признак корректировки"
+)
+with index
+(
+  KatH01 = Nrec,
+  KatH02 = cNode + Priority,
+  KatH03 = cNode + Name,
+  KatH04 = Priority,
+  KatH05 = Name,
+  KatH06 = Mode + Priority,
+  KatH07 = Mode + cPlansSch
+);
+
+function GetOperationText(wOper, wCorParam : word; TxoName : string) : string; forward;
+function NewApply(var buf:#TSoprHozX) : boolean; forward;
+function NewRealize(buf:#TSoprHozX) : boolean; forward;
+
+create view vTXOBinder
+Var
+  cParent       : comp;
+  cHozOperInReg : comp;
+  cPlansSchMain : comp;
+  WindowResult  : word;
+as select
+  GetOperationText(KatH.Oper, KatH.CorParam, if(IsValid(tnHozOper), HozOper.Name1, '')) (FieldName = NameTXO),
+  KatH.*, SubKat.*, MagOper.*, SoprHoz.*
+from
+   // иерахический каталог "Дерево привязки ТХО"
+   KatH (KatH02),
+   KatH SubKat,
+   KatH WorkKatH,
+   KatH ShowKatH (KatH06),
+   PlansSch,
+
+   // Шаблон ТXО
+   HozOper,
+   HozObor,
+   FpObor,
+
+   // регистрация документа в Журнале хозопераций
+   SoprHoz,
+   MagOper,
+   MagOper MagOperReg,
+
+   // для высветки наименований
+   HozOper HozOperMain,
+   HozOper HozOperMag,
+   HozOper HozOperMagReg,
+
+   // регистр учета
+   PlansSch PlansSchMain,
+   PlansSch PlansSchMag,
+   PlansSch PlansSchMagReg
+where
+((
+   // иерахический каталог "Дерево привязки ТХО"
+   cParent             == KatH.cNode           and
+   KatH.Nrec           == SubKat.cNode         and
+   KatH.cPlansSch      == PlansSch.nRec        and
+
+   // Шаблон ТXО
+   KatH.cHozOper       == HozOper.nRec         and
+
+   // по всем регистрам учета
+   SoprHoz.nRec        == MagOper.cSoprHoz     and
+
+   // в заданном регистре учета (cPlansSchMain)
+   SoprHoz.nRec        == MagOperReg.cSoprHoz  and
+   cPlansSchMain       == MagOperReg.cPlansSch and
+
+   // чтобы знать, какой регистр учета
+   cPlansSchMain        == PlansSchMain.nRec   and
+   MagOper.cPlansSch    == PlansSchMag.nRec    and
+   MagOperReg.cPlansSch == PlansSchMagReg.nRec and
+
+   // для высветки наименований
+   SoprHoz.cHozOper    == HozOperMain.NRec     and
+   MagOper.cHozOper    == HozOperMag.NRec      and
+   MagOperReg.cHozOper == HozOperMagReg.NRec
+))
+   // используется в BuildTree
+   bounds BuildTree1       = SoprHoz.nRec      == MagOper.cSoprHoz
+   bounds BuildTree2       = MagOper.cPlansSch == PlansSch.nRec
+   // для работы с таблицей KatH
+   bounds LinkKatH         = SoprHoz.Nrec      == MagOper.cSoprHoz and
+                             KatH.cPlansSch    == MagOper.cPlansSch
+   bounds byMagoperPlanSch = MagOper.cPlansSch == PlansSch.nRec
+   bounds NameSoprHoz      = SoprHoz.cHozOper  == HozOperMain.NRec
+   bounds NameMagOper      = MagOper.cHozOper  == HozOperMag.NRec
+;
+
+create view vKDC
+Var TiDkCheck : word;
+as select KatDoc.Account from KatDoc where ((TiDkCheck == KatDoc.TiDkGal));
+
+!===============================================================================
+!#include fp_serv.vpp
+
+!===============================================================================
+Function GetIName : string;
+{  GetIName := 'TXOBinder';
+}
+
+Function GetIHotKey : string;
+{ GetIHotKey := 'HotI_' + GetIname;
+}
+!===============================================================================
+
+function GetOperationText(wOper, wCorParam : word; TxoName : string) : string;
+{
+  case wOper of
+    wOper_NotDo:
+      GetOperationText := '- "' + Trim(TxoName) + '"';
+    wOper_Bind:
+      GetOperationText := 'Разнести по "' + Trim(TxoName) + '"';
+    wOper_UnBind:
+      GetOperationText := 'Отменить разноску';
+    wOper_ReObor:
+      GetOperationText := 'Переразнести по уже привязанным';
+    wOper_CorrObor:
+      GetOperationText := 'Уточнить проводки (' + if(wCorParam = 1, 'корректировать', if(wCorParam = 2, 'создавать', if(KatH.CorParam = 3, 'корректировать и создавать', ''))) + ')';
+    wOper_DelObor:
+      GetOperationText := 'Отменить проводки';
+    wOper_RemakeTXO:
+      GetOperationText := 'Сторнировать проводки';
+    wOper_SetTxoRef:
+      GetOperationText := 'Записать ссылку "' + Trim(TxoName) + '"';
+  else
+    GetOperationText := '!? операция ' + string(wOper);
+  end;
+}
+
+procedure Operation(wOper, wCorParam : word );
+{
+  // Действие нужно указать для текущего узла
+  set KatH.Oper     := wOper;
+  set KatH.CorParam := wCorParam;
+
+  // Для сквозной привязки, нужно перебить все листики
+  if( KatH.Mode = wModeThrough )
+  {
+    _loop SubKat
+    {
+      SubKat.Oper     := wOper;
+      SubKat.CorParam := wCorParam;
+      update current SubKat;
+    }
+    ReScanPanel(#KatH);
+  }
+}
+
+function FindTxoTmpleate( cHozOper, cPlansSch : comp ) : boolean;
+{
+  FindTxoTmpleate := false;
+
+  if( recordexists HozObor where ((cHozOper == HozObor.cHozOper and cPlansSch == HozObor.cPlansSch)) = tsOk )
+    FindTxoTmpleate := true
+  else if( recordexists FpObor where ((cHozOper == FpObor.cHozOper and cPlansSch == FpObor.cPlansSch)) = tsOk )
+    FindTxoTmpleate := true;
+}
+
+function FindTxo( cHozOper: comp ) : boolean;
+{
+  FindTxo := ( recordexists HozOper where ((cHozOper == HozOper.Nrec)) = tsOk );
+}
+
+// привязать сквозную, перебить все листики
+procedure BindThrough;
+{
+  var cHozOper : comp;
+
+  cHozOper := KatH.cHozOper;
+  if (RunInterface('GetHozOper',0,Soprhoz.TiDkGal,Soprhoz.SysOper,cHozOper,(cgiPick or cgiSetFilter)) = cmDefault)
+  {
+    set KatH.cHozOper := cHozOper;
+    set KatH.Oper     := wOper_Bind;
+
+    _Loop SubKat
+    {
+      if( FindTxoTmpleate(cHozOper, SubKat.cPlansSch) )
+      {
+        SubKat.cHozOper := cHozOper;
+        SubKat.Oper     := wOper_Bind;
+        update current SubKat;
+      }
+    }
+    RescanPanel(#KatH);
+  }
+}
+
+// привязать отдельную к листику
+procedure BindSeparate(cPlansSch:comp);
+{
+  var cHozOper    : comp;
+
+  cHozOper := KatH.cHozOper;
+  if (RunInterface('GetHozOper',cPlansSch,Soprhoz.TiDkGal,Soprhoz.SysOper,cHozOper,(cgiPick or cgiSetFilter or cgiPickAlone)) = cmDefault)
+  {
+    if( FindTxoTmpleate(cHozOper, cPlansSch) )
+    {
+      set KatH.cHozOper := cHozOper;
+      set KatH.Oper     := wOper_Bind;
+    }
+  }
+}
+
+!===============================================================================
+#declare NameTXOFont
+  {Font={Bold = (KatH.Oper<>wOper_NotDo); Color = if( KatH.Oper=wOper_NotDo, ColorGray, 0)}}
+#end
+window winTxoBind 'Сложная привязка ТXO' (,hcHozOpRazDerPr,) cyan,escclose,doAccept;
+  show at(,,,19);
+
+  Tree MyTree;
+  show at(,,,15);
+  table KatH;
+  fields
+    KatH.Name      'Наименование' (,hcHozOpRazDerPr,sci1EnEscTree) :[30], protect, nodel;
+    KatH.Priority  'Приоритет'    (,hcHozOpRazDerPr,sci1EnEscTree) :[5],  SpinButton [1, 0, 100];
+    NameTXO        'TXO'          (,hcHozOpRazDerPr,sci13EscTreeA) :[50], protect, PickButton, #NameTXOFont;
+  end;
+
+  Screen scBottonsForClosingWindow 'Кнопки закрытия окна' ('',hcHozOpRazDerPr,sci1EnEsc);
+    show at(,16,,) Fixed_Y;
+    table KatH;
+    buttons
+      cmValue7,Default,,'Ввод',,             sci1Esc;
+      cmCancel,,,       'Отмена ',,          sci1Esc;
+    <<
+          <. ~П~родолжить .>        <.   ~О~тмена   .>
+    >>
+  end;
+
+  Panel pEditKatH table KatH;
+    HandleEvent
+      cmTreeTop       : cParent := 0;
+      cmTreeUp        : cParent := KatH.cNode;
+      cmTreeDown      : cParent := KatH.Nrec;
+      cmTreeNeedOwner : TreeJumpToRecord(MyTree, KatH.cNode);
+      cmTreeNodeType  : if (not isValid(#SubKat))
+                          TreeSetNodeType(MyTree,ntfText);
+      cmUpDateRecord  : update current KatH;
+      cmPick :
+        { if (CurField = #NameTXO)
+            { case KatH.Mode of
+               wModeThrough  : BindThrough;
+               wModeSeparate : BindSeparate(KatH.cPlansSch);
+              end;
+            }
+        }
+      cmDelOnProtect :
+        { if (CurField = #NameTXO)
+            Operation(wOper_UnBind,0);
+        }
+    end;
+  end;
+
+  Handleevent
+  cmInit:
+    {
+      // проверить записи
+      if( GetFirst WorkKatH <> tsOk )
+      { message('Не определен перечень доступных данных.', CancelButton);
+        Abort; Exit;
+      }
+
+      // раскрыть все уровни
+      if( TreeGetFirst(MyTree) )
+      DO
+        TreeOpenNode(MyTree)
+      WHILE TreeGetNextEx(MyTree);
+
+      // стать на регистр
+      if( GetFirst WorkKatH where ((wModeSeparate == WorkKatH.Mode and cPlansSchMain == WorkKatH.cPlansSch)) = tsOk )
+        TreeJumpToRecord(MyTree, WorkKatH.Nrec)
+      else
+        TreeGetFirst(MyTree);
+
+      // стать на поле
+      SelectFieldInFormat(MyTree,#NameTXO);
+    }
+  cmDefault:
+    {  PackFields;
+       WindowResult   := cmDefault;
+       if (isModified) ProcessCommand(cmUpDateRecord);
+    }
+
+  cmHotKeys       : PutHotCommand(RunMenu('TxoBind_HotKeys_CheckOperationTree'));
+  cmBuhCalculator : PutHotCommand(RunMenu('TxoBind_HotKeys_CheckOperationTree'));
+  cmRestoreDoc    : PutHotCommand(RunMenu('TxoBind_HotKeys_CheckOperationTree'));
+
+  cmValue1:    // ничего не делаем
+    { Operation(wOper_NotDo,0);
+    }
+  cmValue2:    // разнести...
+    { case KatH.Mode of
+        wModeThrough  : BindThrough;
+        wModeSeparate : BindSeparate(KatH.cPlansSch);
+      end;
+    }
+  cmValue3:    // отвязать
+    {  Operation(wOper_UnBind,0);
+    }
+  cmValue4:    // переразнести
+    {  Operation(wOper_ReObor,0);
+    }
+  cmValue5:    // уточнить проводки...
+    {  var tmpCorParam : word
+       if( RunDialog('CorrectOborotParams', tmpCorParam)=cmCancel ) exit;
+       Operation(wOper_CorrObor, tmpCorParam);
+    }
+  cmValue6:    // удалить проводки
+    {  Operation(wOper_DelObor,0);
+    }
+  cmValue7:    // Для кнопок зарытья Окна "Сложная привязка ТXO"
+    {  WindowResult := cmDefault;
+       CloseWindow(winTxoBind);
+    }
+  end;
+end;
+
+////////////////////////////////////////////////////////////////////////////////
+//
+var wDocLink_LastTiDkGal : word;
+var iDocLink_LastPlugin  : ObjTxoDocLinkPlugin;
+var bDocLink_IsEnable    : boolean;
+
+procedure DocLink_ValidatePlugin(TiDkGal : word);
+{
+  case TiDkGal of
+    cgDoc_0710: //Дневник учета денежных средств
+    {
+      if( wDocLink_LastTiDkGal <> TiDkGal )
+      {
+        if( not NullVipRef(iDocLink_LastPlugin) )
+          FreeVipInterface(iDocLink_LastPlugin);
+
+        #ifdef ComponentVersion
+        GetVipRef(iDocLink_LastPlugin, 'F_Post::TxoDocLink_Diary130');
+        #else
+        GetVipRef(iDocLink_LastPlugin, 'TxoDocLink_Diary130');
+        #end
+
+        wDocLink_LastTiDkGal := TiDkGal;
+      }
+
+      bDocLink_IsEnable := (not NullVipRef(iDocLink_LastPlugin));
+    }
+    else
+    {
+      if( bDocLink_IsEnable )
+      {
+        if( not NullVipRef(iDocLink_LastPlugin) )
+          FreeVipInterface(iDocLink_LastPlugin);
+
+        bDocLink_IsEnable := false;
+      }
+
+      wDocLink_LastTiDkGal := TiDkGal;
+    }
+  end;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// CallBack события для генерации и обработки связей проводок и позиций документов
+function OnEachDocLink_TxoMake(wTable : Word; cTable : comp) : boolean;
+{
+  OnEachDocLink_TxoMake := TxoDocLinkMakeStep(wTable, cTable); // Вызов G_TXO.DLL
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Основные операции перекрытые биндером (с возможностью генерации и обработки связей проводок и позиций документов)
+function Binder_TxoMake(cSoprHoz, cHozOper, cPlansSch : comp) : boolean;
+{
+  if( bDocLink_IsEnable )
+  {
+    BindEvent(OnEachDocLink_TxoMake, iDocLink_LastPlugin.OnDocLink);
+    Init_BSVisual ('Формируются проводки по позициям ...','Формируются проводки по позициям', true);
+
+    Binder_TxoMake := false;
+    if( TxoDocLinkMakeStart(cSoprHoz, cHozOper, cPlansSch) ) // Вызов G_TXO.DLL
+     if( iDocLink_LastPlugin.ForEachDocLink(cSoprHoz) )      // Вызов плагина
+       Binder_TxoMake := TxoDocLinkMakeFinish;               // Вызов G_TXO.DLL
+
+    Done_BSVisual;
+    UnBindEvent(OnEachDocLink_TxoMake, iDocLink_LastPlugin.OnDocLink);
+  }
+  else {
+    if( not iTxoUnbind.OnDeleteHoz(cSoprHoz, cPlansSch) ) exit;      // Добавлено в UnBinder - для удаления книги покупок
+    Binder_TxoMake := TxoMakeSpecial(cSoprHoz, cHozOper, cPlansSch); // Вызов G_TXO.DLL
+  }
+}
+
+function Binder_TxoCorrect(cSoprHoz, cHozOper, cPlansSch : comp; wCorParam : word) : boolean;
+{
+  if( bDocLink_IsEnable )
+  {
+    Message('Функция корректировки проводок для данного документа недоступна.', CancelButton);
+    Binder_TxoCorrect := false;
+  }
+  else
+  Binder_TxoCorrect := TxoCorrectSpecial(cSoprHoz, cHozOper, cPlansSch, wCorParam); // Вызов G_TXO.DLL
+}
+
+function Binder_TxoCheck(cSoprHoz, cHozOper, cPlansSch : comp) : boolean;
+{
+  // to do for DocLink
+  Binder_TxoCheck := TxoCheckSpecial(cSoprHoz, cHozOper, cPlansSch); // Вызов G_TXO.DLL
+}
+
+function Binder_TxoDelete(cSoprHoz, cPlansSch : comp) : boolean;
+{
+  Binder_TxoDelete := false;
+
+  if( bDocLink_IsEnable )
+  {
+    if( not TxoDocLinkDelete(cSoprHoz, cPlansSch, 0, 0) ) exit;
+  }
+  else
+  {
+    if( not TxoDeleteSpecial(cSoprHoz, cPlansSch) ) exit;
+  }
+
+  if( not iTxoUnbind.OnDeleteHoz(cSoprHoz, cPlansSch) ) exit;
+
+  Binder_TxoDelete := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// вспомогательные функции для раздленой привязки ТХО по регистрам учета
+function CaseTxoMakeSpecial(CaseKodReg : word; SoprHozNRec,cHozOper,cPlansSch : comp) : boolean;
+{
+  CaseTxoMakeSpecial := true;
+  case CaseKodReg of
+    cgReg_BuhPSUsers, cgReg_AdmFPPlan, cgReg_AdmFPFact, cgReg_AdmFPRezerv, cgReg_AdmFPBuh:
+      CaseTxoMakeSpecial := Binder_TxoMake(SoprHozNrec, cHozOper, cPlansSch);
+  end;
+}
+
+function CaseTxoCorrectSpecial(CaseKodReg : word; SoprHozNRec,cHozOper,cPlansSch : comp; wCorParam : word) : boolean;
+{
+  CaseTxoCorrectSpecial := true;
+  case CaseKodReg of
+    cgReg_BuhPSUsers, cgReg_AdmFPPlan, cgReg_AdmFPFact, cgReg_AdmFPRezerv, cgReg_AdmFPBuh:
+      CaseTxoCorrectSpecial := Binder_TxoCorrect(SoprHozNrec, cHozOper, cPlansSch, wCorParam);
+  end;
+}
+
+function CaseTxoCheckSpecial(CaseKodReg : word; SoprHozNRec,cHozOper,cPlansSch : comp) : boolean;
+{
+  CaseTxoCheckSpecial := true;
+  case CaseKodReg of
+    cgReg_BuhPSUsers, cgReg_AdmFPPlan, cgReg_AdmFPFact, cgReg_AdmFPRezerv, cgReg_AdmFPBuh:
+      CaseTxoCheckSpecial := Binder_TxoCheck(SoprHozNrec, cHozOper, cPlansSch);
+  end;
+}
+
+function CaseTxoDeleteSpecial(CaseKodReg : word; SoprHozNRec,cPlansSch : comp) : boolean;
+{
+  CaseTxoDeleteSpecial := true;
+  case CaseKodReg of
+    cgReg_BuhPSUsers, cgReg_AdmFPPlan, cgReg_AdmFPFact, cgReg_AdmFPRezerv, cgReg_AdmFPBuh:
+      CaseTxoDeleteSpecial := Binder_TxoDelete(SoprHozNRec, cPlansSch);
+  end;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// определить, настроена ли сквозная привязка (= true), или раздельная привязка (= false)
+function isSimpleBinding(tiDk: word) : boolean;
+{
+  result := true;
+  if ( TuneTProvUseMagOper ) // общесистемная настройка
+  {
+    vKDC.TiDkCheck := tiDk;
+    if( vKDC.getfirst fastfirstrow KatDoc = tsOk )
+      result := (vKDC.KatDoc.Account <> cgDoc_UseMagOper); // настройка документа
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+procedure SetSimpleBinding;
+{
+  if( SimpleBindingTiDk <> SoprHoz.TiDkGal )
+  {
+    SimpleBinding := isSimpleBinding(SoprHoz.TiDkGal);
+    SimpleBindingTiDk := SoprHoz.TiDkGal;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//построить дерево привязки TXO
+function BuildTree(buf:#TSoprHozX) : boolean;
+{
+  BuildTree := false;
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+  SetSimpleBinding; // один раз прочитать настройку
+
+  //////////////////////////////////////////////////////////////
+  ResetBounds(#KatH);
+  delete all From KatH;
+
+  //////////////////////////////////////////////////////////////
+  // узел дерева - Сквозная ТXО
+  var cNode : comp;
+  ClearBuffer(#KatH);
+  cNode          := GetNextNrec(#KatH,0);
+  KatH.Nrec      := cNode;
+  KatH.cNode     := 0;
+  KatH.Mode      := wModeThrough;
+  KatH.Name      := 'Сквозная ТXО';
+  KatH.cPlansSch := 0;
+  KatH.Priority  := 0;
+  KatH.cHozOper  := Soprhoz.cHozOper;
+  KatH.Oper      := wOper_NotDo;
+  insert current KatH;
+
+  //////////////////////////////////////////////////////////////
+  // листики - по регистрам учета
+  if( not SimpleBinding )
+  {
+    ResetBounds(#MagOper);
+    PushBounds(tbBuildTree1);
+    PushBounds(tbBuildTree2);
+    _loop MagOper
+    {
+      ClearBuffer(#KatH);
+      KatH.Nrec      := GetNextNrec(#KatH,0);
+      KatH.cNode     := cNode;
+      KatH.Mode      := wModeSeparate;
+      KatH.Name      := if(IsValid(#PlansSch), PlansSch.Name, '!? Регистр учета '+string(MagOper.cPlansSch));
+      KatH.cPlansSch := MagOper.cPlansSch;
+      KatH.Priority  := MagOper.Priority;
+      KatH.cHozOper  := MagOper.cHozOper;
+      KatH.Oper      := wOper_NotDo;
+      insert current KatH;
+    }
+    PopBounds(tbBuildTree1);
+    PopBounds(tbBuildTree2);
+    SetBounds(#MagOper);
+
+    BuildTree := true;
+  }
+
+  //////////////////////////////////////////////////////////////
+  SetBounds(#KatH);
+
+  BuildTree := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// показать дерево привязки, чтобы сделать сложную привязку TXO
+// результаты привязки останутся в памяти
+function Bind(buf:#TSoprHozX; CurPlansSch : comp) : boolean;
+{
+  Bind := false;
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+  cPlansSchMain   := CurPlansSch;
+
+  if( SimpleBinding )
+  {
+    ReSetBounds(#KatH);
+    if( getfirst KatH where (( wModeThrough == KatH.Mode )) = tsOk )
+    {
+      Bind := RunInterface('GetHozOper', CurPlansSch, Soprhoz.TiDkGal, Soprhoz.SysOper, KatH.cHozOper, (cgiPick or cgiSetFilter)) = cmDefault;
+      set KatH.Oper := wOper_Bind;
+      Bind := Bind and (update current KatH = tsOk);
+    }
+  }
+  else
+  {
+    WindowResult := cmCancel;
+    RunWindowModal(winTxoBind);
+    Bind := (WindowResult = cmDefault);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// показать список ТХО  в заданном регистре, чтобы сделать привязку TXO в заданном регистре
+// результаты привязки останутся в памяти
+function BindInReg(buf:#TSoprHozX; CurPlansSch : comp) : boolean;
+{
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+  cPlansSchMain   := CurPlansSch;
+
+  if ( SimpleBinding )
+  {
+    cHozOperInReg := SoprHoz.cHozOper;
+    BindInReg := RunInterface('GetHozOper',CurPlansSch,Soprhoz.TiDkGal,Soprhoz.SysOper,cHozOperInReg,(cgiPick or cgiSetFilter)) = cmDefault;
+    set cHozOperInReg := cHozOperInReg;
+  }
+  else
+  {
+    cHozOperInReg := MagoperReg.cHozOper;
+    BindInReg := RunInterface('GetHozOper',CurPlansSch,Soprhoz.TiDkGal,Soprhoz.SysOper,cHozOperInReg,(cgiPick or cgiSetFilter or cgiPickAlone)) = cmDefault;
+    set cHozOperInReg := cHozOperInReg;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// сохранить сложную привязку в базе
+function Apply(var buf:#TSoprHozX) : boolean;
+{
+  Apply := NewApply(buf);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// сохранить привязку в MagOper в заданном регистре
+function ApplyInReg(var buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+  ApplyInReg      := false;
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+  cPlansSchMain   := CurPlansSch;
+
+  if ( SimpleBinding )
+  {
+    if (SoprHoz.cHozOper <> cHozOperInReg)
+    {
+      SoprHoz.cHozOper := cHozOperInReg;
+      update current SoprHoz;
+      buf := #TSoprHozX(SoprHoz.bufferp);
+    }
+  }
+  else
+  {
+    if (isValid(#MagOperReg))
+     if (MagOperReg.cHozOper <> cHozOperInReg)
+     {
+       MagOperReg.cHozOper := cHozOperInReg;
+       update current MagOperReg;
+     }
+  }
+  ApplyInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Разноска, корректировка и отмена ТХО согласно сложной привязки из дерева привязок KatH
+function RealizeOperationsTree(buf:#TSoprHozX) : boolean;
+{
+  RealizeOperationsTree := NewRealize(buf);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Разноска по шаблону выбранному в BindInReg для заданного регистра учета
+function RealizeOperationsTreeInReg(buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+  RealizeOperationsTreeInReg := false;
+
+  // настройка - Формирование типовых проводок = нет (т.е. только привязка, без проводок)
+  if (wGetTune('TProv.FormTP') = 0)
+  {
+    RealizeOperationsTreeInReg := true;
+    exit;
+  }
+
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+  cPlansSchMain   := CurPlansSch;
+
+  DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+  if( SimpleBinding ) // сквозная привязка
+  {
+    RealizeOperationsTreeInReg := Binder_TxoMake(SoprHoz.NRec, cHozOperInReg, 0);
+  }
+  else // раздельная привязка
+  {
+    if (isValid(#MagOperReg))
+      RealizeOperationsTreeInReg := Binder_TxoMake(SoprHoz.NRec, cHozOperInReg, CurPlansSch);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Разноска ТХО согласно сложной привязки из MagOper
+function Execute(buf:#TSoprHozX) : boolean;
+{
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+  SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+  Execute := false;
+
+  DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+  if( SimpleBinding ) // сквозная привязка
+  {
+    if( not Binder_TxoMake(SoprHoz.NRec, SoprHoz.cHozOper, 0) )
+      exit;
+  }
+  else // раздельная привязка
+  {
+    _loop MagOper
+    {
+      if ( MagOper.cHozOper <> comp(0) )
+        if ( not CaseTxoMakeSpecial(PlansSchMag.KodReg, SoprHoz.NRec,MagOper.cHozOper,MagOper.cPlansSch) )
+          exit;
+    }
+  }
+
+  Execute := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// специальный режим перегенерации проводок при изменении спецификации проведенных документов
+function ReMakeForLinkedDocPosition(buf : #TSoprHozX; wTable : word; cTable : comp) : boolean;
+{
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+  SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+  ReMakeForLinkedDocPosition := false;
+
+  DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+  if( bDocLink_IsEnable )
+  {
+    if( SimpleBinding ) // сквозная привязка
+    {
+      if( SoprHoz.cHozOper <> 0 )
+      {
+        if( not TxoDocLinkMakeStart(SoprHoz.NRec, SoprHoz.cHozOper, 0) ) exit; // Вызов G_TXO.DLL
+        if( not TxoDocLinkMakeStep(wTable, cTable) ) exit;                     // Вызов G_TXO.DLL
+        if( not TxoDocLinkMakeFinish ) exit;                                   // Вызов G_TXO.DLL
+      }
+    }
+    else // раздельная привязка
+    {
+      _loop MagOper
+      {
+        if ( MagOper.cHozOper <> comp(0) )
+        {
+          if( not TxoDocLinkMakeStart(SoprHoz.NRec, MagOper.cHozOper, MagOper.cPlansSch) ) exit; // Вызов G_TXO.DLL
+          if( not TxoDocLinkMakeStep(wTable, cTable) ) exit;                                     // Вызов G_TXO.DLL
+          if( not TxoDocLinkMakeFinish ) exit;                                                   // Вызов G_TXO.DLL
+        }
+      }
+    }
+  }
+
+  ReMakeForLinkedDocPosition := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Разноска ТХО из MagOper в заданном регистре учета
+function ExecuteInReg(buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+  cPlansSchMain   := CurPlansSch;
+
+  SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+  ExecuteInReg := false;
+
+  DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+  if( SimpleBinding ) // сквозная привязка
+  {
+    if( not Binder_TxoMake(SoprHoz.NRec, SoprHoz.cHozOper, 0) )
+      exit;
+  }
+  else // раздельная привязка
+  {
+    if (isValid(#MagOperReg))
+      if ( MagOperReg.cHozOper <> comp(0) )
+        if ( not CaseTxoMakeSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec,MagOperReg.cHozOper,MagOperReg.cPlansSch))
+          exit;
+  }
+  ExecuteInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// при сквозной привязке - разноска ТХО только в заданном регистре учета
+// при раздельной привязке - разноска ТХО согласно сложной привязки из MagOper в заданном регистре учета (ExecuteInReg)
+function ExecuteAloneInReg(buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   ExecuteAloneInReg := false;
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+     if (cPlansSchMain <> 0) // задан регистр учета
+     {
+       if (isValid(#PlansSchMain))
+         if ( SoprHoz.cHozOper <> comp(0) )
+           if ( not CaseTxoMakeSpecial(PlansSchMain.KodReg, SoprHoz.NRec,SoprHoz.cHozOper,cPlansSchMain)) exit;
+     }
+     else // по всем регистрам учета
+     {
+       if( not Binder_TxoMake(SoprHoz.NRec, SoprHoz.cHozOper, 0) ) exit;
+     }
+   }
+   else // раздельная привязка
+   {
+      if (isValid(#MagOperReg))
+        if ( MagOperReg.cHozOper <> comp(0) )
+          if (not CaseTxoMakeSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec,MagOperReg.cHozOper,MagOperReg.cPlansSch) ) exit;
+   }
+   ExecuteAloneInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Корректировка ТХО согласно сложной привязки из MagOper
+function ExecuteCorr(buf:#TSoprHozX; wCorParam : word) : boolean;
+{
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   ExecuteCorr := false;
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+      if( not Binder_TxoCorrect(SoprHoz.NRec, SoprHoz.cHozOper, 0, wCorParam) ) exit;
+   }
+   else // раздельная привязка
+   {
+      _loop MagOper
+      {
+         if ( MagOper.cHozOper <> comp(0) )
+            if ( not CaseTxoCorrectSpecial(PlansSchMag.KodReg, SoprHoz.NRec,MagOper.cHozOper,MagOper.cPlansSch, wCorParam) ) exit;
+      }
+   }
+   ExecuteCorr := true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
+// Корректировка ТХО из MagOper в заданном регистре
+function ExecuteCorrInReg(buf:#TSoprHozX; wCorParam : word; CurPlansSch:comp) : boolean;
+{
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   ExecuteCorrInReg := false;
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+      if( not Binder_TxoCorrect(SoprHoz.NRec, SoprHoz.cHozOper, 0, wCorParam) ) exit;
+   }
+   else // раздельная привязка
+   {
+      if (isValid(#MagOperReg))
+        if ( MagOperReg.cHozOper <> comp(0) )
+          if ( not CaseTxoCorrectSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec,MagOperReg.cHozOper,MagOperReg.cPlansSch, wCorParam)) exit;
+   }
+   ExecuteCorrInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// при сквозной привязке - корректировка ТХО только в заданном регистре учета
+// при раздельной привязке - корректировка ТХО согласно сложной привязки из MagOper в заданном регистре учета (ExecuteCorrInReg)
+function ExecuteCorrAloneInReg(buf:#TSoprHozX; wCorParam : word; CurPlansSch:comp) : boolean;
+{
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   ExecuteCorrAloneInReg := false;
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+     if (cPlansSchMain <> 0) // задан регистр учета
+     {
+       if (isValid(#PlansSchMain))
+         if ( SoprHoz.cHozOper <> comp(0) )
+           if ( not CaseTxoCorrectSpecial(PlansSchMain.KodReg, SoprHoz.NRec,SoprHoz.cHozOper,cPlansSchMain, wCorParam)) exit;
+     }
+     else // по всем регистрам учета
+     {
+       if( not Binder_TxoCorrect(SoprHoz.NRec, SoprHoz.cHozOper, 0, wCorParam) ) exit;
+     }
+   }
+   else // раздельная привязка
+   {
+      if (isValid(#MagOperReg))
+        if ( MagOperReg.cHozOper <> comp(0) )
+          if ( not CaseTxoCorrectSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec,MagOperReg.cHozOper,MagOperReg.cPlansSch, wCorParam)) exit;
+   }
+   ExecuteCorrAloneInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Формирование контрольных проводок для протокола контроля проводок
+function ExecuteCheckAloneInReg(buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   ExecuteCheckAloneInReg := false;
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+     if (cPlansSchMain <> 0) // задан регистр учета
+     {
+       if (isValid(#PlansSchMain))
+         if ( SoprHoz.cHozOper <> comp(0) )
+           if ( not CaseTxoCheckSpecial(PlansSchMain.KodReg, SoprHoz.NRec,SoprHoz.cHozOper,cPlansSchMain)) exit;
+     }
+     else // по всем регистрам учета
+     {
+       if( not Binder_TxoCheck(SoprHoz.NRec, SoprHoz.cHozOper, 0) ) exit;
+     }
+   }
+   else // раздельная привязка
+   {
+      if (isValid(#MagOperReg))
+        if ( MagOperReg.cHozOper <> comp(0) )
+        {
+          if ( not CaseTxoCheckSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec,MagOperReg.cHozOper,MagOperReg.cPlansSch)) exit;
+        }
+   }
+
+   ExecuteCheckAloneInReg := true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Отмена ТХО по всем регистрам учета
+function UnBind(var buf:#TSoprHozX) : boolean;
+{
+   UnBind := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+      if (not Binder_TxoDelete(SoprHoz.NRec, 0) ) exit;
+      SoprHoz.cHozOper := 0;
+      update current SoprHoz;
+      buf := #TSoprHozX(SoprHoz.bufferp);
+   }
+   else // раздельная привязка
+   {
+      _loop MagOper
+      {
+         if ( not CaseTxoDeleteSpecial(PlansSchMag.KodReg, SoprHoz.NRec,MagOper.cPlansSch) ) exit;
+         MagOper.cHozOper := 0;
+         update current MagOper;
+      }
+   }
+   UnBind := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Отмена ТХО в заданном регистре учета
+function UnBindInReg(var buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+   UnBindInReg := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+      if (not Binder_TxoDelete(SoprHoz.NRec, 0) ) exit;
+      SoprHoz.cHozOper := 0;
+      update current SoprHoz;
+      buf := #TSoprHozX(SoprHoz.bufferp);
+   }
+   else // раздельная привязка
+   {
+    if (isValid(#MagOperReg)) {
+      if ( not CaseTxoDeleteSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec,MagOperReg.cPlansSch) ) exit;
+      MagOperReg.cHozOper := 0;
+      update current MagOperReg;
+    }
+   }
+   UnBindInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// при сквозной привязке - отмена ТХО только в заданном регистре учета
+// при раздельной привязке - отмена ТХО в заданном регистре учета (UnBindInReg)
+function UnBindAloneInReg(var buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+   UnBindAloneInReg := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+     if (cPlansSchMain <> 0) // задан регистр учета
+     {
+       if (isValid(#PlansSchMain)) {
+         if ( not CaseTxoDeleteSpecial(PlansSchMain.KodReg, SoprHoz.NRec,cPlansSchMain) ) exit;
+         SoprHoz.cHozOper := 0;
+         update current SoprHoz;
+         buf := #TSoprHozX(SoprHoz.bufferp);
+       }
+     }
+     else // по всем регистрам учета
+     {
+       if (not Binder_TxoDelete(SoprHoz.NRec, 0) ) exit;
+       SoprHoz.cHozOper := 0;
+       update current SoprHoz;
+       buf := #TSoprHozX(SoprHoz.bufferp);
+     }
+   }
+   else // раздельная привязка
+   {
+     if (isValid(#MagOperReg)) {
+       if ( not CaseTxoDeleteSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec,MagOperReg.cPlansSch) ) exit;
+       MagOperReg.cHozOper := 0;
+       update current MagOperReg;
+     }
+   }
+   UnBindAloneInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// удаление оборотов без отвязки ТXО по всем регистрам учета
+function DeleteOborots(buf:#TSoprHozX) : boolean;
+{
+   DeleteOborots := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+      if (not Binder_TxoDelete(SoprHoz.NRec, 0) ) exit;
+   }
+   else // раздельная привязка
+   {
+      _loop MagOper
+      {
+         if ( not CaseTxoDeleteSpecial(PlansSchMag.KodReg, SoprHoz.NRec, MagOper.cPlansSch) ) exit;
+      }
+   }
+   DeleteOborots := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// удаление оборотов без отвязки ТXО в заданном регистре учета
+function DeleteOborotsInReg(buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+   DeleteOborotsInReg := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+      if (not Binder_TxoDelete(SoprHoz.NRec, 0) ) exit;
+   }
+   else // раздельная привязка
+   {
+    if (isValid(#MagOperReg))
+      if ( not CaseTxoDeleteSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec, MagOperReg.cPlansSch) ) exit;
+   }
+   DeleteOborotsInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// при сквозной привязке - удаление оборотов без отвязки ТХО только в заданном регистре учета
+// при раздельной привязке - удаление оборотов без отвязки ТХО в заданном регистре учета (DeleteOborotsInReg)
+function DeleteOborotsAloneInReg(buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+   DeleteOborotsAloneInReg := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+   
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+   if( SimpleBinding ) // сквозная привязка
+   {
+     if (cPlansSchMain <> 0) // задан регистр учета
+     {
+       if (isValid(#PlansSchMain))
+         if ( not CaseTxoDeleteSpecial(PlansSchMain.KodReg, SoprHoz.NRec,cPlansSchMain) ) exit;
+     }
+     else // по всем регистрам учета
+     {
+       if (not Binder_TxoDelete(SoprHoz.NRec, 0) ) exit;
+     }
+   }
+   else // раздельная привязка
+   {
+     if (isValid(#MagOperReg))
+       if ( not CaseTxoDeleteSpecial(PlansSchMagReg.KodReg, SoprHoz.NRec, MagOperReg.cPlansSch) ) exit;
+   }
+   DeleteOborotsAloneInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// удалить ТXО без удаления оборотов по всем регистрам учета
+function DeleteTXO (var buf:#TSoprHozX) : boolean;
+{
+   DeleteTXO := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   if( SimpleBinding )
+   {
+     if (SoprHoz.cHozOper <> comp(0))
+     {
+       SoprHoz.cHozOper := comp(0);
+       update current SoprHoz;
+       buf := #TSoprHozX(SoprHoz.bufferp);
+     }
+   }
+   else
+   {
+      _loop MagOper
+      {
+         if (MagOper.cHozOper <> comp(0))
+         {
+           MagOper.cHozOper := comp(0);
+           update current MagOper;
+         }
+      } // _loop
+   }
+   DeleteTXO := true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// удалить ТXО без удаления оборотов в заданном регистре учета
+function DeleteTXOInReg(var buf:#TSoprHozX; CurPlansSch:comp) : boolean;
+{
+   DeleteTXOInReg  := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // тут надо еще раз прочитать настройку
+
+   if ( SimpleBinding )
+   {  if (SoprHoz.cHozOper <> comp(0))
+      { SoprHoz.cHozOper := comp(0);
+        update current SoprHoz;
+        buf := #TSoprHozX(SoprHoz.bufferp);
+      }
+   }
+   else
+   { if (isValid(#MagOperReg))
+      if (MagOperReg.cHozOper <> comp(0))
+      { MagOperReg.cHozOper := comp(0);
+        update current MagOperReg;
+      }
+   }
+   DeleteTXOInReg := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// удалить ссылку на ТXO в таблице SoprHoz (вне зависимости от настроек типа документа)
+function DeleteRefSoprHoz(var buf:#TSoprHozX) : boolean;
+{
+   DeleteRefSoprHoz := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   if (SoprHoz.cHozOper <> comp(0))
+     {
+       SoprHoz.cHozOper := comp(0);
+       update current SoprHoz;
+       buf := #TSoprHozX(SoprHoz.bufferp);
+     }
+   DeleteRefSoprHoz := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// обновить ссылку на ТXO в таблице SoprHoz или MagOper (вне зависимости от настроек типа документа)
+function UpdateRef(IsSoprHoz : boolean; var buf:#TSoprHozX; CurPlansSch:comp; cHozOper : comp) : boolean;
+{
+   UpdateRef       := false;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   if ( IsSoprHoz )
+   {  if (SoprHoz.cHozOper <> cHozOper)
+      { SoprHoz.cHozOper := cHozOper;
+        update current SoprHoz;
+      }
+   }
+   else
+   { if (isValid(#MagOperReg))
+      if (MagOperReg.cHozOper <> cHozOper)
+      { MagOperReg.cHozOper := cHozOper;
+        update current MagOperReg;
+      }
+   }
+
+   buf := #TSoprHozX(SoprHoz.bufferp);
+   UpdateRef := true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// для высветки в интерфесах полей "привязки ТХО"
+function ShowName(buf:#TSoprHozX) : string;
+{
+   ShowName := '';
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+   SetSimpleBinding; // и тут надо еще раз прочитать настройку
+
+   if ( SimpleBinding )
+   {
+      if(getfirst HozOperMain = tsOk)
+        ShowName := HozOperMain.Name1
+   }
+   else
+   {
+      var n : LongInt;
+      var strHozOper : String;
+      strHozOper := '';
+      n := 0;
+      _loop MagOper
+      {
+         if (MagOper.cHozOper <> 0)
+         {
+           strHozOper := HozOperMag.Name1;
+           n := n + 1;
+         }
+      }
+      if ( n > 1 )
+         ShowName := 'Сложная привязка ('+string(n)+' TXO)'
+      else
+         ShowName := strHozOper;
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// для высветки в интерфесах полей "привязки ТХО"
+function ShowFullName(buf:#TSoprHozX; var Name1,Name2,Name3 : string) : boolean;
+{
+   ShowFullName := true;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+   SetSimpleBinding; // и тут надо еще раз прочитать настройку
+
+   if ( SimpleBinding )
+   {
+      if(getfirst HozOperMain = tsOk) {
+        Name1 := HozOperMain.Name1;
+        Name2 := HozOperMain.Name2;
+        Name3 := HozOperMain.Name3;
+      }
+   }
+   else
+   {
+      var mark, n    : LongInt;
+      var strHozOper1 : String;
+      var strHozOper2 : String;
+      var strHozOper3 : String;
+      strHozOper1 := '';
+      strHozOper2 := '';
+      strHozOper3 := '';
+      mark := InitMarker('', 8, 5, 5, true);
+      _loop MagOper
+      {
+         if (MagOper.cHozOper <> 0)
+         {
+           InsertMarker(mark, MagOper.cHozOper);
+           strHozOper1 := HozOperMag.Name1;
+           strHozOper2 := HozOperMag.Name2;
+           strHozOper3 := HozOperMag.Name3;
+         }
+      }
+      n := GetMarkerCount(mark);
+      DoneMarker(mark,'');
+
+      if ( n > 1 ) {
+         Name1 := 'Сложная привязка ('+string(n)+' TXO)';
+         Name2 := '';
+         Name3 := '';
+      }
+      else {
+         Name1 := strHozOper1;
+         Name2 := strHozOper2;
+         Name3 := strHozOper3;
+      }
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// для высветки в интерфесах полей "привязки ТХО" в заданном регистре учета
+function ShowNameInReg(buf:#TSoprHozX; CurPlansSch:comp) : string;
+{
+   ShowNameInReg   := '';
+   _try
+   {
+     SoprHoz.bufferp := type$p_SoprHoz(buf);
+   }
+   _except
+    else
+    {
+      ShowNameInReg := '';
+    }
+
+   cPlansSchMain := CurPlansSch;
+   
+   SetSimpleBinding; // и тут надо еще раз прочитать настройку
+   
+   if ( SimpleBinding )
+   {
+     if (getfirst HozOperMain = tsOk)
+       ShowNameInReg := HozOperMain.Name1;
+   }
+   else
+       ShowNameInReg := HozOperMagReg.Name1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// для высветки в интерфесах полей "привязки ТХО" в заданном регистре учета
+function ShowFullNameInReg(buf:#TSoprHozX; CurPlansSch:comp; var Name1, Name2, Name3 : string) : boolean;
+{
+   ShowFullNameInReg := true;
+   SoprHoz.bufferp := type$p_SoprHoz(buf);
+   cPlansSchMain   := CurPlansSch;
+
+   SetSimpleBinding; // и тут надо еще раз прочитать настройку
+   
+   if ( SimpleBinding )
+   {
+     if(getfirst HozOperMain = tsOk) {
+       Name1 := HozOperMain.Name1;
+       Name2 := HozOperMain.Name2;
+       Name3 := HozOperMain.Name3;
+     }
+   }
+   else {
+       Name1 := HozOperMagReg.Name1;
+       Name2 := HozOperMagReg.Name2;
+       Name3 := HozOperMagReg.Name3;
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// для высветки "привязки ТХО" в интерфесах документов с несколькими записями SoprHoz
+function ShowNameForSoprDoc(TiDkGal,TiDkUser : word; cSoprDoc : comp) : string;
+{
+   var markTXO, markSH,
+       nTXO,    nSH     : LongInt;
+   var strHozOper       : String;
+
+   ShowNameForSoprDoc := '';
+
+   strHozOper := '';
+   markTXO := InitMarker('', 8, 5, 5, true);
+   markSH  := InitMarker('', 8, 5, 5, true);
+   nSH     := 0;
+
+   // определить, настроена ли сквозная привязка (= true), или раздельная привязка (= false)
+   if( isSimpleBinding(TiDkGal) )
+   {
+      ResetBounds(#SoprHoz);
+      PushBounds(tbNameSoprHoz);
+      _loop SoprHoz where ((TiDkUser == SoprHoz.TipDoc   and
+                            cSoprDoc == SoprHoz.cSoprDoc ))
+      {
+         inc(nSH);
+         if (SoprHoz.cHozOper <> 0)
+         {
+           InsertMarker(markTXO, SoprHoz.cHozOper);
+           strHozOper := HozOperMain.Name1;
+         }
+      }
+      PopBounds(tbNameSoprHoz);
+      SetBounds(#SoprHoz);
+
+      nTXO := GetMarkerCount(markTXO);
+      if ( nTXO > 1 )
+         ShowNameForSoprDoc := 'Привязано '+string(nTXO)+' TXO в '+string(nSH)+' хозоперациях к документу'
+      else
+         ShowNameForSoprDoc := strHozOper;
+   }
+   else
+   {
+      ResetBounds(#MagOper);
+      PushBounds(tbNameMagOper);
+      _loop MagOper where ((TiDkUser == MagOper.TipDoc   and
+                            cSoprDoc == MagOper.cSoprDoc ))
+      {
+         InsertMarker(markSH, MagOper.cSoprHoz);
+         if (MagOper.cHozOper <> 0)
+         {
+           InsertMarker(markTXO, MagOper.cHozOper);
+           strHozOper := HozOperMag.Name1;
+         }
+      }
+      PopBounds(tbNameMagOper);
+      SetBounds(#MagOper);
+
+      nTXO := GetMarkerCount(markTXO);
+      nSH  := GetMarkerCount(markSH);
+      if ( nTXO > 1 ) {
+        if ( nSH > 1 )
+           ShowNameForSoprDoc := 'Сложная привязка '+string(nTXO)+' TXO в '+string(nSH)+' хозоперациях к документу'
+        else
+           ShowNameForSoprDoc := 'Сложная привязка '+string(nTXO)+' TXO'
+      }
+      else
+        ShowNameForSoprDoc := strHozOper;
+   }
+   DoneMarker(markTXO,'');
+   DoneMarker(markSH,'');
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// получить NRec ТХО по SoprHoz в заданном регистре учета
+function GetHozOperNRecInReg(buf:#TSoprHozX; CurPlansSch:comp) : comp;
+{
+
+  GetHozOperNRecInReg := comp(0);
+
+  _try
+  {
+    SoprHoz.bufferp := type$p_SoprHoz(buf);
+  }
+  _except
+    else
+    {
+      GetHozOperNRecInReg := comp(0);
+    }
+
+  cPlansSchMain := CurPlansSch;
+
+  SetSimpleBinding; // и тут надо еще раз прочитать настройку
+
+  if( SimpleBinding )
+  {
+    GetHozOperNRecInReg := SoprHoz.cHozOper
+  }
+  else
+  {
+    if (CurPlansSch = comp(0))
+      GetHozOperNRecInReg := SoprHoz.cHozOper;
+    else
+      if (GetFirst MagOperReg = tsOk)
+        GetHozOperNRecInReg := MagOperReg.cHozOper;
+  }
+
+}
+
+// сбросить сервер ТХО (нужно обязательно вызвать перед каждым сеансом разноски ТХО)
+procedure ResetServer;
+{
+   TuneTProvUseMagOper := boGetTune('TProv.UseMagOper');
+   SimpleBinding := true;
+   SimpleBindingTiDk := 0;
+   TxoResetServer;
+}
+
+// показать протокол расчетов ТХО (нужно обязательно вызывать после каждого сеанса разноски ТХО)
+procedure ProcessProtokol;
+{
+   TxoProcessProtokol;
+}
+
+// построить дерево привязки по настройке из каталога документов (строит без создания записей в MagOper)
+function BuildTreeByTiDk(TiDkGal:word) : boolean;
+{
+//  word(TiDkGal);
+  BuildTreeByTiDk := false;
+  if( SimpleBindingTiDk <> TiDkGal )
+  {
+    SimpleBinding := isSimpleBinding(TiDkGal);
+    SimpleBindingTiDk := TiDkGal;
+  }
+
+  //////////////////////////////////////////////////////////////
+  ResetBounds(#KatH);
+  delete all From KatH;
+
+  //////////////////////////////////////////////////////////////
+  // узел дерева - Сквозная ТXО
+  var cNode : comp;
+  ClearBuffer(#KatH);
+  cNode          := GetNextNrec(#KatH,0);
+  KatH.Nrec      := cNode;
+  KatH.cNode     := 0;
+  KatH.Mode      := wModeThrough;
+  KatH.Name      := 'Сквозная ТXО';
+  KatH.cPlansSch := 0;
+  KatH.Priority  := 0;
+  KatH.cHozOper  := 0;
+  KatH.Oper      := wOper_NotDo;
+  BuildTreeByTiDk := (insert current KatH = tsOk);
+
+  //////////////////////////////////////////////////////////////
+  // листики - по регистрам учета
+  if( not SimpleBinding )
+  {
+    PushBounds(tbBuildTree1);
+    PushBounds(tbBuildTree2);
+ 
+    _loop RefTable where ((    cgReg_Main   == RefTable.wAccount
+                           and cgSel_RegDoc == RefTable.wMain
+                           and TiDkGal      == RefTable.wSub
+                           and word(0)      == RefTable.wTable1
+                           and comp(0)      == RefTable.cRecord1
+                           and coPlansSch   == RefTable.wTable2
+                         ))
+    {
+      ClearBuffer(#KatH);
+      KatH.Nrec      := GetNextNrec(#KatH,0);
+      KatH.cNode     := cNode;
+      KatH.Mode      := wModeSeparate;
+      KatH.Name      := if(GetFirst PlansSch  where ((RefTable.cRecord2 == PlansSch.Nrec)) = tsOk
+                         , PlansSch.Name, '!? Регистр учета '+string(RefTable.cRecord2));
+      KatH.cPlansSch := RefTable.cRecord2;
+      KatH.Priority  := RefTable.Attr;
+      KatH.cHozOper  := 0;
+      KatH.Oper      := wOper_NotDo;
+      insert current KatH;
+    }
+    PopBounds(tbBuildTree1);
+    PopBounds(tbBuildTree2);
+
+    BuildTreeByTidk := true;
+  }
+
+  //////////////////////////////////////////////////////////////
+  SetBounds(#KatH);
+
+  //message('to do');
+}
+
+// программно изменить операцию в дереве привязок
+function SetOperation(cPlansSch : comp; wOper : word; cHozOper : comp; wCorParam : word) : boolean;
+{
+  SetOperation := false;
+
+  ReSetBounds(#KatH);
+  if( SimpleBinding ) // сквозная привязка ТХО
+  {
+    if( getfirst KatH where (( wModeThrough == KatH.Mode )) = tsOk )
+    {
+      KatH.Oper := wOper
+      KatH.cHozOper := if(wOper=wOper_Bind, cHozOper, KatH.cHozOper);
+      KatH.CorParam := if(wOper=wOper_CorrObor, wCorParam, 0);
+      SetOperation := (update current KatH = tsOk);
+    }
+  }
+  else if( cPlansSch=0 ) // раздельная привязка ТХО (оперируем со всеми планами)
+  {
+    var tmpResult : boolean;
+    tmpResult := false;
+
+    if( getfirst KatH where (( wModeThrough == KatH.Mode )) = tsOk )
+    {
+      KatH.Oper := wOper
+      KatH.cHozOper := if(wOper=wOper_Bind, cHozOper, KatH.cHozOper);
+      KatH.CorParam := if(wOper=wOper_CorrObor, wCorParam, 0);
+      tmpResult := (update current KatH = tsOk);
+    }
+
+    if( wOper=wOper_Bind )
+    { _loop KatH where (( wModeSeparate == KatH.Mode ))
+        if( FindTxoTmpleate(cHozOper, KatH.cPlansSch) )
+        { KatH.cHozOper := cHozOper;
+          KatH.Oper     := wOper_Bind;
+          tmpResult := tmpResult and (update current KatH = tsOk);
+        }
+    }
+    else
+    {
+      _loop KatH where (( wModeSeparate == KatH.Mode ))
+      {
+        KatH.Oper := wOper
+        KatH.CorParam := if(wOper=wOper_CorrObor, wCorParam, 0);
+        tmpResult := tmpResult and (update current KatH = tsOk);
+      }
+    }
+
+    SetOperation := tmpResult;
+  }
+  else // раздельная привязка ТХО (оперируем с конкретным планом )
+  {
+    if( getfirst KatH where (( wModeSeparate == KatH.Mode and cPlansSch == KatH.cPlansSch )) = tsOk )
+    {
+      KatH.Oper := wOper;
+      KatH.cHozOper := if(wOper=wOper_Bind, cHozOper, KatH.cHozOper);
+      KatH.CorParam := if(wOper=wOper_CorrObor, wCorParam, 0);
+      SetOperation := (update current KatH = tsOk);
+    }
+    else
+    {
+       cPlansSchMain := cPlansSch;
+       Message('Применить ТХО к документу невоможно, поскольку'#13'регистр учета "'+
+               if( getfirst PlansSchMain = tsOk, PlansSchMain.Name, '!? NREC='+string(cPlansSchMain) )+
+               '"'#13'неуказан в настройках "Документов системы"!', Error+CancelButton);
+    }
+  }
+  SetBounds(#KatH);
+}
+
+function SetRemakeOperationInReg(cPlansSch : comp; Date_Storno,Date_New :date) : boolean;
+{
+  SetRemakeOperationInReg := false;
+  if( SimpleBinding ) // сквозная привязка
+  {
+    if (not SetOperation(0, wOper_RemakeTXO, 0, 0))
+      exit;
+  }
+  else
+  {
+    if (not SetOperation(cPlansSch, wOper_RemakeTXO, 0, 0))
+      exit;
+  }
+
+  curDate_Storno  := Date_Storno;
+  curDate_New     := Date_New;
+  SetRemakeOperationInReg := true;
+}
+
+// высветка операций дерева
+function ShowTreeInfo : string;
+{
+  var s : string;
+  s := '';
+
+  _loop ShowKatH
+  {
+    #define MyComp2Hex(x) if( #x = 0, '0h', Ltrim(string( #x, 0, 0), '0') )
+    s := s + #MyComp2Hex(ShowKatH.cPlansSch) + ' '
+           + GetOperationText(ShowKatH.Oper, ShowKatH.CorParam, #MyComp2Hex(ShowKatH.cHozOper))
+           + '; ';
+  }
+
+  ShowTreeInfo := s;
+}
+
+function NewRealize(buf:#TSoprHozX) : boolean;
+{
+  NewRealize := false;
+
+  // настройка - Формирование типовых проводок = нет (т.е. только привязка, без проводок)
+  if (wGetTune('TProv.FormTP') = 0)
+  { NewRealize := true;
+    TxoProtokolMsg(tplDebug, 'TxoBind.vip', 'NewRealize '+GetTuneName('TProv.FormTP')+' = Нет');
+    exit;
+  }
+
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+  DocLink_ValidatePlugin(SoprHoz.TiDkGal);
+
+  if( SimpleBinding ) // сквозная привязка
+  {
+    ReSetBounds(#KatH);
+    if( getfirst KatH where (( wModeThrough == KatH.Mode )) = tsOk )
+    {
+      case KatH.Oper of
+        wOper_Bind :
+          NewRealize := Binder_TxoMake(SoprHoz.NRec, KatH.cHozOper, 0);
+        wOper_ReObor :
+          NewRealize := Binder_TxoMake(SoprHoz.NRec, SoprHoz.cHozOper, 0);
+        wOper_CorrObor :
+          NewRealize := Binder_TxoCorrect(SoprHoz.NRec, SoprHoz.cHozOper, 0, KatH.CorParam);
+        wOper_UnBind, wOper_DelObor :
+          NewRealize := Binder_TxoDelete(SoprHoz.NRec, 0);
+        wOper_RemakeTXO :
+        {
+          iMkStorno.MakeStorno(0,SoprHoz.NRec, SoprHoz.cHozOper, curDate_Storno);
+          NewRealize := TxoMakeSpecialOnDate(SoprHoz.NRec, SoprHoz.cHozOper, 0, curDate_New);
+        }
+      end; // case
+    }
+    SetBounds(#KatH);
+  }
+  else // раздельная привязка
+  {
+    NewRealize := true;
+
+    ReSetBounds(#MagOper);
+    ReSetBounds(#KatH);
+    PushBounds(tbLinkKatH);
+    PushBounds(tbbyMagoperPlanSch);
+    _loop KatH where ((wModeSeparate == KatH.Mode)) ordered by KatH.Priority
+    {
+      case KatH.Oper of
+        wOper_Bind :
+          if( isValid(#MagOper) )
+           if ( not CaseTxoMakeSpecial(PlansSch.KodReg, SoprHoz.NRec, KatH.cHozOper, KatH.cPlansSch) )
+           { NewRealize := false;
+             break;
+           }
+        wOper_ReObor :
+          if( isValid(#MagOper) )
+           if( FindTxo(MagOper.cHozOper) )
+            if ( not CaseTxoMakeSpecial(PlansSch.KodReg, SoprHoz.NRec, MagOper.cHozOper, KatH.cPlansSch) )
+            { NewRealize := false;
+              break;
+            }
+        wOper_CorrObor:
+          if( isValid(#MagOper) )
+           if( FindTxo(MagOper.cHozOper) )
+            if ( not CaseTxoCorrectSpecial(PlansSch.KodReg, SoprHoz.NRec, MagOper.cHozOper, KatH.cPlansSch, KatH.CorParam) )
+            { NewRealize := false;
+              break;
+            }
+        wOper_UnBind, wOper_DelObor:
+          // удаление проводим в любом случае не зависимо от валидности MagOper
+          if ( not CaseTxoDeleteSpecial(PlansSch.KodReg, SoprHoz.NRec, KatH.cPlansSch) )
+          { NewRealize := false;
+            break;
+          }
+        wOper_RemakeTXO :
+        {
+          iMkStorno.MakeStorno(KatH.cPlansSch, SoprHoz.NRec, SoprHoz.cHozOper, curDate_Storno);
+          NewRealize := TxoMakeSpecialOnDate(SoprHoz.NRec, MagOper.cHozOper, KatH.cPlansSch, curDate_New);
+        }
+      end; // case
+    }
+    PopBounds(tbbyMagoperPlanSch);
+    PopBounds(tbLinkKatH);
+    SetBounds(#KatH);
+    SetBounds(#MagOper);
+  }
+}
+
+function NewApply(var buf:#TSoprHozX) : boolean;
+{
+  NewApply := false;
+
+  SoprHoz.bufferp := type$p_SoprHoz(buf);
+
+  //////////////////////////////////////////////////////////////
+  // узел дерева - Сквозная привязка ТXО
+  ReSetBounds(#KatH);
+  if( getfirst KatH where (( wModeThrough == KatH.Mode )) = tsOk )
+  {
+    case KatH.Oper of
+      wOper_Bind, wOper_SetTxoRef :
+        if( SoprHoz.cHozOper <> KatH.cHozOper )
+        {
+          SoprHoz.cHozOper := KatH.cHozOper;
+          update current SoprHoz;
+          buf := #TSoprHozX(SoprHoz.bufferp);
+        }
+      wOper_UnBind :
+        if( SoprHoz.cHozOper <> 0 )
+        {
+          SoprHoz.cHozOper := 0;
+          update current SoprHoz;
+          buf := #TSoprHozX(SoprHoz.bufferp);
+        }
+    end; // case
+  }
+
+  //////////////////////////////////////////////////////////////
+  // листики - раздельная привязка ТХО по регистрам учета
+  if( not SimpleBinding )
+  {
+    ReSetBounds(#MagOper);
+    PushBounds(tbLinkKatH);
+    _loop KatH where ((wModeSeparate == KatH.Mode)) ordered by KatH.Priority
+    {
+      if( isValid(#MagOper) )
+        case KatH.Oper of
+          wOper_Bind, wOper_SetTxoRef :
+            { MagOper.cHozOper := KatH.cHozoper;
+              MagOper.Priority := KatH.Priority;
+              update current MagOper;
+            }
+          wOper_UnBind :
+            { MagOper.cHozOper := 0;
+              MagOper.Priority := KatH.Priority;
+              update current MagOper;
+            }
+          else
+            { if( MagOper.Priority <> KatH.Priority )
+              { MagOper.Priority := KatH.Priority;
+                update current MagOper;
+              }
+            }
+        end; // case
+    }
+    PopBounds(tbLinkKatH);
+    SetBounds(#MagOper);
+  }
+
+  SetBounds(#KatH);
+
+  NewApply := true;
+}
+
+// иcполнить операции указанные в дереве
+function RealizeAndApplyOperations(var buf:#TSoprHozX) : boolean;
+{
+  RealizeAndApplyOperations := false;
+  if( NewRealize(buf) )
+    RealizeAndApplyOperations := NewApply(buf);
+}
+
+!===============================================================================
+HandleEvent
+  cmOnVipLoad:
+  {
+    InitServTXO(0);
+    TuneTProvUseMagOper := boGetTune('TProv.UseMagOper');
+
+    wDocLink_LastTiDkGal := 0;
+    bDocLink_IsEnable    := false;
+    
+    SimpleBinding := true;
+    SimpleBindingTiDk := 0;
+  }
+  cmOnVipUnload:
+  {
+    DoneServTXO;
+
+    if( not NullVipRef(iDocLink_LastPlugin) )
+      FreeVipInterface(iDocLink_LastPlugin);
+  }
+end;
+end.
+
+TxoBind_HotKeys_CheckOperationTree menu // выбираем операцию (действие) над ТХО и проводками в дереве
+{
+  - 'Пропустить',                   cmValue1, 'Текущий регистр учета не будет участвовать в разноске ТХО';
+------------------;
+  - 'Разнести...',                  cmValue2, 'Привязать ТХО и сформировать проводки',,'F3';
+  - 'Отменить разноску',            cmValue3, 'Отвязать ТХО и удалить проводки',,'Delete';
+------------------;
+  - 'Переразнести',                 cmValue4, 'Переразнести ТХО ';
+  - 'Уточнить проводки...',         cmValue5, 'Коррекция старых сумм проводок и создание новых проводок';
+  - 'Отменить проводки',            cmValue6, 'Отменить проводки';
+}
+
+CorrectOborotParams DIALOG
+  SIZE  50, 6
+  FIELDS
+    Param ('Параметры формирования проводок',hcHozOpRazDerPr,scGalDial) : word, save;
+  BUTTONS
+     cmOk,default,,'Ввод параметров', hcAllBOk, scGalDial;
+     cmCancel,,,'Отмена', hcAllBCancel, scGalDial;
+<< 'Уточнение проводок'
+
+     [.] ко~р~ректировать суммы проводок `
+     [.] ~с~оздавать новые проводки      `
+
+  <.~П~родолжить.>  <.   Отмена   .>
+>>

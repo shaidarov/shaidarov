@@ -1,0 +1,53 @@
+#include E:\!StroyTehNorm\!project\_Triggers\KatOrg\Triggers_KatOrg.obj
+
+VipInterface ScnTrg_KatOrg implements IntTrg_KatOrg;
+
+Interface ScnTrg_KatOrg;
+var
+   _tRecOrg : comp;
+    
+create view tOrg
+as select KatOrg.nRec, KatSopr.cOrg, PlPor_Plat.cPlat, PlPor_Pol.cPol, Dogovor.cOrg
+   from   KatOrg
+        , KatSopr
+        , Dogovor
+        , synonym PlPor PlPor_Plat
+        , synonym PlPor PlPor_Pol
+Where ((  _tRecOrg        == KatOrg.nRec
+      and KatOrg.nRec     == KatSopr.cOrg
+      and KatOrg.nRec     == PlPor_Plat.cPlat   (noindex)
+      and KatOrg.nRec     == PlPor_Pol.cPol     (noindex)
+      and KatOrg.nRec     == Dogovor.cOrg       (noindex)
+      ));
+
+function IntTrg_KatOrg.ScanDocOrg(cOrgRec: comp): boolean;
+begin
+  _tRecOrg := cOrgRec;
+  
+  ScanDocOrg := true;
+
+  if (tOrg.RecordExists KatSopr    = tsOK) ScanDocOrg := false;
+  if (tOrg.RecordExists PlPor_Plat = tsOK) ScanDocOrg := false;
+  if (tOrg.RecordExists PlPor_Pol  = tsOK) ScanDocOrg := false;
+  if (tOrg.RecordExists Dogovor    = tsOK) ScanDocOrg := false;
+
+if (ScanDocOrg = false)
+message(''#3'Организация используется в документах - изменение запрещено,' +
+     ''#13#3'      для возврата в исходное состояние нажать Alt+BackSpace');
+end;
+end.
+
+
+Handler with replace trg_KatOrg on trigger KatOrg before upDate [100]
+action
+{
+var
+ _intOrg : ScnTrg_KatOrg;
+
+var
+  buf    : record as table KatOrg;
+ 
+ GetTableBuffer(buf);
+
+result := _intOrg.ScanDocOrg(buf.nRec); 
+}       

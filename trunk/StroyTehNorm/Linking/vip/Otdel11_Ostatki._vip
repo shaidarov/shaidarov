@@ -1,0 +1,307 @@
+#doc
+Закачка Организаций и Договоров 11 отдела
+#end
+
+#include notes.vih
+#include statlog.vih
+
+#include KatSopr.vih
+
+#component "L_SoprDoc"
+
+Interface Otdel11_Ostatki 'Закачка Остатков 11 отдела' EscClose DoAccept;
+
+#include KatSopr.var
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, OrgUNN
+, OrgName
+, _CUST_ID
+, _DOGNUM
+, _Account
+, _ACTNUM
+, _ACT_ID
+, _CUSTNUM
+               : string;
+  _ACTSUM
+, _NDS
+, _SUM
+               : double;
+  ErrImport
+               : boolean;
+  _DATESTATEM
+, _ACTDATE
+               : date;
+  _Type
+               : word;
+  oNotes       : iNotes;
+  oStatlog     : vipStatlog;
+
+as select * from
+  KatOrg
+, KatBank
+, Dogovor
+, KatSopr
+, SpSopr
+, SpDocNal
+, PlPor
+, SoprHoz
+, BaseFin
+;
+
+#include IerDog.vpp
+
+Procedure WriteError(TypeError : string); {
+  LogStrToFile(LogFileName, OrgUNN + ' ' + OrgName + ' ' + TypeError + ' ' + _DATESTATEM + ' ' + _DOGNUM);
+  ErrImport := true;
+  Continue;
+}
+
+
+
+Procedure CheckOrg; {
+  OrgUNN   := string( DBFGetFieldValue(Handle,'UNN') );
+  OrgName  := string( DBFGetFieldValue(Handle,'NAME') );
+
+  if (OrgUNN = '' or OrgName = '') {
+    WriteError('Не указан УНН либо Название организации');
+    }
+
+  if (GetFirst KatOrg where ((OrgUNN == KatOrg.UNN)) <> tsOK) {
+
+    if (Length(Trim(OrgUNN)) <> 9) {WriteError('УНН не 9 символов');}
+
+    ClearBuffer(#KatOrg);
+    KatOrg.UNN  := OrgUNN;
+    KatOrg.Name := OrgName;
+    if (Insert current KatOrg = tsOK) {};
+    }
+}
+
+Procedure InsertDogovor; {
+
+    if (GetFirst Dogovor where ((_CUST_ID == Dogovor.ShipAddTerms (noIndex) )) = tsOK) {
+      WriteError('Попытка вставки договора с существующим CUST_ID');
+      }
+
+    ClearBuffer(#Dogovor);
+
+   if (GetFirst KatBank where ((KatOrg.nRec == KatBank.cOrg)) = tsOK) {
+    Dogovor.cBankPlat := KatBank.nRec;
+    }
+
+    Dogovor.cBankPol      := 4000F3C17E543866h;
+    Dogovor.cNote         := 4000419379BDDA2Dh;
+    Dogovor.cOrg          := KatOrg.nRec;
+    Dogovor.cPlat         := KatOrg.nRec;
+    Dogovor.cPol          := 0000000000000002h;
+    Dogovor.cVidDog       := 0000000000000018h;
+    Dogovor.DesCr         := 'IGO';
+    Dogovor.DesGr         := '11';
+    Dogovor.Direct        := 1;
+    Dogovor.NoDoc         := _DOGNUM;
+    Dogovor.dDoc          := _DATESTATEM;
+    Dogovor.Status        := 1;
+    Dogovor.TidK          := 400;
+    Dogovor.TipMoney      := 1;
+    Dogovor.VhodNal       := 1;
+    Dogovor.cGrOtp        := 0000000000000002h;
+    Dogovor.cGrPol        := KatOrg.nRec;
+    Dogovor.ShipAddTerms  := string( DBFGetFieldValue(Handle,'CUST_ID') );
+    Dogovor.Summa         := string( DBFGetFieldValue(Handle,'SUMPAID') );
+    if (Insert current Dogovor = tsOK) {}
+
+    CreateIerDogOnDoc(0, Dogovor.nRec);
+}
+
+
+
+
+Procedure InsertPlPor; {
+     ClearBuffer(#PlPor);
+     PlPor.TiDkGal  := 2;
+     PlPor.TiDk     := 2;
+     PlPor.Direct   := 1;
+     PlPor.NoDok    := 'Остатки_11отдела';
+     PlPor.DesCr    := 'IGO';
+     PlPor.YEARDOC  := 2009;
+     PlPor.DATVIP   := date(31, 12, 2009);
+     PlPor.DATOTS   := date(31, 12, 2009);
+     PlPor.DATOB    := date(31, 12, 2009);
+     PlPor.CPLAT    := KatOrg.nRec;
+     PlPor.cPol     := 0000000000000002h;
+     PlPor.CBANKPOL := 4000F3C17E543866h;
+     PlPor.SUMPLAT  := _Sum;
+     PlPor.MODEDOC  := 1024;
+     Insert current PlPor;
+
+     ClearBuffer(#SoprHoz);
+     SoprHoz.CDOGOVOR := Dogovor.nRec;
+     SoprHoz.DatOb    := date(31, 12, 2009);
+     SoprHoz.CSOPRDOC := PlPor.nRec;
+     SoprHoz.TIPDOC   := 2;
+     SoprHoz.TIDKGAL  := 2;
+     SoprHoz.NODOC    := 'Остатки_11отдела';
+     SoprHoz.DESCR    := 'IGO';
+     SoprHoz.Summa    := _Sum;
+     SoprHoz.DIRECT   := 1;
+     SoprHoz.VHSUMHOZ := '+';
+     SoprHoz.MODEDOC  := 1024;
+     SoprHoz.CORG     := KatOrg.nRec;
+     Insert current SoprHoz;
+
+     ClearBuffer(#BaseFin);
+     BaseFin.CDOGOVOR  := Dogovor.nRec;
+     BaseFin.TIPDOC    := 2;
+     BaseFin.TIDKGAL   := 2;
+     BaseFin.CSOPRDOC  := PlPor.nRec;
+     BaseFin.CPLPOR    := PlPor.nRec;
+     BaseFin.NODOC     := 'Остатки_11отдела';
+     BaseFin.DESCR     := 'IGO';
+     BaseFin.dDoc      := date(31, 12, 2009);
+     BaseFin.Summa     := _Sum;
+     BaseFin.DIRECT    := 1;
+     BaseFin.CORG      := KatOrg.nRec;
+     BaseFin.CSOPRHOZ  := SoprHoz.nRec;
+     BaseFin.CPLDGDIST := 0000000000000001h;
+     Insert current BaseFin;
+}
+
+Procedure InsertAkt; {
+
+     ClearBuffer(#KatSopr);
+     KatSopr.DesCr     := 'IGO';
+     KatSopr.cOrg      := KatOrg.nRec
+     KatSopr.Summa     := -_SUM;
+     KatSopr.SumVal    := -_SUM;
+     KatSopr.VhodNal   := 1;
+     KatSopr.dPrice    := _ACTDATE;
+     KatSopr.cDogovor  := Dogovor.nRec;
+     KatSopr.Status    := 1;
+     KatSopr.cNote     := 0000000000000003h;
+     KatSopr.TipSopr   := 2;
+     KatSopr.VidSopr   := 211;
+     KatSopr.dSopr     := _ACTDATE;
+     KatSopr.YearSopr  := Year(_ACTDATE);
+     KatSopr.nSopr     := 'Остатки_11';
+     KatSopr.cGruzFrom := 0000000000000002h; // СТН
+     KatSopr.cGruzTo   := KatOrg.nRec;
+     KatSopr.cOrgBase  := KatOrg.nRec;
+     KatSopr.dOpr      := _ACTDATE;
+     KatSopr.cValut    := 0000000000000005h;
+     KatSopr.sNalogS   := -_SUM * 18 / 118;
+     KatSopr.sVNalogS  := -_SUM * 18 / 118;
+     KatSopr.cOrgPlat  := KatOrg.nRec;
+     Insert current KatSopr;
+
+     ClearBuffer(#SpSopr);
+     SpSopr.Npp      := 1;
+     SpSopr.PrMC     := 2;
+     SpSopr.cOtpEd   := 0000000000000A2Bh;
+     SpSopr.Kol      := 1;
+     SpSopr.KolOpl   := 1;
+     SpSopr.cGrNal   := 4000AD5A995C9F7Eh;
+     SpSopr.cSopr    := KatSopr.nRec;
+     SpSopr.dSopr    := _ACTDATE;
+     SpSopr.dOprTTN  := _ACTDATE;
+     SpSopr.VidSopr  := 211;
+     SpSopr.KolFact  := 1;
+     SpSopr.SumNDS   := -_SUM * 18 / 118;
+     SpSopr.SumVNDS  := -_SUM * 18 / 118;
+     SpSopr.Price    := -_SUM;
+     SpSopr.vPrice   := -_SUM;
+     SpSopr.rPrice   := -_SUM;
+     SpSopr.rVPrice  := -_SUM;
+     SpSopr.cMcUsl   := 281474976710970;   // Реализация отдел 11
+     Insert current SpSopr;
+
+     ClearBuffer(#SpDocNal);
+     SpDocNal.cSpDoc    := SpSopr.nRec;
+     SpDocNal.cDoc      := KatSopr.nRec;
+     SpDocNal.TipDoc    := 211;
+     SpDocNal.cGrNal    := 4611876623059033982;
+     SpDocNal.cNalog    := 4611884681239087291;
+     SpDocNal.Nalog     := 18;
+     SpDocNal.SumNal    := -_SUM * 18 / 118;
+     SpDocNal.SumVal    := -_SUM * 18 / 118;
+     SpDocNal.Summa     := -_SUM * 18 / 118;
+     SpDocNal.IsAgreg   := False;
+     SpDocNal.cOrg      := KatOrg.nRec;
+     SpDocNal.ValCurse  := 1;
+     SpDocNal.CrosCurse := 1;
+     SpDocNal.Npp       := 1;
+     SpDocNal.IsCustom  := 2;
+     Insert current SpDocNal;
+}
+
+
+
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\BuhServer\GalSrv\62_11\!Ostatki31122009.dbf';
+//  sDBFname    := 'E:\!StroyTehNorm\STN_igor\62_11\!Ostatki31122009.dbf';
+  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'ErrImport_' + Hour(cur_time) + '_' + Minute(cur_time) + '_Ostatki.log';
+  ErrImport   := false;
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     WriteError('Не удалось открыть dbf-файл');
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка Остатков 11 отдела', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            CheckOrg;
+
+            _DOGNUM   := string( DBFGetFieldValue(Handle,'ДОГОВОР') );
+            _CUST_ID  := string( DBFGetFieldValue(Handle,'CUSTID') );
+
+            if (GetFirst Dogovor where (( _CUST_ID == Dogovor.ShipAddTerms (noIndex) )) <> tsOK) {
+              if (GetFirst Dogovor where (( _DOGNUM == Dogovor.NoDoc (noIndex) )) <> tsOK) {
+                InsertDogovor;
+                }
+              }
+
+            _SUM      := double( DBFGetFieldValue(Handle,'SUM') );
+
+            if (_SUM > 0 ) {
+              InsertPlPor;
+              } else {
+                 InsertAkt;
+                }
+
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.
+
+.Form 'Закачка Остатков 11 отдела на 31.12.2009'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_SoprDoc::Otdel11_Ostatki');
+end.
+
+.endform
+

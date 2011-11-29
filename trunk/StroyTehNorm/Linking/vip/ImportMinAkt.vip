@@ -1,0 +1,510 @@
+#doc
+Интерфейс для закачки данных из Excel по Министерству
+Закачиваются Договора и Акты (сбыт)
+#end
+
+#include SDfuns.vih
+#include SDfuns.var
+
+Interface ImportMinAkt 'Закачка Министерских Актов из Excel' EscClose DoAccept;
+  Show at (, , 75, 5);
+
+var
+  raw                          // номер строки
+, col                          // номер колонки
+, nReport
+, cur_sheet
+                   : word;
+  isExcelOK
+                   : boolean;
+  nAkt
+, nDog
+, fActiveXLSName
+, dAktS
+                   : string;
+  dAkt
+                   : date;
+  SumAktTotal
+, NDSAkt
+, SumAkt_if
+, SumAkt_sp
+, Sum_1
+, Sum_3
+, Sum_7
+, Sum_8
+, Sum_9
+, Sum_10
+, Sum_11
+, Sum_12
+, Sum_13
+, Sum_14
+, Sum_15
+, Sum_vtk
+, Sum_tks
+, Sum_trVtk
+, Sum_Sopr                          // промежуточная сумма для вычислений по Спецификации Акта
+                   : double;
+                   
+create view
+
+as select
+  if (UserDeskRep.ResName[1] <> '', UserDeskRep.ResName[1], '')
+         ( FieldName = fXLSFileName )
+
+      from
+  Pick
+, PickRep
+, UserDeskRep
+, Dogovor
+, KatSopr
+, SpSopr
+, SpDocNal
+
+ where (( UserName         == UserDeskRep.OwnName
+      and nReport          == UserDeskRep.nRep
+
+      and KatSopr.nRec     == SpSopr.cSopr
+      and KatSopr.cDogovor == Dogovor.nRec
+       ))
+;
+
+#Declare SpSopr_macro
+     ClearBuffer(#SpSopr);
+     SpSopr.Npp      := 1;
+     SpSopr.PrMC     := 2;
+     SpSopr.cOtpEd   := 0000000000000A2Bh;
+     SpSopr.Kol      := 1;
+     SpSopr.KolOpl   := 1;
+     SpSopr.cGrNal   := 4000AD5A995C9F7Eh;
+     SpSopr.cSopr    := KatSopr.nRec;
+     SpSopr.dSopr    := dAkt;
+     SpSopr.dOprTTN  := dAkt;
+     SpSopr.VidSopr  := 211;
+     SpSopr.KolFact  := 1;
+
+if ( NDSAkt > 0 ) {
+     SpSopr.SumNDS   := Sum_Sopr *18 / 118;
+     SpSopr.SumVNDS  := Sum_Sopr *18 / 118;
+
+   if ( SumAkt_if > 0 ) {
+     SpSopr.cResOtgr := 281474976710659;                           // ИФ
+   }
+} else {
+   if ( SumAkt_if > 0 ) {
+     SpSopr.cResOtgr := 281474976710660;                           // НИОКР
+   }
+  }
+
+   if ( SumAkt_sp > 0 ) {
+     SpSopr.cResOtgr := 281474976710658;                           // СП
+   }
+
+#end
+
+#Declare SpDocNal_macro
+if ( NDSAkt > 0 ) {
+     ClearBuffer(#SpDocNal);
+     SpDocNal.cSpDoc    := SpSopr.nRec;
+     SpDocNal.cDoc      := KatSopr.nRec;
+     SpDocNal.TipDoc    := 211;
+     SpDocNal.cGrNal    := 4611876623059033982;
+     SpDocNal.cNalog    := 4611884681239087291;
+     SpDocNal.Nalog     := 18;
+     SpDocNal.SumNal    := Sum_Sopr *18 / 118;
+     SpDocNal.SumVal    := Sum_Sopr *18 / 118;
+     SpDocNal.Summa     := Sum_Sopr *18 / 118;
+     SpDocNal.IsAgreg   := False;
+     SpDocNal.cOrg      := 000000000000004Fh;
+     SpDocNal.ValCurse  := 1;
+     SpDocNal.CrosCurse := 1;
+     SpDocNal.Npp       := 1;
+     SpDocNal.IsCustom  := 2;
+     Insert current SpDocNal;
+}
+#end
+Procedure CheckDogovor; {
+
+  if (GetFirst Dogovor Where (( nDog              == Dogovor.NoDoc (noIndex)
+                            and 000000000000004Fh == Dogovor.cOrg  (noIndex) )) <> tsOK) {
+    ClearBuffer(#Dogovor);
+    Dogovor.cBankPlat := 40001DF2CB8BE40Fh;
+    Dogovor.cBankPol  := 4000F3C17E543866h;
+    Dogovor.cNote     := 4000419379BDDA2Dh;
+    Dogovor.cOrg      := 000000000000004Fh;
+    Dogovor.cPlat     := 000000000000004Fh;
+    Dogovor.cPol      := 0000000000000002h;
+    Dogovor.cVidDog   := 000000000000001Eh;
+    Dogovor.DesCr     := 'SEH';
+    Dogovor.Direct    := 1;
+    Dogovor.NoDoc     := nDog;
+    Dogovor.Status    := 1;
+    Dogovor.TidK      := 400;
+    Dogovor.TipMoney  := 1;
+    Dogovor.VhodNal   := 1;
+    Dogovor.cGrOtp    := 0000000000000002h;
+    Dogovor.cGrPol    := 000000000000004Fh;
+    Insert current Dogovor;
+    }
+}
+
+Procedure StartImport; {
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выполняется импорт', 1);
+  
+  xlCreateExcelWithTemplate(fXLSFileName, false);
+
+  IsExcelOK     := xlDisplayAlerts ( true );
+  IsExcelOK     := xlCreateExcelWithTemplate ( fXLSFileName, true ) ;
+  IsExcelOK     := xlIsExcelValid;
+  IsExcelOK     := xlGetActiveWorkBookName (fActiveXLSName );
+
+  if ( IsExcelOK = false ) {message('Ошибка открытия Excel - файла!');
+                            exit;
+                           }
+
+  xlSetActiveSheet(cur_Sheet);
+
+  raw := 7;
+  col := 5;
+
+  Do {
+  dAktS       := '';
+  nDog        := '';
+  SumAktTotal := 0;
+  NDSAkt      := 0;
+  SumAkt_if   := 0;
+  SumAkt_sp   := 0;
+  Sum_1       := 0;
+  Sum_3       := 0;
+  Sum_7       := 0;
+  Sum_8       := 0;
+  Sum_9       := 0;
+  Sum_10      := 0;
+  Sum_11      := 0;
+  Sum_12      := 0;
+  Sum_13      := 0;
+  Sum_14      := 0;
+  Sum_15      := 0;
+  Sum_vtk     := 0;
+  Sum_tks     := 0;
+  Sum_trVtk   := 0;
+  Sum_Sopr    := 0;
+  
+     xlGetCellValue(raw, col, nAkt);
+
+     xlGetCellValue(raw,  6, dAktS);                dAkt := StrToDate(dAktS, 'DD.MM.YYYY');
+     xlGetCellValue(raw,  3, nDog);
+     xlGetCellValue(raw,  7, SumAktTotal);
+     xlGetCellValue(raw,  8, NDSAkt);
+     xlGetCellValue(raw,  9, SumAkt_if);
+     xlGetCellValue(raw, 10, SumAkt_sp);
+     xlGetCellValue(raw, 11, Sum_1);
+     xlGetCellValue(raw, 12, Sum_3);
+     xlGetCellValue(raw, 13, Sum_7);
+     xlGetCellValue(raw, 14, Sum_8);
+     xlGetCellValue(raw, 15, Sum_9);
+     xlGetCellValue(raw, 16, Sum_10);
+     xlGetCellValue(raw, 17, Sum_11);
+     xlGetCellValue(raw, 18, Sum_12);
+     xlGetCellValue(raw, 19, Sum_13);
+     xlGetCellValue(raw, 20, Sum_14);
+     xlGetCellValue(raw, 21, Sum_15);
+     xlGetCellValue(raw, 22, Sum_vtk);
+     xlGetCellValue(raw, 23, Sum_tks);
+     xlGetCellValue(raw, 24, Sum_trVtk);
+
+  SumAktTotal := 1000 * SumAktTotal;
+  NDSAkt      := 1000 * NDSAkt;
+  SumAkt_if   := 1000 * SumAkt_if;
+  SumAkt_sp   := 1000 * SumAkt_sp;
+  Sum_1       := 1000 * Sum_1;
+  Sum_3       := 1000 * Sum_3;
+  Sum_7       := 1000 * Sum_7;
+  Sum_8       := 1000 * Sum_8;
+  Sum_9       := 1000 * Sum_9;
+  Sum_10      := 1000 * Sum_10;
+  Sum_11      := 1000 * Sum_11;
+  Sum_12      := 1000 * Sum_12;
+  Sum_13      := 1000 * Sum_13;
+  Sum_14      := 1000 * Sum_14;
+  Sum_15      := 1000 * Sum_15;
+  Sum_vtk     := 1000 * Sum_vtk;
+  Sum_tks     := 1000 * Sum_tks;
+  Sum_trVtk   := 1000 * Sum_trVtk;
+  Sum_Sopr    := 1000 * Sum_Sopr;
+
+     ClearBuffer(#KatSopr);
+     KatSopr.DesCr     := 'SEH';
+     KatSopr.cOrg      := 000000000000004Fh;  //Министерство архитектуры и строительства РБ
+     KatSopr.Summa     := SumAktTotal;
+     KatSopr.SumVal    := SumAktTotal;
+     KatSopr.VhodNal   := 1;
+     KatSopr.dPrice    := dAkt;
+    CheckDogovor;
+    KatSopr.cDogovor   := Dogovor.nRec;
+     KatSopr.Status    := 1;
+     KatSopr.cNote     := 0000000000000003h;
+     KatSopr.TipSopr   := 2;
+     KatSopr.VidSopr   := 211;
+     KatSopr.dSopr     := dAkt;
+     KatSopr.YearSopr  := Year(dAkt);
+     KatSopr.nSopr     := nAkt;
+     KatSopr.cGruzFrom := 0000000000000002h; // СТН
+     KatSopr.cGruzTo   := 000000000000004Fh;  //Министерство архитектуры и строительства РБ
+     KatSopr.cOrgBase  := 000000000000004Fh;  //Министерство архитектуры и строительства РБ
+     KatSopr.dOpr      := dAkt;
+     KatSopr.cValut    := 0000000000000005h;
+     KatSopr.sNalogS   := NDSAkt;
+     KatSopr.sVNalogS  := NDSAkt;
+     KatSopr.cOrgPlat  := 000000000000004Fh;  //Министерство архитектуры и строительства РБ;
+
+     Insert current KatSopr;
+
+ if (Sum_1 <> 0) {
+     Sum_Sopr       := Sum_1;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_1;
+     SpSopr.vPrice  := Sum_1;
+     SpSopr.rPrice  := Sum_1;
+     SpSopr.rVPrice := Sum_1;
+     SpSopr.cMcUsl  := 281474976710994;
+     Insert current SpSopr;
+    #SpDocNal_macro
+
+ }
+
+ if (Sum_3 <> 0) {
+     Sum_Sopr       := Sum_3;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_3;
+     SpSopr.vPrice  := Sum_3;
+     SpSopr.rPrice  := Sum_3;
+     SpSopr.rVPrice := Sum_3;
+     SpSopr.cMcUsl  := 281474976710997;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_7 <> 0) {
+     Sum_Sopr       := Sum_7;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_7;
+     SpSopr.vPrice  := Sum_7;
+     SpSopr.rPrice  := Sum_7;
+     SpSopr.rVPrice := Sum_7;
+     SpSopr.cMcUsl  := 281474976711003;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_8 <> 0) {
+     Sum_Sopr       := Sum_8;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_8;
+     SpSopr.vPrice  := Sum_8;
+     SpSopr.rPrice  := Sum_8;
+     SpSopr.rVPrice := Sum_8;
+     SpSopr.cMcUsl  := 281474976711004;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_9 <> 0) {
+     Sum_Sopr       := Sum_9;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_9;
+     SpSopr.vPrice  := Sum_9;
+     SpSopr.rPrice  := Sum_9;
+     SpSopr.rVPrice := Sum_9;
+     SpSopr.cMcUsl  := 281474976711006;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_10 <> 0) {
+     Sum_Sopr       := Sum_10;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_10;
+     SpSopr.vPrice  := Sum_10;
+     SpSopr.rPrice  := Sum_10;
+     SpSopr.rVPrice := Sum_10;
+     SpSopr.cMcUsl  := 281474976711007;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_11 <> 0) {
+     Sum_Sopr       := Sum_11;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_11;
+     SpSopr.vPrice  := Sum_11;
+     SpSopr.rPrice  := Sum_11;
+     SpSopr.rVPrice := Sum_11;
+     SpSopr.cMcUsl  := 281474976711009;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_12 <> 0) {
+     Sum_Sopr       := Sum_12;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_12;
+     SpSopr.vPrice  := Sum_12;
+     SpSopr.rPrice  := Sum_12;
+     SpSopr.rVPrice := Sum_12;
+     SpSopr.cMcUsl  := 281474976711010;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_13 <> 0) {
+     Sum_Sopr       := Sum_13;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_13;
+     SpSopr.vPrice  := Sum_13;
+     SpSopr.rPrice  := Sum_13;
+     SpSopr.rVPrice := Sum_13;
+     SpSopr.cMcUsl  := 281474976711012;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_14 <> 0) {
+     Sum_Sopr       := Sum_14;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_14;
+     SpSopr.vPrice  := Sum_14;
+     SpSopr.rPrice  := Sum_14;
+     SpSopr.rVPrice := Sum_14;
+     SpSopr.cMcUsl  := 281474976711013;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_15 <> 0) {
+     Sum_Sopr       := Sum_15;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_15;
+     SpSopr.vPrice  := Sum_15;
+     SpSopr.rPrice  := Sum_15;
+     SpSopr.rVPrice := Sum_15;
+     SpSopr.cMcUsl  := 281474976711020;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_vtk <> 0) {
+     Sum_Sopr       := Sum_vtk;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_vtk;
+     SpSopr.vPrice  := Sum_vtk;
+     SpSopr.rPrice  := Sum_vtk;
+     SpSopr.rVPrice := Sum_vtk;
+     SpSopr.cMcUsl  := 281474976711016;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_tks <> 0) {
+     Sum_Sopr       := Sum_tks;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_tks;
+     SpSopr.vPrice  := Sum_tks;
+     SpSopr.rPrice  := Sum_tks;
+     SpSopr.rVPrice := Sum_tks;
+     SpSopr.cMcUsl  := 281474976711018;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+ if (Sum_trVtk <> 0) {
+     Sum_Sopr       := Sum_trVtk;
+    #SpSopr_macro
+     SpSopr.Price   := Sum_trVtk;
+     SpSopr.vPrice  := Sum_trVtk;
+     SpSopr.rPrice  := Sum_trVtk;
+     SpSopr.rVPrice := Sum_trVtk;
+     SpSopr.cMcUsl  := 281474976711019;
+     Insert current SpSopr;
+    #SpDocNal_macro
+ }
+
+     oSDfuns.UpdateSoprHoz(KatSopr.Buffer);
+     inc(raw);
+     }
+  While ( nAkt <> '' )
+
+  StopVisual('',0);
+  xlKillExcel;
+
+
+}
+
+
+Screen sImportMinAkt;
+Fields
+  fXLSFileName ('Исходный файл Excel'            , , sci13Esc  ): Protect, PickButton;
+
+Buttons
+  cmOk, Default, , 'Ввод - запустить импорт прайс-листа из выбранного файла', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+
+  Файл Excel .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                 <. Провести Импорт .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInsertRecord:
+  Insert Current UserDeskRep;
+
+cmUpdateRecord:
+{  UserDeskRep.OwnName := UserName;
+   update current UserDeskRep;
+}
+
+cmDeleteRecord:
+    Delete Current UserDeskRep;
+
+
+cmInit:
+{
+  nReport      := 17022;
+
+   if (GetFirst UserDeskRep <> tsOK)
+    { ClearBuffer(#UserDeskRep);
+       UserDeskRep.OwnName := UserName;
+       UserDeskRep.nRep    := nReport;
+      insert current UserDeskRep;
+    }
+}
+
+
+cmPick: {
+  Case CurField of
+   #fXLSFileName : {
+          UserDeskRep.RESNAME[1] := GetFileName ('*.XLS', 'Выберите файла для закачки прайс-листа' ) ;
+      Set UserDeskRep.RESNAME[1] := UserDeskRep.RESNAME[1] ;
+      if (Not UpdateTable()) Exit;
+      RescanPanel(#UserDeskRep);
+    }
+  end;
+}
+
+cmOK : {
+  cur_Sheet := 1;
+  StartImport;
+  CloseInterface (cmOK) ;
+}
+
+cmCancel  : {
+  CloseInterface (cmCancel) ;
+}
+
+end;
+
+end.

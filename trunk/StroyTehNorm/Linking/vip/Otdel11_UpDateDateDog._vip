@@ -1,0 +1,114 @@
+#doc
+Закачка Организаций и Договоров 11 отдела
+#end
+
+#include notes.vih
+#include statlog.vih
+
+#include KatSopr.vih
+#include DogFuns.vih
+
+#component "L_SoprDoc"
+
+Interface Otdel11_UpDateDateDog 'Проставляем дату договора' EscClose DoAccept;
+
+#include KatSopr.var
+#include DogFuns.var
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, OrgUNN
+, OrgName
+, _CUST_ID
+, _DOGNUM
+, _Account
+, _ACTNUM
+, _ACT_ID
+, _CUSTNUM
+               : string;
+  _ACTSUM
+, _NDS
+               : double;
+  ErrImport
+               : boolean;
+  _DATESTATEM
+, _ACTDATE
+               : date;
+  _Type
+               : word;
+  oNotes       : iNotes;
+  oStatlog     : vipStatlog;
+
+as select * from
+  KatOrg
+, KatBank
+, Dogovor
+, KatSopr
+, SpSopr
+, SpDocNal
+, IerDog
+, PlanDog
+;
+
+#include IerDog.vpp    // Описание иерархии договоров (необходимо при вставке договора)
+#include SoprAll.vpp   // Общие функции сопроводительных документов
+#include sopconst.inc  // Константы сопроводительных документов
+
+
+HandleEvent
+
+cmInit:{
+// ********************************* Организации и Договоры   ******************************************************
+//  sDBFname    := 'E:\!StroyTehNorm\STN_igor\62_11\cust_' + '20090722' + '.dbf';
+  sDBFname    := '\\BuhServer\GalSrv\62_11\cust_Y.dbf';
+  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'ErrImport_' + Hour(cur_time) + '_' + Minute(cur_time) + '_.log';
+  ErrImport   := false;
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Ставим дату в Договора 11 отдела', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            _DOGNUM     := string( DBFGetFieldValue(Handle,'DOGNUM') );
+            _DATESTATEM := StrToDate( DBFGetFieldValue(Handle,'DATESTATEM'), 'YYYYMMDD' );
+            _CUST_ID    := string( DBFGetFieldValue(Handle,'CUST_ID') );
+
+                  if (GetFirst Dogovor where (( _CUST_ID == Dogovor.ShipAddTerms (noIndex) )) <> tsOK) {
+                    if (GetFirst Dogovor where (( _DOGNUM == Dogovor.NoDoc (noIndex) )) <> tsOK) {
+                      }
+                    }
+    set Dogovor.dDoc := _DATESTATEM;
+    if (UpDate current Dogovor = tsOK) {}
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+}
+
+end;
+
+end.
+
+.Form 'Проставляем дату договора'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_SoprDoc::Otdel11_UpDateDateDog');
+end.
+
+.endform
+

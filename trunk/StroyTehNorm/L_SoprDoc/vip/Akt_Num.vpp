@@ -1,0 +1,48 @@
+// Автоматическое присвоение номера акта в зависимотси от кода выбранного вида договора и текущего года
+
+create view tNum
+as select * from
+  KatSopr
+, Dogovor
+, KatVidD
+, SoprHoz
+!where ((  KatSopr.cDogovor == Dogovor.nRec
+!      and Dogovor.cVidDog  == KatVidD.nRec )) 
+;
+
+
+procedure Akt_Num(cSopr: comp);
+{
+var
+   Num_vid : string
+   Num_vid := '';
+
+  If (boGetTune('STN.Num_Akt_bo') <> 1) {Exit;}
+
+  If (tNum.GetFirst KatSopr Where ((  cSopr == KatSopr.nRec
+                                  and ''    << KatSopr.nSopr (noindex)
+                                  )) = tsOK )
+   {
+   If (tNum.GetFirst Dogovor Where ((KatSopr.cDogovor  == Dogovor.nRec)) = tsOK )
+         {
+            If (tNum.GetFirst KatVidD Where ((Dogovor.cVidDog == KatVidD.nRec)) = tsOK )
+               {
+               Num_vid := tNum.KatVidD.sName;
+
+               tNum.KatSopr.nSopr := lGetTune('STN.Num_Akt') + '-' + Num_vid + '/' + DateToStr( Cur_Date, 'YY');
+               lSetTune('STN.Num_Akt', string( lGetTune('STN.Num_Akt') + 1 ) );
+          
+               If (tNum.UpDate current KatSopr <> tsOK) exit;
+               ReReadRecord(#KatSopr);
+
+                    If (tNum.GetFirst SoprHoz Where (( KatSopr.VidSopr == SoprHoz.TipDoc
+                                                   and KatSopr.nRec    == SoprHoz.cSoprDoc )) = tsOK)
+                    {
+                     tNum.SoprHoz.NoDoc := tNum.KatSopr.nSopr;
+                     If (tNum.UpDate current SoprHoz <> tsOK) exit;
+                    }
+
+               }
+         }
+   }      
+}

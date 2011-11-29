@@ -1,0 +1,451 @@
+
+#doc
+Печать реестра Министерских актов в xlt
+#end
+
+#component "L_SoprDoc"
+
+#include xlReport.Vih
+
+Interface ReportMinAkt 'Печать реестра Министерских актов' EscClose DoAccept;
+  Show at (, , 75, 5);
+
+// Временная таблиц для сортировки
+Table struct tmpN
+(
+   _nRecSopr   : comp    "nRec KatSoprc"
+,  _Isp        : string  "Исполнитель"
+,  _Dogovor    : string  "№ договора"
+,  _DopSoglash : string  "№ доп. соглашения"
+,  _PunktProg  : string  "Пункт программы"
+,  _nAkt       : string  "№ акта"
+,  _dAkt       : date    "Дата акта"
+,  _Vsego      : double  "Сумма всего"
+,  _NDS        : double  "НДС"
+,  _IF         : double  "ИФ"
+,  __SP        : double  "СП"
+,  _otd01      : double  "Сумма по отделу 01"
+,  _otd02      : double  "Сумма по отделу 02"
+,  _otd03      : double  "Сумма по отделу 03"
+,  _otd04      : double  "Сумма по отделу 04"
+,  _otd05      : double  "Сумма по отделу 05"
+,  _otd06      : double  "Сумма по отделу 06"
+,  _otd07      : double  "Сумма по отделу 07"
+,  _otd08      : double  "Сумма по отделу 08"
+,  _otd09      : double  "Сумма по отделу 09"
+,  _otd10      : double  "Сумма по отделу 10"
+,  _otd11      : double  "Сумма по отделу 11"
+,  _otd12      : double  "Сумма по отделу 12"
+,  _otd13      : double  "Сумма по отделу 13"
+,  _otd14      : double  "Сумма по отделу 14"
+,  _otd15      : double  "Сумма по отделу 15"
+,  _otd_VTK    : double  "Сумма по отделу ВТК"
+,  _otd_TKS    : double  "Сумма по отделу ТКС"
+,  _otd_TR_VTK : double  "Сумма по отделу ТР-ВТК"
+,  _otd_Drugie : double  "Сумма по другим отделам"
+,  _Pr_k       : string  "Признак"
+)
+with index
+(
+  tmpN01 = _Isp + _dAkt
+)
+;
+
+
+
+create view
+var
+  otd_01
+, otd_02
+, otd_03
+, otd_04
+, otd_05
+, otd_06
+, otd_07
+, otd_08
+, otd_09
+, otd_10
+, otd_11
+, otd_12
+, otd_13
+, otd_14
+, otd_15
+, VTK_otd
+, TKS_otd
+, TR_VTK_otd
+, Drugie                                       // другие отделы (кроме перечисленных выше)
+, NDS_Sopr                                     // НДС по акту
+, _SP
+                 : double;
+  cNDS
+, cProd
+                 : comp;
+  DateBeg
+, DateEnd
+                 : date;
+  piExtAttr
+                 : iExtAttr;
+  pXL
+                 : XLSRepBuilder;
+  sXLTFileName
+, sXLSFileName
+                 : string;
+
+// Procedure GetPriceFromSpSopr
+  dSumm
+, procN
+, Price
+, NPrice
+, UNPrice
+, Stoim
+, NStoim
+, NDS
+, NSP
+, NalDr
+, Itog
+, ItogV
+, ProcNDS
+, ProcNSP
+             : double;
+
+ as select * from
+  KatSopr
+, SpSopr
+, SpDocNal
+, Dogovor
+, ResOtgr
+, synonym Dogovor Dogovor_App         // Доп. соглашение
+
+ where (( comp(79)            == KatSopr.cOrgBase              // Министерство архитектуры и строительства РБ
+      and word(211)           == KatSopr.VidSopr
+      and DateBeg            <<= KatSopr.dOpr
+      and DateEnd            >>= KatSopr.dOpr
+
+      and KatSopr.nRec        == SpSopr.cSopr
+      and KatSopr.cDogovor    == Dogovor.nRec
+
+      and SpSopr.cMCUsl       == KatUsl.nRec
+
+      and SpSopr.cResOtgr     == ResOtgr.nRec
+      and 'СП'                == ResOtgr.Kod       (noIndex)
+
+      and KatSopr.cDogovor    == Dogovor.nRec
+      and KatSopr.cAppDogovor == Dogovor_App.nRec
+       ))
+;
+
+
+Procedure GetPriceFromSpSopr; {
+  dSumm    := 0;
+  procN    := 0;
+  Price    := 0;
+  NPrice   := 0;
+  UNPrice  := 0;
+  Stoim    := 0;
+  NStoim   := 0;
+  NDS      := 0;
+  NSP      := 0;
+  NalDr    := 0;
+  Itog     := 0;
+  ItogV    := 0;
+  ProcNDS  := 0;
+  ProcNSP  := 0;
+
+  // Сначала соберем НДС
+  _LOOP SpDocNal where ((
+                           SpSopr.NRec       == SpDocNal.cSpDoc   and
+                           KatSopr.VidSopr   == spDocNal.TipDoc   and
+                           cNDS              == SpDocNal.cNalog
+                       ))
+
+  {
+      NDS  := NDS  +  SpDocNal.Summa  ;
+      ProcNDS := SpDocNal.nalog;
+  }
+
+  _LOOP SpDocNal where ((
+                           SpSopr.NRec       == SpDocNal.cSpDoc   and
+                           KatSopr.VidSopr   == spDocNal.TipDoc   and
+                           cProd            /== SpDocNal.cNalog
+                       ))
+  {
+      NSP  := NSP  +  SpDocNal.Summa  ;
+      ProcNSP := SpDocNal.nalog;
+  }
+
+  if( KatSopr.VhodNal = 1 )  // Налоги входят в цену
+  {
+    Price     :=   SpSopr.RPrice                                              ;
+    UNPrice   :=   SpSopr.RPrice - ( SpSopr.SUMNDS / SpSopr.Kolfact)          ;
+    UNPrice   :=   round(UNPrice, 2);
+    NPrice    :=   SpSopr.RPrice - ( SpSopr.SUMNDS / SpSopr.Kolfact ) + ( ProcNDS * SpSopr.rPrice / 100 );
+    NPrice    :=   round(NPrice, 2);
+    Stoim     :=   SpSopr.Rprice * SpSopr.KolFact  - SpSopr.SUMNDS            ; // стоимость без налогов
+    NStoim    :=   SpSopr.Rprice * SpSopr.KolFact  - SpSopr.SUMNDS + NDS      ;
+    Itog      :=   SpSopr.Rprice * SpSopr.KolFact                             ;
+
+          if ( SpSopr.cVal <> coGetTune('BASECURRENCY') ) {
+              ItogV     :=   SpSopr.RvPrice * SpSopr.KolFact                            ;
+          }
+  }
+  else   // Налоги не входят
+  {
+    UNPrice   :=   SpSopr.RPrice                                              ;
+    Price     :=   SpSopr.RPrice  + ( SpSopr.SUMNDS / SpSopr.Kolfact)         ;
+    Price     :=   round(Price, 2);
+    NPrice    :=   SpSopr.Rprice          +  ( procNDS * SpSopr.rPrice / 100 );
+    NPrice    :=   round(NPrice, 2);
+    Stoim     :=   ROUND(SpSopr.Rprice * SpSopr.KolFact)                      ; // без НДС
+    NStoim    :=   ROUND(SpSopr.Rprice * SpSopr.KolFact)      + NDS           ; // с НДС
+    Itog      :=   SpSopr.Rprice * SpSopr.KolFact + SpSopr.SUMNDS             ; // со всеми налогами
+
+          if ( SpSopr.cVal <> coGetTune('BASECURRENCY') ) {
+              ItogV     :=   SpSopr.RvPrice * SpSopr.KolFact + SpSopr.SumVNDS           ; // со всеми налогами
+          }
+  }
+
+  Itog := round(Itog, 0);
+} // procudure GetPriceFromSpSopr
+
+Procedure StartReport; {
+ StartNewVisual(vtRotateVisual, vfTimer, ''#3'Получение отчёта', 1);
+
+  Set sXLSFileName := pXL.CreateReport(sXLTFileName, True);
+
+  // Инициализация переменных
+  pXL.CreateVar(sXLSFileName);
+
+  pXL.SetDateVar('DateFrom', DateBeg);
+  pXL.SetDateVar('DateEnd' , DateEnd);
+
+  pXL.PublishVar;
+
+  // Выгрузка таблицы отчёта
+  pXL.CreateTbls(sXLSFileName);
+  // Определение таблицы отчёта (DBTbl Constructor)
+  pXL.CreateTbl('KatSopr');
+
+  // Определение полей таблицы
+  pXL.CreateTblFld('Isp');
+  pXL.CreateTblFld('Dogovor');
+  pXL.CreateTblFld('DopSoglash');
+  pXL.CreateTblFld('PunktProg');
+  pXL.CreateTblFld('nAkt');
+  pXL.CreateTblFld('dAkt');
+  pXL.CreateTblFld('Vsego');
+  pXL.CreateTblFld('NDS');
+  pXL.CreateTblFld('IF');
+  pXL.CreateTblFld('SP');
+  pXL.CreateTblFld('otd01');
+  pXL.CreateTblFld('otd02');
+  pXL.CreateTblFld('otd03');
+  pXL.CreateTblFld('otd04');
+  pXL.CreateTblFld('otd05');
+  pXL.CreateTblFld('otd06');
+  pXL.CreateTblFld('otd07');
+  pXL.CreateTblFld('otd08');
+  pXL.CreateTblFld('otd09');
+  pXL.CreateTblFld('otd10');
+  pXL.CreateTblFld('otd11');
+  pXL.CreateTblFld('otd12');
+  pXL.CreateTblFld('otd13');
+  pXL.CreateTblFld('otd14');
+  pXL.CreateTblFld('otd15');
+  pXL.CreateTblFld('otd_VTK');
+  pXL.CreateTblFld('otd_TKS');
+  pXL.CreateTblFld('otd_TR-VTK');
+  pXL.CreateTblFld('otd_Drugie');
+  pXL.CreateTblFld('Pr_k');
+
+  Delete all tmpN;
+
+  // Выгрузка полей таблицы
+        _Loop KatSopr {
+            otd_01     := 0;
+            otd_02     := 0;
+            otd_03     := 0;
+            otd_04     := 0;
+            otd_05     := 0;
+            otd_06     := 0;
+            otd_07     := 0;
+            otd_08     := 0;
+            otd_09     := 0;
+            otd_10     := 0;
+            otd_11     := 0;
+            otd_12     := 0;
+            otd_13     := 0;
+            otd_14     := 0;
+            otd_15     := 0;
+            VTK_otd    := 0;
+            TKS_otd    := 0;
+            TR_VTK_otd := 0;
+            Drugie     := 0;
+            NDS_Sopr   := 0;
+            _SP        := 0;
+
+           _Loop SpSopr {
+                 GetPriceFromSpSopr;
+
+                 Case KatUsl.kGroupUsl of
+                   '0301'     : otd_01     := Itog + otd_01;
+                   '0302'     : otd_02     := Itog + otd_02;
+                   '0303'     : otd_03     := Itog + otd_03;
+                   '0304'     : otd_04     := Itog + otd_04;
+                   '0305'     : otd_05     := Itog + otd_05;
+                   '0306'     : otd_06     := Itog + otd_06;
+                   '0307'     : otd_07     := Itog + otd_07;
+                   '0308'     : otd_08     := Itog + otd_08;
+                   '0309'     : otd_09     := Itog + otd_09;
+                   '0310'     : otd_10     := Itog + otd_10;
+                   '0311'     : otd_11     := Itog + otd_11;
+                   '0312'     : otd_12     := Itog + otd_12;
+                   '0313'     : otd_13     := Itog + otd_13;
+                   '0314'     : otd_14     := Itog + otd_14;
+                   '0315'     : otd_15     := Itog + otd_15;
+                   '0393'     : {
+                                if (KatUsl.Name = 'Министерство ТР-ВТК') {
+                                  TR_VTK_otd := Itog + TR_VTK_otd;
+                                } else {
+                                TKS_otd    := Itog + TKS_otd;
+                                }
+                   }
+                   '0399'     : VTK_otd    := Itog + VTK_otd;
+                   else
+                                Drugie     := Itog +  Drugie;
+                 end // case
+
+                 NDS_Sopr := NDS_Sopr + NDS;
+
+                 if (GetFirst ResOtgr = tsOk)
+                   _SP := _Sp + Itog;
+           }
+
+          ClearBuffer(#tmpN);
+            tmpN._nRecSopr         := KatSopr.nRec;
+            tmpN._Isp              := piExtAttr.sGetAttrID(coKatSopr, KatSopr.nRec, 281474976710688);
+
+        if (GetFirst Dogovor = tsOK)
+            tmpN._Dogovor          := Dogovor.NoDoc;
+
+        if (GetFirst Dogovor_App = tsOK)
+            tmpN._DopSoglash       := Dogovor_App.NoDoc;
+
+            tmpN._PunktProg        := KatSopr.Name;
+            tmpN._nAkt             := KatSopr.nSopr;
+            tmpN._dAkt             := KatSopr.dSopr;
+            tmpN._Vsego            := KatSopr.Summa;
+            tmpN._NDS              := NDS_Sopr;
+            tmpN._IF               := KatSopr.Summa - _SP;
+            tmpN.__SP              := _SP;
+            tmpN._otd01            := otd_01;
+            tmpN._otd02            := otd_02;
+            tmpN._otd03            := otd_03;
+            tmpN._otd04            := otd_04;
+            tmpN._otd05            := otd_05;
+            tmpN._otd06            := otd_06;
+            tmpN._otd07            := otd_07;
+            tmpN._otd08            := otd_08;
+            tmpN._otd09            := otd_09;
+            tmpN._otd10            := otd_10;
+            tmpN._otd11            := otd_11;
+            tmpN._otd12            := otd_12;
+            tmpN._otd13            := otd_13;
+            tmpN._otd14            := otd_14;
+            tmpN._otd15            := otd_15;
+            tmpN._otd_VTK          := VTK_otd;
+            tmpN._otd_TKS          := TKS_otd;
+            tmpN._otd_TR_VTK       := TR_VTK_otd;
+            tmpN._otd_Drugie       := Drugie;
+            tmpN._Pr_k             := KatSopr.nSertif;
+          insert current tmpN;
+        }
+
+     _loop tmpN {
+          pXL.ClearTblBuffer;             // Очищаем буфер записи таблицы
+
+          pXL.SetTblStringFldValue('Isp'              , tmpN._Isp);
+          pXL.SetTblStringFldValue('Dogovor'          , tmpN._Dogovor);
+          pXL.SetTblStringFldValue('DopSoglash'       , tmpN._DopSoglash);
+          pXL.SetTblStringFldValue('PunktProg'        , tmpN._PunktProg);
+          pXL.SetTblStringFldValue('nAkt'             , tmpN._nAkt);
+          pXL.SetTblDateFldValue  ('dAkt'             , tmpN._dAkt);
+          pXL.SetTblNumberFldValue('Vsego'            , tmpN._Vsego);
+          pXL.SetTblStringFldValue('NDS'              , tmpN._NDS);
+          pXL.SetTblStringFldValue('IF'               , tmpN._IF);
+          pXL.SetTblStringFldValue('SP'               , tmpN.__SP);
+
+          pXL.SetTblNumberFldValue('otd01'            , tmpN._otd01);
+          pXL.SetTblNumberFldValue('otd02'            , tmpN._otd02);
+          pXL.SetTblNumberFldValue('otd03'            , tmpN._otd03);
+          pXL.SetTblNumberFldValue('otd04'            , tmpN._otd04);
+          pXL.SetTblNumberFldValue('otd05'            , tmpN._otd05);
+          pXL.SetTblNumberFldValue('otd06'            , tmpN._otd06);
+          pXL.SetTblNumberFldValue('otd07'            , tmpN._otd07);
+          pXL.SetTblNumberFldValue('otd08'            , tmpN._otd08);
+          pXL.SetTblNumberFldValue('otd09'            , tmpN._otd09);
+          pXL.SetTblNumberFldValue('otd10'            , tmpN._otd10);
+          pXL.SetTblNumberFldValue('otd11'            , tmpN._otd11);
+          pXL.SetTblNumberFldValue('otd12'            , tmpN._otd12);
+          pXL.SetTblNumberFldValue('otd13'            , tmpN._otd13);
+          pXL.SetTblNumberFldValue('otd14'            , tmpN._otd14);
+          pXL.SetTblNumberFldValue('otd15'            , tmpN._otd15);
+          pXL.SetTblNumberFldValue('otd_VTK'          , tmpN._otd_VTK);
+          pXL.SetTblNumberFldValue('otd_TKS'          , tmpN._otd_TKS);
+          pXL.SetTblNumberFldValue('otd_TR-VTK'       , tmpN._otd_TR_VTK);
+          pXL.SetTblNumberFldValue('otd_Drugie'       , tmpN._otd_Drugie);
+
+          pXL.SetTblStringFldValue('Pr_k'             , tmpN._Pr_k);
+          pXL.InsTblRow;                    // Вставка записи в таблицу
+        }
+
+ pXL.PublishTbl('KatSopr');
+ pXL.LoadReport(sXLSFileName);
+ pXL.DisConnectExcel;
+
+ StopVisual('',0);
+}
+
+
+
+Screen sReportMinAkt;
+Fields
+  DateBeg ('Начальная дата'            , , sci13Esc  ) noProtect;
+  DateEnd ('Конечная дата'             , , sci13Esc  ) noProtect;
+
+Buttons
+  cmOk, Default, , 'Ввод - запустить отчёт', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+
+                     с .@@@@@@@@@@@ по .@@@@@@@@@@@
+
+                 <. Получить отчёт .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInit: {
+  sXLTFileName := TranslatePath('%StartPath%') + '_Resources\Linking\xlt\ReportMinAkt.xlt'
+
+  DateBeg := dGetTune('Dat_M_Ot');
+  DateEnd := Date( Last_Day(DateBeg), Month(DateBeg), Year(DateBeg) );
+
+  cProd := coGetTune('Nalog.cNalogProd');
+  cNDS  := coGetTune('Nalog.cNalogNDS' );
+}
+
+cmOK : {
+  StartReport;
+  CloseInterface (cmOK) ;
+}
+
+cmCancel  : {
+  CloseInterface (cmCancel) ;
+}
+
+end;
+
+end.

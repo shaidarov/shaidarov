@@ -1,0 +1,107 @@
+.Form 'Перекачка наличия Драгметаллов из карточки МЦ в карточку МБП'
+.Ard
+.F 'Nul'
+.begin
+        RunInterface ('Drag_from_MC_to_MBP');
+end.
+.endform
+
+interface Drag_from_MC_to_MBP;
+
+var
+  d1, d2  : date;
+  Handle  : longint;
+  k,i     : integer;
+
+
+ create view
+  as select
+    *
+ from
+    SklOrder
+  , KatMC
+  , KatMBP
+  , NalDrag
+  , synonym NalDrag NalDrag_MBP
+   
+Where ((    word(0)           == SklOrder.SP
+        and word(0)           == SklOrder.VidOrder             
+        and word(1)           == SklOrder.TipOrd    // Только приходные ордера из Приходных накладных
+        and d1               <<= SklOrder.dOrd
+        and d2               >>= SklOrder.dOrd
+        and SklOrder.nRec     == SpOrder.cSklOrder
+        and SpOrder.cMC       == KatMC.nRec
+        and KatMC.nRec        == NalDrag.cKatOS            (noindex) 
+        and KatMC.nRec        == KatMBP.cMC
+        and KatMBP.nRec       == NalDrag_MBP.cKatOS        (noindex)
+      ))
+;
+
+
+HandleEvent
+  cmInit :
+    {
+    
+    RunDialog(DialogPeriod, d1, d2);
+    
+    StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Просмотрено: 0', RecordsInTable(#KatMC));
+
+     
+     _loop SklOrder
+     {
+       _loop SpOrder
+       {
+        _loop KatMC
+        {
+
+             _loop NalDrag_MBP
+             {
+                if (delete current NalDrag_MBP = tsOK) {}
+             }
+              
+              
+              _loop NalDrag
+              {
+                ClearBuffer(#NalDrag_MBP);
+                
+                NalDrag_MBP.TidK     := word(2);
+                NalDrag_MBP.cKatOS   := KatMBP.nRec;
+                NalDrag_MBP.VidDrag  := NalDrag.VidDrag; 
+                NalDrag_MBP.cKatDrag := NalDrag.cKatDrag;
+                NalDrag_MBP.Kol      := NalDrag.Kol; 
+
+              if (Insert current NalDrag_MBP = tsOK) {inc(i);}               
+              }
+        
+        NextVisual();
+        k:=k+1;
+        SetVisualHeader('Просмотрено: ' + String(k));
+        }
+      }
+     }   
+    StopVisual('',0);
+
+    message('Просмотрено: ' + String(k)+'; Вставили: '+string(i));
+
+    CloseInterFace(cmdefault);
+    }
+  end;
+end.
+
+
+DialogPeriod dialog
+  fields
+    f_d1 : date;
+    f_d2 : date;
+
+  buttons
+    cmOk,default,,'OK';
+    cmCancel,,,'Cancel';
+<< 'Диалоговое окно'
+
+ `Дата приходных ордеров:`
+       `с ` .@@@@@@@@@@  `по ` .@@@@@@@@@@
+
+            <.   OK    .>  <. Cancel .>
+>>
+

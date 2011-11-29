@@ -1,0 +1,139 @@
+DialogNumber dialog
+  fields
+    field1 : string [15];
+  buttons
+    cmOk,default,,'OK';
+    cmCancel,,,'Cancel';
+<< 'Диалоговое окно'
+
+ `Укажите номер Акта на пересортицу:` .@@@@@@@@@@@@@
+
+            <.   OK    .>  <. Cancel .>
+>>
+
+
+
+Interface "DoubleKatMC";
+
+create view
+var
+ Handle
+               : longint;
+ _path
+, sDBFname
+, _Name
+               : string;
+  _cEd
+               : comp;
+
+  as select * from
+  KatMC
+;
+
+
+
+HandleEvent
+  cmInit : {
+
+  _try {
+    Handle := DBFOpen('C:\MC.dbf', stOpen);
+  }
+
+  if (Handle = 0 ) {
+     message('Ошибка открытия dbf');
+     Abort;
+     Exit;
+  }
+
+ if (DBFGetFirst(Handle) = tsOK)
+    Do {
+     _Name := '';
+     _cEd  := 0;
+
+     _Name := string( DBFGetFieldValue(Handle,'NAME') )
+     _cEd  := comp( DBFGetFieldValue(Handle,'CED') )
+
+     ClearBuffer(#KatMC);
+     KatMC.Name := '10.09 ' + _Name;
+     KatMC.cEd  := _cEd;
+     insert current KatMC;
+    } While (DBFGetNext(Handle) = tsok)
+
+
+ }
+end;
+
+end.
+
+.Form 'Закачка МЦ для Иры 10.09 из C:\MC.dbf'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('DoubleKatMC');
+end.
+
+.endform
+
+
+
+
+Interface "DoubleSpSopr_inPeresortica";
+
+create view
+var
+ Handle
+               : longint;
+ _path
+, sDBFname
+, _Name
+               : string;
+  _nSopr       : string [15];
+
+  _cEd
+               : comp;
+
+  as select * from
+  KatSopr
+, SpSopr
+, KatMC
+, synonym KatMC KatMC_1009
+;
+
+
+
+HandleEvent
+  cmInit : {
+     _nSopr := '';
+
+     RunDialog(DialogNumber, _nSopr)
+
+     if (GetFirst KatSopr where (( '630'      == KatSopr.VidSopr
+                               and _nSopr     == KatSopr.nSopr   (noIndex) )) <> tsOK) {
+                                 message('Не найден Акт пересортицы');
+                                 Exit;
+                                 }
+     _Loop SpSopr where (( KatSopr.nRec == SpSopr.cSopr
+                       and 1            == SpSopr.PrMC)) {
+         if (GetFirst KatMC where ((SpSopr.cMCUsl == KatMC.nRec)) <> tsOK) {}
+
+         if (GetFirst KatMC_1009 where (('10.09 ' + KatMC.Name  == KatMC_1009.Name)) <> tsOK) {}
+
+         SpSopr.cMCUsl := KatMC_1009.nRec;
+         UpDate current SpSopr;
+      }
+
+ }
+end;
+
+end.
+
+
+.Form 'Подмена МЦ в Пересортице на 10.09 для Иры'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('DoubleSpSopr_inPeresortica');
+end.
+
+.endform
+

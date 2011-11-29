@@ -1,0 +1,56 @@
+
+Interface "PlPor_Mod_Ostatki";
+
+create view
+  as select * from
+  PlPor
+, SoprHoz
+, BaseFin
+  where  (( word(2)            == PlPor.TidKGal
+        and date(01, 01, 2009) >> PlPor.DatOb
+        and PlPor.nRec         == BaseFin.cPlPor
+        and PlPor.nRec         == SoprHoz.cSoprDoc
+        and PlPor.TiDk         == SoprHoz.TipDoc
+         ))
+  and PlPor.NoDok <> 'остатки_2009'
+;
+
+
+
+HandleEvent
+  cmInit : {
+    _Loop PlPor where (( word(2)            == PlPor.TidKGal
+                     and date(01, 01, 2009) >> PlPor.DatOb
+                      )) {
+                     _Loop SoprHoz where (( PlPor.nRec == SoprHoz.cSoprDoc
+                                        and PlPor.TiDk == SoprHoz.TipDoc
+                                         )){
+                        set SoprHoz.ModeDoc := word(1026);
+                        UpDate current SoprHoz;
+                     }
+
+       _Loop BaseFin where (( PlPor.nRec == BaseFin.cPlPor
+                           )){
+                             Delete current BaseFin;
+                             }
+
+     set PlPor.ModeDoc := word(1026);
+     UpDate current PlPor;
+
+LogStrToFile('C:\1.txt', PlPor.nRec);
+    }
+  }
+  end;
+
+end.
+
+
+.Form 'Убираем платёжки с взаиморасчётов'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('PlPor_Mod_Ostatki');
+end.
+
+.endform
+

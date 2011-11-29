@@ -1,0 +1,223 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2000 корпорация ГАЛАКТИКА                    ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Бухгалтерский контур                                      ║
+ ║ Версия        : 8.1x                                                      ║
+ ║ Назначение    : Создаёт документ для учёта НДС и запись в книге Покупок   ║
+ ║                 из Платёжного документа (именно: по любому PlPor)         ║
+ ║ Ответственный : Шайдаров Игорь Александрович                              ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+#Component "F_TXO"
+
+VipInterface TXO_Kniga_Pokupok_AO_71 implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_Kniga_Pokupok_AO_71;
+var
+  CurSoprHoz : comp  ;
+  NDS_18     : double;
+  NDS        : double;  // НДС при расчёте в случае валюты
+  Par_Rasch  : word  ;
+
+create view
+as select
+  *
+from
+     SoprHoz
+   , SchFact
+   , BookPrZk
+   , RashDoc
+   , BuhSchet
+   , PlPor
+   , Persons
+   , lSchet
+
+where
+((
+       CurSoprHoz         == SoprHoz.nRec
+   and SoprHoz.nRec       == SchFact.cSoprHoz
+   and SchFact.nRec       == BookPrZk.cSchFactS
+
+   and SoprHoz.TipDoc     == RashDoc.TipDoc
+   and SoprHoz.nRec       == RashDoc.cKredCard
+
+   and RashDoc.cDoc       == BuhSchet.nRec
+
+   and SoprHoz.cSoprDoc   == PlPor.nRec
+   and PlPor.cPersons     == Persons.nRec
+   and Persons.nRec       == lSchet.tPerson           // Будем брать первый попавшейся ЛС
+   and (''                <> lSchet.cSchetD)
+))
+;
+
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Создаёт документ для учёта НДС и запись в книге покупок по Авансовому отчёту';
+}
+
+
+Window wParam 'Задайте параметры идентификатора' (,,) EscClose;
+  Show at (2,12,75,20);
+    Screen scParam (,,);
+
+      Fields
+        Par_Rasch ('Выберите требуемый результат расчета идентификатора',,sci1EnEsc) :
+            [LIST 0  'Создание счётов-фактур и записи в книге покупок',
+                  1  'Сумма записи в книге (ставка 18%)'], protect;
+
+<<
+                       `Основной параметр результата`
+
+      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+
+End;
+
+HandleEvent // window
+
+ cmDefault : CloseWindow(wParam);
+
+End;  // HandleEvent
+End;  // window
+
+
+function ParamMaster : string;
+{
+   // вызов окошка, чтобы помочь пользователю заполнить строку дополнительных параметров идентификатора
+   RunWindow(wParam);
+   PackFields;
+   case Par_Rasch of
+     0  : ParamMaster := '[Рез:InsUp]'  ;
+     1  : ParamMaster := '[Рез:НДС18]'  ;
+   end;
+}
+
+procedure ParamParser(hTxo : longint);
+{
+   var i : Longint;
+
+   for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   {  case TxoParamName(hTxo,i) of
+        'РЕЗ': {
+                 case TxoParamValue(hTxo,i) of
+                    'INSUP'   : Par_Rasch := 0;
+                    'НДС18'   : Par_Rasch := 1;
+                 end;
+               }
+      end;
+   }
+}
+
+
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+    CurSoprHoz := buf.cSoprHoz;
+
+    ParamParser(hTxo);
+
+
+
+   InitGetCur;
+   Case Par_Rasch of
+        0  : {
+             if (GetFirst RashDoc <> tsOK) {Exit;}
+             if (RashDoc.Sum = 0)          {Exit;}             // Не заполнен "НДС" :)
+
+    NDS_18   := 0
+    NDS      := 0
+
+
+        if (GetFirst BookPrZk <> tsOK) {
+
+            if (RashDoc.cVal2 = 0) {
+              NDS := RashDoc.Sum;
+              } else {
+                NDS := oValFunc.GetNatCurrency(RashDoc.cVal2, RashDoc.Sum, RashDoc.DateR);
+                }
+
+            ClearBuffer(#SchFact)
+            SchFact.DIRECT    := word(2);
+            SchFact.STATUS    := word(3);
+            SchFact.TIPUSER   := word(7319);
+            SchFact.SubTip    := word(19);
+            SchFact.DFACT     := if(RashDoc.DatePay > dGetTune('DAT_M_OT'), RashDoc.DatePay, SoprHoz.DatOb);
+            SchFact.DPOST     := if(RashDoc.DatePay > dGetTune('DAT_M_OT'), RashDoc.DatePay, SoprHoz.DatOb);
+            SchFact.SCHYEAR   := Year(SoprHoz.DatOb);
+            SchFact.Num       := if(RashDoc.NomKvit <> '', RashDoc.NomKvit, SoprHoz.NoDoc);
+            SchFact.cOrg      := SoprHoz.cOrg;
+            SchFact.cSoprHoz  := SoprHoz.nRec;
+            SchFact.SUM[1]    := SoprHoz.Summa - NDS;
+            SchFact.SUM[2]    := NDS;                           // "НДС"
+            SchFact.SUM[3]    := SoprHoz.Summa;
+            SchFact.SUM[11]   := SoprHoz.Summa - NDS;
+            SchFact.SUM[12]   := NDS;                           // "НДС"
+            SchFact.SUM[13]   := SoprHoz.Summa;
+            SchFact.SUM[21]   := SoprHoz.Summa;
+            SchFact.SUM[22]   := SoprHoz.Summa;
+            SchFact.Summa     := SoprHoz.Summa;
+//            SchFact.SummaReg  := SoprHoz.Summa;
+            SchFact.SUM[30]   := 1;
+            SchFact.PRSTAV    := word(0);
+
+            if (Insert current SchFact = tsOK) {}
+            if (UpDate current SchFact = tsOK) {}
+
+
+                 ClearBuffer(#BookPrZk)
+                 BookPrZk.TipUser    := 7501;
+                 BookPrZk.cSchFactS  := SchFact.nRec;
+                 BookPrZk.cOrg       := SoprHoz.cOrg;
+                 BookPrZk.Descr      := '71';
+                 BookPrZk.Direct     := 2;
+                 BookPrZk.dOpl       := SchFact.dPost;
+                 BookPrZk.dReg       := SchFact.dPost
+                 BookPrZk.Num        := SchFact.Num;
+                 BookPrZk.SubTip     := 1;
+                 BookPrZk.Sum[1]     := SchFact.SUM[1]
+                 BookPrZk.Sum[2]     := SchFact.SUM[2]
+                 BookPrZk.Sum[3]     := SchFact.SUM[3]
+                 BookPrZk.Sum[11]    := SchFact.SUM[11];
+                 BookPrZk.Sum[12]    := SchFact.SUM[12];
+                 BookPrZk.Sum[13]    := SchFact.SUM[13];
+                 BookPrZk.Sum[21]    := SchFact.SUM[21];
+                 BookPrZk.Sum[22]    := SchFact.SUM[22];
+                 BookPrZk.Summa      := SchFact.Summa  ;
+
+                 if (Insert current BookPrZk = tsOK) {}
+
+               }  // if (GetFirst BookPrZk <> tsOK)
+
+
+             } // CASE 0:
+
+        1  : {
+            NDS_18 := 0;
+            NDS_18 := BookPrZk.Sum[2];
+
+             TxoBodyClear(hTxo);
+             TxoBodySetSum  (hTxo, NDS_18,  0, 0);
+            if (GetFirst BuhSchet <> tsOK) {
+             TxoBodyAddSchet(hTxo, wFlKau_Mode1, '0' + lSchet.cSchetD, lSchet.cSubSchD);
+            } else {
+             TxoBodyAddSchet(hTxo, wFlKau_Mode1, BuhSchet.Schet, BuhSchet.SubSch);
+                 }
+             TxoBodyInsert  (hTxo);
+             }
+
+    end; // Case
+}
+
+
+handleevent
+end;
+
+end.

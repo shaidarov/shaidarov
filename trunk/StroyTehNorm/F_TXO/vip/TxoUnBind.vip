@@ -1,0 +1,131 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Бухгалтерский контур
+// Точка расширения для удаления пользовательских данных
+// в момент отмены ТХО. См.ПИР 104.1473 отраслевое решение
+// для "Укрсоцстрах, ОАО Страховая компания"
+//******************************************************************************
+
+#include TxoUnBind.vih
+
+#doc
+Точка расширения для удаления пользовательских данных в момент отмены ТХО.
+#end
+
+interface TxoUserUnbinder 'Удаление при отвязке TXO';
+
+var
+   CurSoprHoz :comp;
+                
+create view
+as select                 
+  *
+from
+     BookPrZk
+   , KatSopr
+   , SchFact
+   , SchFact SchFact_2
+   , SoprHoz
+   , SoprHoz SoprHoz_2
+
+where
+((
+                             CurSoprHoz         == SoprHoz.nRec
+                         and SoprHoz.nRec       == SchFact.cSoprHoz
+))
+bounds SoprovDoc        =    SchFact.nRec       == BookPrZk.cSchFact
+bounds PlatDoc          =    SchFact.nRec       == BookPrZk.cSchFactS
+;
+
+// событие, происходит когда нужно удалить все записи по журналу хозопераций
+function OnDeleteHoz(cSoprHoz : comp; cPlansSch : comp) : boolean;
+{
+  comp(cSoprHoz);
+  comp(cPlansSch);
+  OnDeleteHoz := true;
+
+  CurSoprHoz := cSoprHoz;
+
+If (GetFirst SoprHoz = tsOK)
+
+   case SoprHoz.TipDoc of
+    101, 111, 211 :   // соответственно Накладная на приём товара и Акт на приём услуг, Акт на оказание услуг
+    {
+
+      PushBounds (tbSoprovDoc);
+
+      If ( SchFact.TipUser = 10005 ) exit; // Счёт-фактуры по 97 счёту - они формируются руками
+
+        If (GetFirst BookPrZk = tsOK)
+          Do
+             {
+                            If (GetFirst SchFact_2 Where ((BookPrZk.cSchFactS     == SchFact_2.nRec)) = tsOK )
+                              {
+                              SchFact_2.SummaReg  := SchFact_2.SummaReg + BookPrZk.Summa;
+                              if (UpDate current SchFact_2 = tsOK) {}
+
+                                If (GetFirst SoprHoz_2 Where ((SchFact_2.cSoprHoz == SoprHoz_2.nRec)) = tsOK)
+                                  {
+                         _Loop Oborot Where ((      SoprHoz_2.nRec    == Oborot.cSoprHoz ))
+                                               and  BookPrZk.nRec      = Oborot.KAUKS[6]
+                                               or   BookPrZk.nRec      = Oborot.KAUOS[6]
+                                           {
+                                             If (Delete current Oborot = tsOK) {}
+                                           }
+                                  }
+                              }
+
+             If (Delete current BookPrZk = tsOK) {}
+             }
+          While (GetNext BookPrZk = tsOK )
+
+    If (Delete current SchFact = tsOK) {}
+
+    }
+
+    1, 2, 10031 :   // соответственно Платёжное собственное поручение, Платёжное стороннее поручение и Бухгалтерская справка
+    {
+
+      PushBounds (tbPlatDoc);
+
+         If (GetFirst BookPrZk = tsOK)
+           Do
+           {
+                If (GetFirst SchFact_2 Where ((BookPrZk.cSchFact      == SchFact_2.nRec)) = tsOK )
+                  {
+
+                    SchFact_2.SummaReg  := SchFact_2.SummaReg + BookPrZk.Summa;
+                    if (UpDate current SchFact_2 = tsOK) {}
+
+
+                    If (GetFirst SoprHoz_2 Where ((SchFact_2.cSoprHoz == SoprHoz_2.nRec)) = tsOK)
+                      {
+                        If (SchFact.Summa < 0 ) {
+                           Message('Было удалено снятие платежа!'#13 +
+                                   'Надо перепровести проводки по '#13 +
+                                   GetTiDkGalName(SoprHoz_2.TiDkGal) + ' №' + SoprHoz_2.NoDoc, Warning);
+                        }
+
+
+                         _Loop Oborot Where ((      SoprHoz_2.nRec    == Oborot.cSoprHoz ))
+                                               and  BookPrZk.nRec      = Oborot.KAUKS[6]
+                                               or   BookPrZk.nRec      = Oborot.KAUOS[6]
+                             {
+                               If (Delete current Oborot = tsOK) {}
+                             }
+                      }
+                  }
+
+             If (Delete current BookPrZk = tsOK) {}
+
+           }
+           While (GetNext BookPrZk = tsOK)
+
+    If (Delete current SchFact = tsOK) {}
+    
+    }
+    else  exit;
+   end;
+
+}
+end.

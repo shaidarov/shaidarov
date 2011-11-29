@@ -1,0 +1,67 @@
+// Изменение статуса договора - анализируются только Сопроводительные документы!!
+
+create view tStatus_dogovor
+  from
+  Dogovor
+, KatSopr
+Where (( Dogovor.nRec     == KatSopr.cDogovor))
+;
+
+
+procedure Status_dogovor(cDog: comp; Sopr_sum: double);
+{
+var
+  All_Sopr: double;
+  All_Sopr := 0;
+
+
+      If (tStatus_dogovor.GetFirst Dogovor Where ((cDog == Dogovor.nRec)) = tsOK )
+   {
+         if (tStatus_dogovor.Dogovor.TipMoney = 3)  {           // валютный договор
+                      If (tStatus_dogovor.GetFirst KatSopr Where ((Dogovor.nRec == KatSopr.cDogovor)) = tsOK)
+                          Do
+                            {
+                            if ( date(01, 01, 2009) > tStatus_dogovor.KatSopr.dSopr ) {Exit;}  // для Акта сверки были обнулены Акты до 2009 года, т.е. не надо менять статус по таким договорам
+                            if (tStatus_dogovor.KatSopr.cVal <> tStatus_dogovor.Dogovor.cVal) {Exit;} // Если разные валюты, тогда не будем трогать статус
+
+                            All_Sopr := All_Sopr + tStatus_dogovor.KatSopr.SumVal;
+                            }
+                          While (tStatus_dogovor.GetNext KatSopr = tsOK)
+           } else {
+                      If (tStatus_dogovor.GetFirst KatSopr Where ((Dogovor.nRec == KatSopr.cDogovor)) = tsOK)
+                          Do
+                            {
+                            if ( date(01, 01, 2009) > tStatus_dogovor.KatSopr.dSopr ) {Exit;}  // для Акта сверки были обнулены Акты до 2009 года, т.е. не надо менять статус по таким договорам
+
+                            All_Sopr := All_Sopr + tStatus_dogovor.KatSopr.Summa;
+                            }
+                          While (tStatus_dogovor.GetNext KatSopr = tsOK)
+                  }
+
+
+          If ( tStatus_dogovor.Dogovor.Summa > (All_Sopr - Sopr_sum) and tStatus_dogovor.Dogovor.Status = 4 )
+             {
+             tStatus_dogovor.Dogovor.cNote  := 4611758120085871149;   // статус "исполняемый"
+             tStatus_dogovor.Dogovor.Status :=                   1;
+
+             If (tStatus_dogovor.UpDate current Dogovor <> tsOK) exit;
+             exit;
+             }
+
+
+          If ( tStatus_dogovor.Dogovor.Summa <= All_Sopr and All_Sopr < tStatus_dogovor.Dogovor.Summa + 2 )   // поправка на округление
+            {
+             tStatus_dogovor.Dogovor.cNote  := 62;                      //  статус "закрытый по отгрузкам"    ЧУДЕСА!!!!!!!! в реальной базе проставляется 61. вообщем изменил nRec в базе, а здесь так оставил
+             tStatus_dogovor.Dogovor.Status :=  4;
+
+             If (tStatus_dogovor.UpDate current Dogovor <> tsOK) exit;
+             exit;
+            }
+
+        If (boGetTune('STN.Message_Stat_Dog') = 1) {
+            If ( tStatus_dogovor.Dogovor.Summa + 2 < All_Sopr ) {
+              message('Сумма по документам превышает сумму договора!');
+            }
+        }
+   }
+}

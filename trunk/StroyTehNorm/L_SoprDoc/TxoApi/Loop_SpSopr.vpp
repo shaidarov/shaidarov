@@ -1,0 +1,103 @@
+
+    NDS_18   := 0;
+    NDS_10   := 0;
+    NDS_R    := 0;
+    St_18    := 0;
+    St_10    := 0;
+    St_R     := 0;
+    vNDE     := 0;
+
+    SpSopr_Summa := 0;
+
+If (KatSopr.VhodNal = 1) // Налоги входят
+  {
+      _LOOP SpSopr
+       { SpSopr_Summa := SpSopr.rPrice * SpSopr.KolFact;
+       
+         if (SpSopr_Summa = 0 and SpDocNal.Summa <> 0)
+            { case SpDocNal.Nalog of
+                 18: { NDS_18 := SpDocNal.Summa;
+                       St_18  := KatSopr.Summa - NDS_18;
+                       NDS_10 := 0;
+                       St_10  := 0;
+                       NDS_R  := 0;
+                       St_R   := 0;
+                     }
+                 10: { NDS_18 := 0;
+                       St_18  := 0;
+                       NDS_10 := SpDocNal.Summa;
+                       St_10  := KatSopr.Summa - NDS_10;
+                       NDS_R  := 0;
+                       St_R   := 0;
+                     }
+                 else {NDS_18 := 0;
+                       St_18  := 0;
+                       NDS_10 := 0;
+                       St_10  := 0;
+                       NDS_R  := SpDocNal.Summa;
+                       St_R   := KatSopr.Summa - NDS_R;
+                      }
+              end; // case
+            Break;
+            }
+            
+        case SpDocNal.Nalog of
+           18: { St_18  := St_18 + SpSopr_Summa - SpDocNal.Summa;
+                 NDS_18 := NDS_18 + SpDocNal.Summa;
+               }
+           10: { St_10  := St_10 + SpSopr_Summa - SpDocNal.Summa;
+                 NDS_10 := NDS_10 + SpDocNal.Summa;
+               }
+           else { St_R   := St_R + SpSopr_Summa - SpDocNal.Summa;
+                  NDS_R  := NDS_R + SpDocNal.Summa;
+                }
+        end; // case
+       }
+
+   }
+     else  // налоги не входят
+     {
+                      _LOOP SpSopr
+                       { SpSopr_Summa := SpSopr.rPrice * SpSopr.KolFact;
+
+                            if (SpSopr_Summa = 0 and SpDocNal.Summa <> 0)
+                            {case SpDocNal.Nalog of
+                             18: { NDS_18 := SpDocNal.Summa;
+                                   St_18  := KatSopr.Summa - NDS_18;
+                                   NDS_10 := 0;
+                                   St_10  := 0;
+                                   NDS_R  := 0;
+                                   St_R   := 0;
+                                 }
+                             10: { NDS_18 := 0;
+                                   St_18  := 0;
+                                   NDS_10 := SpDocNal.Summa;
+                                   St_10  := KatSopr.Summa - NDS_10;
+                                   NDS_R  := 0;
+                                   St_R   := 0;
+                                 }
+                             else {NDS_18 := 0;
+                                   St_18  := 0;
+                                   NDS_10 := 0;
+                                   St_10  := 0;
+                                   NDS_R  := SpDocNal.Summa;
+                                   St_R   := KatSopr.Summa - NDS_R;
+                                  }
+                              end; // case
+                            Break;
+                            }
+
+                        case SpDocNal.Nalog of
+                           18: { St_18  := St_18 + SpSopr_Summa;
+                                 NDS_18 := NDS_18 + SpDocNal.Summa;
+                               }
+                           10: { St_10  := St_10 + SpSopr_Summa;
+                                 NDS_10 := NDS_10 + SpDocNal.Summa;
+                               }
+                           else { St_R   := St_R + SpSopr_Summa;
+                                  NDS_R  := NDS_R + SpDocNal.Summa;
+                                }
+                        end; // case
+                       }
+     }
+

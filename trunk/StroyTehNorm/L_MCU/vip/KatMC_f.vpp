@@ -1,0 +1,3227 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Логистика
+// Функции для каталога материальных ценностей (МЦ)
+//******************************************************************************
+
+//-------------------------------------------------------------------------------
+// Алгоритм расчета Бар-кода текущей МЦ (0-нет;1-Системный;2-по Шаблону)
+Function AlgBKCurMC : word;
+{
+  AlgBKCurMC := 0;
+  if (isValid(tnMaskMC))
+   if (MaskMC.cf_BK <> 0)
+    AlgBKCurMC := 2;
+  if (AlgBKCurMC = 0)
+    if (wGetTune('FN.BKauto') > 0)
+      AlgBKCurMC := 1;
+}
+
+//------------------------------------------------------------------------------
+//проверка на редактирование каталога
+Function IsEditMyRecords (TipMess : word //тип сообщений: 0-нет/...
+                          ) : boolean;
+ {
+  IsEditMyRecords := False;
+  if boGetTune('RghTbl.NoUpdate.KatMc')
+   {
+    case TipMess of
+     1: ShowTune('Вы не имеете права редактировать каталог!'
+               +' Для отмены изменений нажмите <Alt+Backspace>.',
+                 'RghTbl.NoUpdate.KatMc');
+
+     2: ShowTune('Вы не имеете права редактировать каталог!',
+                 'RghTbl.NoUpdate.KatMc');
+    end;
+    Exit;
+   }
+  IsEditMyRecords := True;
+ }
+
+//------------------------------------------------------------------------------
+//Срабатывает при изменении выбранных значений аналитик во встроенном интерфейсе
+//
+Procedure SetModifCurMC;
+{
+ //делаем Set, что бы сраборал cmCheckRecord для KatMC!!!
+ if (IsEditMyRecords(0))
+   Set KatMC.NRec := KatMC.NRec;
+}
+
+//------------------------------------------------------------------------------
+//срабатывает при входе во встроенный интерфейс по аналитикам
+//(всегда после апдейта)
+Procedure GoToCurAnalitMC;
+{
+  IsGoToCurAnalitMC := True;
+}
+
+//------------------------------------------------------------------------------
+//Обработка выхода из встроенного интерфейса по аналитикам
+Procedure OutCurAnalitMC;
+{
+  IsGoToCurAnalitMC := False;
+  SetModifCurMC;
+}
+
+//------------------------------------------------------------------------------
+//Обновить текущую запись МЦ в случае ее модификации (с учетом модификации Аналитик)
+Function isMyUpdateTable : boolean;
+{
+ IsNeedMessErr_KAU  := False;
+ if (IsGoToCurAnalitMC)
+    OutCurAnalitMC;
+
+ IsRecordKorr_KAU := True;
+ isMyUpdateTable := UpdateTable;
+ isMyUpdateTable := ((isMyUpdateTable)and(IsRecordKorr_KAU));
+ IsNeedMessErr_KAU  := True;
+
+ if (Not IsRecordKorr_KAU)
+  {
+   SetModifCurMC;
+   IsNeedWin_KAU := False;
+
+   //если не открыто окно редактирования МЦ, открыть его
+   if (Not IsOpenEditWin)
+     RunWindow(ID_wKatMC);
+
+   IsNeedWin_KAU := True;
+   PutCommand(cmValue26);
+  }
+
+ IsRecordKorr_KAU := True;
+}
+
+//------------------------------------------------------------------------------
+//Обнуляет аналитические признаки буфера МЦ
+Function SetNullAnPr (var _wMC : type$KatMC) : boolean;
+{
+  SetNullAnPr := False;
+
+  _wMC.cMaskMC := 0;
+  _wMC.cSloj   := 0;
+  _wMC.cHashAn := 0;
+  _wMC.f_LND_n := '';
+
+#ifdef ATL51
+  _wMC.f_LND_s[1] := ''; _wMC.f_LND_s[2] := ''; _wMC.f_LND_s[3] := '';
+  _wMC.f_LND_s[4] := ''; _wMC.f_LND_s[5] := '';
+#else
+  _wMC.f_LND_s$1 := ''; _wMC.f_LND_s$2 := ''; _wMC.f_LND_s$3 := '';
+  _wMC.f_LND_s$4 := ''; _wMC.f_LND_s$5 := '';
+#end
+
+  SetNullAnPr := True;
+}
+
+!-------------------------------------------------------------------------------
+// Установить статус строки
+// 0   - Редактирование
+// 1   - Редактирование (без добавления записей)
+// 2   - Редактирование запрещено
+//
+Procedure SetMyStatusContext (ww : word);
+var MySc_1, MySc_2, MySc_3  : word;
+{
+  MySc_1 := if(ww=1,sci148Ins,if(ww=2,sci14EnIns,sci1478EscIns));
+  MySc_2 := if(ww=1,sci18Esc,if(ww=2,sci1Esc,sci178Esc));
+  MySc_3 := if(ww=1,sci138Esc,if(ww=2,sci1Esc,sci1378Esc));
+
+  SetHelpAndStatusContext(ID_brMC1 ,-1                            ,MySc_1,-1);
+  SetHelpAndStatusContext(ID_brMC1_,-1                            ,MySc_1,-1);
+  SetHelpAndStatusContext(ID_brMC2 ,-1                            ,MySc_1,-1);
+  SetHelpAndStatusContext(ID_brMC2_,-1                            ,MySc_1,-1);
+
+  SetHelpAndStatusContext(ID_Scr000,-1                            ,MySc_2,-1);
+  SetHelpAndStatusContext(ID_Scr000,#MaskMC.Name                  ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_Scr000,#KatED.Name                   ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_Scr000,#KatMC.BarKod                 ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_Scr000,#KatMC.BarKod2                ,MySc_2,-1);
+
+  SetHelpAndStatusContext(ID_scKatMC,-1                           ,MySc_2,-1);
+  SetHelpAndStatusContext(ID_scKatMC,#KatMC.OKDP                  ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC,#GroupMC.KOD                 ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC,#GroupMC.Name                ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC,#GrNal.Kod                   ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC,#GrNal.Name                  ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC,#KatMC.Kind                  ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC,#KauReffArray                ,MySc_3,-1);
+
+  SetHelpAndStatusContext(ID_scKatMC_Sklad,-1                     ,MySc_2,-1);
+  SetHelpAndStatusContext(ID_scKatMC_Sklad,#KlResHr.Name          ,MySc_3,-1);
+
+  SetHelpAndStatusContext(ID_scKatMC_Torg,-1                      ,MySc_2,-1);
+
+  SetHelpAndStatusContext(ID_scKatMC_Manuf,-1                     ,MySc_2,-1);
+  SetHelpAndStatusContext(ID_scKatMC_Manuf,#TypeMC.Name           ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC_Manuf,#KatMC.PrMat           ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC_Manuf,#KatPodr.Name          ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC_Manuf,#KatOtpEd2.Name        ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC_Manuf,#StZatr.Name           ,MySc_3,-1);
+  SetHelpAndStatusContext(ID_scKatMC_Manuf,#KaElem.Name           ,MySc_3,-1);
+}
+
+//-------------------------------------------------------------------------------
+//Скрыть/Отобразить некоторые команды в меню HotKey
+// 0   - скрыть/отобразить архивные команды + фильтры
+// 1   - скрыть/отобразить функции для МЦ с Шаблоном
+// 2   - скрыть/отобразить функции только для Окна
+// 999 - скрыть/отобразить команды, связанные с обновлением каталога (bb - не учитывается)
+//
+Procedure DisAnCommHotKey(ww : word; bb : boolean);
+{
+ case ww of
+   0: //скрыть/отобразить фильтры
+     {
+       if (bb) //скрыть архивные команды + фильтры
+           SetCommandEnabled( cmValue8  , FALSE );
+       else //отобразить архивные команды + фильтры
+           SetCommandEnabled(cmValue8  , NOT boGetTune('McUsl.isPickFilterMCArch') );
+
+       SetCommandEnabled(cmValue27 , NOT bb);
+       SetCommandEnabled(cmFilialNo, NOT bb);
+       SetCommandEnabled(cmNal     , NOT bb);
+
+       SetCommandEnabled(cmValue2 , NOT bb);
+       SetCommandEnabled(cmValue9 , NOT bb);
+       SetCommandEnabled(cmValue23, NOT bb);
+       SetCommandEnabled(cmLegend , NOT bb);
+     }
+   1: //скрыть/отобразить функции для МЦ с Шаблоном
+     SetCommandEnabled(cmValue24, NOT bb);
+   2: //скрыть/отобразить функции только для Окна
+     SetCommandEnabled(cmValue28, NOT bb);
+ end;
+
+ //скрыть/отобразить команды, связанные с обновлением каталога
+
+ SetCommandEnabled(cmValue4 , NOT boGetTune('RghTbl.NoUpdate.KatMc'));
+ SetCommandEnabled(cmAlt1   , NOT boGetTune('RghTbl.NoUpdate.KatMc'));
+ SetCommandEnabled(cmValue10, NOT boGetTune('RghTbl.NoUpdate.KatMc'));
+ SetCommandEnabled(cmValue11, NOT boGetTune('RghTbl.NoUpdate.KatMc'));
+ SetCommandEnabled(cmValue21, NOT boGetTune('RghTbl.NoUpdate.KatMc'));
+ SetCommandEnabled(cmValue28, NOT boGetTune('RghTbl.NoUpdate.KatMc'));
+
+ if (boGetTune('RghTbl.NoUpdate.KatMc'))
+   {
+     SetCommandEnabled(cmValue9 , FALSE);
+     SetCommandEnabled(cmValue24, FALSE);
+   }
+ else
+   {
+     if ((ww=0) AND (NOT bb)) SetCommandEnabled(cmValue9 , TRUE);
+     if ((ww=1) AND (NOT bb)) SetCommandEnabled(cmValue24, TRUE);
+   }
+}
+
+//------------------------------------------------------------------------------
+//-- Проверка уникальности бар-кода. Если бар-код не уникальный и в настройке
+//-- контроль уникальности номенкл. номеров стоит "Запрет ввода", то
+//-- возвращет false, иначе - true
+Function CheckUniqueBarKOd:boolean;
+{
+  CheckUniqueBarKOd := true;
+
+  If (TmpBarKod <> KatMC.BarKod)
+    DelDefaultBarKod;
+  KatMC.BarKod := trim(KatMC.BarKod);
+  if (wGetTune('McUsl.UniqMcBarCode') > 0)//if (UserTune.Need48 > 0)
+  if (trim(KatMC.BarKod) <> '')
+  if ((GetFirst KatMC2
+             where ((KatMC.BarKod == KatMC2.BarKod))
+                and (KatMC.Nrec <> KatMC2.Nrec)) = tsOK)
+    case wGetTune('McUsl.UniqMcBarCode') of  //UserTune.Need48
+     1:{}// уже было сообщение о неуникальности
+     2:{
+         ShowTune('Установлен контроль уникальности номенклатурных номеров!', 'McUsl.UniqMcBarCode');
+         CheckUniqueBarKOd := false;
+       }
+    end;//case
+}
+//------------------------------------------------------------------------------
+//-- Проверка уникальности дополнительного кода. Если код не уникальный и в настройке
+//-- контроль уникальности дополнительного кода стоит "Запрет ввода", то
+//-- возвращет false, иначе - true
+Function CheckUniqueBar2KOd:boolean;
+{
+  CheckUniqueBar2KOd := true;
+
+//  If (TmpBarKod <> KatMC.BarKod2)
+//    DelDefaultBarKod;
+  KatMC.BarKod2 := trim(KatMC.BarKod2);
+  if (wGetTune('McUsl.UniqMcBar2Code') > 0)//if (UserTune.Need48 > 0)
+  if (trim(KatMC.BarKod2) <> '')
+  if ((GetFirst KatMC2
+             where ((KatMC.BarKod2 == KatMC2.BarKod2))
+                and (KatMC.Nrec <> KatMC2.Nrec)) = tsOK)
+    case wGetTune('McUsl.UniqMcBar2Code') of  //UserTune.Need48
+     1:{}// уже было сообщение о неуникальности
+     2:{
+         ShowTune('Установлен контроль уникальности ' + sGetTune('McUsl.BarKod2Name') + ' !', 'McUsl.UniqMcBar2Code');
+         CheckUniqueBar2KOd := false;
+       }
+    end;//case
+}
+
+
+!-------------------------------------------------------------------------------
+// Используется при перемещении/извлечении МЦ в/из архива
+// Возращает значение маркера
+Function GetMarkerMy(Markers : LongInt; IndexNo : LongInt):comp;
+ Var FindComp : comp;
+{
+ GetMarkerMy := 0;
+ if (GetMarker(Markers, IndexNo, FindComp)=True) then GetMarkerMy := FindComp;
+}
+
+
+
+
+!-------------------------------------------------------------------------------
+// Открыть карточку упоминания МЦ
+Procedure OpenAllMoveMC;
+{
+ DoneMarker(hMarker, 'KatMC_Marker');
+ hMarker := InitMarker('KatMC_Marker',8,100,10);
+ RunInterface('AllMoveMC', KatMC.NRec, 'KatMC_Marker', word(0));
+ ReReadRecord(#KatMC);
+ ReScanPanel(#KatMC);
+}
+
+!-------------------------------------------------------------------------------
+// Установка сортировки
+Procedure SetMyOrder;
+{
+  if (SortBar > 0)
+    {
+      SetColumnSorting(-1,#KatMC.BarKod,1);
+      SetTableBackOrderIn(tnKatMC, FALSE) ;
+      SetOrder(tiByKod);
+    }
+  else
+    {
+      SetColumnSorting(-1,#KatMC.Name,1);
+      SetTableBackOrderIn(tnKatMC, FALSE) ;
+      SetOrder(tiStandard);
+    }
+}
+
+//******************************************************************************
+Procedure DisPuktLocMenu;
+{
+  if (BoundActive(tbByMCGrp) OR BoundActive(tbByMCGrpKod) OR BoundActive(tbByPartGroup))
+    SetCommandEnabled(cmValue27, FALSE);
+  else
+    SetCommandEnabled(cmValue27, TRUE);
+
+  if (BoundActive(tbByKPM) OR BoundActive(tbByKind) OR BoundActive(tbByPrMat))
+    {
+      SetCommandEnabled(cmFilialNo, FALSE);
+      SetCommandEnabled(cmNal     , FALSE);
+    }
+  else
+    {
+      SetCommandEnabled(cmFilialNo, TRUE);
+      SetCommandEnabled(cmNal     , TRUE);
+    }
+}
+
+//------------------------------------------------------------------------------
+//Установка Title
+//
+Procedure SetMyTitle;
+var MyStr0 : string;
+{
+  MyStr0 := '';
+
+  if (isFltArch_ <> 0) AND (wGetTune('McUsl.FilterMCArch') <> 0)
+    MyStr0 := '. Фильтр по:' + if (PrArch_ = 0, ' рабочим МЦ', ' архивным МЦ');
+
+  if (bFiltrKAU)
+    MyStr0 := if (Length(MyStr0) = 0, '. Фильтр по:', MyStr0 + ',') + ' аналитикам "' + FiltAn.Name + '"';
+
+  if ((BoundActive(tbByMCGrp))
+   OR (BoundActive(tbByMCGrpKod)))
+    MyStr0 := if (Length(MyStr0) = 0, '. Фильтр по:', MyStr0 + ',') + ' Группе';
+
+  if (BoundActive(tbByPartGroup))
+    MyStr0 := if (Length(MyStr0) = 0, '. Фильтр по:', MyStr0 + ',') + ' коду группы "'+ sPartKodGr + '" !';
+
+  if (bFiltrStr)
+    MyStr0 := if (Length(MyStr0) = 0, '. Фильтр по:', MyStr0 + ',')
+                  + if(CurStrInStr=1,' подстроке в Наименовании "',
+                       if (CurStrInStr=2,' подстроке в Бар-коде "', ' подстроке в ' + sGetTune('McUsl.BarKod2Name') + ' ')) + s2 + '" ';
+
+  if (BoundActive(tbByMaskMC))
+    MyStr0 := if (Length(MyStr0) = 0, '. Фильтр по:', MyStr0 + ',') + ' Шаблону "' + MaskMC.Name + '"';
+
+  if (BoundActive(tbByKPM))
+    MyStr0 := if (Length(MyStr0) = 0, ' Фильтр по:', MyStr0 + ',') + ' категории и характеристике МЦ';
+
+  if (BoundActive(tbByKind))
+    MyStr0 := if (Length(MyStr0) = 0, ' Фильтр по:', MyStr0 + ',') + ' категории МЦ';
+
+  if (BoundActive(tbByPrMat))
+    MyStr0 := if (Length(MyStr0) = 0, ' Фильтр по:', MyStr0 + ',') + ' характеристике МЦ';
+
+  if (MyStr0 = '')
+    SetTitle('Каталог МЦ' + MyStr0 + ' (всего:' +  string(RecordsInTable(#KatMC)) + ')' );
+  else
+    SetTitle('Каталог МЦ' + MyStr0);
+}
+
+//-------------------------------------------------------------------------------
+//Снимает все наложенные фильтры (кроме фильтра по аналитикам)
+//
+Procedure ReSetAllBounds;
+ {
+  if (BoundActive(tbByMCGrp))
+    PopBounds(tbByMCGrp);
+
+  if (BoundActive(tbByMCGrpKod))
+    PopBounds(tbByMCGrpKod);
+
+  if (BoundActive(tbByPartGroup))
+    PopBounds(tbByPartGroup);
+
+  if NOT boGetTune('McUsl.isPickFilterMCArch')
+    if (BoundActive(tbByMCArch))
+      PopBounds(tbByMCArch);
+
+  if (BoundActive(tbByMaskMC))
+    PopBounds(tbByMaskMC);
+
+  if (BoundActive(tbByKPM))
+    PopBounds(tbByKPM);
+
+  if (BoundActive(tbByKind))
+    PopBounds(tbByKind);
+
+  if (BoundActive(tbByPrMat))
+    PopBounds(tbByPrMat);
+
+   DisPuktLocMenu;
+
+   SetMyTitle;
+ }
+
+//------------------------------------------------------------------------------
+// Снимает все наложенные фильтры, в том числе и по аналитикам.
+//
+Procedure ClearAllFilters;
+{
+  if (CurFilAn<>0)
+   {
+    CurFilAn := 0;
+    bFiltrKAU := FALSE;
+    bFiltrStr := FALSE;
+    ReInitTable(#KatMC,fmNormal);
+   }
+
+  //--фильтр вхождения подстроки
+  if (CurStrInStr<>0)
+   {
+    bFiltrKAU := FALSE;
+    bFiltrStr := FALSE;
+    ReInitTable(#KatMC,fmNormal);
+    CurStrInStr := 0;
+    s2          := '';
+   }
+  //----------------------------
+
+  ReSetAllBounds;
+
+  sPartKodGr  := '';
+  noFilGrp    := True;
+
+  if NOT boGetTune('McUsl.isPickFilterMCArch')
+    isFltArch_  := 0;
+
+  wKind  := 0;
+  wPrMat := 0;
+
+  SaveMyDsk(0,'GSOMMC00');
+  SaveMyDsk(0,'GSOMMC01');
+  SaveMyDsk(0,'GSOMMC01_1');
+  SaveMyDsk(0,'GSOMMC02DOG');
+
+  SetMyTitle;
+  ReReadRecord(#KatMC);
+  RescanPanel(#KatMC);
+}
+
+//******************************************************************************
+// Установка/снятие фильтра по категории и характеристике
+//******************************************************************************
+Procedure SetFiltrKindPrMat;
+{
+  if (BoundActive(tbByKind))
+    SubBounds(tbByKind);
+
+  if (BoundActive(tbByPrMat))
+    SubBounds(tbByPrMat);
+
+  if (BoundActive(tbByKPM))
+    SubBounds(tbByKPM);
+
+  if (wKind = 0) AND (wPrMat = 0)
+    {
+      set pKind  := 0;
+      set pPrMat := 0;
+
+      if (GetFirst KatMC <> tsOk)
+        { }
+
+      ReReadRecord;
+    }
+  else
+    if (wKind <> 0) AND (wPrMat <> 0)
+      {
+        set pKind  := wKind - 1;
+        set pPrMat := wPrMat - 1;
+
+        if (NOT BoundActive(tbByKPM))
+          AddBounds(tbByKPM);
+
+        if (GetFirst KatMC <> 0)
+          { }
+
+        ReReadRecord;
+      }
+    else
+      if (wKind <> 0) AND (wPrMat = 0)
+        {
+          set pKind  := wKind - 1;
+          set pPrMat := 0;
+
+          if (NOT BoundActive(tbByKind))
+            AddBounds(tbByKind);
+
+          if (GetFirst KatMC <> 0)
+            { }
+
+          ReReadRecord;
+        }
+      else
+        if (wKind = 0) AND (wPrMat <> 0)
+          {
+            set pKind  := 0;
+            set pPrMat := wPrMat - 1;
+
+            if (NOT BoundActive(tbByPrMat))
+              AddBounds(tbByPrMat);
+
+            if (GetFirst KatMC <> 0)
+              { }
+
+            ReReadRecord;
+          }
+
+  SetMyTitle;
+
+  SaveMyDsk(7     , 'GSOMMC00');
+  SaveMyDsk(wKind , 'GSOMMCKIND');
+  SaveMyDsk(wPrMat, 'GSOMMCPM');
+
+  DisPuktLocMenu;
+}
+
+//------------------------------------------------------------------------------
+// Установка фильтра по архивным
+Procedure SetFiltrArch;
+{
+  PrArch_ := wGetTune('McUsl.FilterMCArch');
+
+  if (PrArch_ = 0)
+    { // снимаем фильтр по архивным
+      //ReSetAllBounds;
+      if (BoundActive(tbByMCArch))
+       SubBounds(tbByMCArch);
+
+      if (GetFirst KatMC <> tsOK)
+       { }
+
+      ReReadRecord;
+      SetMyTitle;
+    }
+  else
+    { // устанавливаем фильтр по архивным
+      set isFltArch_ := 1;
+      set PrArch_ = PrArch_ - 1;
+
+      if (NOT BoundActive(tbByMcArch))
+        AddBounds(tbByMCArch);
+
+      if (GetFirst KatMC <> tsOK)
+        { }
+
+      ReReadRecord;
+      SetMyTitle;
+    }
+/*
+  var filt : word; filt := 5;
+  SaveMyDsk(filt,'GSOMMC00');
+  SaveMyDsk(isFltArch_,'GSOMMC01');
+*/
+}
+
+//------------------------------------------------------------------------------
+// Установка фильтра по группам МЦ
+//
+Procedure SetFiltrGrp;
+{
+  if (NOT ReadMyDsk(wFiltrGr,'wFilterGr_KatMC',Datechanged))
+    wFiltrGr := 0;
+
+  if (wGetTune('McUsl.IerGroupMC') = 1)
+    wFiltrGr := 0;
+
+  if (BoundActive(tbByMCGrpKod))
+    PopBounds(tbByMCGrpKod);
+
+  if (BoundActive(tbByMCGrp))
+    PopBounds(tbByMCGrp);
+
+  if (noFilGrp)
+   {
+     //ReSetAllBounds;
+     if (wFiltrGr = 0)
+       SubBounds(tbByMCGrpKod)
+     else
+       SubBounds(tbByMCGrp);
+
+     noFilGrp := TRUE;
+     SetMyOrder;
+   }
+  else
+   {
+     if (BoundActive(tbByPartGroup))
+       SubBounds(tbByPartGroup);
+
+     SetColumnSorting(GetCurrentFormat, Target, 0);
+
+     if (wFiltrGr = 0)
+       {
+         if (NOT BoundActive(tbByMCGrpKod))
+           AddBounds(tbByMCGrpKod);
+       }
+     else
+       if (NOT BoundActive(tbByMCGrp))
+         AddBounds(tbByMCGrp);
+
+     noFilGrp := FALSE;
+   }
+
+  SetMyTitle;
+  RescanPanel(#KatMC);
+  RereadRecord;
+  SaveMyDsk(if (noFilGrp,0,4),'GSOMMC00');
+  SaveMyDsk(cGrp,'GSOMMC01');
+  SaveMyDsk(sGrp,'GSOMMC01_1');
+  SaveMyDsk(0,'GSOMMC02DOG');
+}
+!-------------------------------------------------------------------------------
+! Установка фильтра по первым символам кода группы МЦ
+Procedure SetFiltrPartGroup;
+{
+  if (sPartKodGr = '')
+   {
+    SubBounds(tbByPartGroup);
+    //ReSetAllBounds;
+    SetMyOrder;
+   }
+  else
+   {
+    SetColumnSorting(GetCurrentFormat, Target, 0);
+
+    if (BoundActive(tbByMCGrpKod))
+      PopBounds(tbByMCGrpKod);
+
+    if (BoundActive(tbByMCGrp))
+      PopBounds(tbByMCGrp);
+
+    if (not BoundActive(tbByPartGroup))
+      AddBounds(tbByPartGroup);
+
+    if (GetFirst katmc <> tsOK)
+      {
+        SetMyTitle;
+        message('По фильтру кода группы "' + sPartKodGr + '" нет записей...',
+                                     information+CancelButton);
+        SubBounds(tbByPartGroup);
+        //ReSetAllBounds;
+        SetMyOrder;
+      }
+    else SetMyTitle;
+    if (GetFirst katmc <> tsOK) {};
+   }
+  ReReadRecord;
+  SaveMyDsk(if(sPartKodGr = '',0,6),'GSOMMC00');
+  SaveMyDsk(sPartKodGr,'GSOMMC01');
+  SaveMyDsk(0,'GSOMMC02DOG');
+}
+
+//------------------------------------------------------------------------------
+//Вызывается при обновлении записей KatMC
+Procedure UpdateOutTbl (_wMC : type$KatMC);
+{
+  if (wGetTune('McUsl.UpdPriceMC') <> 1)
+    Exit;
+
+  update visual 'Обновление прайс-листов...' prices
+    set prices.kod      := _wMC.kGroupMC,
+        prices.cGroupMC := _wMC.cGroupMC,
+        prices.name     := _wMC.Name,
+        prices.BarKod   := _wMC.BarKod;
+#ifdef __VarPrKatalogs__
+  if (VPr_TipModifRec<>0) fVPrKat.Kat_ModifRec(cgRecordEdit, _wMC.NRec, 1, 0);
+#end
+};
+
+
+!-------------------------------------------------------------------------------
+// Вызывается в cmUpdateRecord для KatMC
+// Проверка таблицы мат.норм (KaNorm)
+// на соответствие KatMC.cType
+Procedure Check_And_Correct_ASUP;
+{
+  update DistDoc where ((cgKAU_KatMC == DistDoc.wType and KatMC.nRec  == DistDoc.cObject))
+        set DistDoc.cGroup := KatMC.cGroupMC
+          , DistDoc.sName  := KatMC.Name
+          , DistDoc.sCode  := KatMC.BarKod
+          , DistDoc.sObozn := KatMC.Obozn
+          , DistDoc.sGrName:= GroupMC.Name;
+}
+
+//------------------------------------------------------------------------------
+// Создание копии текущей МЦ
+//
+Create view SMfirst
+From
+  SpMC;
+
+Create view SMsecond
+From
+  SpMC;
+
+Procedure InsNewMcItems(Nr:comp; NewN:comp);
+{
+  If (SMsecond.GetFirst SpMC
+                where ((Nr == SpMc.Nrec)) <> tsOK)
+    exit;
+  SMsecond.SpMC.Nrec := 0;
+  SMsecond.SpMC.cMCkompl := NewN;
+  if (SMsecond.Insert current SpMC <> tsoK)
+      exit;
+}
+
+Procedure CopyMcItems(OldN:comp; NewN:comp);
+{
+  If (SMfirst.GetFirst SpMC
+                where ((OldN == SpMc.cMCkompl)) = tsOK)
+  Do
+    {
+      NextVisual;
+      InsNewMCItems(SMfirst.SpMC.Nrec, NewN);
+    }
+  while (SMfirst.GetNext SpMC
+                where ((OldN == SpMc.cMCkompl)) = tsOK)
+}
+
+//------------------------------------------------------------------------------
+// Создание дубликата по текущей МЦ
+//
+function MakeCopyOneMC (fwTipVisual : word; // 0-визуализировать создание/1-без визуализации
+                        fwTipErr    : word; // 0-стандартные сообщения об ошибках/1-без сообщений
+                    var fwTipIns    : word  // 0-запись не создана;1-создана успешно
+                       ) : comp; // NRec созданной записи (0 - при неудаче)
+ var MyNrec_    : comp;
+     MyNrec_1   : comp;
+     fbIsKodSys : boolean;
+     fsTmpKod   : string;
+
+{
+  MakeCopyOneMC := 0;
+  fwTipIns      := 0;
+
+  if (GetFirst KatMC2 where ((KatMC.NRec == KatMC2.NRec)) <> tsOk)
+    exit;
+
+  //--проверка на расчет Кода по системному алгоритму
+  if (wGetTune('FN.BKauto') > 0)
+    fbIsKodSys := True
+  else
+    fbIsKodSys := False;
+  if (KatMC.cMaskMC <> 0)
+  {
+    if (GetFirst MaskMC <> tsOk)
+    {
+      Message(''#3'Ошибка позиционирования на шаблон текущей МЦ', Error);
+      Exit;
+    }
+    if (MaskMC.cf_BK <> 0)
+      fbIsKodSys := False;
+  }
+  //-----------------------------------------------
+
+
+  if (fwTipVisual=0)
+    StartNewVisual(vtRotateVisual, vfTimer,
+           ''#3'Создаю новую запись в каталоге МЦ', 1);
+  KatMC2.NRec     := 0;
+  if (wGetTune('McUsl.UniqMcName') > 0)
+    KatMC2.Name     := KatMC2.Name   + ' <копия>';
+  if (wGetTune('McUsl.UniqMcBarCode') > 0)
+    KatMC2.BarKod   := KatMC2.BarKod + ' <к>';
+  if (wGetTune('McUsl.UniqMcObozn') > 0)
+    KatMC2.Obozn    := KatMC2.Obozn  + ' <к>';
+
+  //--расчет Бар-Кода для новой МЦ
+  KatMC2.f_LND_n := '';
+  if (fbIsKodSys)
+  {
+    fsTmpKod := KatMC.BarKod;
+    SetDefaultBarKod;
+    KatMC2.BarKod := KatMC.BarKod;
+    KatMC.BarKod  := fsTmpKod;
+  }
+  //------------------------------
+
+
+  if (Not fObjMC.IsUniqMc(if(fwTipErr=0,True,False)
+                         ,if(fwTipErr=0,True,False)
+                         ,KatMC2.BarKod
+                         ,KatMC2.Name
+                         ,KatMC2.Obozn
+                         ,comp(0)))
+  {
+    if (fbIsKodSys)
+      DelDefaultBarKod;
+    if (fwTipVisual=0)
+      StopVisual('',0);
+    Exit;
+  }
+
+  if (Insert current KatMC2 <> tsOK)
+  {
+    if (fbIsKodSys)
+      DelDefaultBarKod;
+    if (fwTipErr=0)
+      message(''#3'Не удается создать дубликат матценности...', CancelButton);
+    if (fwTipVisual=0)
+      StopVisual('',0);
+    Exit;
+  }
+  else
+    {
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую отпускные единицы измерения');
+      if (GetFirst KatOtpEd = tsoK)
+      do {
+          NextVisual;
+          if (KatOtpEd.cMcUsl <> KatMC.Nrec)
+            continue;
+          PushPos(#KatOtpEd);
+          MyNrec_ := KatOtpEd.Nrec;
+          KatOtpEd.Nrec := 0;
+          KatOtpEd.cMcUsl := KatMC2.Nrec;
+          if (fEdizm.InsertKatOtpEd(tBufOtpEd(KatOtpEd.buffer), FALSE) <> tsOK)
+           {
+            message(''#3'Не могу создать отпускную единицу "'+
+              KatOtpEd.Name + '" для копии МЦ', CancelButton);
+            break;
+           }
+          else
+           {
+            //----------копирую внешнюю классификацию отп.ед--------------------
+            if (GetFirst ExClassVal where
+              ((coKatOtpEd == ExClassVal.wTable and MyNrec_ == ExClassVal.cRec)) = tsOK)
+            do
+              {
+                PushPos(#ExClassVal);
+                ExClassVal.Nrec := 0;
+                ExClassVal.cRec := KatOtpEd.NRec;
+                insert Current ExClassVal;
+                PopPos(#ExClassVal);
+              }
+            while (GetNext ExClassVal where
+              ((coKatOtpEd == ExClassVal.wTable and MyNrec_ == ExClassVal.cRec)) = tsOK);
+            //----------копирую аттрибуты отп.ед--------------------------------
+            if (GetFirst AttrVal where
+              ((coKatOtpEd == AttrVal.wTable and MyNrec_ == AttrVal.cRec)) = tsOK)
+            do
+              {
+                NextVisual;
+                PushPos(#AttrVal);
+                AttrVal.Nrec := 0;
+                AttrVal.cRec := KatOtpEd.NRec;
+                insert Current AttrVal;
+                PopPos(#AttrVal);
+              }
+            while (GetNext AttrVal where
+              ((coKatOtpEd == AttrVal.wTable and MyNrec_ == AttrVal.cRec)) = tsOK);
+            //------------------------------------------------------------------
+            //--------------копирую тару для отпускной ед.----------------------
+            if (GetFirst SpOtpEd where ((MyNrec_ == SpOtpEd.cOtpEd)) = tsOK)
+             do {
+                 if (SpOtpEd.cOtpEd <> MyNrec_) continue;
+                 PushPos(#SpOtpEd);
+                 MyNrec_1 := SpOtpEd.NRec;
+                 SpOtpEd.NRec   := 0;
+                 SpOtpEd.cOtpEd := KatOtpEd.Nrec;
+                 if (Insert current SpOtpEd <> tsOK)
+                   {
+                     message(''#3'Не могу создать тару для отпускной единицы "'+
+                       KatOtpEd.Name + '" копии МЦ', CancelButton);
+                     break;
+                   }
+                 else
+                  {
+                   //----------копирую внешнюю классификацию тары---------------
+                   if (GetFirst ExClassVal where
+                     ((coSpOtpEd == ExClassVal.wTable and MyNrec_1 == ExClassVal.cRec)) = tsOK)
+                   do
+                     {
+                       PushPos(#ExClassVal);
+                       ExClassVal.Nrec := 0;
+                       ExClassVal.cRec := SpOtpEd.NRec;
+                       insert Current ExClassVal;
+                       PopPos(#ExClassVal);
+                     }
+                   while (GetNext ExClassVal where
+                     ((coSpOtpEd == ExClassVal.wTable and MyNrec_1 == ExClassVal.cRec)) = tsOK);
+                   //----------копирую аттрибуты тары---------------------------
+                   if (GetFirst AttrVal where
+                     ((coSpOtpEd == AttrVal.wTable and MyNrec_1 == AttrVal.cRec)) = tsOK)
+                   do
+                     {
+                       NextVisual;
+                       PushPos(#AttrVal);
+                       AttrVal.Nrec := 0;
+                       AttrVal.cRec := SpOtpEd.NRec;
+                       insert Current AttrVal;
+                       PopPos(#AttrVal);
+                     }
+                   while (GetNext AttrVal where
+                     ((coSpOtpEd == AttrVal.wTable and MyNrec_1 == AttrVal.cRec)) = tsOK);
+                   //-----------------------------------------------------------
+                  }
+                 PopPos(#SpOtpEd);
+                } while (GetNext SpOtpEd
+                         where ((MyNrec_ == SpOtpEd.cOtpEd)) = tsOK);
+            //------------------------------------------------------------------
+           }
+          PopPos(#KatOtpEd);
+         } while (GetNext KatOtpEd = tsoK);
+
+!-------------------------------------------------------------------------------
+
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую внешнюю классификацию');
+      if (GetFirst ExClassVal where
+        ((coKatMC == ExClassVal.wTable and KatMC.Nrec == ExClassVal.cRec)) = tsOK)
+      do
+        {
+          NextVisual;
+          PushPos(#ExClassVal);
+          ExClassVal.Nrec := 0;
+          ExClassVal.cRec := KatMC2.Nrec;
+          insert Current ExClassVal;
+          PopPos(#ExClassVal);
+        }
+      while (GetNext ExClassVal where
+        ((coKatMC == ExClassVal.wTable and KatMC.Nrec == ExClassVal.cRec)) = tsOK);
+
+!------------
+
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую внешние атрибуты');
+      if (GetFirst AttrVal where
+        ((coKatMC == AttrVal.wTable and KatMC.Nrec == AttrVal.cRec)) = tsOK)
+      do
+        {
+          NextVisual;
+          PushPos(#AttrVal);
+          AttrVal.Nrec := 0;
+          AttrVal.cRec := KatMC2.Nrec;
+          insert Current AttrVal;
+          PopPos(#AttrVal);
+        }
+      while (GetNext AttrVal where
+        ((coKatMC == AttrVal.wTable and KatMC.Nrec == AttrVal.cRec)) = tsOK);
+
+!------------
+
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую примечание');
+      if (GetFirst AllMemo where ((word(coKatMC) == AllMemo.wTable
+                               and KatMC.NRec    == AllMemo.cRec)) = tsOK)
+        {
+          NextVisual;
+          PushPos(#AllMemo);
+          AllMemo.NRec   := 0;
+          AllMemo.wTable := word(coKatMC);
+          AllMemo.cRec   := KatMC2.NRec;
+          insert Current AllMemo;
+          PopPos(#AllMemo);
+        }
+
+!------------
+
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую дополнительные единицы измерения');
+      if (GetFirst SpDopEd = tsoK)
+      do {
+          NextVisual;
+          PushPos(#SpDopEd);
+          SpDopEd.NRec   := 0;
+          SpDopEd.wTable := word(coKatMC);
+          SpDopEd.cRec   := KatMC2.NRec;
+          insert Current SpDopEd;
+          PopPos(#SpDopEd);
+         } while (GetNext SpDopEd = tsoK);
+
+!------------
+
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую единицы подвижного состава');
+      if (GetFirst CellVal = tsoK)
+      do {
+          NextVisual;
+          PushPos(#CellVal);
+          CellVal.NRec   := 0;
+          CellVal.PrMC   := word(0);
+          CellVal.cMC    := KatMC2.NRec;
+          insert Current CellVal;
+          PopPos(#CellVal);
+         } while (GetNext CellVal = tsoK);
+
+!------------
+
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую комплектующие');
+      CopyMcItems(KatMC.Nrec, KatMC2.Nrec);
+
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую внешние КАУ');
+      iKaureff.CopyAll(coKatMC,KatMC.NRec,KatMC2.NRec);
+
+#ifdef __VarNameMCU__
+      if (fwTipVisual=0)
+        SetVisualHeader(''#3'Копирую варианты наименования');
+      if boGetTune('McUsl.VarNameMC_IsUse')
+        fVarNameMCU.MakeCopyAll (cgi_VarNameKat_KatMC,KatMC.NRec,KatMC2.NRec
+                   ,if(wGetTune('McUsl.UniqMcName') > 0,'<к> ',''),1);
+#end
+!------------
+
+      ClearBuffer(#TekMC2);
+      TekMC2.cMC := KatMC2.NRec;
+      Insert current TekMC2;
+
+
+#ifdef __VarPrKatalogs__
+     if (VPr_TipModifRec<>0) fVPrKat.Kat_ModifRec(cgRecordInsert, KatMC2.NRec, 1, 0);
+#end
+    }
+
+  if (fwTipVisual=0)
+    StopVisual('',0);
+
+  MakeCopyOneMC := KatMC2.NRec;
+  fwTipIns      := 1;
+}
+
+
+//------------------------------------------------------------------------------
+// Тиражирование текущей МЦ
+//
+Procedure MakeSomeCopyMC;
+  var fwTipIns    : word;
+      fcNewMCRec  : comp;
+      fl_i        : longint;
+      Buf         : TKatMC;
+      DataChanged : Boolean;
+{
+
+  if (Not fObjMC.KatMC_isNewRecord(word(1))) Exit;
+
+  if (KatMC.cMaskMC <> 0)
+    if (boGetTune('McUsl.ANALITIK.IsUniqueHashAn'))
+    {
+      ShowTune('При данном значении настройки дублирование МЦ с аналитическими признаками не поддерживается!',
+               'McUsl.ANALITIK.IsUniqueHashAn');
+      Exit;
+    }
+  if (not isMyUpdateTable) Exit;
+
+
+  //-- Задание кол-ва тиража
+  if (Not ReadMyDSK( vlSomeCopy_Kol, 'KatMC_fCopyMC_Kol', DataChanged))
+    vlSomeCopy_Kol := 1;
+  if (Not ReadMyDSK( vlSomeCopy_MaskRecalc, 'KatMC_fCopyMC_MaskRecalc', DataChanged))
+    vlSomeCopy_MaskRecalc := 1;
+  if (RunWindowModal(ID_wiSetSomeCopyRec) <> cmDefault)
+    Exit;
+  if (vlSomeCopy_Kol <= 0)
+    Exit;
+
+  if (wGetTune('McUsl.UniqMcName') > 0)
+    {
+      var iKolC : integer;
+      var dKol  : double;
+
+      if (GetFirst X$FIELDS where ((coKatMC == X$FIELDS.XE$FILECODE
+                                AND 'NAME'  == X$FIELDS.XE$NAME)) <> tsOk)
+        {}
+
+      dKol := (X$FIELDS.XE$SIZE - Length(KatMC.Name) - 1)/ Length(' <копия>');
+
+      if (dKol - Trunc(dKol)) <> 0
+        iKolC := integer(Trunc(dKol)) + 1;
+      else
+        iKolC := integer(Trunc(dKol));
+
+      if (vlSomeCopy_Kol > iKolC)
+        if (iKolC > 0)
+          if (Message('Не возможно создать заданное количество копий для текущей матценности!'#13
+                    + 'Максимальное число копий для текущей матценности: ' + string(iKolC)
+                    + ''#13'Продолжить тиражирование текущей матценности с количеством копий: '
+                    + string(iKolC) + '?', YesNo) = cmYes)
+            vlSomeCopy_Kol := iKolC;
+          else
+            Exit;
+        else
+          {
+            Message('Не возможно создать для текущей матценности копии!', Warning + OkButton);
+            Exit;
+          }
+    }
+
+  SaveMyDsk( vlSomeCopy_Kol, 'KatMC_fCopyMC_Kol');
+  SaveMyDsk( vlSomeCopy_MaskRecalc, 'KatMC_fCopyMC_MaskRecalc');
+  //-----------------------
+
+  StartNewVisual(vtIndicatorVisual, vfTimer+vfBreak
+                ,''#3'Тиражирование МЦ ...'#13, vlSomeCopy_Kol);
+  for ( fl_i := 1; fl_i <= vlSomeCopy_Kol; fl_i := fl_i + 1 )
+  {
+    if (Not NextVisual)
+      Break;
+    fcNewMCRec := MakeCopyOneMC (1, 0, fwTipIns);
+    if (fcNewMCRec = 0)
+    {
+      Message(''#3'Процесс тиражирования МЦ прерван.', Information);
+      Break
+    }
+    else
+      if (GetFirst KatMC where ((fcNewMCRec == KatMC.Nrec)) <> tsOk)
+        Break;
+
+
+    if ((vlSomeCopy_MaskRecalc = 1)and(KatMC.cMaskMC <> 0))
+    {
+      Buf := TKatMC(KatMC.buffer);
+      if (Not fObjf_mmc.UpdateFieldsMC_(Buf))
+       if (Message(''#3'Обновление расчетных полей МЦ "' + KatMC.Name + '" не произведено.'
+              +''#13#3'Прервать процесс тиражирования ?',YesNo+Confirmation) = Yes )
+         Break;
+      //--
+      KatMC.buffer := type$KatMC(Buf);
+      //проверка на уникальность прошла в fObjf_mmc.UpdateFieldsMC_
+      if (Update current KatMC <> tsOk)
+       if (Message(''#3'Не удается обновить МЦ "' + KatMC.Name + '"...'
+              +''#13#3'Прервать процесс тиражирования ?',YesNo+Confirmation) = Yes )
+         Break;
+      //--------------
+    }
+  }
+  StopVisual('',0);
+  ReReadRecord(#KatMC);
+  RescanPanel(#KatMC);
+  if (vlSomeCopy_Kol = 1)
+  {
+    SelectField(#KatMC.Name);
+    if (Not IsOpenEditWin) PutCommand(cmValue1);
+    if (KatMC.cMaskMC<>0) PutCommand(cmValue26);
+  }
+}
+
+
+//-------------------------------------------------------------------------------
+// Изпользуется где необходимо
+Function MyTrim(d:double) : string;
+{
+  MyTrim := substr(StringNLZ(d,0),1,10);
+};
+
+
+//-------------------------------------------------------------------------------
+// Вызывается из cmHotKeys (cmValue14)
+// Получение списка единиц измерения по всем МЦ из каталога
+Procedure ShowAllEdIzm;
+{
+  var wdid : longint;   wdid := 0;
+
+  if (not isMyUpdateTable)
+    Exit;
+
+  StartNewVisual(vtIndicatorVisual, vfTimer+vfBreak+vfConfirm,
+         ''#3'Список единиц измерения МЦ', RecordsInTable(#KatMC));
+
+  PushPos(#KatMC);
+  PushPos(#KatOtpEd);
+
+  if (GetFirst KatMC = tsOK)
+  do
+    {
+      if (Not NextVisual)
+        {
+          wdid := 0;
+          break;
+        }
+
+      Frm4.write(KatMC.Name);
+      Frm4.write(KatEd.Name);
+
+      var foundakt : boolean;     foundakt := false;
+
+      if (GetFirst KatOtpEd = tsOk)
+      do
+        {
+          if (KatOtpEd.Akt <> 1)
+            Continue;
+
+          foundakt := true;
+          Frm4.write(trim(KatOtpEd.Name) + '(' + mytrim(KatOtpEd.Koef)+')');
+          Break;
+        }
+      while (GetNext KatOtpEd = tsOk)
+
+      if (Not foundakt)
+        Frm4.write('');
+
+      if (GetFirst KatOtpEd = tsOk)
+      do
+        {
+          if (KatOtpEd.Akt = 1)
+            Continue;
+
+          Frm4.PutEventById(feDoLoop,fcUOED1);
+          Frm4.write(trim(KatOtpEd.Name) + '(' + mytrim(KatOtpEd.Koef) + ')');
+        }
+
+      while (GetNext KatOtpEd = tsOK);
+
+      wdid := wdid + 1;
+    }
+  while (GetNext KatMC = tsOk);
+
+  Frm4.putevent(feBreak);
+  Frm4.write(wdid);
+
+  PopPos(#KatMC);
+  PopPos(#KatOtpEd);
+  RescanPanel(#KatMC);
+
+  StopVisual('',0);
+
+  if (Not Frm4.error)
+    {
+      if (wdid > 0)
+        Frm4.ShowFile('');
+      else
+        Frm4.AbortForm;
+    }
+  else
+    Frm4.abortForm;
+}
+
+//-------------------------------------------------------------------------------
+// Заполняет поля активной отпускной Ед. для текущей МЦ
+Procedure PasteCurrKatOtpEdFromOtpEd;
+{
+  KatOtpEd.NRec    := 0;
+  KatOtpEd.Name    := trim(KatEd.Name);
+  KatOtpEd.cMCUSL  := KatMC.NRec;
+  KatOtpEd.Diskret := fEdIzm.CheckDiskr(KatEd.Diskret);
+  KatOtpEd.PrMC    := 1;
+  KatOtpEd.Koef    := 1;
+  KatOtpEd.Akt     := 1;
+  KatOtpEd.Pr      := 1;  // производственная еди
+  KatOtpEd.cKatEd  := KatEd.nRec;
+  KatOtpEd.Abbr    := KatEd.Abbr;
+  fEdIzm.CheckAbbr(KatOtpEd.Abbr, KatOtpEd.Name);
+}
+
+//------------------------------------------------------------------------------
+// Вызывается где необходимо
+// Создает первую запись, если ее нет, в каталоге Отп.Ед. для текщей МЦ
+Procedure AddOtpEd;
+{
+  if (KatMC.cEd = 0)
+    message(''#3'Для модификации отпускных единиц необходимо '+
+            'задать учетную единицу !!!',CancelButton+Warning);
+  else
+  if (isMyUpdateTable)
+    { if (not (isvalid(tnKatOtpEd)))
+       if (isvalid(tnKatEd))
+        {
+          PasteCurrKatOtpEdFromOtpEd;
+          fEdIzm.InsertKatOtpEd(tBufOtpEd(KatOtpEd.buffer), FALSE);
+        }
+      SelectField(#KlResHr.Name);
+    }
+}
+
+//------------------------------------------------------------------------------
+//Вызывается из cmHotKeys (cmValue10)
+//Проверка наличия учетных и отпускных единиц с созданием отчета
+Procedure CheckEdIzm;
+{  PushPos(#KatMC);
+   wdid := 0;
+
+   StartNewVisual(vtIndicatorVisual, vfTimer+vfBreak,
+          ''#3'Проверяю наличие учетных и активных отпускных единиц измерения.', RecordsInTable(#KatMC));
+
+   _LOOP KatMC
+    {
+     if (not nextvisual) break;
+
+     if ((KatMC.cEd = 0) or (not isvalid(tnKatEd)))
+       {
+         wdid := 1;
+         frm3.write(KatMC.name);
+         frm3.write('задайте учетную единицу измерения !');
+       }
+     else
+       if (GetFirst KatOtpEd
+            where  (( word(1) == KatOtpEd.PrMC       and
+                      KatMC.NRec == KatOtpEd.cMCUSL  and
+                      word(1) == KatOtpEd.Akt ))
+            <> tsOK)
+       {
+         wdid := 1;
+         PasteCurrKatOtpEdFromOtpEd;
+         frm3.write(KatMC.name);
+
+         if (fEdIzm.InsertKatOtpEd(tBufOtpEd(KatOtpEd.Buffer), FALSE) <> 0)
+           frm3.write('??? ошибка при создании активной отпускной единицы');
+         else
+           frm3.write('Установлена активная отпускная единица: '+upcase(KatOtpEd.Name));
+       }
+    }
+   frm3.PutEvent(feBreak);
+   PopPos(#KatMC);
+   StopVisual('',0);
+
+   if (not frm3.error)
+    {
+     if (wdid > 0)
+       frm3.showFile('Список замечаний по единицам измерения матценностей (CHECKAKT.OUT)');
+     else
+       {
+         frm3.abortForm;
+         message(''#3'У всех матценностей в базе имеются активные отпускные единицы измерения',okbutton+information);
+       }
+    }
+   else
+     frm3.abortForm;
+}
+
+//------------------------------------------------------------------------------
+// Вызывается из cmHotKeys (cmValue4)
+// Вывод списка МЦ с одинаковыми номенклатурными номерами
+Procedure ChkDiffBar;
+{
+  if (not isMyUpdateTable)
+    exit;
+  PushPos(#KatMC);
+  predbar := '';
+  predname := '';
+  w1 := 0;
+  wdid := 0;
+  StartNewVisual(vtIndicatorVisual, vfTimer+vfBreak+vfConfirm,
+                 ''#3'Проверяю матценности на совпадение бар-кодов.',
+                 RecordsInTable(#KatMC));
+  if (GetFirst KatMC ordered by KatMC.barkod = tsOk)
+  do
+  {
+    if (not NextVisual) break;
+    if ((KatMC.barkod <> '') and (predbar = KatMC.barkod))
+      {
+        if (w1 = 0)
+          {
+            frm2.write(predbar);
+            frm2.write(predname);
+          }
+        frm2.write(KatMC.barkod);
+        frm2.write(KatMC.name);
+        wdid := 1;
+        w1 := 1;
+      }
+    else w1 := 0;
+    predbar := KatMC.barkod;
+    predname := KatMC.name;
+  }
+  while (GetNext KatMC ordered by KatMC.barkod = tsOk);
+  StopVisual('',0);
+  frm2.PutEvent(feBreak);
+  PopPos(#KatMC);
+  if (not frm2.error)
+   {
+    if (wdid > 0)
+      frm2.showFile('');
+    else
+      {
+        frm2.abortForm;
+        message(''#3'В базе не найдено матценностей с продублированными '+
+                        'номенклатурными номерами!',okbutton+information);
+      }
+   }
+  else
+    frm2.abortForm;
+
+}
+
+
+//------------------------------------------------------------------------------
+// Вызывается из cmHotKeys (cmValue11)
+// Проверка (восстановление утерянных) учетных единиц
+Procedure CheckUchEds;
+ var bufKatED_Mask : TKatED;
+     bufKatED      : TKatED;
+     MyTip_        : word;
+     MyKol_UpdMC   : LongInt;
+{
+  MyKol_UpdMC := 0;
+  PushPos(#KatMC);
+  StartNewVisual(vtIndicatorVisual, vfTimer+vfBreak+vfConfirm,
+             ''#3'Проверяю учетные единицы в каталоге МАТЦЕННОСТЕЙ...'#13,
+             RecordsInTable(#KatMC));
+  if (GetFirst KatMC = tsOK)
+  do
+    if (not nextvisual) Break
+    else
+      {
+        if (isValid(#KatED)) Continue;
+        var did : boolean;
+        did := false;
+        if (GetFirst KatOtpEd = tsOK)
+        do
+          if (KatOtpEd.Koef = 1)
+            {
+              //--Ищем/Добавляем Ед.Изм---------
+              ClearAdvRecord(bufKatED_Mask);
+              ClearAdvRecord(bufKatED);
+              bufKatED.Name  := KatOtpEd.Name; bufKatED_Mask.Name := '+';
+              MyTip_ := fEdIzm.GetInsKatEdItem(bufKatED
+                                              ,bufKatED_Mask
+                                              ,word(1)        //0-только искать (без добавления); 1-добавлять если надо
+                                              ,cgiMessage     //тип сообщений об ошибках (cgiNoMessage/cgiMessage)
+                                              ); //0 - ошибка //1 - нашли среди имеющихся / 2 - успешно добавили / 3 - не нашли и не добавили
+              //--------------------------------
+              if ((MyTip_=1)or(MyTip_=2))
+               {
+                KatMC.cEd := bufKatED.NRec;
+                if (Update Current KatMC = tsOK)
+                 {
+                  MyKol_UpdMC := MyKol_UpdMC + 1;
+                  did := true;
+                  UpdateOutTbl(KatMC.buffer);
+                 }
+               }
+              Break;
+            }
+        while (GetNext KatOtpEd = tsOK);
+
+        if (not did)
+          {
+           //--Ищем/Добавляем Ед.Изм--------
+           ClearAdvRecord(bufKatED_Mask);
+           ClearAdvRecord(bufKatED);
+           bufKatED.Name  := '?-' + string(GetNextNRec(#KatEd,0)) + '-?'; bufKatED_Mask.Name := '+';
+           bufKatED.ABBR  := '???'; bufKatED_Mask.ABBR := '+';
+           MyTip_ := fEdIzm.GetInsKatEdItem(bufKatED
+                                           ,bufKatED_Mask
+                                           ,word(1)        //0-только искать (без добавления); 1-добавлять если надо
+                                           ,cgiMessage     //тип сообщений об ошибках (cgiNoMessage/cgiMessage)
+                                           ); //0 - ошибка //1 - нашли среди имеющихся / 2 - успешно добавили / 3 - не нашли и не добавили
+           //-------------------------------
+           if ((MyTip_=1)or(MyTip_=2))
+            {
+             KatMC.cEd := bufKatED.NRec;
+             if (Update Current KatMC = tsOK)
+              {
+               MyKol_UpdMC := MyKol_UpdMC + 1;
+               UpdateOutTbl(KatMC.buffer);
+              }
+            }
+          }
+
+      }
+  while (GetNext KatMC = tsOK);
+  StopVisual('',0);
+  PopPos(#KatMC);
+
+  if (MyKol_UpdMC > 0)
+   Message(''#3'Найдены МЦ без учетных единиц измерения !'
+        +''#13#13' Всего обновлено МЦ : ' + string(MyKol_UpdMC) + '',Warning+OkButton);
+  else
+   Message(''#3'Учетные единицы измерения МЦ корректны.',Information);
+
+};
+
+
+!-------------------------------------------------------------------------------
+// Вызывается в Procedure MyPick
+// Выбор Учетной Ед.Изм. для МЦ
+Procedure ChangeUchEd;
+var sav   : comp;
+    savPr : word; //if (katEd.diskret = 1,'неделимая','делимая') 1/2
+{
+  sav   := KatMC.cEd;
+
+  savPr := 1;
+  if (Not isNew)
+    if (KatMC.cEd <> 0)
+      if (GetFirst KatEd = tsOk) savPr := KatEd.diskret;
+
+  if ((RunInterface(GetEdIzm,sav) <> cmCancel) and (sav <> KatMC.cEd))
+    {
+      if (isnew)
+        {
+          set KatMC.cEd := sav;
+          //--------------------------
+          //не надо проверять на заполненость обязательных полей (гр.налогов) при insert
+          isNeedMessNullFld  := False;
+          //--------------------------
+          AddOtpEd;
+          exit;
+        }
+      var bool : boolean; bool := false;
+      if (KatMC.cEd = 0)
+        bool := true;
+      else
+       {
+        var tmpStr00 : string; tmpStr00 := '';
+        PushPos(#KatEd);
+        ResetBounds(#KatEd);
+        if (GetFirst KatEd where (( comp(sav) == KatEd.NRec)) = tsOK)
+           if (savPr <> 1) and (KatEd.diskret = 1)
+            // была Делимая, стала Неделимая: надо округлить коэф. отп.ед.
+            tmpStr00 := 'Будет произведено округление коэффициентов отпускных единиц.';
+        SetBounds(#KatEd);
+        PopPos(#KatEd);
+
+        if (message(''#3'Изменение учетной единицы потребует '+
+          'пересмотреть коэффициенты всех отпускных '+
+          'единиц для этой МЦ.'#13#3 + tmpStr00 +
+          ''#13#3 + 'Отменить изменение учетной единицы?'#13#13,
+          YesNo+Confirmation)=cmNo)
+        bool := true;
+       }
+
+      if (bool)
+        {
+          var MyWord01 : word; MyWord01 := 0;
+          set KatMC.cEd := sav;
+
+          PushPos(#KatOtpEd);
+          if (GetFirst KatEd <> tsOK) {};
+          ResetBounds(#KatOtpEd);
+          if (GetFirst KatOtpEd where
+             (( Word(1)     == KatOtpEd.PrMC   and
+                KatMC.NRec  == KatOtpEd.cMCUSL and
+                upcase(trim(KatEd.Name))  ==  KatOtpEd.Name)) <> tsOK)
+             MyWord01 := 1;
+
+          var kk : double;   kk := KatOtpEd.koef;
+
+          if (kk < 0.000001) kk := 1;
+          if (GetFirst KatOtpEd where
+            (( Word(1)     == KatOtpEd.PrMC   and
+               KatMC.NRec  == KatOtpEd.cMCUSL))
+               ordered by index KAtOtpEd02 = tsOK)
+          do
+            {
+              if (MyWord01=1)
+               {
+                KatOtpEd.Koef := KatOtpEd.Koef / kk;
+                update current KatOtpEd;
+               }
+              //-----------------------
+              // была Делимая, стала Неделимая: надо округлить коэф. отп.ед.
+              if (savPr <> 1) and (KatEd.diskret = 1)
+               if (LongInt(Trunc(KatOtpEd.Koef)) < KatOtpEd.Koef)
+                {
+                 KatOtpEd.Koef := LongInt(Round(KatOtpEd.Koef)) + 0;
+                 update current KatOtpEd;
+                }
+            }
+          while (GetNext KatOtpEd where
+            (( Word(1)     == KatOtpEd.PrMC   and
+               KatMC.NRec  == KatOtpEd.cMCUSL))
+               ordered by index KAtOtpEd02 = tsOK)
+          if (kk <> 1) MyWord01 := 2;
+
+          SetBounds(#KatOtpEd);
+          PopPos(#KatOtpEd);
+          if (GetFirst KatOtpEd = tsOK) {};
+
+          if (MyWord01 = 1)
+            message(''#3'Единицы "' + KatEd.Name + '" нет среди '+
+                  'отпускных единиц этой МЦ.'#13#13#3+
+                  'При необходимости измените коэффициенты вручную!'#13#3+
+                  'Произведите также модификацию количества и цен в КСУ '+
+                  'и в таблице сальдовых остатков...',
+                  Warning+OkButton);
+
+          if (MyWord01 = 2)
+                message(''#3'Изменены коэффициенты отпускных единиц.'#13#13#3+
+                          'Сейчас НЕОБХОДИМО вручную или при помощи SQL '+
+                          'произвести модификацию количества и цен в карточке '+
+                          'складского учета и в таблице сальдовых остатков...',
+                          Information+OkButton);
+
+        }
+    }
+}
+
+
+
+!-------------------------------------------------------------------------------
+// Вызывается в Procedure MyPick
+// Выбор МЦ в спецификацию комплекта
+Procedure GetAgrMC;
+var Is_New: boolean;
+{
+  Is_New := IsNew;
+
+  if (iGetMC.SomeMCEx(SpMC.cMC, comp(-12345)) = cmDefault)
+    _LOOP Pick where ((word(7) == Pick.wList))
+      if (Pick.cRec = KatMC.NRec)
+       {
+        message(''#3'Комплект не может состоять сам из себя...',CancelButton);
+       }
+      else
+       {
+        if ((GetFirst SpMC_0 where ((KatMC.NRec == SpMC_0.cMCkompl
+                                and  Pick.cRec  == SpMC_0.cMC))
+                                and (SpMC.NRec  <> SpMC_0.NRec)) = tsOK)
+          {
+            if (GetFirst KatMC2 where ((SpMC_0.cMC == KatMC2.NRec)) <> tsOK) {};
+            message(''#3'"'+KatMC2.Name+'" уже входит в этот комплект...',
+                            CancelButton);
+          }
+        else
+          {
+           if (Is_New) ClearBuffer(#SpMC);
+           SpMC.cMCkompl := KatMC.Nrec;
+           SpMC.Kol      := 1;
+           SpMC.ProcSeb  := 100.00;
+           SpMC.ProcMC   := 1;
+           SpMC.cMC      := Pick.cRec;
+           if (Is_New) { Insert current SpMC; }
+            else
+             {
+              Update current SpMC;
+              Is_New := True;
+             }
+          }
+       }
+  RescanPanel(#SpMC);
+  ReReadRecord(#SpMC);
+}
+
+
+!-------------------------------------------------------------------------------
+// Вызывается в cmPick для окна редактирования МЦ (window wKatMC)
+// Общий Выбор
+Procedure MyPick;
+{
+  Case CurField of
+    #KauReffArray:
+     if (isMyUpdateTable)
+      {
+       iKaureff.Exec(coKatMC, KatMC.NRec, True);
+       RedrawPanel(tnKatMC);
+      }
+    #KatMC3.Name,
+    #KatMC3.Barkod :
+      GetAgrMC;
+    #KatEd.Name :
+      ChangeUchEd;
+    #KlResHr.Name :
+      if (RunInterface(GetResHr,KatMC.cResHr) <> cmCancel) {};
+    #Grnal.Name,#Grnal.Kod :
+      if (RunInterface(GetGrNal, KatMc.cGrNal, word(1)) <> cmCancel)
+        SelectField(#KatEd.Name);
+    #GroupMC.KOD, #GroupMC.Name :
+      {
+        if (not isNew)
+          if (not isMyUpdateTable) Exit;
+
+        var tmpMy_cGroupMC : comp;       tmpMy_cGroupMC := KatMC.cGroupMC;
+        var tmpMy_kGroupMC : string[20]; tmpMy_kGroupMC := KatMC.kGroupMC;
+
+        if (RunInterface(GetGrMC,tmpMy_cGroupMC,tmpMy_kGroupMC) = cmDefault)
+          {
+            //--------------------------------------------------------------
+            //в интерфейсе Групп МЦ могли запустить корректировку текущей МЦ
+            //например при изменении Типа группы МЦ и пр., поэтому для
+            //предотвращения конфликта перечитаем запись
+            if (not isNew) ReReadRecord(#KatMC);
+            //--------------------------------------------------------------
+
+            if (BoundActive(tbByMCGrp))
+             {
+              PopBounds(tbByMCGrp);
+              isMyCurB := True;
+             }
+            else isMyCurB := False;
+
+            if (BoundActive(tbByMCGrpKod))
+             {
+               PopBounds(tbByMCGrpKod);
+               isMyCurB := True;
+             }
+            else isMyCurB := False;
+
+            set KatMC.cGroupMC := tmpMy_cGroupMC;
+            set KatMC.kGroupMC := tmpMy_kGroupMC;
+
+            if (GetFirst GroupMC <> tsOk) {};
+
+            //--наследование Категории из группы----
+            var tmp_isCopyKindMCFromGr : boolean; tmp_isCopyKindMCFromGr := False;
+            if (KatMC.Kind <> GroupMC.Kind)
+             If (wGetTune('McUsl.CopyKindMCFromGr') = 1) tmp_isCopyKindMCFromGr := True
+              else If (wGetTune('McUsl.CopyKindMCFromGr') = 2)
+                If (message(''#3'Наследовать категорию группы ?',YesNo)=cmYes)
+                  tmp_isCopyKindMCFromGr := True;
+            if (tmp_isCopyKindMCFromGr) set KatMC.Kind := GroupMC.Kind;
+            //--------------------------------------
+
+            //--наследование статьи затрат из группы----
+            var tmp_isCopyStZatrMCFromGr : boolean; tmp_isCopyStZatrMCFromGr := False;
+            if (KatMC.cStZatr <> GroupMC.cStZatr)
+             If (wGetTune('McUsl.CopyStZatrMCFromGr') = 1) tmp_isCopyStZatrMCFromGr := True
+              else If (wGetTune('McUsl.CopyStZatrMCFromGr') = 2)
+                If (message(''#3'Наследовать статью затрат группы ?',YesNo)=cmYes)
+                  tmp_isCopyStZatrMCFromGr := True;
+            if (tmp_isCopyStZatrMCFromGr) set KatMC.cStZatr := GroupMC.cStZatr;
+            //--------------------------------------
+
+            //--наследование элемента затрат из группы----
+            var tmp_isCopyElZatrMCFromGr : boolean; tmp_isCopyElZatrMCFromGr := False;
+            if (KatMC.cKaElem <> GroupMC.cKaElem)
+             If (wGetTune('McUsl.CopyElZatrMCFromGr') = 1) tmp_isCopyElZatrMCFromGr := True
+              else If (wGetTune('McUsl.CopyElZatrMCFromGr') = 2)
+                If (message(''#3'Наследовать элемент затрат группы ?',YesNo)=cmYes)
+                  tmp_isCopyElZatrMCFromGr := True;
+            if (tmp_isCopyElZatrMCFromGr) set KatMC.cKaElem := GroupMC.cKaElem;
+            //--------------------------------------
+
+            if (GroupMC.cType <> 0)
+             {
+              set KatMC.cType := GroupMC.cType;
+              if (GetFirst TypeMC = tsOk)
+                set KatMC.PrMat := TypeMC.PrMat;
+             }
+
+            if (AlgBKCurMC=1)
+             {//Если используем системный алгоритм расчета Бар-кода
+              TmpBarKod := KatMC.BarKod;
+              SetBarkodFromGrMC;
+             }
+            if (Not IsNew)
+              isMyUpdateTable;
+
+            if (isMyCurB)
+              if (wFiltrGr = 0)
+                {
+                  if (not BoundActive(tbByMCGrp))
+                    AddBounds(tbByMCGrp);
+                }
+              else
+                if (not BoundActive(tbByMCGrpKod))
+                  AddBounds(tbByMCGrpKod);
+          }
+         else
+          {
+            //--------------------------------------------------------------
+            //в интерфейсе Групп МЦ могли запустить корректировку текущей МЦ
+            //например при изменении Типа группы МЦ и пр., поэтому для
+            //предотвращения конфликта перечитаем запись
+            if (not isNew) ReReadRecord(#KatMC);
+            //--------------------------------------------------------------
+          }
+      }
+
+    #KatMC.BarKod:
+     if (AlgBKCurMC = 1)
+      {//Если используем системный алгоритм расчета Бар-кода
+       PickBarKod;
+      }
+
+    #KatMC.OKDP: RunInterface('GetOKDP', KatMc.OKDP, KatMc.TNVED);
+    #StZatr.Name: RunInterface('GetStatZatr', KatMC.cStZatr, word(0));
+    #KaElem.Name:
+#ifdef ComponentVersion
+      RunInterface('GetKaElem', word(1), KatMC.cKaElem);
+#else
+     RunInterface('iKaElem', word(1), KatMC.cKaElem);
+#end
+    #KatMC.Massa
+  , #KatMC.mTara
+  , #fBrutto:
+      if (Message('Пересчитать массу для текущей матценности!', YesNo) = cmYes)
+     {
+       set KatMC.Massa := 0;
+       set KatMC.mTara := 0;
+
+       _LOOP SpMC
+         {
+           set KatMC.Massa := KatMC.Massa + (KatMC3.Massa * SpMC.Kol);
+           set KatMC.mTara := KatMC.mTara + (KatMC3.mTara * SpMC.Kol);
+         }
+     }
+
+
+  end;
+  ReScanPanel(#KatMC);
+}
+
+
+!-------------------------------------------------------------------------------
+Procedure PrintOneCurrentMC (MyName : string);
+ var _sRole, _sAn, _sZn : string;
+
+{
+  frmKatMC.write(KatMC.NRec);
+  frmKatMC.write(MyName);
+  frmKatMC.write(GroupMC.Name);
+  frmKatMC.write(GroupMC.KOD);
+  frmKatMC.write(KatMC.BarKod);
+  frmKatMC.write(KatMC.OKDP);
+  frmKatMC.write(KatED.Name);
+  frmKatMC.write(KatMC.SizeX,5);
+  frmKatMC.write(KatMC.SizeY,5);
+  frmKatMC.write(KatMC.SizeZ,5);
+  frmKatMC.write(KatMC.Massa,5);
+  frmKatMC.write(KatMC.mTara,5);
+  frmKatMC.write(KatMC.Volume,5);
+  frmKatMC.write(KlResHr.Name);
+  frmKatMC.write(TekMc.Reserve,3);
+  frmKatMC.write(TekMC.KolAKT,3);
+  frmKatMC.write(KatMC.ZapasMin,3);
+  frmKatMC.write(KatMC.ZapasMax,3);
+  frmKatMC.write(TNVED);
+  //--Аналитика
+  if (KatMC.cMaskMC<>0)
+   {
+    frmKatMC.write(MaskMC.Name);
+    frmKatMC.write(Sloj.Name);
+
+    fGetHashAn.PosChangeInKonteinerNonVisual(KatMC.cSloj, KatMC.cHashAn);
+    if (fGetHashAn.MoveRecHash('GetFirst', _sRole, _sAn, _sZn))
+     do {
+      frmKatMC.PutEvent(feDoLoop);
+      frmKatMC.write(_sRole);
+      frmKatMC.write(_sAn);
+      frmKatMC.write(_sZn);
+     } while (fGetHashAn.MoveRecHash('GetNext', _sRole, _sAn, _sZn))
+
+   }
+  else
+   {//frmKatMC.SkipFormat(2);
+    frmKatMC.write('---');
+    frmKatMC.write('---');
+   }
+}
+
+
+Procedure PrintOneMyDoc;
+{
+ var NameClass : string;
+ NameClass := '';
+ if (isMyUpdateTable)
+  {
+   frmKatMC.write(NameClass);
+   PrintOneCurrentMC(KatMC.Name);
+   frmKatMC.PutEvent(feBreak);
+   if (frmKatMC.error)
+    {
+     frmKatMC.abortForm;
+     ReReadRecord;
+    }
+   else
+     frmKatMC.showFile('');
+  }
+  else
+    message(''#3'Перед печатью заполните документ',Information+CancelButton);
+}
+
+
+// Вызывается из cmHotKeys (cmPrintDoc)
+// Печать каталога матценностей
+Procedure PrintMyDoc;
+var CountMark : longint;
+    IndMark   : longint; // индекс маркера
+{
+  var nprinted : longint;
+  nprinted := 0;
+  var NameClass : string;
+  NameClass := '';
+
+  if (isMyUpdateTable)
+  {
+      if (extCl)
+       {
+        if (GetFirst ExClassName where ((cClass == ExClassName.ClassCode and
+                                         coKatMC == ExClassName.wTable)) = tsOk)
+          NameClass := '(фильтр по внешней классификации: "' +
+                      string(ExClassName.Name) + '", по коду "' + string(sClass) + '")';
+       }
+      else
+       {
+        CountMark := GetMarkerCount(hMarker);
+       }
+    frmKatMC.write(NameClass);
+
+    PushPos(#KatMC);
+    if ((GetFirst KatMC) = tsOK)
+    do
+    {
+      var nam : string;
+      Nam := KatMC.Name;
+
+      if (ExtCl)
+        {
+           if (GetFirst ExClassVal where
+           ((
+             KatMC.NRec   == ExClassVal.cRec   and
+             cClass       == ExClassVal.ClassCode
+           )) = tsOk)
+           { if(GetFirst ExClassIer where
+               ((
+                  sClass               == ExClassIer.cGroup and
+                  ExClassVal.cClassSeg == ExClassIer.cRecDs
+               ))<>tsOk)
+               Continue;
+           }
+           else
+             continue;
+
+           if (GetFirst ExClassIer
+              where ((
+!                      cClass == ExClassIer.ClassCode and
+                      ExClassVal.cClassSeg == ExClassIer.cRecDs)) = tsOK)
+             Nam := Nam + ' ("' + string(ExClassVal.cClassSeg) + '"-' + ExClassIer.Name + ')'
+           else
+             Nam := Nam + ' (код "' + string(ExClassVal.cClassSeg) + '")';
+        }
+      else
+        if (CountMark>0)
+          if (Not SearchMarker(hMarker, KatMC.NRec, IndMark)) Continue;
+
+      nprinted := nprinted + 1;
+      PrintOneCurrentMC(Nam);
+    }
+    while ((GetNext KatMC) = tsOk)
+
+    PopPos(#KatMC);
+    frmKatMC.PutEvent(feBreak);
+
+
+    if (frmKatMC.error)
+      {
+        frmKatMC.abortForm;
+        ReReadRecord;
+      }
+    else
+      if (nprinted = 0)
+        {
+          message(''#3'По установленному фильтру нет матценностей для печати',Information+OkButton);
+          frmKatMC.abortForm;
+        }
+      else
+        frmKatMC.showFile('');
+  }
+  else
+    message(''#3'Перед печатью заполните документ',Information+CancelButton);
+}
+
+//------------------------------------------------------------------------------
+// Вызывается из cmHotKeys (cmPlansNo)
+// Печать каталога матценностей по внешней классификации
+Procedure PrintByExtClass;
+{
+  if (isMyUpdateTable)
+    {
+      cClass := 0;
+      sClass := 0;
+      if ( RunInterface('PickExClassifier',
+                        word(coKatMC),        // номер таблицы
+                        sClass,               // значение классификационного кода (возвращаемый)
+                        word(0)) <> cmCancel)
+        {
+          ExtCl := true;
+          if( getfirst ExClassIer where
+                ((sClass == ExClassIer.cGroup)) = tsOk)
+              cClass := ExClassIer.ClassCode;  //DD 10-FEB-99
+          PrintMyDoc;
+          ExtCl := false;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Вызывается из cmHotKeys (cmValue12)
+// Обновление наименований матценностей в прайс-листах
+Procedure NewPrices;
+{
+  if (Not isMyUpdateTable)
+    Exit;
+
+  StartNewVisual(vtIndicatorVisual, vfTimer+vfBreak+vfConfirm,
+             ''#3'Обновление прайс-листов...'#13, RecordsInTable(#KatMC));
+
+  PushPos(#KatMC);
+
+  var wdid :longint;   wdid := 0;
+  var nBad :longint;   nBad := 0;
+  var nUpd :longint;   nUpd := 0;
+
+  _LOOP KatMC
+    if (Not NextVisual)
+      break;
+    else
+      {
+        SetVisualHeader(''#3'Обновление прайс-листов...'#13#3'(проверено МЦ: '+string(wDid)+')');
+        wdid := wdid + 1;
+
+        _LOOP Prices
+          if ( (Prices.name     <> KatMC.Name)
+            OR (Prices.kod      <> KatMC.kGroupMC)
+            OR (Prices.cGroupMC <> KatMC.cGroupMC)
+            OR (Prices.BarKod   <> KatMC.BarKod) )
+            {
+              Prices.name     := KatMC.Name;
+              Prices.kod      := KatMC.kGroupMC;
+              Prices.cGroupMC := KatMC.cGroupMC;
+              Prices.BarKod   := KatMC.BarKod;
+
+              if (update current Prices <> tsOK)
+                nBad := nBad + 1;
+              else
+                nUpd := nUpd + 1;
+            }
+      }
+
+  PopPos(#KatMC);
+  StopVisual('',0);
+  message(''#3'Контроль соответствия полей закончен.'#13#13+
+              '              всего проверено МЦ: '+string(wdid)+''#13+
+              'обновлено позиций в прайс-листах: '+string(nUpd)+''#13+
+              '           ошибок при обновлении: '+string(nBad),
+              Information + OkButton);
+}
+
+!-------------------------------------------------------------------------------
+//Вызывается в cmDefault для KatMC
+//Заполняем поля по сохраненному DSK
+function ReadCrMCInfo : Boolean;
+{
+  var DataChanged : Boolean;
+  var initFrDsk : Word;
+
+  ReadCrMCInfo := False;
+  if (not ReadMyDSK( initFrDsk, 'InitMCFromDSK', DataChanged))
+    Exit;
+  if (initFrDsk <> 1)
+    Exit;
+  ReadCrMCInfo := True;
+  if (not ReadMyDSK( KatMC.Name, 'InitMCFromDSKName', DataChanged))
+    KatMC.Name := '';
+  if (not ReadMyDSK( KatMC.BarKod, 'InitMCFromDSKBarKod', DataChanged))
+    KatMC.BarKod := '';
+  if (not ReadMyDSK( KatMC.cEd, 'InitMCFromDSKEd', DataChanged))
+    KatMC.cEd := 0;
+  if (not ReadMyDSK( KatMC.cGroupMC, 'InitMCFromDSKGroupMC', DataChanged))
+    KatMC.cGroupMC := 0;
+  SaveMyDsk( Word(0), 'InitMCFromDSK');
+  SetModified( True);
+}
+
+//-------------------------------------------------------------------------------
+//проверка на уникальность Аналитик
+//
+Function Is_Correct_KAU (New_cHashAn : comp;
+                     var _NameMC     : string;
+                     var _BarKod     : string[30];
+                     var _isArch     : word;
+                     var _PrMat      : word
+                        ) : boolean;
+var Curr_MC_NRec    : comp;
+    Curr_MC_cMaskMC : comp;
+{
+ Is_Correct_KAU := True;
+ _NameMC := '';
+ if (KatMC.cMaskMC <> 0)
+   if (boGetTune('McUsl.ANALITIK.IsUniqueHashAn'))
+     {
+      Curr_MC_NRec    := KatMC.NRec;
+      Curr_MC_cMaskMC := KatMC.cMaskMC;
+
+      PushPos(#KatMC2);
+      _LOOP KatMC2 where ((Curr_MC_cMaskMC == KatMC2.cMaskMC
+                       AND New_cHashAn     == KatMC2.cHashAn))
+           if (KatMC2.NRec <> Curr_MC_NRec)
+             {
+               Is_Correct_KAU := False;
+               _NameMC := KatMC2.Name;
+               _BarKod := KatMC2.BarKod;
+               _isArch := KatMC2.isArch;
+               _PrMat  := KatMC2.PrMat;
+               Break;
+             }
+      PopPos(#KatMC2);
+     }
+}
+
+//-------------------------------------------------------------------------------
+// Обновить KatMC.cHashAn если изменялись значения аналитик для текущей позиции МЦ
+//
+Function UpdateMCHashAn : boolean;
+ {
+  UpdateMCHashAn := True;
+
+  if (fGetHashAn.IsEditRecord)
+    KatMC.cHashAn  := fGetHashAn.ReturnHashAn;
+ }
+
+//------------------------------------------------------------------------------
+//
+Function RecalcMaskFieldOne (bMSG : boolean) : boolean;
+var Buf : TKatMC;
+{
+  RecalcMaskFieldOne := TRUE;
+
+  if (KatMC.cMaskMC = 0)
+    {
+      if (bMSG)
+        Message(''#3'У данной МЦ нет Шаблона !',Information);
+      else
+        {
+          frmErrKatMCDog.write('Для матценности "' + KatMC.Name + '" не задан шаблон. По даненой матценности не произведен перерасчет расчетных полей!');
+          RecalcMaskFieldOne := FALSE;
+        }
+
+      Exit;
+    }
+
+   //обновить KatMC.cHashAn
+   UpdateMCHashAn;
+
+   if (Not isMyUpdateTable)
+     Exit;
+
+   KatMC.f_LND_n := '';
+
+   Buf := TKatMC(KatMC.buffer);
+
+   if (NOT fObjf_mmc.UpdateFieldsMC_(Buf))
+     {
+       if (bMSG)
+         Message(''#3'Обновление расчетных полей МЦ не произведено.',Information)
+       else
+         frmErrKatMCDog.write('Для матценности "' + KatMC.Name + '" обновление расчетных полей не произведено!');
+     }
+   else
+     {
+       KatMC.buffer := type$KatMC(Buf);
+       //проверка на уникальность прошла в fObjf_mmc.UpdateFieldsMC_
+       Update current KatMC;
+       UpdateOutTbl(KatMC.buffer);
+       ReReadRecord(#KatMC);
+     }
+
+#ifdef __VarNameMCU__
+  fVarNameMCU.My_ReScanPanel_ReReadRecord
+#end
+}
+
+
+//-------------------------------------------------------------------------------
+//Обновляет расчетные поля KatMC по формулам Шаблона МЦ.
+//
+Procedure RecalcMaskField;
+var
+  iCount  : longint;
+  MarkRec : comp;
+  result  : boolean;
+{
+  result := TRUE;
+
+  if (GetMarkerCount(hMarker) = 0 OR CurWindow = ID_wKatMC)
+   {
+     RecalcMaskFieldOne(TRUE);
+   }
+  else
+   {
+     StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, ''#3'Идет пересчет расчетных полей...', 1 );
+
+     PushPos(#KatMC);
+
+     for ( iCount := 0; iCount < GetMarkerCount(hMarker); inc(iCount))
+       if(GetMarker(hMarker, iCount, MarkRec))
+         if (GetFirst KatMC where ((comp(MarkRec) == KatMC.NRec)) = tsOk)
+           result := result AND RecalcMaskFieldOne(FALSE);
+
+     PopPos(#KatMC);
+
+     StopVisual('', 0);
+   }
+
+  ReReadRecord(#KatMC);
+
+  if (NOT result)
+    {
+      frmErrKatMCDog.PutEvent(feBreak);
+
+      if (frmErrKatMCDog.error)
+        frmErrKatMCDog.AbortForm;
+      else
+        frmErrKatMCDog.ShowFile('Изменены ссылки:');
+    }
+}
+
+//------------------------------------------------------------------------------
+//Установка фильтров по аналитикам
+//
+Procedure SetFiltrKAU;
+{
+  if (CurStrInStr<>0) CurStrInStr := 0;
+  if (CurFilAn<>0)
+   {
+    //инициализировать на циклическую обработку
+    foFilterAn.isFilterAnCorrect(comp(0), comp(0));
+
+    PushConditionForLeave(tcFilterAn, #KatMC); // использование сложного фильтра
+    ReInitTable(#KatMC,fmMemory + fmWriteThru);
+    bFiltrKAU := TRUE;
+    MTRetrieve(#KatMC,mfFilters + mfClear);
+    PopConditionForLeave(tcFilterAn, #KatMC);
+
+    if (GetFirst KatMC <> tsOk)
+       {
+         message('МЦ, удовлетворяющих фильтру нет!', OKButton);
+         CurFilAn := 0;
+         bFiltrKAU := FALSE;
+         bFiltrStr := FALSE;
+         ReInitTable(#KatMC,fmNormal);
+       }
+   }
+  else
+   {
+    bFiltrKAU := FALSE;
+    bFiltrStr := FALSE;
+    ReInitTable(#KatMC,fmNormal);
+   }
+
+  SetMyTitle;
+
+  if (GetFirst KatMc = tsOk)
+    ReReadRecord;
+}
+
+//------------------------------------------------------------------------------
+//Установка фильтров по подстроке в Наименовании/Бар-коде
+Procedure SetFiltr_InStr;
+{
+  if (CurFilAn<>0) CurFilAn := 0;
+  CurStrInStr := 0;
+  case curfield of
+    #KatMC.Name :
+     {CurStrInStr := 1;
+      if (RunDialog('FilterMCname',s2) = cmCancel) set s2 := '';
+     }
+    #KatMC.BarKod :
+     {CurStrInStr := 2;
+      if (RunDialog('FilterMCbarkod',s2) = cmCancel) set s2 := '';
+     }
+    #KatMC.BarKod2 :
+     {CurStrInStr := 3;
+      if (RunDialog('FilterMCbarkod',s2) = cmCancel) set s2 := '';
+     }
+  end;
+  if (s2 = '') CurStrInStr := 0;
+
+  if (CurStrInStr <> 0)
+   {
+    PushConditionForLeave(if(CurStrInStr=1,tcFilterInStrName,tcFilterInStrKOD), #KatMC);
+    ReInitTable(#KatMC,fmMemory + fmWriteThru);
+    bFiltrStr := TRUE;
+    MTRetrieve(#KatMC,mfFilters + mfClear);
+    PopConditionForLeave(if(CurStrInStr=1,tcFilterInStrName,tcFilterInStrKOD), #KatMC);
+    if (GetFirst KatMC <> tsOk)
+       { message('МЦ, удовлетворяющих фильтру нет!', OKButton);
+         CurStrInStr := 0; s2 := '';
+         bFiltrKAU := FALSE;
+         bFiltrStr := FALSE;
+         ReInitTable(#KatMC,fmNormal);
+       }
+   }
+  else
+   {
+    bFiltrKAU := FALSE;
+    bFiltrStr := FALSE;
+    ReInitTable(#KatMC,fmNormal);
+   }
+  SetMyTitle;
+  if (GetFirst KatMc <> tsOk) {};
+  ReReadRecord(#KatMC);
+  RescanPanel(#KatMC);
+}
+
+!-------------------------------------------------------------------------------
+//Обработка попытки добавления новой записи в каталог МЦ
+function InsertMcNastr (isInsert : boolean) : boolean;
+{
+    if (Not IsEditMyRecords(2)) {Abort; Exit;}
+    InsertMcNastr := True;
+
+    if (isInsert) GlobIsDefaultQesch := False
+             else { if (Not GlobIsDefaultQesch) {GlobIsDefaultQesch := True; Exit;}
+                    GlobIsDefaultQesch := True; }
+
+    tmpMC_word1 := 0;
+    case wGetTune('McUsl.ANALITIK.AddMC') of
+      1: tmpMC_word1 := 1;
+      2: if(Message(''#3'Создать МЦ по Шаблону ?',YesNo)=No) tmpMC_word1 := 1;
+    end;
+
+    if (tmpMC_word1=0)
+     {
+      InsertMcNastr := False;
+
+      if (not boGetTune('McUsl.ANALITIK.IsNew')) //Нельзя создавать новые МЦ
+       {
+        if (isInsert)
+         {
+          Message(''#3'Вы не имеете прав на создание новой МЦ',Information);
+         }
+        else
+         {
+          if (GetFirst KatMC <> tsOk)
+           {
+            //если наложен фильтр по аналитикам, то отключим его...
+            if (CurFilAn<>0)
+             {
+               message('МЦ, удовлетворяющих фильтру по Аналитикам нет!'+chr(13)+
+                       'Перехожу в режим просмотра всех МЦ.', OKButton);
+               CurFilAn := 0;
+               SetFiltrKAU;
+             }
+
+            //если наложен фильтр по архивным, то отключим его...
+            if ((IsFltArch_ <> 0) and (GetFirst KatMc <> tsOk))
+             {
+               message('МЦ, удовлетворяющих фильтру по Архивным нет!'+chr(13)+
+                       'Перехожу в режим просмотра всех МЦ.', OKButton);
+               IsFltArch_:=0;
+               SetFiltrArch;
+             }
+
+            if (GetFirst KatMC = tsOk)
+             {
+              ReReadRecord(#KatMC);
+              SetMyTitle;
+             }
+            else
+             {
+              Message(''#3'Каталог МЦ не содержит записей.',Information);
+              CloseInterface(cmCancel);
+             }
+           }
+         }
+       }
+     else
+       PutCommand(cmValue25);
+     }
+}
+
+
+
+
+//------------------------------------------------------------------------------
+// Форматирование окна редактирования МЦ для тек.записи
+//
+Procedure RefreshASUPKomplektFormat;
+ var i_tmp_122 : word;
+{
+  if ( NOT IsOpenEditWin)   //если не открыто окно редактирования МЦ
+    Exit;
+
+  if (Trim(KatMC.kGroupMC)<>'' AND KatMC.kGroupMC = sGetTune('Tara.KodGrMcTara'))
+    {
+      SetFieldSelectable(#KatMC.Bonus_pr, TRUE );
+      SetHelpAndStatusContext(ID_scKatMC_Torg,#KatMC.NormUb,sci13CtrlDelEsc,0);
+!      SetHelpAndStatusContext(ID_scKatMC_Torg,#KatMC.NormUb,sci1378Esc,0);
+    }
+  else
+    {
+      SetFieldSelectable(#KatMC.Bonus_pr, FALSE );
+      SetHelpAndStatusContext(ID_scKatMC_Torg,#KatMC.NormUb,sci178Esc,0);
+    }
+
+  if (KatMC.cMaskMC = 0)   //Скрыть аналитики
+   {
+    if (CurTabInWindow(ID_wKatMC) = ID_scKAU)
+     {SetFormat(ID_scKatMC);
+      SelectFormat(ID_scKatMC);}
+    SetFormatEnabled (ID_scKAU, False);
+   }
+  else                     //Показать аналитики
+    SetFormatEnabled (ID_scKAU, True);
+
+  //зафиксируем что мы стоим на вкладках Производства--------------
+  i_tmp_122 := 0;
+  if (CurTabInWindow(ID_wKatMC) = ID_scKatMC_Manuf)
+
+//  if (  CurTabInWindow(ID_wKatMC)=ID_scKatMC_ASUP_GProd
+//     or CurTabInWindow(ID_wKatMC)=ID_scKatMC_ASUP_Materials
+//     or CurTabInWindow(ID_wKatMC)=ID_scKatMC_ASUP_External)
+     i_tmp_122 := 1
+   else
+  //зафиксируем что мы стоим на вкладках Комплекта------------------
+  if (GetTabbedSheetVisible(ID_SpComplBrw1) or GetTabbedSheetVisible(ID_SpComplBrw)
+      or GetTabbedSheetVisible(ID_SpComplBrw2))
+   if (CurTabInWindow(ID_wKatMC)=ID_SpComplBrw1 or CurTabInWindow(ID_wKatMC)=ID_SpComplBrw
+       or CurTabInWindow(ID_wKatMC)=ID_SpComplBrw2)
+     i_tmp_122 := 2;
+  //---------------------------------------------------------------
+   SetTabbedSheetVisible (ID_SpComplBrw2,            False);
+   SetTabbedSheetVisible (ID_SpComplBrw1,            False);
+   SetTabbedSheetVisible (ID_SpComplBrw,             False);
+//   SetTabbedSheetVisible (ID_scKatMC_ASUP_Materials, False);
+//   SetTabbedSheetVisible (ID_scKatMC_ASUP_External , False);
+//   SetTabbedSheetVisible (ID_scKatMC_ASUP_GProd,     False);
+  //SelectFormat(ID_MyBrow);
+  SetFieldVisible(#KaElem.Name, FALSE);   //SetFieldSelectable(#KaElem.Name, FALSE ); //ShV(04/04/02) - Пир 102.25888
+//  SetFieldVisible(#KatMC.Ret1, FALSE);
+  if (KatMC.Kind = 0)
+    {
+      SetFieldVisible(#KaElem.Name, TRUE);   //SetFieldSelectable(#KaElem.Name, TRUE ); //ShV(04/04/02) - Пир 102.25888
+
+//    if (KatMC.PrMat = 0)
+//      SetFieldVisible(#KatMC.Ret1, TRUE);
+    }
+
+  if ( KatMC.Komplekt > 0 )
+    {
+      if ( KatMC.tpPlan > 0 )
+        set KatMC.tpPlan := 0;
+
+      if ( KatMC.wSerialReg > 0 )
+        set KatMC.wSerialReg := 0;
+
+      SetFieldSelectable(#KatMC.Komplekt, TRUE);
+      SetFieldSelectable(#KatMC.tpPlan, FALSE);
+      SetFieldSelectable(#KatMC.wSerialReg, FALSE);
+    }
+  else
+    if ( KatMC.tpPlan > 0 )
+      {
+        if ( KatMC.Komplekt > 0 )
+          set KatMC.Komplekt := 0;
+
+        if ( KatMC.wSerialReg > 0 )
+          set KatMC.wSerialReg := 0;
+
+        SetFieldSelectable(#KatMC.Komplekt, FALSE);
+        SetFieldSelectable(#KatMC.tpPlan, TRUE);
+        SetFieldSelectable(#KatMC.wSerialReg, FALSE);
+      }
+    else
+      if ( KatMC.wSerialReg > 0 )
+        {
+          if ( KatMC.Komplekt > 0 )
+            set KatMC.Komplekt := 0;
+
+          if ( KatMC.tpPlan > 0 )
+            set KatMC.tpPlan := 0;
+
+          SetFieldSelectable(#KatMC.Komplekt, FALSE);
+          SetFieldSelectable(#KatMC.tpPlan, FALSE);
+          SetFieldSelectable(#KatMC.wSerialReg, TRUE);
+        }
+      else
+        {
+          SetFieldSelectable(#KatMC.Komplekt, TRUE);
+          SetFieldSelectable(#KatMC.tpPlan, TRUE);
+          SetFieldSelectable(#KatMC.wSerialReg, TRUE);
+        }
+
+  case i_tmp_122 of
+    1: //стояли Производстве
+     {
+      if (KatMC.tpPlan = 1)
+        SetTabbedSheetVisible (ID_SpComplBrw2, True)
+      else
+        if (KatMC.Komplekt = 1) SetTabbedSheetVisible (if(KatMc.Divide=1,ID_SpComplBrw1,ID_SpComplBrw), True);
+      //----Показать Производство-------------------------------
+//      case TypeMC.Kind of
+//        2,3 : {
+////          SetTabbedSheetVisible (ID_scKatMC_ASUP_GProd,True);
+////          SetFormat(ID_scKatMC_ASUP_GProd);
+////          SelectFormat(ID_scKatMC_ASUP_GProd);
+//          }
+//        else
+//          if (TypeMC.PrMat = 0)
+//           {
+////            SetTabbedSheetVisible (ID_scKatMC_ASUP_Materials,True);
+////            SetFormat(ID_scKatMC_ASUP_Materials);
+////            SelectFormat(ID_scKatMC_ASUP_Materials);
+//           }
+//          else
+//           {
+////            SetTabbedSheetVisible (ID_scKatMC_ASUP_External,True);
+////            SetFormat(ID_scKatMC_ASUP_External);
+////            SelectFormat(ID_scKatMC_ASUP_External);
+//           }
+//      end; // case
+     }
+    2: // стояли на Комплекте
+     {
+      //----Показать Производство-------------------------------
+//      case TypeMC.Kind of
+//        2,3 : {}//SetTabbedSheetVisible (ID_scKatMC_ASUP_GProd,True);
+//        else
+//          if (TypeMC.PrMat = 0)
+//            {}//SetTabbedSheetVisible (ID_scKatMC_ASUP_Materials,True)
+//          else
+//            {}//SetTabbedSheetVisible (ID_scKatMC_ASUP_External,True);
+//      end; // case
+
+      if (KatMC.tpPlan = 1)
+       {
+        SetTabbedSheetVisible (ID_SpComplBrw2, True);
+        SetFormat(ID_SpComplBrw2);
+        SelectFormat(ID_SpComplBrw2);
+       }
+      else
+        if (KatMC.Komplekt = 1)
+         {
+          SetTabbedSheetVisible (if(KatMc.Divide=1,ID_SpComplBrw1,ID_SpComplBrw), True);
+          SetFormat(if(KatMc.Divide=1,ID_SpComplBrw1,ID_SpComplBrw));
+          SelectFormat(if(KatMc.Divide=1,ID_SpComplBrw1,ID_SpComplBrw));
+         }
+        else
+         {
+          SetFormat(ID_scKatMC);
+          SelectFormat(ID_scKatMC);
+         }
+     }
+    0: // стояли не на Производстве и не на Комплекте
+     {
+//      case TypeMC.Kind of
+//        2,3 : {}//SetTabbedSheetVisible (ID_scKatMC_ASUP_GProd,True);
+//        else
+//          if (TypeMC.PrMat = 0)
+//            {}//SetTabbedSheetVisible (ID_scKatMC_ASUP_Materials,True)
+//          else
+//            {}//SetTabbedSheetVisible (ID_scKatMC_ASUP_External,True);
+//      end; // case
+      if (KatMC.tpPlan = 1)
+        SetTabbedSheetVisible (ID_SpComplBrw2, True)
+      else
+        if (KatMC.Komplekt = 1) SetTabbedSheetVisible (if(KatMc.Divide=1,ID_SpComplBrw1,ID_SpComplBrw), True);
+     }
+   end; // case
+
+#ifdef Kachestvo1
+    SetFieldSelectable(#KatMC.wIntervalQC, if (KatMC.wQualityControl > word(0), TRUE, FALSE));
+#endif
+
+#ifdef __VarNameMCU__
+  if boGetTune('McUsl.VarNameMC_IsUse')
+    if (CurTabInWindow(ID_wKatMC) = ID_scVarName) //если текущая вкладка "варианты наименования"
+      fVarNameMCU.PosChangeInKonteiner(KatMC.NRec);
+#end
+
+   SetHelpAndStatusContext(ID_scKatMC_Sklad, #KatMC.Massa , if (KatMC.KOMPLEKT = 0, sci1Esc, sci13Esc), -1);
+   SetHelpAndStatusContext(ID_scKatMC_Sklad, #KatMC.mTara , if (KatMC.KOMPLEKT = 0, sci1Esc, sci13Esc), -1);
+   SetHelpAndStatusContext(ID_scKatMC_Sklad, #fBrutto     , if (KatMC.KOMPLEKT = 0, sci1Esc, sci13Esc), -1);
+
+   var bChange : boolean; bChange := TRUE;
+
+   // проверка настройки 'Разрешать изменение группы МЦ при наличии движения по МЦ'
+   if not boGetTune('Pick.ChangeGroupMCDvizh')
+     if (RecordExists SpOrder = tsOk)
+       bChange := FALSE;
+
+   SetFieldSelectable(#GroupMC.Name, bChange);
+   SetFieldSelectable(#GroupMC.Kod , bChange);
+
+
+   bChange := TRUE;
+   // проверка настройки 'Разрешать изменение типа МЦ при наличии движения по МЦ'
+   if not boGetTune('Pick.ChangeTipMCDvizh')
+     if (RecordExists SpOrder = tsOk)
+       bChange := FALSE
+
+   SetFieldSelectable(#TypeMC.Name, bChange);
+
+// igor
+
+   SetTabbedSheetVisible(ID_scKatMC_Sklad , false);
+   SetTabbedSheetVisible(ID_scKatMC_Torg  , false);
+   SetTabbedSheetVisible(ID_scKatMC_Manuf , false);
+   SetTabbedSheetVisible(ID_SpComplBrw1   , false);
+   SetTabbedSheetVisible(ID_SpComplBrw2   , false);
+   SetTabbedSheetVisible(ID_scKAU         , false);
+
+
+
+// SetFieldVisible(#prPreutil, if (TypeMC.Kind = 1, TRUE, FALSE));
+
+} // procedure RefreshASUPKomplektFormat
+
+!-------------------------------------------------------------------------------
+procedure ProcessInsertMC;
+var tmpMC    : comp;
+    tmpIsNew : boolean;
+{
+   tmpMC    := 0;
+   tmpIsNew := False;
+
+   RunInterface('AddGetMC',KatMC.cMaskMC,True,word(0),tmpMC,tmpIsNew);
+   if (tmpIsNew)
+    {
+     if (GetFirst KatMC where ((tmpMC == KatMC.NRec)) <> tsOk)
+      if (GetFirst KatMC <> tsOk) {};
+     ReScanPanel(#KatMC);
+     ReReadRecord(#KatMC);
+
+     SetMyTitle;
+     SelectField(#KatMC.Name);
+     RefreshASUPKomplektFormat; //для перерисовки окна
+     PutCommand(cmValue1);
+
+     if (IsOpenEditWin)   //если открыто окно редактирования МЦ
+     {
+       if (CurTabInWindow(ID_wKatMC) = ID_scKAU) //если  в этом окне текущая панель по аналитикам
+         fGetHashAn.PosChangeInKonteiner(KatMC.cSloj, KatMC.cHashAn);
+#ifdef Kachestvo1
+       if (CurTabInWindow(ID_wKatMC) = ID_scKachestvo) //если  в этом окне текущая панель по качеству
+          FValpokaz.PosChangeInKonteiner(coKatMC, KatMC.NRec);
+#end
+     }
+    }
+
+}
+
+!-------------------------------------------------------------------------------
+//проверка на корректность заполнения полей МЦ
+function Is_Correct_Fields : boolean;
+{
+  Is_Correct_Fields := False;
+  if (trim(KatMC.Name) = '')
+    {
+      message('Не указано наименование матценности!', Warning + CancelButton);
+      SelectField(#KatMC.Name);
+      Exit;
+    }
+  else
+  if (KatMC.cEd = 0)
+    {
+      message('Не указана учетная единица измерения!', Warning + CancelButton);
+      SelectField(#KatEd.Name);
+      Exit;
+    }
+  else
+   if (CheckNoEmPanel)
+     if (isNeedMessNullFld)
+      if ((KatMC.cGrNal = 0) and (boGetTune('McUsl.GrNalWarning')))
+       if (message('Не указана группа налогов...'+
+                 ''#13'Задать группу налогов?',YesNo+Confirmation+4096)=cmYes)
+         {
+           SelectFormat(ID_scKatMC);
+           SelectField(#GrNal.Kod);
+           Exit;
+         }
+  Is_Correct_Fields := True;
+}
+
+
+
+!-------------------------------------------------------------------------------
+//проверка на обновление текущей записи МЦ
+function IsUpdateCurMC (var MyIsCorrectKAU_ : boolean) : boolean;
+var MyNM_ : string;
+    MyIsEdAn : boolean;
+    Buf : TKatMC;
+    _BarKod  : string[30];
+    _isArch  : word;
+    _PrMat   : word;
+{
+  IsUpdateCurMC   := False;
+  MyIsCorrectKAU_ := True;
+  if (Not IsEditMyRecords(1)) Exit;
+
+  //Проверка МЦ по Шаблонам
+  if (KatMC.cMaskMC<>0)
+   {
+    MyIsEdAn := fGetHashAn.IsEditRecord;
+    UpdateMCHashAn;
+    //проверка на уникальность Аналитик
+    if (Not Is_Correct_KAU(KatMC.cHashAn, MyNM_, _BarKod, _isArch, _PrMat))
+     {
+      MyIsCorrectKAU_ := False;
+      if (IsNeedMessErr_KAU)
+        Message(''#3'Данные значения аналитик уже имеются у'
+              + if (_isArch = 0, ' ', ' архивной ')
+              + 'МЦ:'
+              + ''#13'"'
+              + MyNM_
+              + '"'
+              + ''#13'с признаком '
+              + if (_PrMat = 0, '"Материал"',
+                  if (_PrMat = 1,'"ДСЕ"', '"Инструмент, оснастка"'))
+              + ' и номенклатурным номером '
+              + _BarKod
+              + ''#13#13' Изменения не принимаются !'
+              , Warning + OkButton);
+      Exit;
+     }
+    else
+     {
+      //Автоматический пересчет расчетных полей по формулам Шаблона МЦ при изменении значений аналитик МЦ
+      if (MyIsEdAn)
+       if boGetTune('McUsl.ANALITIK.RecalcFieldsMC')
+       {
+        Buf := TKatMC(KatMC.buffer);
+        if (Not fObjf_mmc.UpdateFieldsMC_(Buf))
+         Message(''#3'Обновление расчетных полей МЦ не произведено.',Information);
+        KatMC.buffer := type$KatMC(Buf);
+       }
+     }
+   }
+
+//  var w_wMC1    : type$KatMC;
+//  w_wMC1 := KatMC.buffer;
+//  Message(''#3'5 w_wMC1.Name'=w_wMC1.Name,Information);
+
+  //проверка на корректность заполнения полей МЦ
+  if (Not Is_Correct_Fields) Exit;
+  if (Not fObjMC.KatMC_IsUpd(TKatMC(KatMC.buffer),1)) Exit;
+  IsUpdateCurMC  := True;
+}
+
+Function IsAcceptModifRec(bMes : boolean) : boolean;
+{
+  IsAcceptModifRec := FALSE;
+
+  if (wGetTune('Pick.ChangeMC') = 1)
+    if (fObjMC.KatMC_isLink(KatMC.NRec, 0))
+      {
+        if (bMes)
+          Message('Текущая матценность используется в документах. Изменение запрещено!');
+
+        Exit;
+      }
+
+  IsAcceptModifRec := TRUE;
+}
+
+//------------------------------------------------------------------------------
+// Групповая замена полей
+Procedure GroupEdit;
+var name_str  : string;
+    CountMark : longint;
+    MarkRec   : comp;
+    iCount    : longint;
+{
+
+  if (not isMyUpdateTable) Exit;
+
+  case CurField of
+    #fBrutto
+   ,#Svobodno
+   ,#KatMC.Obozn
+    :{
+       Message('Для данного поля нельзя произвести замену.');
+       Exit;
+     }
+    #MaskMC.Name    :
+     {
+      if (boGetTune('McUsl.ANALITIK.IsUniqueHashAn'))
+       {
+        ShowTune('При данном значении настройки групповая замена поля "Шаблон МЦ" не поддерживается!',
+                 'McUsl.ANALITIK.IsUniqueHashAn');
+        Exit;
+       }
+      name_str := 'Шаблон МЦ';
+     }
+    //---------------------------------------------
+    //-- Основной
+    #KatMC.OKDP      : name_str := 'Код ОКДП';
+    #KatMC.tnved     : name_str := 'Код ТНВЭД';
+    #GroupMC.KOD
+   ,#GroupMC.Name    : name_str := 'Группа МЦ';
+    #GrNal.Kod
+   ,#GrNal.Name      : name_str := 'Налоги';
+    #KatMC.RemMC     : name_str := 'Примечания';
+    #KatMC.Kind      : name_str := 'Категория';
+    #KatMC.KOMPLEKT  : name_str := 'Является комплектом';
+    #KatMC.tpPlan    : name_str := 'Является семейством';
+//#ifdef _KauReffKatMC_
+    #KauReffArray    : name_str := 'Внешние КАУ';
+//#end
+    //---------------------------------------------
+    //-- Складской учет
+    #KatMC.Massa     : name_str := 'Вес: нетто';
+    #KatMC.mTara     : name_str := 'Вес: тара';
+    #KatMC.SizeX     : name_str := 'Линейные размеры: X';
+    #KatMC.SizeY     : name_str := 'Линейные размеры: Y';
+    #KatMC.SizeZ     : name_str := 'Линейные размеры: Z';
+    #KatMC.Volume    : name_str := 'Объем';
+    #KlResHr.Name    : name_str := 'Ресурс хранения';
+    #KatMC.ZapasMin  : name_str := 'Нормативный минимальный запас';
+    #KatMC.ZapasMax  : name_str := 'Нормативный максимальный запас';
+    //---------------------------------------------
+    //-- Торговля
+    #KatMC.CenaMC    : name_str := 'Заводская(контрактная) цена';
+    #KatMC.VHODON    : name_str := 'Входящий процент надбавки';
+    #KatMC.MaxProcN  : name_str := 'Процент оптовой надбавки по умолчанию';
+    #KatMC.Bonus_pr  : name_str := 'Процент скидки/надбавки за возврат МЦ-тары';
+    #KatMC.NormUb    : name_str := 'Нормативный % убыли';
+    #KatMC.ClassGr   : name_str := 'Класс груза';
+    #KatMC.MaxON     : name_str := 'Предельные % надбавки: оптовой';
+    #KatMC.MaxRN     : name_str := 'Предельные % надбавки: розничной';
+    #KatMC.MaxORN    : name_str := 'Предельные % надбавки: сумма';
+    //---------------------------------------------
+    //-- Производство
+    #KatMC.PricePU   : name_str := 'Плановая цена';
+#ifdef GAL7_12
+    #KatMC.wPlanLevel: name_str := 'Уровень планирования';
+#end
+    #TypeMC.Name     : name_str := 'Тип матценности';
+    #KatMC.PrMat     : name_str := 'Характеристика';
+    #KatPodr.Name    : name_str := 'Цех-изготовитель';
+    #KatMC.PolZak    : name_str := 'Не рассчитывать потребность';
+    #StZatr.Name     : name_str := 'Статья затрат';
+    #KaElem.Name     : name_str := 'Элемент затрат';
+  else
+    {
+//   ,#Sloj.Name
+//   ,#KatMC.Name
+//   ,#KatED.Name
+//   ,#KatMC.BarKod
+//   ,#KatOtpEd2.Name
+      Message('Групповая замена в данном поле не поддерживается');
+      Exit;
+    }
+  end;
+
+  CountMark := GetMarkerCount(hMarker);
+  if (CountMark=0)
+   {
+    Message(''#3' Нет выбранных записей.' ,okButton);
+    Exit;
+   }
+
+  if Message(''#3'Заменять поле ' + ''#13#3'"' + name_str+'"' +
+             ''#13#3'новым значением ?',YesNo) = cmYes
+   {
+    StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm,
+                                        ''#3'Идет замена...', 1 );
+    for ( iCount := 0; iCount < CountMark; iCount := iCount+1 )
+     if(GetMarker(hMarker, iCount, MarkRec))
+       if (GetFirst KatMC2 where ((comp(MarkRec) == KatMC2.NRec)) = tsOk)
+        {
+         case CurField of
+           #MaskMC.Name     :{KatMC2.cMaskMC  := KatMC.cMaskMC;
+                              KatMC2.cSloj    := KatMC.cSloj;
+                              KatMC2.cHashAn  := KatMC.cHashAn;}
+           //---------------------------------------------
+           //-- Основной
+           #KatMC.OKDP      : KatMC2.OKDP     := KatMC.OKDP;
+           #KatMC.tnved     : KatMC2.tnved    := KatMC.tnved;
+           #GroupMC.KOD
+          ,#GroupMC.Name    :{KatMC2.cGroupMC := KatMC.cGroupMC;
+                              KatMC2.kGroupMC := KatMC.kGroupMC;}
+           #GrNal.Kod
+          ,#GrNal.Name      : KatMc2.cGrNal   := KatMc.cGrNal;
+           #KatMC.RemMC     : KatMC2.RemMC    := KatMC.RemMC;
+           #KatMC.Kind      : KatMC2.Kind     := KatMC.Kind;
+           #KatMC.KOMPLEKT  : KatMC2.KOMPLEKT := KatMC.KOMPLEKT;
+           #KatMC.tpPlan    : KatMC2.tpPlan   := KatMC.tpPlan;
+//#ifdef _KauReffKatMC_
+           #KauReffArray    : iKaureff.CopyAll(coKatMC,KatMC.NRec,KatMC2.NRec);
+//#end
+           //---------------------------------------------
+           //-- Складской учет
+           #KatMC.Massa     : KatMC2.Massa    := KatMC.Massa;
+           #KatMC.mTara     : KatMC2.mTara    := KatMC.mTara;
+           #KatMC.SizeX     : KatMC2.SizeX    := KatMC.SizeX;
+           #KatMC.SizeY     : KatMC2.SizeY    := KatMC.SizeY;
+           #KatMC.SizeZ     : KatMC2.SizeZ    := KatMC.SizeZ;
+           #KatMC.Volume    : KatMC2.Volume   := KatMC.Volume;
+           #KlResHr.Name    : KatMC2.cResHr   := KatMC.cResHr;
+           #KatMC.ZapasMin  : KatMC2.ZapasMin := KatMC.ZapasMin;
+           #KatMC.ZapasMax  : KatMC2.ZapasMax := KatMC.ZapasMax;
+           //---------------------------------------------
+           //-- Торговля
+           #KatMC.CenaMC    : KatMC2.CenaMC   := KatMC.CenaMC;
+           #KatMC.VHODON    : KatMC2.VHODON   := KatMC.VHODON;
+           #KatMC.MaxProcN  : KatMC2.MaxProcN := KatMC.MaxProcN;
+           #KatMC.Bonus_pr  : KatMC2.Bonus_pr := KatMC.Bonus_pr;
+           #KatMC.NormUb    : {KatMC2.NormUb  := KatMC.NormUb;
+                               KatMC2.cUsl    := KatMC.cUsl;
+                              }
+           #KatMC.ClassGr   : KatMC2.ClassGr  := KatMC.ClassGr;
+           #KatMC.MaxON     : KatMC2.MaxON    := KatMC.MaxON;
+           #KatMC.MaxRN     : KatMC2.MaxRN    := KatMC.MaxRN;
+           #KatMC.MaxORN    : KatMC2.MaxORN   := KatMC.MaxORN;
+           //---------------------------------------------
+           //-- Производство
+           #KatMC.PricePU   : KatMC2.PricePU    := KatMC.PricePU;
+#ifdef GAL7_12
+           #KatMC.wPlanLevel: KatMC2.wPlanLevel := KatMC.wPlanLevel;
+#end
+           #TypeMC.Name     :{KatMC2.cType      := KatMC.cType;
+                              // ??? может еще что понадобится
+                             }
+           #KatMC.PrMat     : KatMC2.PrMat    := KatMC.PrMat;
+           #KatPodr.Name    : KatMC2.cDep     := KatMC.cDep;
+           #KatMC.PolZak    : KatMC2.PolZak   := KatMC.PolZak;
+           #StZatr.Name     : KatMC2.cStZatr  := KatMC.cStZatr;
+           #KaElem.Name     : KatMC2.cKaElem  := KatMC.cKaElem;
+         end;
+         if (update current KatMC2 = tsOk)
+           UpdateOutTbl(KatMC2.buffer);
+        }
+
+    PushPos(#katMC);
+
+    case CurField of
+      #GroupMC.KOD
+     ,#GroupMC.Name:
+        for ( iCount := 0; iCount < CountMark; iCount := iCount+1 )
+          if(GetMarker(hMarker, iCount, MarkRec))
+            if (GetFirst KatMC where ((comp(MarkRec) == KatMC.NRec)) = tsOk)
+              {
+                SetBarkodFromGrMC;
+
+                if (update current KatMC = tsOk)
+                  UpdateOutTbl(KatMC.buffer);
+         }
+    end;
+
+    PopPos(#KatMC);
+
+    ReScanPanel(#KatMC);
+    StopVisual(''#3'Замена завершена...',+vfHigh1);
+   }
+}
+
+//------------------------------------------------------------------------------
+// Формирование отчета по итогам проверки ссылок группы мц в договорах
+//
+Procedure MakeOtcCheckGroupDog;
+var name_str : string;
+{
+ name_str := '';
+ if Dogovor.cDogovor = 0
+   name_str := 'договор №'
+ else
+  {
+    if Dogovor.cZamena <> 0
+      name_str := 'отменяющее соглашение №'
+    else
+      name_str := 'уточняющее соглашение №';
+  }
+ name_str := name_str + String(Dogovor.NoDoc) + ' от ' + DateToStr(Dogovor.dDoc,'DD/MM/YYYY');
+ frmErrKatMCDog.write(name_str);
+}
+
+
+//------------------------------------------------------------------------------
+// Проверка ссылок группы мц в договорах
+//
+Procedure CheckGroupDog;
+var CountMark : longint;
+    MarkRec   : comp;
+    iCount    : longint;
+    bChange   : boolean;
+{
+  StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm,
+                                       ''#3'Идет проверка...', 1 );
+  bChange := false;
+  CountMark := GetMarkerCount(hMarker);
+  // множественная проверка
+
+  if (CountMark <> 0)
+    {
+      for (iCount := 0; iCount < CountMark; iCount := iCount + 1 )
+        if(GetMarker(hMarker, iCount, MarkRec))
+          if (GetFirst KatMc where ((MarkRec == KatMC.NRec))) = tsOk
+            if (GetFirst SpDocs where ((MarkRec  == SpDocs.cMCUsl))) = tsOk
+              if KatMC.cGroupMC <> SpDocs.cGrMCUsl
+                case SpDocs.PrMC of
+                  1,4,5:
+                    {
+                      do
+                        {
+                          _loop Dogovor where (SpDocs.TiDk = Dogovor.TiDk and
+                                               SpDocs.cDoc = Dogovor.nRec)
+                            {
+                              MakeOtcCheckGroupDog;
+                              bChange := true;
+                            }
+                        }
+                      while(GetNext SpDocs where ((MarkRec == SpDocs.cMCUsl)) = tsOk)
+
+                      Update SpDocs where (( MarkRec == SpDocs.cMCUsl))
+                            set cGrMCUsl := KatMC.cGroupMC;
+                    }
+                  end;
+    }
+  // проверка одной мц
+  else
+    if (GetFirst SpDocs where (( KatMC.NRec == SpDocs.cMCUsl))) = tsOk
+      if KatMC.cGroupMC <> SpDocs.cGrMCUsl
+        case SpDocs.PrMC of
+          1,4,5:
+            {
+              do
+                {
+                  _loop Dogovor where (SpDocs.TiDk = Dogovor.TiDk and
+                                       SpDocs.cDoc = Dogovor.nRec)
+                    {
+                      MakeOtcCheckGroupDog;
+                      bChange := true;
+                    }
+                }
+               while(GetNext SpDocs where (( KatMC.NRec == SpDocs.cMCUsl )) = tsOk)
+
+               update SpDocs where (( KatMC.NRec == SpDocs.cMCUsl))
+                      set cGrMCUsl := KatMC.cGroupMC;
+            }
+        end;
+
+ if bChange
+   ReScanPanel(#SpDocs);
+
+ frmErrKatMCDog.PutEvent(feBreak);
+ if (frmErrKatMCDog.error)
+    frmErrKatMCDog.AbortForm;
+ else
+  if bChange
+    frmErrKatMCDog.ShowFile('Изменены ссылки:');
+ StopVisual('',0);
+}
+
+//******************************************************************************
+Procedure MCtoSkl;
+{
+  if (IsValid(#SpPrSkl))
+    {
+      if (GetFirst KatPrSkl where ((SpPrSkl.cKatPrSkl == KatPrSkl.NRec)) = tsOk)
+        if (GetFirst SklMC where ((KatPrSkl.cKatPodr == SklMC.NRec)) = tsOk)
+          Message('Текущая МЦ уже привязана к складу "' + SklMC.Name + '"', Information);
+    }
+  else
+    {
+      var cSklad : comp; cSklad := comp(0);
+      var cSkl   : comp; cSkl   := comp(0);
+
+      if (RunInterface(GetSklad,cSklad) = cmDefault)
+        if (GetFirst SklMC where ((cSklad == SklMC.NRec)) = tsOk)
+          {
+            ClearBuffer(#KatPrSkl);
+            KatPrSkl.Name     := KatMC.Name + '--' + SklMC.Name;
+            KatPrSkl.cKatPodr := SklMC.NRec;
+
+            if (insert current KatPrSkl = tsOk)
+              cSkl := KatPrSkl.NRec;
+
+            ClearBuffer(#KatPrSkl);
+            SpPrSkl.cRez      := KatMC.NRec;
+            SpPrSkl.wPrMc     := word(1);
+            SpPrSkl.cKatPrSkl := cSkl;
+            insert current SpPrSkl;
+
+          }
+    }
+}
+//******************************************************************************
+//
+Function ShortStrMSG (_str1 : string; _str2 : string) : string;
+var
+  i
+, nCount_1
+, nCount_2
+, nPos
+, nC       : longint;
+  str
+, str_tmp  : string;
+{
+  ShortStrMSG := _str1 + _str2;
+
+  nC       := 0;
+  nPos     := InStr('\', _str2) + 1;
+  nCount_1 := Length(_str2);
+  nCount_2 := Length(_str1);
+
+  if (nCount_1 + nCount_2 <= 255)
+    Exit;
+
+  if (nPos <> 0)
+    for (i := nCount_1; i > 0; i := i - 1)
+      if (_str2[i] = '\')
+        if (nC = 0)
+          {
+            nC   := 1;
+            nPos := i;
+            str  := '"..' + SubStr(_str2, nPos, Length(_str2) - nPos + 1);
+
+            if (Length(str) + nCount_2 > 255)
+              Break;
+          }
+        else
+          {
+            inc(nC);
+            nPos    := i;
+            str_tmp := str;
+
+            if (i <> 1)
+              str := '"..' + SubStr(_str2, nPos, Length(_str2) - nPos + 1);
+            else
+              str := _str2;
+
+            if (Length(str) + nCount_2 > 255)
+              {
+                str := str_tmp;
+                Break;
+              }
+          }
+
+  ShortStrMSG := _str1 + str;
+}
+//******************************************************************************
+// поиск мц по ......
+//
+Procedure FindMCInKatal(wTF : word);
+var _c: comp;
+{
+  if ( RunInterface('KatMCFinder', wTF, _c) <> cmCancel )
+    if (GetFirst KatMC where ((_C == KatMC.NRec)) = tsOk)
+      RescanPanel(#KatMC);
+}
+//******************************************************************************
+// пересчет баркодов по помеченным мц
+//
+Procedure RecalcBarkodMC;
+var
+  CountMark
+, iCount    : longint;
+  bChange   : boolean;
+  sBar      : string;
+  MarkRec   : comp;
+{
+  bChange := FALSE;
+  CountMark := GetMarkerCount(hMarker);
+
+  StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm,
+                                        ''#3'Идет замена...', 1 );
+
+  if (CountMark = 0)
+   {
+     sBar := KatMC.BarKod;
+
+     SetDefaultBarKod;
+
+     if NOT IsUpdateCurMC(TRUE)
+       {
+         StopVisual('',0);
+         ReReadRecord(#KatMC);
+         Exit;
+       }
+
+    if (fGetHashAn.IsEditRecord)
+      fGetHashAn.SetEditRecord(FALSE);
+
+     if (Update current KatMC <> tsOk)
+       { }
+
+     UpdateOutTbl(KatMC.buffer);
+     Check_And_Correct_ASUP;
+
+     if (sBar <> KatMC.BarKod)
+       {
+         bChange := TRUE;
+         frmErrKatMCDog.write('Для матценности "' + KatMC.Name + '" изменен номенклатурный номер "' + sBar + '" на "' + KatMC.BarKod + '"!');
+       }
+
+     StopVisual('',0);
+     ReReadRecord(#KatMC);
+     Exit;
+   }
+
+  PushPos(#KatMC);
+
+  for ( iCount := 0; iCount < CountMark; iCount := iCount+1 )
+    if(GetMarker(hMarker, iCount, MarkRec))
+       if (GetFirst KatMC where ((comp(MarkRec) == KatMC.NRec)) = tsOk)
+         {
+           sBar := KatMC.BarKod;
+
+           SetDefaultBarKod;
+
+           if NOT IsUpdateCurMC(TRUE)
+             continue;
+
+           if (fGetHashAn.IsEditRecord)
+             fGetHashAn.SetEditRecord(FALSE);
+
+           if (Update current KatMC <> tsOk)
+             { }
+
+           if (sBar <> KatMC.BarKod)
+             {
+               bChange := TRUE;
+               frmErrKatMCDog.write('Для матценности "' + KatMC.Name + '" изменен номенклатурный номер "' + sBar + '" на "' + KatMC.BarKod + '"!');
+             }
+         }
+
+  for ( iCount := 0; iCount < CountMark; iCount := iCount+1 )
+    if(GetMarker(hMarker, iCount, MarkRec))
+       if (GetFirst KatMC where ((comp(MarkRec) == KatMC.NRec)) = tsOk)
+         {
+           UpdateOutTbl(KatMC.buffer);
+           Check_And_Correct_ASUP;
+         }
+
+  if bChange
+    if (fGetHashAn.IsEditRecord)
+      fGetHashAn.SetEditRecord(FALSE);
+
+  StopVisual('',0);
+  PopPos(#KatMC);
+
+  ReReadRecord(#KatMC);
+
+  frmErrKatMCDog.PutEvent(feBreak);
+
+  if (frmErrKatMCDog.error)
+    frmErrKatMCDog.AbortForm;
+  else
+    if bChange
+      frmErrKatMCDog.ShowFile('Протокол изменений');
+}

@@ -1,0 +1,235 @@
+#include ExtAttr.vih
+
+Alter interface OrganizationJuridicalInfo 'Юридические атрибуты организации' (, hcGKatalWOrg) EscClose;
+
+ #include GetState.const
+
+create view V
+var
+     EA:               iExtAttr;
+ as select *
+;
+
+  screen AltJuridicalInfoScreen (,, sci1Esc);
+    table KATORG;
+    fields
+
+      KATORG.OKPO
+        ('Код по общероссийскому классификатору предприятий и организаций'): noprotect;
+
+      KATORG.TEL
+        ('Телефон, факс'): noprotect;
+
+      KatOrg.UNN
+        ('УНН'): noprotect;
+
+      UseNalogs
+        ('Применять налоги для данного контрагента',,sci13Esc):
+        [list 'всегда','только в закупках','только в продажах','никогда'],
+        protect;
+
+      JuridicalAddressStr
+        ('Юридический адрес',, sci13Esc): protect;
+
+<<
+
+ `OKПO`             `Телефон, факс`      `УНП`              `Применять налоги`
+  .@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@    .@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@
+
+ `Юридический адрес`
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+  end; // screen AltJuridicalInfoScreen
+
+  Tableevent table KATORG;
+    cmUpdateRecord:
+    {
+      if PODRINFO.NREC = 0
+        insert current PODRINFO;
+      else
+        update current PODRINFO;
+
+      update current KATORG;
+    }
+
+    cmCheckField:
+    {
+      case CurField of
+        #KATORG.KODPLATNDS:
+        {
+          set KATORG.KODPLATNDS := Trim(KATORG.KODPLATNDS);
+
+          if KATORG.KODPLATNDS = ''
+            exit;
+
+          if (wGetTune('KatOrg.Needed.KodPlatNDS_Signs') <> 0)
+          and (length(KATORG.KodPlatNDS) <> wGetTune('KatOrg.Needed.KodPlatNDS_Signs'))
+          {
+            ShowTune('Количество знаков в поле "КПП" должно быть равно '
+                     + string(wGetTune('KatOrg.Needed.KodPlatNDS_Signs'))
+                     + '!', 'KatOrg.Needed.KodPlatNDS_Signs');
+            Abort;
+            Exit;
+          }
+
+          if not KOH.CheckKatOrgKodPlatNDS(KATORG.KODPLATNDS, KATORG.NREC)
+            abort;
+
+          if ( not KOH.CheckKatOrgKIN(KatOrg.Name, KatOrg.Code, KatOrg.KodPlatNDS, KatOrg.nRec) )
+            Abort;
+
+        }
+
+        #KATORG.UNN:
+        {
+          set KATORG.UNN := Trim(KATORG.UNN);
+
+          if KATORG.UNN = ''
+            exit;
+
+          if Not KOH.CheckKolSign(KATORG.UNN)
+          {
+            abort;
+            exit;
+          }
+
+          if not KOH.CheckKatOrgUNN(KATORG.UNN, KATORG.nRec)
+          {
+            abort;
+            exit;
+          }
+
+          if not KOH.CheckKatOrgNameUNNInState(KATORG.Name, KATORG.UNN, KATORG.CSTATE, KATORG.NREC)
+          {
+            abort;
+            exit;
+          }
+        }
+      end; //case
+    }
+
+    cmCheckRecord:
+    {
+      if not KOH.CheckKatOrgNameUNNInState(KATORG.Name, KATORG.UNN, KATORG.cState, KATORG.nRec)
+      {
+        Abort;
+        Exit;
+      }
+
+      // проверка заполнения ИНН
+      if (wGetTune('KatOrg.Needed.UNN') > 0) and (Trim(KATORG.UNN) = '' ) // ИНН пусто и есть контроль заполнения
+        and (if (EA.ValueExists(coKatState, KatState.NRec, NameAttrStateUNN),
+               if (EA.doGetAttr(coKatState, KatState.NRec, NameAttrStateUNN) = 0, TRUE, FALSE), TRUE)) // TRUE - ведение ИНН в данной стране
+
+      {
+        var Label: string;
+        cfsGetProp('L_TAXATIONINFOSCREEN_INN', cfpTitle, Label);
+
+        if (wGetTune('KatOrg.Needed.UNN') = 1) // предупреждение
+        {
+          if (Message('Не заполнено поле "' + Label + '"' + Chr(13) + 'Продолжить?', Warning + yesNo) = cmNo)
+          {
+            SelectField(#KATORG.UNN);
+            abort;
+            exit;
+          }
+        }
+        else // обязательное заполнение
+        {
+          Message('Заполните поле "' + Label + '"', Warning + OkButton);
+          SelectField(#KATORG.UNN);
+          abort;
+          exit;
+        }
+      }
+
+
+      if ( boGetTune('KatOrg.Needed.KodPlatNDS') AND ( Trim(KatOrg.KodPlatNDS) = '' ) )
+      {
+        Message('Заполните поле "' + sGetTune('KATORG.FLDVIEW.KODPLATNDS') + '"', Warning + OkButton);
+        SelectField(#KATORG.KODPLATNDS);
+        Abort;
+        Exit;
+      }
+
+      if ( not KOH.CheckKatOrgKIN(KatOrg.Name, KatOrg.Code, KatOrg.KodPlatNDS, KatOrg.nRec) )
+      {
+        Abort;
+        Exit;
+      }
+    }
+  end;
+
+
+
+HandleEvent
+   cmOnVipLoad: {
+      if (inherited::handleEvent (cmOnVipLoad) = heAbort )
+      Abort;
+
+      SetFormat(AltJuridicalInfoScreen);
+   }
+
+   cmPick: {
+     case CurField of
+          #JuridicalAddressStr: {
+
+             Dummy := comp(PODRINFO.INSNOMER);
+              if AF.PickAddress(Dummy)
+              {
+                set PODRINFO.INSNOMER := string(Dummy);
+
+          var Alt_typeItemAtd : integer;
+
+          FOR(Alt_typeItemAtd := 0; Alt_typeItemAtd <= 9; Alt_typeItemAtd++)
+            {
+              var Alt_tmpS: string;
+
+              Alt_tmpS := AF.GetItem(Dummy, Alt_typeItemAtd, cgAtdName);
+
+              if ( Alt_tmpS = '' )
+                Continue;
+
+              case Alt_typeItemAtd of
+                cgAddrElement_Country:
+                  {
+                  if ( GetFirst KatState1 where (( Alt_tmpS == KatState1.Name )) = tsOK )
+                    KATORG.cState := KatState1.nRec
+                  else
+                    {
+                      KATORG.cState := 0;
+                      Message('Не найдена в каталоге стран запись с наименованием'#13 + Alt_tmpS, Warning);
+                    }
+                  }
+                cgAddrElement_City:
+                  { Alt_tmpS := 'г. ' + Alt_tmpS;
+                  }
+                cgAddrElement_House:
+                  { Alt_tmpS := 'дом '  + Alt_tmpS;
+                  }
+                cgAddrElement_Flat:
+                  { Alt_tmpS := 'к. ' + Alt_tmpS;
+                  }
+                cgAddrElement_Corps:
+                  {  if (Instr('стр.', AF.GetFullAddress(Dummy)) <> 0 )
+                      Alt_tmpS := 'стр. ' + Alt_tmpS
+                    else
+                      Alt_tmpS := 'кор. ' + Alt_tmpS;
+                  }
+              end;
+
+              ItogFulAdr := ItogFulAdr + Alt_tmpS + ', ';
+            }
+
+                KATORG.ADDR := ItogFulAdr;
+
+                SetModified(true);
+              }
+          }
+     end; // case
+   }
+
+
+  end;
+
+end.

@@ -1,0 +1,2449 @@
+//********************************************************************************
+//                                                        (c) корпорация Галактика
+// Галактика 5.85 - логистика
+// Выбор договоров
+//********************************************************************************
+//
+// Параметры     : есть
+//    wVidDog    // вид документа - если задан будет установлен фильтр
+//    pStatus    // битовая маска разрешенных статусов
+//    pDirect,   // 0 - выбирать все;1-только на продажу;2-только на закупку
+//               // 4 - выбирать на продажу и давальческие договора
+//               // 5 - выбирать на закупку и давальческие договора
+//    pAttach    // 0-выбирать соглашения нельзя, 1-можно, 2-только соглашения
+//    OkOne      // TRUE - групповой выбор FALSE - только один
+//    prmDogovor // возвращаемый указатель на договор
+//    OneLevel   // показывать записи одного уровня (true), FALSE - нет
+//    pOwn       // ссылка на владельца уровня (действует если OneLevel = TRUE)
+//********************************************************************************
+
+#include Dolg_DG.vih
+#include fpCO.vih
+#include dogovor.vih
+#include DogFuns.vih
+#include ExtClass.vih
+#include ThemeFuncs.vih
+
+#include FltDog.rec // TFilterDog
+
+//******************************************************************************
+
+#doc
+Интерфейс выбора договора
+#end
+Interface GetSomeDogovor 'Выбор договоров' (, hcDogViewListDogovor, ) EscClose, Cyan, DoAccept;
+  Show at ( , , 110, 27);
+
+//******************************************************************************
+
+#include DogFuns.var
+#include ThemeFuncs.var
+
+//******************************************************************************
+
+Const
+  Num_Of_Fields = 13;
+  FullParams: LongInt = (1 shl Num_Of_Fields) - 1;
+end
+
+//******************************************************************************
+
+Function CheckFilters(pDogovor: comp; wTiDk, DogDirect: word): boolean; Forward;
+
+Function GetSumOtgrDG     (pDogovor: comp): double; Forward;
+Function GetSumDolgOtgrDG (pDogovor: comp): double; Forward;
+Function GetAllPlat       (pDogovor: comp): double; Forward;
+Function GetPlatPrih      (pDogovor: comp): double; Forward;
+Function GetPlatRash      (pDogovor: comp): double; Forward;
+Function GetDolgPlat      (pDogovor: comp): double; Forward;
+Function GetBalance       (pDogovor: comp): double; Forward;
+Function GetClassName : boolean; Forward;
+
+Table STRUCT GetDogsSums "ТП для хранения сумм по договору"
+(
+  cDogovor      : comp   "Ссылка на документ",
+  SumOtgrDG     : double "сумма отгрузок",
+  SumDolgOtgrDG : double "сумма долга отгрузок",
+  AllPlat       : double "сумма всех платежей",
+  PlatPrih      : double "сумма всех входящих платежей",
+  PlatRash      : double "сумма всех исходящих платежей",
+  DolgPlat      : double "сумма долга по оплатам",
+  Balance       : double "баланс по договору"
+)
+With Index
+(
+  GetDogsSums01 = cDogovor
+);
+
+Create view
+
+Var
+//********************************************************************************
+// параметры
+//********************************************************************************
+  wVidDog
+, _pStatus
+, pStatus
+, pDirect
+, pAttach
+, pParReset       : word;
+
+  prmDogovor
+, pOwn            : comp;
+
+  OkOne
+, OneLevel        : boolean;
+//********************************************************************************
+  Node
+, _prmDogovor     : comp;
+
+  MarkerDog
+, IndexDog        : longint;
+
+  isTreeFormat    : boolean; // признак в каком виде интерфейс TRUE-дерево, FALSE-brows
+
+  optView, oldView: word;
+
+  wPick_DisableDogs: word;
+
+  begdate
+, enddate         : Date;
+
+  sfDescr         : string[20];
+
+  sfDesGr         : string[4];
+
+  vKontr1
+, vKontr2
+, vGrDogs
+, vTheme
+, vOtvPodr
+, vNazna
+, vOtvPodr2
+, vKatVidD
+, fiStat
+, DocName         : string;
+
+  pKontr1
+, pKontr2
+, pNazna
+, pOtvPodr
+, pOtvPodr2
+, pGrDogs
+, pTheme
+, pVidDog
+, pVidDog2        : comp;
+
+  ModifVidDog
+, RestoreStat
+, SaveSelect
+, NotSelectStat   : boolean;
+
+  wTipMoney
+, wDirect
+, tmpVD
+, pos_Status
+, _pos_Status
+, workStatus
+, count_bit
+, wDopKlas
+, Save_Stat
+, ClassCode       : word;
+
+  PrevSort        : integer;
+
+  PrevOrd
+, BalanceVisible  : boolean;
+
+  oExtCls         : iExtClass;
+
+As select
+  if(((pStatus AND (1 shl Dogovor.Status)) = 0) AND ( (optView AND 64) <> 0 ), '-',
+    if(OkOne AND SearchMarker(MarkerDog, Dogovor.nRec, IndexDog), 'V', ''))
+    ( FieldName = picked   )
+
+, if ((workStatus AND (1 shl KatNotes2.Status))<>0, 'V', '')
+    ( FieldName = picked2  )
+
+//********************************************************************************
+, if (sGetTune('OPER.Dogovor.UserName.Dogovor')      <> '', sGetTune('OPER.Dogovor.UserName.Dogovor')     , 'Договор')
+    ( FieldName = UserNameDogovor )
+//********************************************************************************
+, if (sGetTune('OPER.Dogovor.UserName.OtmenDogovor') <> '', sGetTune('OPER.Dogovor.UserName.OtmenDogovor'), 'Отм.договор')
+    ( FieldName = UserNameOtmenDogovor )
+//********************************************************************************
+, if (sGetTune('OPER.Dogovor.UserName.UtochSogl')    <> '', sGetTune('OPER.Dogovor.UserName.UtochSogl')   , 'Уточн.согл.')
+    ( FieldName = UserNameUtochSogl )
+//********************************************************************************
+, if (sGetTune('OPER.Dogovor.UserName.OtmenSogl')    <> '', sGetTune('OPER.Dogovor.UserName.OtmenSogl')   , 'Отм.согл.')
+    ( FieldName = UserNameOtmenSogl )
+//********************************************************************************
+
+, if (IsValid(tnDogovor),
+    if(GetClassName, DocName,
+      if (Dogovor.cDogovor = 0,     // договор
+        if (Dogovor.cZamena = 0, UserNameDogovor  , UserNameOtmenDogovor),
+        if (Dogovor.cZamena = 0, UserNameUtochSogl, UserNameOtmenSogl))), '')
+    ( FieldName = sDocType )
+
+, if ((Dogovor.Direct mod 2) = 1, '1->2', '2->1')
+    ( FieldName = sDirect  )
+
+, if (Dogovor.cVal = 0, sGetTune('NDE.SimvRub'), KlVal.SimvolV)
+    ( FieldName = DogVal )
+
+, if (IsValid(tnKatVidD), if(trim(KatVidD.Role1) <> '', KatVidD.Role1 + '. ', ''), '') + trim(KatOrg1.Name)
+    ( FieldName = Org1Name )
+
+, if (IsValid(tnKatVidD), if(trim(KatVidD.Role2) <> '', KatVidD.Role2 + '. ', ''), '') + trim(KatOrg2.Name)
+    ( FieldName = Org2Name )
+
+, oThemeFuncs.GetThemesOnDog(Dogovor.nRec)
+    ( FieldName = DogThemes )
+
+, if (ExistTune('Dogovor.MarkDaysLeft'), wGetTune('Dogovor.MarkDaysLeft'), 0)
+    ( FieldName = wDaysLeft )
+
+, if (Dogovor.Status <> 1,
+        0,                      // не исполняемые - не расцвечиваем
+        if (Cur_Date_NoAQA > Dogovor.dEnd,
+          ColorSysRed,          // красным - когда срок исполняемого истек
+          if (Add_Day(Cur_Date_NoAQA, wDaysLeft) >= Dogovor.dEnd,
+                ColorSysBlue,   // синим цветом - когда до истечения осталось количество дней из настройки
+                0)))
+    ( FieldName = ColorByEndDate )
+From
+  KatVidD
+, KlVal
+, KatOrg
+, KatCity
+, KatNotes
+, KatNotes KatNotes2 (KatNotes05)
+, KatOrg   KatOrg1
+, KatOrg   KatOrg2
+, SpGrSch
+, KatNazna
+, fpCO
+, GroupSch
+, Dogovor
+, Dogovor  Dogovor2
+, IerDog
+, GetDogsSums
+, AttrDog
+, SpDocs
+, KatOrg PlatOrg
+, KatOrg PolOrg
+, KatOrg GrOtp
+, KatOrg GrPol
+, KatKau
+
+Where
+((
+
+    Dogovor.cVidDog == KatVidD.nRec
+and Dogovor.cMyOrg  == KatOrg1.nRec
+and Dogovor.cOrg    == KatOrg2.nRec
+and Dogovor.cVal    == KlVal.nRec
+and Dogovor.cNote   == KatNotes.nRec
+and Dogovor.nRec    == Dogovor2.cDogovor
+and Dogovor.nRec    == IerDog.cRec
+and Dogovor.nRec    == AttrDog.cDogovor
+and Dogovor.cPlat   == PlatOrg.nRec
+and Dogovor.cPol    == PolOrg.nRec
+and Dogovor.cGrOtp  == GrOtp.nRec
+and Dogovor.cGrPol  == GrPol.nRec
+
+and KatOrg2.cCity   == KatCity.nRec
+
+and word(400)       == KatNotes2.VidDoc
+and comp(0)         == KatNotes2.cOwner
+
+and word(wDopKlas)  == KatKau.KodGroup
+
+))
+//********************************************************************************
+Order Ord_dDoc  by Dogovor.dDoc , Dogovor.NoDoc
+Order Ord_NoDoc by Dogovor.NoDoc
+Order Ord_DesGr by Dogovor.DesGr, Dogovor.dDoc
+Order Ord_Descr by Dogovor.Descr, Dogovor.dDoc
+//********************************************************************************
+Bounds Node      = Node     ==  Dogovor.cDogovor ordered by TableOrder
+Bounds wVidDog1  = wVidDog  ==  Dogovor.VidDog   (NoIndex)  ordered by TableOrder
+Bounds wVidDog2  = wVidDog  ==  Dogovor2.VidDog  (NoIndex)
+
+Bounds pVidDog1  = pVidDog  ==  Dogovor.cVidDog  (NoIndex)  ordered by TableOrder
+Bounds pVidDog2  = pVidDog  ==  Dogovor2.cVidDog (NoIndex)
+
+Bounds fDate1    = begdate  <<=  Dogovor.dDoc  AND   // дата заключения договора
+                   enddate  >>=  Dogovor.dDoc  ordered by TableOrder
+Bounds fDate2    = begdate  <<=  Dogovor2.dDoc AND   // дата заключения договора
+                   enddate  >>=  Dogovor2.dDoc
+
+Bounds Kontr11   = pKontr1  ==  Dogovor.cMyOrg  (NoIndex) ordered by TableOrder
+Bounds Kontr12   = pKontr1  ==  Dogovor2.cMyOrg (NoIndex)
+
+Bounds Kontr21   = pKontr2  ==  Dogovor.cOrg  (NoIndex) ordered by TableOrder
+Bounds Kontr22   = pKontr2  ==  Dogovor2.cOrg (NoIndex)
+
+Bounds _Status1  = pos_Status == Dogovor.Status  (NoIndex) ordered by TableOrder
+Bounds _Status2  = pos_Status == Dogovor2.Status (NoIndex)
+
+Bounds OnDescr1  = sfDescr == Dogovor.Descr  (NoIndex) ordered by TableOrder
+Bounds OnDescr2  = sfDescr == Dogovor2.Descr (NoIndex)
+
+Bounds OnDesGr1  = sfDesGr == Dogovor.DesGr  (NoIndex) ordered by TableOrder
+Bounds OnDesGr2  = sfDesGr == Dogovor2.DesGr (NoIndex)
+
+Bounds Nazna1    = pNazna == Dogovor.cProg  (NoIndex) ordered by TableOrder
+Bounds Nazna2    = pNazna == Dogovor2.cProg (NoIndex)
+
+Bounds TipMoney1 = wTipMoney == Dogovor.TipMoney  (NoIndex) ordered by TableOrder
+Bounds TipMoney2 = wTipMoney == Dogovor2.TipMoney (NoIndex)
+//********************************************************************************
+Condition Filters1 = CheckFilters(Dogovor.nRec , Dogovor.TiDk , Dogovor.Direct )
+Condition Filters2 = CheckFilters(Dogovor2.nRec, Dogovor2.TiDk, Dogovor2.Direct)
+;
+//********************************************************************************
+Parameters
+  wVidDog    // вид документа - если задан будет установлен фильтр
+, _pStatus   // 0FFFFh - все документы, иначе битовая маска РАЗРЕШЕННЫХ статусов документов
+             // если разрешен только один статус,
+             // то по нему накладывается bounds
+             // В интерфейсе по Alt+B можно менять набор разрешенных статусов
+             // Чтобы этот набор сохранился при втором вызове нужно сначала
+             // сделать SaveMyDsk(true, 'GetSDog_RestoreStat').
+             // Чтобы запретить изменение фильтра по статусу (по Alt+B) нужно
+             // сделать SaveMyDsk(true, 'GetSDog_NotSelectStat').
+, pDirect    // 0 - выбирать все документы, 1 - только на продажу, 2 - только на закупку
+, pAttach    // 0 - выбирать соглашения нельзя, 1 - можно, 2 - только соглашения
+, OkOne      // TRUE - груповой выбор FALSE - только один
+, prmDogovor // возвращаемый указатель на договор
+, OneLevel   // показывать записи одного уровня (true), FALSE - нет
+, pOwn       // ссылка на владельца уровня (действует если OneLevel = TRUE) - ВОЗВРАЩАЕМЫЙ!
+;
+//********************************************************************************
+
+#include Dolg_DG.var
+#include ShowKau.vpp
+
+Procedure GetDogovorSums(pDogovor: comp);
+var
+  SumOtgrDG
+, SumDolgOtgrDG
+, AllPlat
+, PlatPrih
+, PlatRash
+, DolgPlat      : double;
+{
+  iDolg_DG.GetSumOtgr_DG(pDogovor, Cur_Date, SumOtgrDG, SumDolgOtgrDG);
+
+  iDolg_DG.GetSumOpl_DG(pDogovor, Cur_Date, AllPlat, PlatPrih, PlatRash, DolgPlat);
+
+  insert GetDogsSums
+    set GetDogsSums.cDogovor      := pDogovor,
+        GetDogsSums.SumOtgrDG     := SumOtgrDG,
+        GetDogsSums.SumDolgOtgrDG := SumDolgOtgrDG,
+        GetDogsSums.AllPlat       := AllPlat,
+        GetDogsSums.PlatPrih      := PlatPrih,
+        GetDogsSums.PlatRash      := PlatRash,
+        GetDogsSums.DolgPlat      := DolgPlat,
+        GetDogsSums.Balance       := if(Dogovor.Direct = 2, AllPlat - SumOtgrDG, SumOtgrDG - AllPlat);
+}
+
+Procedure CheckSumsTable(pDogovor: comp);
+{
+  if ( GetFirst FastFirstRow GetDogsSums where (( pDogovor == GetDogsSums.cDogovor )) <> tsOk )
+    {
+      GetDogovorSums(pDogovor);
+      if ( GetFirst FastFirstRow GetDogsSums where (( pDogovor == GetDogsSums.cDogovor )) <> tsOk )
+        {
+        }
+    }
+}
+
+function GetClassName : boolean;
+{
+  GetClassName := FALSE;
+
+  if ( boGetTune('Dog.DocNameKlas') )
+    {
+      DocName := oExtCls.GetSegName(ClassCode, Dogovor.nRec);
+
+      if ( DocName <> '' )
+        GetClassName := TRUE;
+    }
+}
+
+#declare GetFuncSum(fld)
+Function Get#fld(pDogovor: comp): double;
+{
+  if ( not BalanceVisible )
+    Exit;
+
+  CheckSumsTable(pDogovor);
+
+  Get#fld := GetDogsSums.#fld;
+}
+#end
+
+#GetFuncSum(SumOtgrDG)
+#GetFuncSum(SumDolgOtgrDG)
+#GetFuncSum(AllPlat)
+#GetFuncSum(PlatPrih)
+#GetFuncSum(PlatRash)
+#GetFuncSum(DolgPlat)
+#GetFuncSum(Balance)
+
+Function CheckFilters(pDogovor: comp; wTiDk, DogDirect: word): boolean; cacheable;
+{
+  Result := FALSE;
+
+  if ( (optView AND 256) <> 0 )
+    {
+      var pPodr: comp; pPodr := -1;
+
+      if ( GetFirst FastFirstRow AttrDog where (( pDogovor == AttrDog.cDogovor )) = tsOk )
+        pPodr := AttrDog.cPodr;
+
+      if ( ( pOtvPodr <> pPodr ) OR ( pPodr = -1 ) )
+        Exit;
+    }
+
+  if ( (optView AND 512) <> 0 )
+    {
+      if ( RecordExists SpDocs where ((
+                                        pDogovor  == SpDocs.cDoc       AND
+                                        wTiDk     == SpDocs.TiDk       AND
+                                        word(0)   == SpDocs.TipOtvPodr AND
+                                        pOtvPodr2 == SpDocs.cOtvPodr
+                                     )) <> tsOk )
+      Exit;
+    }
+
+  if ( (optView AND 1024) <> 0 )
+    {
+      if (RecordExists SpGrSch where (( pGrDogs  == SpGrSch.cGroupSch AND
+                                        word(1)  == SpGrSch.wList     AND
+                                        pDogovor == SpGrSch.cBaseDoc
+                                     )) <> tsOk)
+        Exit;
+    }
+
+  if ( (optView AND 4096) <> 0 )
+    {
+      if ( ( wDirect <> DogDirect ) AND ( DogDirect <> 3 ) )
+        Exit;
+    }
+
+  if ( (optView AND 8192) <> 0 )
+    {
+      var Flag: boolean; Flag := FALSE;
+      // проверка на соответствие заказа договору
+      _LOOP IerDog where (( pDogovor == IerDog.cUpRec ))
+        if oThemeFuncs.CheckThemeOnDogovor(pTheme, IerDog.cRec)
+          {
+            Flag := TRUE;
+            Break;
+          }
+
+      if not Flag
+        Exit;
+    }
+
+  Result := TRUE;
+}
+
+//-- Установить заголовок окна
+Procedure SetMyTitle;
+{
+  Var Title,
+      FTitle,
+      FCount  : string;
+
+  if ( OkOne )
+    Title := 'Групповой выбор '
+             + if(( ( pAttach = 1 ) AND OneLevel AND ( pOwn <> 0 ) ) OR ( pAttach = 2 ), 'соглашений', 'договоров')
+             + ' (помечено: ' + string(GetMarkerCount(MarkerDog)) + ')'
+  else
+    if ( ( ( pAttach = 1 ) AND OneLevel AND ( pOwn <> 0 ) ) OR ( pAttach = 2 ) )
+      Title := 'Выбор соглашения';
+    else
+      Title := 'Выбор договора';
+
+  FTitle := '';
+
+  if ( (optView AND 1   ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'дате заключения';
+
+  if ( (optView AND 2   ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'дескриптору';
+
+  if ( (optView AND 4   ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'группе пользователей';
+
+  if ( (optView AND 8   ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'виду договора';
+
+  if ( (optView AND 16  ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'контрагенту 1';
+
+  if ( (optView AND 32  ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'контрагенту 2';
+
+  if ( (optView AND 64  ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'статусу';
+
+  if ( (optView AND 128 ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'назначению';
+
+  if ( (optView AND 256 ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'ЦО договора/соглашения';
+
+  if ( (optView AND 512 ) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'спецификации с ЦО';
+
+  if ( (optView AND 1024) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'группе договоров';
+
+  if ( (optView AND 2048) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'типу договора';
+
+  if ( (optView AND 4096) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'направлению договора';
+
+  if ( (optView AND 8192) <> 0 )
+    FTitle += if(FTitle <> '', ', ','') + 'заказу НИОКР';
+
+  FCount := InStr(',', FTitle);
+
+  if ( FTitle = '' )
+    SetTitle(Title);
+  else
+    SetTitle(Title  + ' (установлен' + if(FCount > 1, 'ы', '') +
+                      ' фильтр'      + if(FCount > 1, 'ы', '') +
+                      ' по ' + FTitle + ')');
+}
+
+//-- Отменить выделение
+Procedure KillPick;
+{
+  ClearMarker(MarkerDog);
+}
+
+//-- пометить одну позицию
+Function OneMarkPick(ShowMess: boolean): boolean;
+{
+  OneMarkPick := FALSE;
+
+  if ( ( pAttach = 2 ) AND ( Dogovor.cDogovor = 0 ) )
+    {
+      if ( ShowMess )
+        Message('Выбирать договора нельзя...', CancelButton + Warning);
+      Exit;
+    }
+
+  if ( ( pAttach = 0 ) AND ( Dogovor.cDogovor <> 0 ) )
+    {
+      if ( ShowMess )
+        Message('Выбирать соглашение нельзя...', CancelButton + Warning);
+      Exit;
+    }
+
+  if ( picked = '-' )
+    {
+      if ( ShowMess )
+        Message('Нельзя пометить '
+              + if(Dogovor.cDogovor = 0, 'договор', 'соглашение')
+              + ' с данным статусом !', CancelButton + Warning);
+
+      Exit;
+    }
+
+  InsertMarker(MarkerDog, Dogovor.nRec);
+
+  OneMarkPick := TRUE;
+}
+
+// Фильтрация договоров по статусам
+#include DogNoteFlt.vpp
+
+!------------------------------------------------------------------------------
+Procedure SetFilterBounds;
+{
+  ClearFuncCache;
+
+  if ( (optView AND 1) > 0 )  // Дата заключения
+    {
+      if ( not BoundActive(tbfDate1)   ) AddBounds(tbfDate1);
+      if ( not BoundActive(tbfDate2)   ) AddBounds(tbfDate2);
+    }
+  else
+    {
+      if (     BoundActive(tbfDate1)   ) SubBounds(tbfDate1);
+      if (     BoundActive(tbfDate2)   ) SubBounds(tbfDate2);
+    }
+  if ( (optView AND 2) > 0 )  // Дескриптор
+    {
+      if ( not BoundActive(tbOnDescr1) ) AddBounds(tbOnDescr1);
+      if ( not BoundActive(tbOnDescr2) ) AddBounds(tbOnDescr2);
+    }
+  else
+    {
+      if (     BoundActive(tbOnDescr1) ) SubBounds(tbOnDescr1);
+      if (     BoundActive(tbOnDescr2) ) SubBounds(tbOnDescr2);
+    }
+  if ( (optView AND 4) > 0 )  // Группа дескрипторов
+    {
+      if ( not BoundActive(tbOnDesGr1) ) AddBounds(tbOnDesGr1);
+      if ( not BoundActive(tbOnDesGr2) ) AddBounds(tbOnDesGr2);
+    }
+  else
+    {
+      if (     BoundActive(tbOnDesGr1) ) SubBounds(tbOnDesGr1);
+      if (     BoundActive(tbOnDesGr2) ) SubBounds(tbOnDesGr2);
+    }
+
+  if ( (optView AND 8) > 0 )  // Вид договора
+    {
+      if ( (GetFirst KatVidD where (( pVidDog2 == KatVidD.nRec )) <> tsOk ) OR ( KatVidD.cOwner = 0 ) )
+        {
+          wVidDog := tmpVD;
+
+          if (     BoundActive(tbpVidDog1) ) SubBounds(tbpVidDog1);
+          if (     BoundActive(tbpVidDog2) ) SubBounds(tbpVidDog2);
+          if ( not BoundActive(tbwVidDog1) ) AddBounds(tbwVidDog1);
+          if ( not BoundActive(tbwVidDog2) ) AddBounds(tbwVidDog2);
+        }
+      else // ставим баундс по конкретному NRec-ку
+        {
+          pVidDog := pVidDog2;
+
+          if (     BoundActive(tbwVidDog1) ) SubBounds(tbwVidDog1);
+          if (     BoundActive(tbwVidDog2) ) SubBounds(tbwVidDog2);
+          if ( not BoundActive(tbpVidDog1) ) AddBounds(tbpVidDog1);
+          if ( not BoundActive(tbpVidDog2) ) AddBounds(tbpVidDog2);
+        }
+    }
+  else
+    {
+      if (     BoundActive(tbwVidDog1)  ) SubBounds(tbwVidDog1);
+      if (     BoundActive(tbwVidDog2)  ) SubBounds(tbwVidDog2);
+      if (     BoundActive(tbpVidDog1)  ) SubBounds(tbpVidDog1);
+      if (     BoundActive(tbpVidDog2)  ) SubBounds(tbpVidDog2);
+    }
+
+  if ( (optView AND 16) > 0 )  // Контрагент 1
+    {
+      if ( not BoundActive(tbKontr11)   ) AddBounds(tbKontr11);
+      if ( not BoundActive(tbKontr12)   ) AddBounds(tbKontr12);
+    }
+  else
+    {
+      if (     BoundActive(tbKontr11)   ) SubBounds(tbKontr11);
+      if (     BoundActive(tbKontr12)   ) SubBounds(tbKontr12);
+    }
+
+  if ( (optView AND 32) > 0 )  // Контрагент 2
+    {
+      if ( not BoundActive(tbKontr21)   ) AddBounds(tbKontr21);
+      if ( not BoundActive(tbKontr22)   ) AddBounds(tbKontr22);
+    }
+  else
+    {
+      if (     BoundActive(tbKontr21)   ) SubBounds(tbKontr21);
+      if (     BoundActive(tbKontr22)   ) SubBounds(tbKontr22);
+    }
+
+  if ( (optView AND 128) > 0 )  // Назначение
+    {
+      if ( not BoundActive(tbNazna1)    ) AddBounds(tbNazna1);
+      if ( not BoundActive(tbNazna2)    ) AddBounds(tbNazna2);
+    }
+  else
+    {
+      if (     BoundActive(tbNazna1)    ) SubBounds(tbNazna1);
+      if (     BoundActive(tbNazna2)    ) SubBounds(tbNazna2);
+    }
+
+  if ( (optView AND 2048) > 0 )  // Тип договора
+    {
+      if ( not BoundActive(tbTipMoney1) ) AddBounds(tbTipMoney1);
+      if ( not BoundActive(tbTipMoney2) ) AddBounds(tbTipMoney2);
+    }
+  else
+    {
+      if (     BoundActive(tbTipMoney1) ) SubBounds(tbTipMoney1);
+      if (     BoundActive(tbTipMoney2) ) SubBounds(tbTipMoney2);
+    }
+
+  if ( (optView AND 64) <> 0 )  // статус
+    GetfiStatName(workStatus, count_bit, pos_Status); // считаем количество выбранных
+
+  oldView := optView;
+  pStatus := workStatus;
+
+  if ( count_bit = 1 ) AND ( (optView AND 64) <> 0 )
+    {
+      if ( not BoundActive(tb_Status1) ) AddBounds(tb_Status1);
+      if ( not BoundActive(tb_Status2) ) AddBounds(tb_Status2);
+    }
+  else
+    {
+      if (     BoundActive(tb_Status1) ) SubBounds(tb_Status1);
+      if (     BoundActive(tb_Status2) ) SubBounds(tb_Status2);
+    }
+
+  if ( (optView AND (256+512+1024+4096+8192)) > 0 )
+    {
+      if not ConditionActiveInLeave(tcFilters1, #Dogovor)  PushConditionForLeave(tcFilters1, #Dogovor);
+      if not ConditionActiveInLeave(tcFilters2, #Dogovor2) PushConditionForLeave(tcFilters2, #Dogovor2);
+    }
+  else
+    {
+      if     ConditionActiveInLeave(tcFilters1, #Dogovor)  PopConditionForLeave(tcFilters1, #Dogovor);
+      if     ConditionActiveInLeave(tcFilters2, #Dogovor2) PopConditionForLeave(tcFilters2, #Dogovor2);
+    }
+}
+!------------------------------------------------------------------------------
+
+#doc
+Окно установки фильтров
+#end
+Window winGetSomeDogovor_Filter 'Установка фильтров' EscClose DoAccept;
+  Show at (, , 58, 19);
+
+Panel pAAA;
+Screen AAA ('', hcdog_filtr, sci13Esc);
+Fields
+  optView ('Установить фильтр', , sci1Esc): NoProtect;
+  begdate ('Введите начальную дату фильтра по договорам'): NoProtect,
+    {Font = {BackColor = if ( ((optView AND 1)<>0) AND (begdate>enddate), ColorNeed, 0) }};
+  enddate ('Введите конечную дату фильтра по договорам' ): NoProtect,
+    {Font = {BackColor = if ( ((optView AND 1)<>0) AND (enddate = Date(0, 0, 0)), ColorNeed, if(((optView AND 1)<>0) AND (enddate<>date(0, 0, 0)) AND (begdate>enddate), ColorError, 0)) }};
+  sfDescr  ('Выбор дескриптора'           ): Protect;
+  sfDesGr  ('Выбор группы пользователей'  ): Protect;
+  vKatVidD ('Выбор вида договора'         ): Protect;
+  vKontr1  ('Выбор 1-го контрагента'      ): Protect;
+  vKontr2  ('Выбор 2-го контрагента'      ): Protect;
+  fiStat   ('Выбор статусов'              ): Protect;
+  vNazna   ('Выбор назначения'            ): Protect;
+  vOtvPodr ('Выбор центра ответственности'): Protect;
+  vOtvPodr2('Выбор центра ответственности'): Protect;
+  vGrDogs  ('Выбор группы договоров'      ): Protect;
+  wTipMoney('Выбор типа договора'         ):
+    [LIST 1 'НДЕ', 'Вал-НДЕ', 'Вал'], Protect;
+  wDirect  ('Выбор направления договора'  ):
+    [LIST 1 '1->2', '2->1'], Protect;
+  vTheme   ('Выбор заказа НИОКР'          ): Protect;
+Buttons
+  cmOk, Default, , 'Ввод - принять выбор', , sci1Esc;
+  cmValue5, , , 'Снять все фильтры', , sci1Esc;
+  cmCancel, , , 'Отмена', , sci1Esc;
+<<
+
+ Использовать фильтры:
+  [.] Дата заключения`    `с`.@@@@@@@@@@ `по`.@@@@@@@@@@
+  [.] Дескриптору           `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Группе пользователей  `.@@@@@@@@@@
+  [.] Вид договора          `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Контрагент 1          `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Контрагент 2          `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Статус                `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Назначению            `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] ЦО договора/соглашения`.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Со спецификацией с ЦО `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Группе договоров      `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Типу договора         `.@@@@@@@@@@
+  [.] Направлению договора  `.@@@@@@@@@@
+  [.] Заказ НИОКР           `.@@@@@@@@@@
+
+  <. Продолжить .>   <.   Снять   .>   <.   Отмена   .>
+
+>>
+End; // Screen
+
+HandleEvent // Panel
+
+cmPick:
+{
+  case CurField of
+  // Выбор дескриптора
+    #sfDescr:
+      {
+        var UserV: word; UserV := 12345; // безусловно разрешает выбирать любой дескриптор
+
+        if ( RunInterface('GetDescr', sfDescr, sfDesGr, UserV) <> cmCancel )
+          {
+            set sfDescr := sfDescr;
+            set sfDesGr := sfDesGr;
+
+            if ( trim(sfDescr) <> '' )
+              set optView := optView or 2
+            else
+              set optView := optView AND (FullParams - 2);
+          }
+      }
+    // Выбор группы пользователей
+    #sfDesGr:
+      {
+      if ( RunInterface('GetGrDescr', sfDesGr, FALSE, FALSE, comp(0)) <> cmCancel )
+        {
+          set sfDesGr := sfDesGr;
+
+          if ( trim(sfDesGr) <> '' )
+            set optView := optView or 4
+          else
+            set optView := optView AND (FullParams - 4);
+        }
+      }
+    // выбор вида договора
+    #vKatVidD:
+      {
+        if ( ( RunInterface('GetSomVidD', tmpVD
+                                        , word(0)
+                                        , FALSE
+                                        , pVidDog2
+                                        , word(0)) <> cmCancel )
+              AND
+             (GetFirst KatVidD where (( pVidDog2 == KatVidD.nRec )) = tsOk )
+           )
+          {
+            set vKatVidD := KatVidD.Name;
+            set optView  := optView or 8;
+          }
+        else
+          set optView := optView AND (FullParams - 8);
+      }
+    // выбор контрагента 1
+    #vKontr1:
+      {
+        if ( RunInterface('GetKatOr', pKontr1, comp(0), FALSE, comp(0), comp(0)) <> cmCancel )
+          if ( GetFirst KatOrg where (( pKontr1 == KatOrg.nRec )) = tsOk )
+            set vKontr1 := if(length(trim(KatOrg.TipOrg)) > 0, KatOrg.TipOrg + ' ', '') + KatOrg.Name;
+
+        if ( ( trim(vKontr1) > '' ) AND( pKontr1 <> 0 ) )
+          set optView := optView or 16
+        else
+          set optView := optView AND (FullParams - 16);
+      }
+    // выбор контрагента 2
+    #vKontr2:
+      {
+        if ( RunInterface('GetKatOr', pKontr2, comp(0), FALSE, comp(0), comp(0)) <> cmCancel )
+          if ( GetFirst KatOrg where (( pKontr2 == KatOrg.nRec )) = tsOk )
+            set vKontr2 := if(length(trim(KatOrg.TipOrg)) > 0, KatOrg.TipOrg + ' ', '') +  KatOrg.Name;
+
+        if ( ( trim(vKontr2) > '' ) AND ( pKontr2 <> 0 ) )
+          set optView := optView or 32
+        else
+          set optView := optView AND (FullParams - 32);
+      }
+    // выбор статуса
+    #fiStat:
+      {
+        SaveMyDsk(wPick_DisableDogs, 'GetDogs_CantSelectNotes');
+
+        if ( RunWindowModal(winRootDogNotes) <> cmCancel )
+          {
+            set fiStat  := GetfiStatName(workStatus, count_bit, _pos_Status);
+            set optView := optView or 64;
+          }
+        else
+          if (wPick_DisableDogs = 0)
+            set optView := optView AND (FullParams - 64);
+
+        SaveMyDsk(0, 'GetDogs_CantSelectNotes');
+      }
+    // Выбор назначения
+    #vNazna:
+      {
+        if ( RunInterface('GetSomKatNazna', FALSE, pNazna) <> cmCancel )
+          if ( GetFirst KatNazna where (( pNazna == KatNazna.nRec )) = tsOk )
+            {
+              set vNazna  := KatNazna.Name;
+              set optView := optView or 128;
+            }
+          else
+            set optView := optView AND (FullParams - 128);
+      }
+    // Выбор центра ответсвенности
+    #vOtvPodr:
+      {
+        if ( RunInterface('GetCO', word(cgiPick), comp(0), comp(0), pOtvPodr) <> cmCancel )
+          if ( GetFirst fpCO where (( pOtvPodr == fpCO.nRec )) = tsOk )
+            {
+              set vOtvPodr := fpCO.Name;
+              set optView  := optView or 256;
+            }
+          else
+            set optView := optView AND (FullParams - 256);
+      }
+    // Выбор центра ответсвенности
+    #vOtvPodr2:
+      {
+        if ( RunInterface('GetCO', word(cgiPick), comp(0), comp(0), pOtvPodr2) <> cmCancel )
+          if ( GetFirst fpCO where (( pOtvPodr2 == fpCO.nRec )) = tsOk )
+            {
+              set vOtvPodr2 := fpCO.Name;
+              set optView   := optView or 512;
+            }
+          else
+            set optView := optView AND (FullParams - 512);
+      }
+    // Выбор группы договоров
+    #vGrDogs:
+      {
+        if ( RunInterface('GetGroupSch', 3, 3, 0, FALSE, pGrDogs, FALSE) = cmDefault )
+          {
+            GetFirst FastFirstRow GroupSch where (( pGrDogs == GroupSch.nRec ));
+            set vGrDogs := GroupSch.Name;
+            set optView := optView or 1024;
+          }
+        else
+          set optView := optView AND (FullParams - 1024);
+      }
+    // Выбор заказа НИОКР
+    #vTheme:
+      {
+        if ( RunInterface('GetTheme', cgiPick, word(0), pTheme, comp(0)) = cmDefault )
+          {
+            set vTheme := oThemeFuncs.GetThemeNumber(pTheme);
+            set optView := optView or 8192;
+          }
+        else
+          set optView := optView AND (FullParams - 8192);
+      }
+  end; // CASE
+
+  RescanPanel(CurTable);
+}
+
+cmDelOnProtect:
+{
+  case CurField of
+    #sfDescr:
+      {
+        set sfDescr := '';
+        set optView := optView AND (FullParams - 2);
+      }
+
+    #sfDesGr:
+      {
+        set sfDesGr := '';
+        set optView := optView AND (FullParams - 4);
+      }
+    // выбор вида договора
+    #vKatVidD:
+      {
+        tmpVD    := word(0);
+        pVidDog2 := comp(0);
+
+        set vKatVidD := '';
+        set optView  := optView AND (FullParams - 8);
+      }
+    // выбор контрагента 1
+    #vKontr1:
+      {
+        pKontr1     := 0;
+        set vKontr1 := '';
+        set optView := optView AND (FullParams - 16);
+      }
+    // выбор контрагента 2
+    #vKontr2:
+      {
+        pKontr2     := 0;
+        set vKontr2 := '';
+        set optView := optView AND (FullParams - 32);
+      }
+    // выбор статуса
+    #fiStat:
+      {
+        if ( wPick_DisableDogs = 0 )
+          {
+            workStatus  := 0;
+            set fiStat  := '';
+            set optView := optView AND (FullParams - 64);
+          }
+        else
+          {
+            workStatus := 31 - wPick_DisableDogs;
+            set fiStat := GetfiStatName(workStatus, count_bit, _pos_Status);
+          }
+      }
+    // Выбор назначения
+    #vNazna:
+      {
+        pNazna      := 0;
+        set vNazna  := '';
+        set optView := optView AND (FullParams - 128);
+      }
+    // Выбор центра ответсвенности
+    #vOtvPodr:
+      {
+        pOtvPodr     := 0;
+        set vOtvPodr := '';
+        set optView  := optView AND (FullParams - 256);
+      }
+    // Выбор центра ответсвенности
+    #vOtvPodr2:
+      {
+        pOtvPodr2     := 0;
+        set vOtvPodr2 := '';
+        set optView   := optView AND (FullParams - 512);
+      }
+    // Выбор группы договоров
+    #vGrDogs:
+      {
+        pGrDogs     := 0;
+        set vGrDogs := '';
+        set optView := optView AND (FullParams - 1024);
+      }
+    #vTheme:
+      {
+        pTheme     := 0;
+        set vTheme := '';
+        set optView := optView AND (FullParams - 8192);
+      }
+  end;
+
+  RescanPanel(CurTable);
+}
+
+cmCheckField:
+{
+  case CurField of
+    #begdate, #enddate:
+      if ( begdate > enddate )
+        {
+          Message('Перепутаны даты...', OkButton + Warning);
+
+          if ( CurField = #begdate )
+            set begdate := enddate;
+
+          Abort;
+        }
+
+    #wTipMoney:
+      set optView := optView or 2048;
+
+    #wDirect:
+      set optView := optView or 4096;
+
+    #optView:
+      {
+        var wtmp: word; wtmp := optView xor word(OldFieldValue);
+
+        if ( wtmp > 0 )
+          case wtmp of
+            1:
+              if ( (optView AND 1) > 0 )
+                SelectField(#begdate);
+
+            2:
+              if ( (optView AND 2) > 0 )
+                {
+                  SelectField(#sfDescr);
+                  if ( sfDescr = '' )
+                    PutCommand(cmPick);
+                }
+            4:
+              if ( (optView AND 4) > 0 )
+                {
+                  SelectField(#sfDesGr);
+                  if ( sfDesGr = '' )
+                    PutCommand(cmPick);
+                }
+            8:
+              if ( (optView AND 8) > 0 )
+                {
+                  SelectField(#vKatVidD);
+                  if ( pVidDog2 = 0 )
+                    PutCommand(cmPick);
+                }
+            16:
+              if ( (optView AND 16) > 0 )
+                {
+                  SelectField(#vKontr1);
+                  if ( pKontr1 = 0 )
+                    PutCommand(cmPick);
+                }
+            32:
+              if ( (optView AND 32) > 0 )
+                {
+                  SelectField(#vKontr2);
+                  if ( pKontr2 = 0 )
+                    PutCommand(cmPick);
+                }
+            64:
+              if ( (optView AND 64) > 0 )
+                {
+                  SelectField(#fiStat);
+                  if ( fiStat = '' )
+                    PutCommand(cmPick);
+                }
+            128:
+              if ( (optView AND 128) > 0 )
+                {
+                  SelectField(#vNazna);
+                  if ( vNazna = '' )
+                    PutCommand(cmPick);
+                }
+            256:
+              if ( (optView AND 256) > 0 )
+                {
+                  SelectField(#vOtvPodr);
+                  if ( vOtvPodr = '' )
+                    PutCommand(cmPick);
+                }
+            512:
+              if ( (optView AND 512) > 0 )
+                {
+                  SelectField(#vOtvPodr2);
+                  if ( vOtvPodr2 = '' )
+                    PutCommand(cmPick);
+                }
+            1024:
+              if ( (optView AND 1024) > 0 )
+                {
+                  SelectField(#vGrDogs);
+                  if ( vGrDogs = '' )
+                    PutCommand(cmPick);
+                }
+            8192:
+              if ( (optView AND 8192) > 0 )
+                {
+                  SelectField(#vTheme);
+                  if ( vTheme = '' )
+                    PutCommand(cmPick);
+                }
+          end;
+      }
+  end;
+}
+
+end; // HandleEvent
+end; // Panel
+
+HandleEvent
+
+cmInit:
+{
+  oldView    := optView;
+//  workStatus := pStatus;
+  workStatus := word(0FFFFh);     // igor - выбирать все статусы
+
+  if ( count_bit = 200 ) // выбраны все статусы
+    fiStat := ''
+  else
+    fiStat := GetfiStatName(workStatus, count_bit, _pos_Status);
+
+  var wFlag: word; wFlag := 0;
+
+  SetFieldSelectable(#vKatVidD, ModifVidDog);
+
+  if ( Not ModifVidDog )
+    {
+      if ( GetFirst KatVidD where (( pVidDog2 == KatVidD.nRec )) = tsOk )
+        set vKatVidD := KatVidD.Name;
+
+      optView := optView or 8;
+      wFlag   := wFlag + 8;
+    }
+
+  if ( NotSelectStat )
+    {
+      SetFieldVisible(#fiStat, FALSE);
+      wFlag := wFlag + 64;
+    }
+
+  if (wGetTune('Pick.Visible') = 1) // Доступ к документам на основе настройки "Документы/Доступ к документам"
+    {
+      if ( wGetTune('Doc.Visible') = dcOwnOnly ) // только со своим дескриптором
+        {
+          sfDescr := sGetTune('User.Descr');
+          optView := optView or (2);
+          wFlag   := wFlag + 2;
+
+          SetFieldSelectable(#sfDescr, FALSE);
+        }
+
+      if (( wGetTune('Doc.Visible') = dcGrpRead  )
+           or // по группе чтение
+          ( wGetTune('Doc.Visible') = dcGrpModif )
+           or // по группе полный доступ
+          ( wGetTune('Doc.Visible') = dcOwnOnly  )
+         )    // только со своим дескриптором
+        {
+          sfDesGr := sGetTune('User.DesGr');
+          optView := optView or 4;
+          wFlag   := wFlag + 4;
+
+          SetFieldSelectable(#sfDesGr, FALSE);
+        }
+    }
+
+  if ( wPick_DisableDogs <> 0 AND ((wFlag AND 64) = 0))
+    {
+      optView := optView or 64;
+      wFlag   := wFlag or 64 ;
+    }
+
+  pParReset := optView AND wFlag;
+
+  ClusterDisabledField(#optView, wFlag);
+}
+
+cmOk:
+{
+  SetFilterBounds;
+  PutCommand(cmDefault);
+}
+
+cmValue5:
+{
+  optView := pParReset;
+  SetFilterBounds;
+  PutCommand(cmDefault);
+}
+
+cmDone:
+  optView := oldView;
+
+end;// HandleEvent;
+end // Window SetParam
+
+!------------------------------------------------------------------------------
+Panel panDogovor;
+  Table Dogovor;
+
+#ifdef ComponentVersion
+ToolBar
+    F_Common::tbBuhFilter
+  , F_BuhRep::tbTreeControl
+;
+#else
+ToolBar
+    tbBuhFilter
+  , tbTreeControl
+;
+#end
+
+Tree 1 trDogovor;
+  Show at (, , , 16);
+Fields {Font = {Color = if(picked = '-', ColorGray, if(picked = 'V', ColorMark, 0)) }};
+  picked         #3'V'                                               : [ 1], Skip, NoAutoSize;
+  sDocType       #3'Документ'   ('Договор/соглашение')               : [13], Protect, NoAutoSize;
+  Dogovor.DesGr  #3'Группа'     ('Код группы пользователей')  : [ 6], Protect, Centered, NoAutoSize;
+  Dogovor.Descr  #3'Дескр.'     ('Дескриптор(идентификатор) пользователя')             : [ 6], Protect, Centered, NoAutoSize;
+  Dogovor.dDoc   #3'Дата',
+                 #3'заключения' ('Дата заключения')                  : [10, 'DD/MM/YYYY'], Protect, Centered, NoAutoSize;
+  Dogovor.NoDoc_Ext #3'Номер'   ('Номер')                            : [10], Protect, NoAutoSize;
+  Dogovor.Nodoc     #3'Номер'#13#3'внутренний'('Внутренний номер')   : [10], Protect, NoAutoSize;
+  KatOrg2.Name   #3'Контрагент' ('Наименование контрагента')         : [18], Protect;
+  sDirect        #3'Вид'        ('"1->2" - документ на продажу; "2->1" - документ на закупку'): [4], Protect, Centered, NoAutoSize;
+  KatNotes.sName #3'Статус'     ('Статус документа')                 : [ 8], Protect, NoAutoSize, Centered
+                                                                           , { Font = { Italic = true; color = ColorByEndDate; bold = ColorByEndDate <> 0 } };
+  DogVal         #3'Вал.'       ('Валюта документа')                 : [ 4], Skip, NoAutoSize, Centered, {font={italic=true}};
+  Dogovor.Summa  #3'Общая сумма'('Общая (планируемая) сумма')        : [15, #SFormatNdeSign], Protect, NoAutoSize;
+
+[DogSumOtgrDG ''] GetSumOtgrDG(Dogovor.nRec)
+                 #3'Отгрузка'   ('Сумма всех отгрузок')              : [15, #SFormatNdeSign], Protect, LessNull, NoAutoSize;
+[DogAllPlat '']   GetAllPlat(Dogovor.nRec)
+                 #3'Оплата'     ('Сумма всех оплат')                 : [15, #SFormatNdeSign], Protect, LessNull, NoAutoSize;
+[DogBalance '']   GetBalance(Dogovor.nRec)
+                 #3'Баланс'     ('Баланс по отгрузке и оплате')      : [15, #SFormatNdeSign], Protect, NoAutoSize;
+  DogThemes      #3'Заказ', #3'НИОКР'                                : [10], Protect, NoAutoSize;
+end; // Tree trDogovor
+
+Function Img(wStatus: word): string;
+{
+  case wStatus of
+    0 : Img := 'L_Dogovor::BmpOformLeave'
+    1 : Img := 'L_Dogovor::BmpIspolLeave'
+    2 : Img := 'L_Dogovor::BmpPriosLeave'
+    3 : Img := 'L_Dogovor::BmpRastLeave'
+    4 : Img := 'L_Dogovor::BmpZakrLeave'
+    5 : Img := 'L_Dogovor::BmpAnnulLeave'
+  end; //
+}
+
+Browse brDogovor;
+  Show at (, , , 16);
+Fields {Font = {Color = if(picked = 'V', ColorMark, 0) }};
+  picked         #3'V'                                               : [ 1], Skip, NoAutoSize;
+  Img(Dogovor.Status): Image;
+  sDocType       #3'Документ'   ('Договор/соглашение')               : [13], Protect, NoAutoSize;
+  Dogovor.DesGr  #3'Группа'     ('Код группы пользователей')  : [ 6], Protect, Centered, NoAutoSize;
+  Dogovor.Descr  #3'Дескр.'     ('Дескриптор(идентификатор) пользователя') : [ 6], Protect, Centered, NoAutoSize;
+  Dogovor.dDoc   #3'Дата',
+                 #3'заключения' ('Дата заключения')                  : [10, 'DD/MM/YYYY'], Protect, Centered, NoAutoSize;
+  Dogovor.NoDoc_Ext #3'Номер'   ('Номер')                            : [10], Protect, NoAutoSize;
+  Dogovor.Nodoc     #3'Номер'#13#3'внутренний'('Внутренний номер')   : [10], Protect, NoAutoSize;
+  KatOrg2.Name   #3'Контрагент' ('Наименование контрагента')         : [18], Protect;
+  sDirect        #3'Вид'        ('"1->2" - документ на продажу; "2->1" - документ на закупку'): [4], Protect, Centered, NoAutoSize;
+  KatNotes.sName #3'Статус'     ('Статус документа')                 : [ 8], Protect, NoAutoSize, Centered
+                                                                           , { Font = { Italic = true; color = ColorByEndDate; bold = ColorByEndDate <> 0 } };
+  DogVal         #3'Вал.'       ('Валюта документа')                 : [ 4], Skip, NoAutoSize, Centered, {font={italic=true}};
+  Dogovor.Summa  #3'Общая сумма'('Общая (планируемая) сумма')        : [15, #SFormatNdeSign], Protect, NoAutoSize;
+
+  DogSumOtgrDG   #3'Отгрузка'   ('Сумма всех отгрузок')              : [15, #SFormatNdeSign], Protect, LessNull, NoAutoSize;
+  DogAllPlat     #3'Оплата'     ('Сумма всех оплат')                 : [15, #SFormatNdeSign], Protect, LessNull, NoAutoSize;
+  DogBalance     #3'Баланс'     ('Баланс по отгрузке и оплате')      : [15, #SFormatNdeSign], Protect, NoAutoSize;
+end; // Browse brDogovor
+
+Screen  scrDogovor;
+  Show at (, 17);
+Fields
+  Org1Name     : Skip;
+  Org2Name     : Skip;
+  PlatOrg.Name : Skip;
+  PolOrg.Name  : Skip;
+  GrOtp.Name   : Skip;
+  GrPol.Name   : Skip;
+  'с ' + string(Dogovor.dBeg) + ' по ' + string(Dogovor.dEnd)
+               : Skip, {font = {color = ColorByEndDate; bold = (ColorByEndDate <> 0) }};
+  KatVidD.Name : Skip;
+  Dogovor.Summa: [, #SFormatNdeSign] Skip, { Font = { Bold = TRUE } };
+  DogVal       : Skip;
+  KatKau.Name  : Skip;
+  [DopKlName] #ShowKau(wDopKlas, Dogovor.cDopKlas)
+               : Skip;
+  DogThemes    : Skip;
+<<
+ Контрагент 1      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Контрагент 2      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Плательщик        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Получатель платежа.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Грузоотправитель  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Грузополучатель   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Срок действия     .@@@@@@@@@@@@@@@@@@@@@@@@@Вид договора.@@@@@@@@@@@@@@@@@@@@@@@Сумма.@@@@@@@@@@@@@@@@.@@@
+ Доп. классификация.@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Заказ НИОКР`      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scrDogovor
+
+!-------------------------------------------------------------------------------
+//выбор treebrowser
+Function GetTreeBrowseDog: longint;
+{
+  GetTreeBrowseDog := trDogovor;
+}
+
+!-------------------------------------------------------------------------------
+//выбор browser
+Function GetBrowseDog: longint;
+{
+  GetBrowseDog := brDogovor;
+}
+
+!-------------------------------------------------------------------------------
+Procedure SetMyFormat;
+{
+  isTreeFormat := TRUE;
+
+  SetHelpAndStatusContext(trDogovor, -1, if(OkOne, sci14EnInsTree, sci14EnEscTree), 0);
+  SetHelpAndStatusContext(brDogovor, -1, if(OkOne, sci14EnIns    , sci14EnEsc    ), 0);
+
+  if ( not OneLevel )   // показывать записи всех уровней
+    SetFormat(trDogovor)
+  else
+    {
+      Node := pOwn;
+
+      isTreeFormat := FALSE;
+
+      SetFormat(brDogovor);
+    }
+
+  SetMyTitle;
+  RereadRecord(#dogovor);
+}
+
+//--  Пометить группу
+Procedure MarkGroup;
+var
+  LevelClosed: boolean;
+  n, i        : word;
+  SaveNrec    : comp;
+{
+  OneMarkPick(false);
+
+  LevelClosed := TreeCloseNode(trDogovor);
+
+  PushPos(#Dogovor);
+
+  n := 0;
+
+  if TreeGetNext(trDogovor)
+    {
+      SaveNrec := Dogovor.nRec;
+      TreeGetPrev(trDogovor);
+    }
+
+  if TreeOpenNode(trDogovor)
+    {
+      inc(n);
+      PushPos(#Dogovor);
+    }
+
+  if TreeGetNext(trDogovor)
+    do
+      {
+        if ( Dogovor.nRec = SaveNrec )
+          Break;
+
+        OneMarkPick(false);
+
+        if TreeOpenNode(trDogovor)
+          {
+            inc(n);
+            PushPos(#Dogovor);
+          }
+      }
+    While TreeGetNext(trDogovor);
+
+  For(i := 1; i <= n; inc(i))
+    {
+      PopPos(#Dogovor);
+      TreeCloseNode(trDogovor);
+    }
+
+  PopPos(#Dogovor);
+
+  if ( LevelClosed )
+    TreeOpenNode(trDogovor);
+
+  TreeJumpToRecord(trDogovor, Dogovor.nRec);
+  RescanPanel(#Dogovor);
+}
+
+//--  Отменить пометку группы
+Procedure UnMarkGroup;
+var
+  LevelClosed: boolean;
+  n, i        : word;
+  SaveNrec    : comp;
+{
+  DeleteMarker(MarkerDog, Dogovor.nRec);
+
+  LevelClosed := TreeCloseNode(trDogovor);
+
+  PushPos(#Dogovor);
+
+  n := 0;
+
+  if TreeGetNext(trDogovor)
+    {
+      SaveNrec := Dogovor.nRec;
+      TreeGetPrev(trDogovor);
+    }
+
+  if TreeOpenNode(trDogovor)
+    {
+      inc(n);
+
+      PushPos(#Dogovor);
+    }
+
+  if TreeGetNext(trDogovor)
+    do
+      {
+        if ( Dogovor.nRec = SaveNrec )
+          Break;
+
+        DeleteMarker(MarkerDog, Dogovor.nRec);
+
+        if TreeOpenNode(trDogovor)
+          {
+            inc(n);
+            PushPos(#Dogovor);
+          }
+      }
+    While TreeGetNext(trDogovor);
+
+  For(i := 1; i <= n; inc(i))
+    {
+      PopPos(#Dogovor);
+      TreeCloseNode(trDogovor);
+    }
+
+  PopPos(#Dogovor);
+
+  if ( LevelClosed )
+    TreeOpenNode(trDogovor);
+
+  TreeJumpToRecord(trDogovor, Dogovor.nRec);
+  RescanPanel(#Dogovor);
+}
+
+Function GetDocTreeType: byte;
+{
+  if ( RecordExists Dogovor2 <> tsOk )
+    GetDocTreeType := ntfText
+  else
+    GetDocTreeType := if(TreeNodeIsOpen(trDogovor), ntfOpen, ntfClose);
+}
+#define SHOW_NOTES_ICONS
+#include DogIcons.vpp
+
+HandleEvent
+
+cmTreeTop:
+  Node := 0;
+
+cmTreeUp:
+  Node := Dogovor.cDogovor;
+
+cmTreeDown:
+  Node := Dogovor.nRec;
+
+cmTreeNodeType:
+{
+  var DocTreeType: byte; DocTreeType := GetDocTreeType;
+
+  TreeSetNodeType(trDogovor
+                 , DocTreeType
+                 , GetDocTreeIconEx(Dogovor.TiDk
+                                  , Dogovor.Status
+                                  , DocTreeType
+                                  , Dogovor.cNote ));
+}
+
+cmTreeNeedOwner:
+  TreeJumpToRecord(trDogovor, Dogovor.cDogovor);
+
+cmPickClass: // Alt+C
+  if ( UpdateTable AND ( Dogovor.nRec <> 0 ) )
+    RunInterface('ExClassifier', word(CurTableCode), Dogovor.nRec);
+
+cmPickAttr: // Alt+A
+  if ( UpdateTable AND ( Dogovor.nRec <> 0 ) )
+    RunInterface('Attribute', word(CurTableCode), Dogovor.nRec);
+
+cmExClassRepl:
+  if ( UpdateTable AND ( Dogovor.nRec <> 0 ) )
+    RunInterface('ExClassRepl', word(CurTableCode), word(0), Dogovor.nRec, MarkerDog);
+
+end; // HandleEvent
+
+end; // panel
+
+HandleEvent // Interface
+
+cmInit:
+{
+  if ( DemoMode )
+    if (oDogFuns.TooMuchDogovors)
+      {
+        Abort;
+        Exit;
+      }
+
+  pStatus := _pStatus;
+
+  SetFieldAndLabelVisible(#DogThemes, oThemeFuncs.NIOKR_Used);
+
+  wDopKlas := wGetTune('Dog.DopKlas');
+  wPick_DisableDogs := wGetTune('Pick.DisableDogs');
+
+  var Flag: boolean;
+
+  if not ReadMyDsk(Flag, 'GetSDog_NotNeedDisableDogs', TRUE)
+    Flag := FALSE;
+
+  if Flag
+    wPick_DisableDogs := 0;
+
+  SaveMyDsk(FALSE, 'GetSDog_NotNeedDisableDogs');
+
+  if ( wDopKlas = 0 )
+    {
+      SetFieldVisible(#KatKau.Name, FALSE);
+      SetFieldVisible(#DopKlName  , FALSE);
+    }
+
+  InitDocIconsArray;
+
+  ClassCode := oExtCls.GetClassCode(coDogovor,'Наименование договора');
+
+  if ( ClassCode = 0)
+    {
+      oExtCls.CreateClass(coDogovor,'Наименование договора',ClassCode);
+      ClassCode := oExtCls.GetClassCode(coDogovor,'Наименование договора');
+    }
+
+  delete all GetDogsSums;
+
+  SetFieldVisible(#DogSumOtgrDG, FALSE);
+  SetFieldVisible(#DogAllPlat  , FALSE);
+  SetFieldVisible(#DogBalance  , FALSE);
+
+  BalanceVisible := FALSE;
+
+  if ( not ReadMyDsk(wTipMoney, 'GetSDog_TipMoney', TRUE) )
+    wTipMoney := 1;
+
+  pVidDog2 := comp(0);
+
+  ModifVidDog := TRUE;
+
+  // для фильтров
+  if ( not ReadMyDsk(optView, 'GetSDog_optView', TRUE) )
+    optView := 0;
+
+  if ( wGetTune('Pick.Visible') = 1 )
+    case wGetTune('Doc.Visible') of
+    // только со своим дескриптором
+      dcOwnOnly:
+        {
+          sfDescr := sGetTune('User.Descr');
+          sfDesGr := sGetTune('User.DesGr');
+
+          optView := optView or 6;
+
+          AddBounds(tbOnDescr1);
+          AddBounds(tbOnDescr2);
+        }
+    // только в своей группе дескрипторов
+      dcGrpRead, dcGrpModif:
+        {
+          sfDesGr := sGetTune('User.DesGr');
+
+          optView := optView or 4;
+
+          AddBounds(tbOnDesGr1);
+          AddBounds(tbOnDesGr2);
+        }
+    end;
+
+  if ( wVidDog <> 0 )
+    {
+      AddBounds(tbwVidDog1);
+      AddBounds(tbwVidDog2);
+
+      tmpVD := wVidDog;
+
+      if ( GetFirst KatVidD where (( comp(0) == KatVidD.cOwner AND
+                                     wVidDog == KatVidD.VidDog (NoIndex) )) = tsOk )
+        {
+          pVidDog2 := KatVidD.nRec; // нужно взять корневой вид договора
+          vKatVidD := KatVidD.Name;
+		  optView := optView or 8;
+        }
+      else
+        {
+          pVidDog2 := 0;
+          vKatVidD := '???';
+        }
+
+      if not ReadMyDsk(ModifVidDog, 'GetSDog_VidDogChangeEnabled', TRUE)
+        ModifVidDog := FALSE;
+    }
+  else
+    {
+      ReadMyDsk(pVidDog2, 'GetSDog_pVidDog2', TRUE);
+
+      if ( GetFirst KatVidD where (( pVidDog2 == KatVidD.nRec )) = tsOk )
+        {
+          vKatVidD := KatVidD.Name;
+          tmpVD    := KatVidD.VidDog;
+          wVidDog  := tmpVD;
+          optView := optView or 8; // установка фильтра по виду договора при передаче через DSK
+        }
+    }
+
+  SaveMyDsk(FALSE, 'GetSDog_VidDogChangeEnabled');
+
+  if ( not ReadMyDsk(RestoreStat, 'GetSDog_RestoreStat', TRUE) )
+    RestoreStat := FALSE;
+
+  if ( RestoreStat )
+    if ( ReadMyDsk(Save_Stat, 'GetSDog_Save_Stat', TRUE) )
+      pStatus := Save_Stat;
+
+  if ( not ReadMyDsk(SaveSelect, 'GetSDog_SaveSelect', TRUE) )
+    SaveSelect := FALSE;
+
+  if ( not ReadMyDsk(NotSelectStat, 'GetSDog_NotSelectStat', TRUE) )
+    NotSelectStat := FALSE;
+
+  if ( (pStatus <> 0FFFFh) AND (pStatus <> 0) )
+    optView := optView OR 64;
+
+  if ( wPick_DisableDogs <> 0 )
+    {
+      pStatus := if(RestoreStat, (31 - wPick_DisableDogs) AND pStatus, 31 - wPick_DisableDogs);
+      optView := optView OR 64;
+    }
+
+  enddate := Cur_Date;
+  begdate := Sub_Months(enddate, 3);
+  vKontr1 := '';
+  vKontr2 := '';
+  pKontr1 := comp(0);
+  pKontr2 := comp(0);
+
+  ReadMyDsk(pKontr1, 'GetSDog_pKontr1', TRUE);
+
+  if ( GetFirst KatOrg where (( pKontr1 == KatOrg.nRec )) = tsOk )
+    set vKontr1 := if(length(trim(KatOrg.TipOrg)) > 0, KatOrg.TipOrg + ' ', '') + KatOrg.Name
+  else
+    {
+      pKontr1 := 0;
+      optView := (optView or 16) xor 16;
+    }
+
+  ReadMyDsk(pKontr2, 'GetSDog_pKontr2', TRUE);
+
+  if ( GetFirst KatOrg where (( pKontr2 == KatOrg.nRec )) = tsOk )
+    set vKontr2 := if(length(trim(KatOrg.TipOrg)) > 0, KatOrg.TipOrg + ' ', '') + KatOrg.Name
+  else
+    {
+      pKontr2 := 0;
+      optView := (optView or 32) xor 32;
+    }
+
+  MarkerDog := InitMarker('MDogovor', 8, 100, 10);
+
+  if ( SaveSelect )
+    {
+      var MarkerCount, i: longint; // счетчики записей в маркере
+      var pickrec        : comp;
+
+      MarkerCount := GetMarkerCount(MarkerDog);
+
+      Node := pOwn;
+
+      if ( OneLevel )
+        AddBounds(tbNode);
+
+      For(i := 0; i < MarkerCount; inc(i))
+        if GetMarker(MarkerDog, i, pickrec)
+          if( ( GetFirst Dogovor where (( pickrec == Dogovor.nRec )) <> tsOk ) or ( picked = '-' ) )
+            {
+              AtDeleteMarker(MarkerDog, i);
+              dec(i);
+              dec(MarkerCount);
+            }
+    }
+  else
+    ClearMarker(MarkerDog);
+
+  if ( not BoundActive(tbNode) )
+    AddBounds(tbNode);
+
+  _prmDogovor := 0;
+
+  if ( prmDogovor <> 0 )
+    {
+      if ( GetFirst Dogovor where (( prmDogovor == Dogovor.nRec )) = tsOk )
+        _prmDogovor := prmDogovor;
+    }
+  else
+    if ( not OneLevel )
+      {
+        SubBounds(tbNode);
+
+        if ( GetFirst Dogovor where (( pOwn == Dogovor.nRec )) = tsOk )
+          _prmDogovor := pOwn;
+
+        AddBounds(tbNode);
+      }
+
+  var NeedFilterOnKontr2: boolean;
+
+  if ( ReadMyDsk(NeedFilterOnKontr2, 'GetSDog_NeedFilterOnKontr2', TRUE) )
+    if ( NeedFilterOnKontr2 AND ( pKontr2 <> comp(0) ) )
+      {
+        optView := optView OR 32;
+
+        if ( not BoundActive(tbKontr21) ) AddBounds(tbKontr21);
+        if ( not BoundActive(tbKontr22) ) AddBounds(tbKontr22);
+      }
+
+  SaveMyDsk(false, 'GetSDog_NeedFilterOnKontr2');
+
+  fiStat := GetfiStatName(pStatus, count_bit, pos_Status);
+
+  if ( ( (optView AND 64) <> 0 ) AND ( count_bit = 1 ) )
+    {
+      AddBounds(tb_Status1);
+      AddBounds(tb_Status2);
+    }
+
+  if ( pDirect <> 0 )
+    {
+      optView := optView or 4096;
+
+      set wDirect := pDirect mod 3;
+
+      PushConditionForLeave(tcFilters1, #Dogovor);
+      PushConditionForLeave(tcFilters2, #Dogovor2);
+    }
+  else
+    wDirect := 1;
+
+  ReadMyDsk(begdate  , 'GetSDog_begdate'  , TRUE);
+  ReadMyDsk(enddate  , 'GetSDog_enddate'  , TRUE);
+  ReadMyDsk(sfDescr  , 'GetSDog_sfDescr'  , TRUE);
+  ReadMyDsk(sfDesGr  , 'GetSDog_sfDesGr'  , TRUE);
+
+  ReadMyDsk(pNazna , 'GetSDog_pNazna', TRUE);
+  if ( GetFirst KatNazna where (( pNazna == KatNazna.nRec )) = tsOk )
+    vNazna  := KatNazna.Name
+  else
+    optView := (optView or 128) xor 128;
+
+  ReadMyDsk(pOtvPodr , 'GetSDog_pOtvPodr' , TRUE);
+  if ( GetFirst fpCO where (( pOtvPodr == fpCO.nRec )) = tsOk )
+    vOtvPodr := fpCO.Name;
+  else
+    optView := (optView or 256) xor 256;
+
+  ReadMyDsk(pOtvPodr2, 'GetSDog_pOtvPodr2', TRUE);
+  if ( GetFirst fpCO where (( pOtvPodr2 == fpCO.nRec )) = tsOk )
+    vOtvPodr2 := fpCO.Name;
+  else
+    optView := (optView or 512) xor 512;
+
+  ReadMyDsk(pGrDogs, 'GetSDog_pGrDogs', TRUE);
+  if ( GetFirst FastFirstRow GroupSch where (( pGrDogs == GroupSch.nRec )) = tsOk )
+    vGrDogs := GroupSch.Name;
+  else
+    optView := (optView or 1024) xor 1024;
+
+  ReadMyDsk(pTheme, 'GetSDog_pTheme', TRUE);
+
+  vTheme := oThemeFuncs.GetThemeNumber(pTheme);
+
+  if ( vTheme = '' )
+    optView := (optView or 8192) xor 8192;
+
+  oldView    := optView;
+  workStatus := pStatus;
+
+  SetFilterBounds;
+
+  if ( not OneLevel )
+    {
+      if ( _prmDogovor <> 0 )
+        TreeJumpToRecord(trDogovor, _prmDogovor);
+      else
+        if not TreeGetLast(trDogovor)
+          Message('Не найдены договоры, удовлетворяющие условиям фильтра!', Information);
+    }
+  else
+    if ( _prmDogovor <> 0 )
+      {
+        if ( GetFirst Dogovor where (( _prmDogovor == Dogovor.nRec )) = tsOk )
+          {
+          }
+      }
+    else
+      if ( GetLast Dogovor <> tsOk )
+        Message('Не найдены договоры, удовлетворяющие условиям фильтра!', Information);
+
+  SetMyFormat;
+
+  SetFieldVisible(#picked, OkOne);
+
+  SelectField(#Dogovor.Nodoc);
+
+  if ( not OkOne or ( pAttach = 0 ) )
+    DisableCommand(cmValue2);
+
+  SetOrder(tiOrd_dDoc);
+  PrevSort := tiOrd_dDoc;
+  SetColumnSorting(trDogovor, #Dogovor.dDoc, 1);
+  SetColumnSorting(brDogovor, #Dogovor.dDoc, 1);
+
+  SetCommandEnabled(cmShowAll, not OneLevel AND BoundActive(tbNode));
+  SetCommandEnabled(cmHideAll, not OneLevel AND BoundActive(tbNode));
+
+  SetMyTitle;
+}
+
+cmDefault:
+{
+  prmDogovor := Dogovor.nRec;
+  wVidDog    := Dogovor.VidDog;
+
+  if ( not ( OneLevel OR BoundActive(tbNode) ) )
+    {
+      AddBounds(tbNode);
+
+      TreeJumpToRecord(trDogovor, prmDogovor);
+
+      SetFormat(trDogovor);
+
+      Abort;
+      Exit;
+    }
+
+  if ( ( pAttach = 0 ) AND ( Dogovor.cDogovor <> 0 ) AND ( not ( OkOne AND ( GetMarkerCount(MarkerDog) > 0 ) ) ) )
+    {
+      Message('Выбирать соглашения нельзя...', CancelButton + Warning);
+      Abort;
+      Exit;
+    }
+
+  if ( ( pAttach = 2 ) AND ( Dogovor.cDogovor = 0 ) AND (not ( OkOne AND ( GetMarkerCount(MarkerDog) > 0 ) ) ) )
+    {
+      Message('Выбирать договора нельзя...', CancelButton + Warning);
+      Abort;
+      Exit;
+    }
+
+  if ( ( not OkOne ) AND IsValid(#Dogovor) )
+    if ( ( picked = '-' ) AND (not ( OkOne AND ( GetMarkerCount(MarkerDog) > 0 ) ) ) )
+      {
+        Message('Нельзя пометить '
+              + if(Dogovor.cDogovor = 0, 'договор', 'соглашение')
+              + ' с данным статусом!', Warning);
+
+        Abort;
+        Exit;
+      }
+
+  if ( OkOne )
+    if ( ( GetMarkerCount(MarkerDog) = 0 ) AND IsValid(#Dogovor) )
+      if ( not OneMarkPick(true) )
+        {
+          Abort;
+          Exit;
+        }
+
+  pOwn := 0;
+
+  if ( Dogovor.cDogovor <> 0 )
+    {
+      ResetBounds(#Dogovor2);
+
+      var _Nrec2: comp; _Nrec2 := Dogovor.cDogovor;
+
+      While (_Nrec2 <> 0) do
+        {
+          if ( GetFirst Dogovor2 where (( _Nrec2 == Dogovor2.nRec )) <> tsOk )
+            Break;
+
+          pOwn   := Dogovor2.nRec;
+          _Nrec2 := Dogovor2.cDogovor;
+        }
+    }
+}
+
+cmDone:
+{
+  DoneMarker(MarkerDog, 'MDogovor');
+
+  SaveMyDsk(false    , 'GetSDog_RestoreStat'  );
+  SaveMyDsk(false    , 'GetSDog_SaveSelect'   );
+  SaveMyDsk(pVidDog2 , 'GetSDog_pVidDog2'     );
+  SaveMyDsk(pKontr1  , 'GetSDog_pKontr1'      );
+  SaveMyDsk(pKontr2  , 'GetSDog_pKontr2'      );
+  SaveMyDsk(pStatus  , 'GetSDog_Save_Stat'    );
+  SaveMyDsk(false    , 'GetSDog_NotSelectStat');
+  SaveMyDsk(wTipMoney, 'GetSDog_TipMoney'     );
+  SaveMyDsk(optView  , 'GetSDog_optView'      );
+  SaveMyDsk(begdate  , 'GetSDog_begdate'      );
+  SaveMyDsk(enddate  , 'GetSDog_enddate'      );
+  SaveMyDsk(sfDescr  , 'GetSDog_sfDescr'      );
+  SaveMyDsk(sfDesGr  , 'GetSDog_sfDesGr'      );
+  SaveMyDsk(pNazna   , 'GetSDog_pNazna'       );
+  SaveMyDsk(pOtvPodr , 'GetSDog_pOtvPodr'     );
+  SaveMyDsk(pOtvPodr2, 'GetSDog_pOtvPodr2'    );
+  SaveMyDsk(pGrDogs  , 'GetSDog_pGrDogs'      );
+  SaveMyDsk(pTheme   , 'GetSDog_pTheme'       );
+}
+
+cmAddNewRec:
+{
+  RunInterface('Dogovor', Dogovor.VidDog
+                        , Dogovor.TiDk
+                        , Dogovor.Direct
+                        , Dogovor.Status
+                        , Dogovor.cDogovor
+                        , Dogovor.nRec);
+
+  ReReadRecord;
+}
+
+cmEdit:
+  PutCommand(cmAddNewRec);
+
+cmMarkUnMark:
+{
+  if ( SearchMarker(MarkerDog, Dogovor.nRec, IndexDog) )
+    DeleteMarker(MarkerDog, Dogovor.nRec)
+  else
+    OneMarkPick(true);
+
+  SetMyTitle;
+
+  if ( isTreeFormat )
+    {
+      TreeGetNext(trDogovor);
+      RescanPanel(#Dogovor);
+    }
+  else
+    {
+      RedrawCurrentAndGo(GetCurrentFormat, TRUE);
+    }
+}
+
+cmValue2: // Если на группу то выбирать все из группы
+{
+  if ( isTreeFormat )
+    if ( IerDog.IsLeaf = 0 )
+      {
+        if ( SearchMarker(MarkerDog, Dogovor.nRec, IndexDog) )
+          UnMarkGroup
+        else
+          MarkGroup;
+
+        SetMyTitle;
+      }
+
+  RescanPanel(#Dogovor);
+}
+
+cmValue3:
+{
+  BalanceVisible := not BalanceVisible;
+
+  SetFieldVisible(#DogSumOtgrDG, BalanceVisible);
+  SetFieldVisible(#DogAllPlat  , BalanceVisible);
+  SetFieldVisible(#DogBalance  , BalanceVisible);
+}
+
+cmValue4:
+  RunInterface('CalcDolgDG', Dogovor.nRec, 0, Cur_Date);
+
+cmValFld10:
+{
+  var c1, c2: comp;
+
+  if ( Dogovor.cDogovor = 0 )
+    {
+      c1 := Dogovor.nRec;
+      c2 := 0;
+    }
+  else
+    {
+      if ( GetFirst IerDog where (( Dogovor.nRec == IerDog.cRec )) = tsOk )
+        c1 := IerDog.cDogovor
+      else
+        c1 := Dogovor.cDogovor;
+
+      c2 := Dogovor.nRec;
+    }
+
+  SaveMyDsk(c1, 'GetDAK_Dogovor');
+
+  var R: TFilterDog;
+
+  R.Filter := 0;
+
+  // Дескриптор
+  if ( (optView and    2) <> 0 ) R.Filter := R.Filter or 128;
+  // Группа дескрипторов
+  if ( (optView and    4) <> 0 ) R.Filter := R.Filter or 256;
+  // Дата заключения
+  if ( (optView and    1) <> 0 ) R.Filter := R.Filter or 1;
+  // Контрагент
+  if ( (optView and   32) <> 0 ) R.Filter := R.Filter or 2;
+  // Статус договоров
+  if ( (optView and   64) <> 0 ) R.Filter := R.Filter or 4;
+  // Группа договоров
+  if ( (optView and 1024) <> 0 ) R.Filter := R.Filter or 8;
+  // Назначение
+  if ( (optView and  128) <> 0 ) R.Filter := R.Filter or 16;
+  // ЦО дог./согл.
+  if ( (optView and  256) <> 0 ) R.Filter := R.Filter or 32;
+  // Вид договора
+  if ( (optView and    8) <> 0 ) R.Filter := R.Filter or 64;
+
+  R.dBeg         := begdate;
+  R.dEnd         := enddate;
+  R.pVidDog      := pVidDog2;
+  R.UseIerVidDog := FALSE;
+  R.pOrg         := pKontr2;
+  R.Status       := workStatus;
+  R.GrDogs       := 0;
+  R.sDescr       := sfDescr;
+  R.sDesGr       := sfDesGr;
+
+  RunInterface('GetDocs2', c1, c2, longint(vcGetDog_Zamena + vcGetDog_Dogovor), R);
+}
+
+cmSelectAll:
+{
+  if ( isTreeFormat )
+    TreePushPos(trDogovor)
+  else
+    PushPos(#Dogovor);
+
+  KillPick;
+
+  var ret  : word;
+  var retb: boolean;
+
+  if ( isTreeFormat )
+    For(retb := TreeGetFirst(trDogovor); retb = TRUE; retb := TreeGetNext(trDogovor))
+      OneMarkPick(false)
+  else
+    _LOOP Dogovor
+      OneMarkPick(false);
+
+  if isTreeFormat
+    TreePopPos(trDogovor);
+  else
+    PopPos(#Dogovor);
+
+  SetMyTitle;
+  RereadRecord(#Dogovor);
+}
+
+cmUnSelectAll:
+{
+  KillPick;
+  SetMyTitle;
+  RescanPanel(#Dogovor);
+}
+
+cmShowAll: // Раскрыть все ветки
+{
+  if ( not BoundActive(tbNode) )
+    Exit;
+
+  var sav_NRec: comp; sav_NRec := Dogovor.nRec;
+
+  StartNewVisual(vtRotateVisual, vfTimer, 'Раскрытие всех веток...'#13, 1);
+
+  if ( TreeGetFirst(trDogovor) )
+    do
+      {
+        NextVisual;
+        TreeOpenNode(trDogovor);
+      }
+    While TreeGetNext(trDogovor);
+
+  StopVisual('', 0);
+
+  TreeJumpToRecord(trDogovor, sav_NRec);
+  RescanPanel(#Dogovor);
+}
+
+cmHideAll: // Свернуть все ветки
+{
+  if ( not BoundActive(tbNode) )
+    Exit;
+
+  var sav_NRec: comp;
+
+  StartNewVisual(vtRotateVisual, vfTimer, 'Сворачивание всех веток...'#13, 1);
+
+  While (Dogovor.cDogovor <> 0) do
+    {
+      NextVisual;
+      TreeJumpToRecord(trDogovor, Dogovor.cDogovor);
+    }
+
+  StopVisual('', 0);
+
+  sav_NRec := Dogovor.nRec;
+
+  if ( TreeGetFirst(trDogovor) )
+    do
+      TreeCloseNode(trDogovor);
+    While TreeGetNext(trDogovor);
+
+  TreeJumpToRecord(trDogovor, sav_NRec);
+
+  RescanPanel(#Dogovor);
+}
+
+
+cmFilterSave:
+  {
+    RunWindowModal(winGetSomeDogovor_Filter);
+
+    SetMyTitle;
+
+    if ( not OneLevel AND BoundActive(tbNode) )
+      {
+        if not TreeGetLast(trDogovor)
+          Message('Не найдены договоры, удовлетворяющие условиям фильтра!', Information);
+      }
+    else
+      if ( GetLast Dogovor <> tsOk )
+        Message('Не найдены договоры, удовлетворяющие условиям фильтра!', Information);
+
+    RereadRecord(#Dogovor);
+  }
+
+cmOpenSearch:
+  {
+    if (
+        (
+         (CurField = #Dogovor.Descr)
+          or
+         (CurField = #Dogovor.dDoc )
+          or
+         (CurField = #Dogovor.Nodoc)
+        )
+         AND
+        ( not OneLevel )
+         AND
+        BoundActive(tbNode)
+       )
+      {
+        SubBounds(tbNode);
+        SetOrder(tiOrd_dDoc);
+        PrevOrd := GetTableBackOrder(tnDogovor);
+        SetTableBackOrderIn(tnDogovor, FALSE);
+        SetFormat(brDogovor);
+      }
+  }
+
+cmCloseSearch:
+  if ( not ( OneLevel OR BoundActive(tbNode) ) )
+    {
+      var _nrec: comp; _nrec := Dogovor.nRec;
+
+      Node  := Dogovor.cDogovor;
+
+      AddBounds(tbNode);
+      SetOrder(PrevSort);
+      SetTableBackOrderIn(tnDogovor, PrevOrd);
+
+      TreeJumpToRecord(trDogovor, _nrec);
+
+      SetFormat(trDogovor);
+    }
+
+cmHotKeys:
+  {
+    SetCommandEnabled(cmValue4  , IsValid(tnDogovor));
+    SetCommandEnabled(cmValFld10, IsValid(tnDogovor));
+
+    if OkOne
+      EnableCommand(cmExClassRepl)
+    else
+      DisableCommand(cmExClassRepl);
+
+    if ( not OneLevel AND BoundActive(tbNode) )
+      PutHotCommand(RunMenu('mnuGetSomeDogovorTree'))
+    else
+      PutHotCommand(RunMenu('mnuGetSomeDogovor'));
+  }
+
+cmNal:
+  PutCommand(cmValue3);
+
+cmImp:
+  PutCommand(cmValue4);
+
+cmExp:
+  PutCommand(cmValFld10);
+
+cmColumnClicked:
+  {
+    var ColSort: longint; ColSort := GetColumnSorting(trDogovor, Target);
+
+    case Target of
+      #Dogovor.NoDoc,
+      #Dogovor.dDoc,
+      #Dogovor.DesGr,
+      #Dogovor.Descr:
+        {
+          SetTableBackOrderIn(tnDogovor, (ColSort = -1));
+          SetColumnSorting(trDogovor, Target, if(ColSort <> -1, -1, 1));
+          SetColumnSorting(brDogovor, Target, if(ColSort <> -1, -1, 1));
+        }
+    end;
+
+    case Target of
+      #Dogovor.NoDoc:
+        {
+          SetOrder(tiOrd_NoDoc);
+          PrevSort := tiOrd_NoDoc;
+        }
+
+      #Dogovor.dDoc:
+        {
+          SetTableBackOrderIn(tnDogovor, (ColSort = 1));
+          SetColumnSorting(trDogovor, Target, if(ColSort <> 1, 1, -1));
+          SetColumnSorting(brDogovor, Target, if(ColSort <> 1, 1, -1));
+
+          SetOrder(tiOrd_dDoc);
+          PrevSort := tiOrd_dDoc;
+        }
+
+      #Dogovor.DesGr:
+        {
+          SetOrder(tiOrd_DesGr);
+          PrevSort := tiOrd_DesGr;
+        }
+
+      #Dogovor.Descr:
+        {
+          SetOrder(tiOrd_Descr);
+          PrevSort := tiOrd_Descr;
+        }
+    end;
+
+    RescanPanel(#Dogovor);
+  }
+
+end; // HandleEvent Interface
+
+End. // Interface
+
+//********************************************************************************
+
+#doc
+Локальное меню линейного представления главного окна интерфейса <link Interface L_Dogovor::GetSomeDogovor>L_Dogovor::GetSomeDogovor - Выбор договоров</link>
+#end
+mnuGetSomeDogovor Menu
+{
+//******************************************************************************
+- 'Установка ~ф~ильтров'
+  , cmFilterSave
+  , 'Установить/снять фильтр по договорам'
+  , hcdog_filtr
+  , 'Alt+B', kbAltB
+  , sci1Esc;
+//******************************************************************************
+-----------;
+//******************************************************************************
+//- 'Переключение формата (отгрузки/оплаты)'
+//  , cmValue3
+//  , 'Расчет отгрузок/оплат по договору/соглашению'
+//  , hcm_dogov_PereklFormat
+//  , 'Alt+F', kbAltF
+//  , sci1Esc;
+//******************************************************************************
+- 'Информация по отгрузкам/оплатам'
+  , cmValue4
+  , 'Информация по отгрузкам/оплатам'
+  , hcm_dogov_SymmDogSogl
+  , 'Alt+I', kbAltI
+  , sci1Esc;
+//******************************************************************************
+- 'Отчет о ходе исполнения договора'
+  , cmValFld10
+  , 'Отчет о ходе исполнения договора'
+  , hcdg_oper_otchet
+  , 'Alt+O', kbAltO
+  , sci1Esc;
+//******************************************************************************
+-----------;
+- 'Внешняя классификация'
+  , cmPickClass
+  , 'Внешняя классификация'
+  , hcGkatalM1ExtClass
+  , 'Alt+C', kbAltC
+  , sci1Esc;
+//******************************************************************************
+- 'Внешние атрибуты'
+  , cmPickAttr
+  , 'Заполнение внешних атрибутов по данной позиции'
+  , hcGkatalM1Attr
+  , 'Alt+A', kbAltA
+  , sci1Esc;
+//******************************************************************************
+- 'Тиражирование внешней классификации'
+  , cmExClassRepl
+  , 'Тиражирование внешней классификации'
+  , hcm_zakup_Tirazhir
+  ,,
+  , sci1Esc;
+//******************************************************************************
+}
+
+#doc
+Локальное меню иерархического представления главного окна интерфейса <link Interface L_Dogovor::GetSomeDogovor>L_Dogovor::GetSomeDogovor - Выбор договоров</link>
+#end
+mnuGetSomeDogovorTree Menu
+{
+//******************************************************************************
+- 'Установка ~ф~ильтров'
+  , cmFilterSave
+  , 'Установить/снять фильтр по договорам'
+  , hcdog_filtr
+  , 'Alt+B', kbAltB
+  , sci1Esc;
+//******************************************************************************
+-----------;
+//******************************************************************************
+//- 'Переключение формата (отгрузки/оплаты)'
+//  , cmValue3
+//  , 'Расчет отгрузок/оплат по договору/соглашению'
+//  , hcm_dogov_PereklFormat
+//  , 'Alt+F', kbAltF
+//  , sci1Esc;
+//******************************************************************************
+- 'Информация по отгрузкам/оплатам'
+  , cmValue4
+  , 'Информация по отгрузкам/оплатам'
+  , hcm_dogov_SymmDogSogl
+  , 'Alt+I', kbAltI
+  , sci1Esc;
+//******************************************************************************
+- 'Отчет о ходе исполнения договора'
+  , cmValFld10
+  , 'Отчет о ходе исполнения договора'
+  , hcdg_oper_otchet
+  , 'Alt+O', kbAltO
+  , sci1Esc;
+//******************************************************************************
+-----------;
+//******************************************************************************
+//- 'Выбрать всю ветку'
+// , cmValue2
+//  , 'Выбрать всю ветку'
+//  ,,,
+//  , sci1Esc;
+////******************************************************************************
+//-----------;
+//- 'Внешняя классификация'
+//  , cmPickClass
+//  , 'Внешняя классификация'
+//  , hcGkatalM1ExtClass
+//  , 'Alt+C', kbAltC
+//  , sci1Esc;
+////******************************************************************************
+//- 'Внешние атрибуты'
+//  , cmPickAttr
+//  , 'Заполнение внешних атрибутов по данной позиции'
+//  , hcGkatalM1Attr
+//  , 'Alt+A', kbAltA
+//  , sci1Esc;
+////******************************************************************************
+//- 'Тиражирование внешней классификации'
+//  , cmExClassRepl
+//  , 'Тиражирование внешней классификации'
+//  , hcm_zakup_Tirazhir
+//  ,,
+//  , sci1Esc;
+////******************************************************************************
+//-----------;
+////******************************************************************************
+//- 'Раскрыть все ветки'
+//  , cmShowAll
+//  , 'Разворачивает все дерево документов'
+//  ,
+//  , 'Ctrl+''+''', kbCtrlGrayPlus
+//  ,  sci1Esc;
+////******************************************************************************
+- 'Свернуть все ветки'
+  , cmHideAll
+  , 'Сворачивает все дерево документов'
+  ,
+  , 'Ctrl+''-''', kbCtrlGrayMinus
+  , sci1Esc;
+//******************************************************************************
+}
+
+//********************************************************************************

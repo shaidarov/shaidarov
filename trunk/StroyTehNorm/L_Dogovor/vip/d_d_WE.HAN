@@ -1,0 +1,591 @@
+#include lnkdocdg.vpp  // просмотр схемы связей документов
+#include dogattr.vpp
+
+cmSchema: // схема платежей
+  {
+    if Not CheckKontrLinks
+      Exit;
+
+    UpDateInsertDogovor;
+
+    RunWindowModal(wiDogovorSchema);
+  }
+
+cmAttrib: // расширенная информация
+  {
+    if Not CheckKontrLinks
+      Exit;
+
+    UpDateInsertDogovor;
+
+    RunWindowModal(wiDogovorAttrib);
+    ReReadRecord(#Dogovor);
+  }
+
+cmValue2: // Просмотр подробной информации по контрагенту1;
+  {
+    UpDateInsertDogovor;
+
+    if (
+        ( OldAttrDog.Subject1    <> AttrDog.Subject1    )
+         OR
+        ( OldAttrDog.Subject2    <> AttrDog.Subject2    )
+         OR
+        ( OldAttrDog.Subject3    <> AttrDog.Subject3    )
+         OR
+        ( OldAttrDog.Otv_My_Fio  <> AttrDog.Otv_My_Fio  )
+         OR
+        ( OldAttrDog.Otv_My_Post <> AttrDog.Otv_My_Post )
+       )
+      if ( update current AttrDog = tsOk )
+        OldAttrDog := AttrDog.Buffer;
+
+    RunInterface('AttrDog', word(0), Dogovor.nRec);
+    ReReadRecord(#Dogovor);
+  }
+
+cmValue3:   //Просмотр подробной информации по контрагенту2;
+  {
+    var cKontr_Old : comp;
+
+    cKontr_Old := Dogovor.cOrg;
+
+    UpDateInsertDogovor;
+
+    if (
+        ( OldAttrDog.Subject1    <> AttrDog.Subject1    )
+         OR
+        ( OldAttrDog.Subject2    <> AttrDog.Subject2    )
+         OR
+        ( OldAttrDog.Subject3    <> AttrDog.Subject3    )
+         OR
+        ( OldAttrDog.Otv_My_Fio  <> AttrDog.Otv_My_Fio  )
+         OR
+        ( OldAttrDog.Otv_My_Post <> AttrDog.Otv_My_Post )
+       )
+      if ( update current AttrDog = tsOk )
+        OldAttrDog := AttrDog.Buffer;
+
+    RunInterface('AttrDog',word(1),Dogovor.nRec);
+
+    ReReadRecord(#Dogovor);
+
+    if ( cKontr_Old <> Dogovor.cOrg )
+      {
+        oSpDocs.ChangeOrgInNal(Dogovor.TiDk, Dogovor.nRec, Dogovor.cOrg);
+        oSpDocs.ReCalcSpec(Dogovor.TiDk, Dogovor.nRec);
+        ReCalcSummaDogovor;
+      }
+  }
+
+cmEdit:
+  {
+    case CurField of
+      #KatOrg1.Name:
+        {
+          if IsValid(#KatOrg1)
+            if ( Dogovor.VidDog <> 18 ) // Учебный процесс
+              RunInterface('KatOrg', KatOrg1.nRec, comp(0), word(0))
+            else
+              RunInterface('U_SelByPerson', KatOrg1.nRec);
+        }
+      #AttrDog.Subject1, #AttrDog.Subject2, #AttrDog.Subject3:
+        {
+          if EditDogPosEnabled(false, false)
+            {
+              oExtAtr.CreateAttr(coDogovor, 'Предмет договора/соглашения', cgAttrType_Memo);
+
+              if ( GetFirst FastFirstRow AttrVal
+                            where (( coDogovor    == AttrVal.wTable
+                                 AND Dogovor.nRec == AttrVal.cRec
+                                 AND oExtAtr.AttrID(coDogovor, 'Предмет договора/соглашения')
+                                                  == AttrVal.cAttrNam )) <> tsOk )
+                {
+                  ClearBuffer(#AttrVal);
+
+                  AttrVal.wTable   := coDogovor;
+                  AttrVal.cRec     := Dogovor.nRec;
+                  AttrVal.cAttrNam := oExtAtr.AttrID(coDogovor, 'Предмет договора/соглашения');
+
+                  insert current AttrVal;
+                }
+
+              MemoFile.OpenMemo(AttrVal.vLVar);
+
+              if ( MemoFile.GetSize > 0 )
+                MemoFile.Close
+              else
+                {
+                  MemoFile.WriteLn(AttrDog.Subject1);
+                  MemoFile.WriteLn(AttrDog.Subject2);
+                  MemoFile.WriteLn(AttrDog.Subject3);
+                  MemoFile.Close;
+
+                  update current AttrVal;
+                }
+            }
+          else
+            SaveMyDsk(FALSE, '_CanEditAttribute_');
+
+          RunInterface('AttributeV2', coDogovor, Dogovor.nRec, oExtAtr.AttrID(coDogovor, 'Предмет договора/соглашения'));
+
+          if EditDogPosEnabled(false, false)
+            if ( GetFirst FastFirstRow AttrVal
+                          where (( coDogovor    == AttrVal.wTable
+                               AND Dogovor.nRec == AttrVal.cRec
+                               AND oExtAtr.AttrID(coDogovor, 'Предмет договора/соглашения')
+                                                == AttrVal.cAttrNam )) = tsOk )
+              {
+                MemoFile.OpenMemo(AttrVal.vLVar);
+
+                if ( MemoFile.GetSize > 0 )
+                  {
+                    var sTmp: array[1..3] of string;
+
+                    sTmp[1] := sTmp[2] := sTmp[3] := '';
+
+                    MemoFile.ReadLn(sTmp[1]);
+
+                    if not MemoFile.EOF
+                      MemoFile.ReadLn(sTmp[2]);
+
+                    if not MemoFile.EOF
+                      MemoFile.ReadLn(sTmp[3]);
+
+                    if ( sTmp[1] <> AttrDog.Subject1 ) OR ( sTmp[2] <> AttrDog.Subject2 ) OR ( sTmp[3] <> AttrDog.Subject3 )
+                      if ( Message('Изменить предмет договора/соглашения по мемо-полю?', Confirmation + YesNo) = cmYes )
+                        {
+                          set AttrDog.Subject1 := sTmp[1];
+                          set AttrDog.Subject2 := sTmp[2];
+                          set AttrDog.Subject3 := sTmp[3];
+
+                          if ( update current AttrDog = tsOk )
+                            OldAttrDog := AttrDog.Buffer;
+                        }
+                  }
+
+                MemoFile.Close;
+              }
+        }
+    end;
+  }
+
+cmValue5: // Спецификация
+  {
+    if Not CheckKontrLinks
+      Exit;
+
+    UpDateInsertDogovor;
+
+    bSpec := (RecordExists SpDocs where (( DogOwner.TiDk == SpDocs.TiDk and
+                                           DogOwner.nRec == SpDocs.cDoc )) = tsOk);
+
+    RunWindowModal(wiSpDog);
+
+    ReReadRecord(#Dogovor);
+
+    SetFieldVisible(#isSpDog, RecordExists SpDocs = tsOk);
+  }
+
+cmValue6: // План
+  {
+    if Not CheckKontrLinks
+      Exit;
+
+    UpDateInsertDogovor;
+    RunInterface('CalPlan', Dogovor.nRec, comp(0));
+
+    ReReadRecord(#Dogovor);
+
+    SetFieldVisible(#isCalPlan, (RecordExists CalPlan = tsOk));
+    SetFieldVisible(#isSpDog  , (RecordExists SpDocs  = tsOk));
+  }
+
+cmValue7:   //Акт сверки';
+  {
+    if Not CheckKontrLinks
+      Exit;
+
+    UpDateInsertDogovor;
+
+    RunInterface('AktSver', Dogovor.nRec);
+
+    ReReadRecord(#Dogovor);
+
+    SetFieldVisible(#AktSver.dDoc  , RecordExists AktSver = tsOk);
+    SetFieldVisible(#AktSver.Status, RecordExists AktSver = tsOk);
+  }
+
+cmValue10:
+  {
+    if Not CheckKontrLinks
+      Exit;
+
+    UpDateInsertDogovor;
+
+    RunWindowModal(BrouseTextRepr);
+  }
+
+cmValFld3:
+  {
+    var pDogovor: comp;
+
+    if ( Dogovor1.cDogovor = 0 )
+      pDogovor := Dogovor.nRec
+    else
+      if ( GetFirst IerDog where (( Dogovor.nRec == IerDog.cRec )) = tsOK )
+        pDogovor := IerDog.cDogovor
+      else
+        pDogovor := Dogovor.cDogovor;
+
+    SaveMyDsk(pDogovor, 'GetDAK_Dogovor');
+
+    var FilterInfo: TFilterDog;
+    FilterInfo.Filter := 0;
+
+    RunInterface('GetDocs2', pDogovor
+                           , if(Dogovor1.cDogovor = 0, comp(0), Dogovor.nRec)
+                           , longint(vcGetDog_Dogovor)
+                           , FilterInfo);
+  }
+
+cmValFld10:
+  {
+    var pDogovor: comp;
+
+    if ( Dogovor1.cDogovor = 0 )
+      pDogovor := Dogovor.nRec
+    else
+      if ( GetFirst IerDog where (( Dogovor.nRec == IerDog.cRec )) = tsOK )
+        pDogovor := IerDog.cDogovor
+      else
+        pDogovor := Dogovor.cDogovor;
+
+    SaveMyDsk(pDogovor, 'GetDAK_Dogovor');
+
+    var FilterInfo: TFilterDog;
+    FilterInfo.Filter := 0;
+
+    RunInterface('GetDocs2', pDogovor
+                           , if(Dogovor1.cDogovor = 0, comp(0), Dogovor.nRec)
+                           , longint(vcGetDog_Zamena + vcGetDog_Dogovor)
+                           , FilterInfo);
+  }
+
+cmValFld13:
+  RunInterface('RltDogInfo', Dogovor.nRec);
+
+cmValFld20:
+  {
+    RunInterface('DogovorInSchem', Dogovor.nRec, Dogovor.TiDk);
+  }
+
+cmPlansNo:
+  {
+    toc1 := 1;
+    PrintDogovorxl;
+  }
+
+cmPrintDoc:
+//  PrintDogovor;
+  PrintDogovorOtdeli;
+
+//связь с книгой финансовых операций
+#include fpBook01.vpp
+
+cmGoToNextLevel:
+  if UpdateTable
+    ProcessCommand(cmGoToNextLevel);
+
+cmGoToPrevLevel:
+  if UpdateTable
+    ProcessCommand(cmGoToPrevLevel);
+
+cmGoToNextDoc:
+  if UpdateTable
+    ProcessCommand(cmGoToNextDoc);
+
+cmGoToPrevDoc:
+  if UpdateTable
+    ProcessCommand(cmGoToPrevDoc);
+
+cmValue15:
+  PrintSpecifPlain;
+
+cmValue16:
+  PrintSpecifXls;
+
+// Печать справки о подтверждающих документах
+//cmValue14:
+//  PrintSpravkaForDogovor;
+
+cmValue23:
+  ProcessCommand(cmValue23);
+
+cmValue24:
+  ProcessCommand(cmValue24);
+
+// Спецификация договора поставки
+cmValue25 :
+{
+  RunInterface(MTR_Sp, Dogovor.NRec, True);
+}
+
+// Настройка отчета Спецификация договора поставки
+cmValue26 :
+{
+  RunInterface(MTR_Sp, Dogovor.NRec, False);
+}
+
+cmOpenSearch:
+  {
+    case CurField of
+      #KatOrg.Name, #KatOrg1.Name:
+        {
+          if NullVipRef(oChkLink)
+            GetVipRef(oChkLink, 'KatOrg');
+
+          if oChkLink.CheckLinks(coKatOrgDescr)
+            QuickChoiceName := 'qcKatOrgName'
+          else
+            QuickChoiceName := 'qcKatOrgTreeName';
+
+          ProcessCommand(cmPick);
+        }
+     else
+       Abort;
+    end;
+  }
+
+cmValue11:
+  {
+    DocSchem.nRec    := 0;
+    DocSchem.DesGr   := Dogovor.DesGr;
+    DocSchem.Descr   := DOgovor.Descr;
+    DocSchem.dDoc    := Dogovor.dDoc;
+    DocSchem.NoDoc   := Dogovor.NoDoc;
+    DocSchem.cDoc    := Dogovor.nRec;
+    DocSchem.TiDkGal := 400;
+    DocSchem.Status  := 1;
+    DocSchem.cNote   := oNotes.GetFirstNote(word(445), word(1));
+
+    insert current DocSchem;
+
+    SpSchem.nRec     := 0;
+    SpSchem.cSchem   := DocSchem.nRec;
+    SpSchem.cUpDoc   := 0;
+    SpSchem.cDoc     := DocSchem.cDoc;
+    SpSchem.TiDk     := DocSchem.TiDkGal;
+    SpSchem.cBaseDoc := 0;
+    SpSchem.TiDkBase := 0;
+    SpSchem.Comment  := '';
+
+    insert current SpSchem;
+
+    Message('Сформирована схема связей № ' + DocSchem.NoDoc + ' от ' + string(DocSchem.dDoc) + '.', okButton);
+  }
+
+cmManagerId:
+  {
+    if IsNew
+      if ( Not IsModified )
+        {
+          Message('Переход невозможен, так как документ не заполнен.', OkButton);
+          Exit;
+        }
+
+    UpDateInsertDogovor;
+
+    if ( RunInterface('GetDescr', CurDescr, CurDesGr, CurVisible) <> cmCancel )
+      {
+        SetDescrBounds(FALSE);
+        ReReadRecord(#Dogovor1);
+      }
+  }
+
+cmValue12:
+  {
+    ID := 'L_Dogovor\dogovor';
+
+    if ( Not ReadMyDsk(sXLTFileName, ID, TRUE) )
+      set sXLTFileName := TranslatePath('%ClientStartPath%') + 'XLS\' + ID + '.xlt';
+
+    RunInterface('xlrepsetup', 1, ID, sXLTFileName);
+
+    ReadMyDsk(sXLTFileName, ID, TRUE);
+  }
+
+cmValFld1: // лонгирование договора/соглашения
+  {
+    if NotEditDogPos(FALSE)
+      {
+        Abort;
+        Exit;
+      }
+
+    if (
+        ( Dogovor.Status <> 1 ) // лонгирование только для исполняемых
+          AND
+        ( Dogovor.Status <> 2 ) // и приостановленных договоров/соглашений
+       )
+      {
+        Message('Срок действия может быть продлен, только если'#13
+              + if(Dogovor.cDogovor = 0, 'договор', 'соглашение')
+              + ' имеет статус "исполняемый" или "приостановлен"!', Information + OkButton);
+        Abort;
+        Exit;
+      }
+
+    var NewEndDate: date;
+    var strOsnova : string[45];
+
+    NewEndDate := Dogovor.dEnd;
+    strOsnova  := '';
+
+    if ( RunDialog('LongDogovor', NewEndDate, strOsnova) <> cmCancel )
+    if ( RunDialog('LongDogAttac', NewEndDate, strOsnova) = cmCancel )
+      Exit;
+
+    if ( NewEndDate <= Dogovor.dEnd )
+      Message('Новая дата окончания '
+            + if(Dogovor.cDogovor = 0, 'договора', 'соглашения') + ''#13
+            + 'должна быть больше предыдущей!', Information + OkButton)
+    else
+      {
+        set Dogovor.dEnd := NewEndDate;
+
+        var strComment: string[80];
+
+        strComment := if(Dogovor.cDogovor = 0, 'Договор продлен', 'Соглашение продлено')
+                    + DateToStr(Dogovor.dEnd, ' до DD/MM/YYYY.')
+                    + if(strOsnova <> '', ' ' + strOsnova, '');
+
+        oStatlog.StatLog_Insert(Dogovor.TiDk, Dogovor.nRec, strComment);
+      }
+  }
+
+cmHotKeys:
+  {
+    if not UKS_Used
+      DisableCommand(cmValFld20);
+
+    var mnuName: string;
+
+    SetCommandEnabled(cmPrintDoc, Dogovor.VidDog <> 14);
+    SetCommandEnabled(cmPlansNo , Dogovor.VidDog <> 14);
+    SetCommandEnabled(cmValue12 , Dogovor.VidDog <> 14);
+    SetCommandEnabled(cmValue14 , Dogovor.VidDog <> 14);
+    SetCommandEnabled(cmValue15 , Dogovor.VidDog <> 14);
+    SetCommandEnabled(cmValue16 , Dogovor.VidDog <> 14);
+    SetCommandEnabled(cmValue29 , IsValid(#DogAttach1) AND EditDogPosEnabled(FALSE, FALSE));
+
+    mnuName := #AddComp('L_DOGOVOR')if(Dogovor1.cDogovor = 0, 'mnuDogovorEdit', 'mnuDogovorAttacEdit');
+
+    if (Dogovor.VidDog = 12)
+      mnuName := mnuName + ';' + #AddComp('L_DOGOVOR')'mnuDogRltInfo';
+
+    var mnuNIOKR: string;
+
+    mnuNIOKR := oThemeFuncs.GetNiokrMenu('NIOKR_DOGOVOR_MAIN');
+
+    if ( mnuNIOKR <> '' )
+      mnuName := mnuName + ';SEPARATOR;' + mnuNIOKR;
+
+    // динамически добавляется меню "связь с книгой финансовых операций"
+    PutHotCommand(RunDynMenu(MakeMenuWithViewFpOborot(mnuName) + ';SEPARATOR;' + #AddComp('L_DOGOVOR')'mnuDogovorEditVn'));
+
+    SetCommandEnabled(cmPrintDoc, TRUE);
+    SetCommandEnabled(cmPlansNo , TRUE);
+    SetCommandEnabled(cmValue12 , TRUE);
+    SetCommandEnabled(cmValue14 , TRUE);
+    SetCommandEnabled(cmValue15 , TRUE);
+    SetCommandEnabled(cmValue16 , TRUE);
+    SetCommandEnabled(cmValue29 , TRUE);
+  }
+
+always
+{
+  case CurCommand of
+    cmNIOKR01..cmNIOKR20:
+      oThemeFuncs.ProcessDogovorNiokrMenu(Dogovor.nRec, CurCommand);
+  end
+}
+
+cmDone:
+  {
+    if (CurTable = #SpDocs)
+      UpdateTable;
+
+    if ( Dogovor.dBeg > Dogovor.dEnd )
+      {
+        Message('Перепутаны даты действия ' + if(Dogovor.cDogovor = 0, 'договора', 'соглашения'), Cancel);
+        Abort;
+        Exit;
+      }
+
+    UpDateInsertDogovor;
+
+    if (
+        ( OldAttrDog.Subject1    <> AttrDog.Subject1    )
+         OR
+        ( OldAttrDog.Subject2    <> AttrDog.Subject2    )
+         OR
+        ( OldAttrDog.Subject3    <> AttrDog.Subject3    )
+         OR
+        ( OldAttrDog.Otv_My_Fio  <> AttrDog.Otv_My_Fio  )
+         OR
+        ( OldAttrDog.Otv_My_Post <> AttrDog.Otv_My_Post )
+       )
+      if ( update current AttrDog = tsOk )
+        OldAttrDog := AttrDog.Buffer;
+
+    SetFieldProtected(#Dogovor.dDoc, TRUE);
+    SetFieldProtected(#Dogovor.dBeg, TRUE);
+    SetFieldProtected(#Dogovor.dEnd, TRUE);
+
+    // пересчет сумм вышестоящих соглашений и договора при изменении
+    // суммы текущего соглашения
+    if ( Dogovor.cDogovor <> 0 )
+      RecalcSumOwnerDogs(OldSumDog, OldSumNDS, cValDog, TRUE);
+
+    var cRec: comp; cRec := Dogovor.nRec; pDogovor := Dogovor.cDogovor;
+
+    SetDescrBounds(FALSE);
+
+    TreeJumpToRecord(MainTree, cRec);
+
+    if ( ( pRec <> 0 ) AND boGetTune('Pick.AutoClose') )
+      PutCommand(cmCancel);
+  }
+
+cmVal1:
+  {
+    var cDog    : comp; cDog    := if (Dogovor.cDogovor = 0 , Dogovor.NRec, Dogovor.cDogovor);
+    var cAppDog : comp; cAppDog := if (Dogovor.cDogovor <> 0, Dogovor.NRec, 0);
+
+    RunInterface('DogMail', cDog, cAppDog, comp(0));
+  }
+
+cmValue29:
+{
+  if (Message('Пересчитать суммы с учетом подчиненных соглашений?', YesNo + Confirmation) <> cmYes)
+    Exit;
+
+  var SumDog, SumDogNal : double;
+  var dValDog           : date;
+
+  SumDog := SumDogNal := 0;
+
+  _LOOP DogAttach1
+    {
+      dValDog := oSpDocs.GetTrueDateValCurse(DogAttach1.dValCurse, DogAttach1.dBeg, DogAttach1.dDoc);
+
+      SumDog    += oValFunc.GetAnyCurrency(DogAttach1.cVal, DogAttach1.Summa , dValDog, Dogovor.cVal);
+      SumDogNal += oValFunc.GetAnyCurrency(DogAttach1.cVal, DogAttach1.SumNDS, dValDog, Dogovor.cVal);
+    }
+
+  set Dogovor.Summa  := SumDog;
+  set Dogovor.SumNDS := SumDogNal;
+
+  UpDateInsertDogovor;
+}

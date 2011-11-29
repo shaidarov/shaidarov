@@ -1,0 +1,104 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2000 корпорация ГАЛАКТИКА                    ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Бухгалтерский контур                                      ║
+ ║ Версия        : 8.1x                                                      ║
+ ║ Назначение    : Возвращает значение внешнего атрибута для спецификации    ║
+ ║                 сопроводительного документа                               ║
+ ║ Ответственный : Шайдаров Игорь Александрович                              ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_Atr_Akt_Worker implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_Atr_Akt_Worker;
+var
+  CurSoprDoc : comp   ;
+
+create view
+as select
+  *
+from
+     KatSopr   (ReadOnly)
+   , SpSopr    (ReadOnly)
+   , AttrVal   (ReadOnly)
+   , Persons   (ReadOnly)
+   , lSchet    (ReadOnly)
+   , KatPodr   (ReadOnly)
+   , SklOrder  (ReadOnly)
+   , SpOrder   (ReadOnly)
+   , KatMC     (ReadOnly)
+   , GroupMC   (ReadOnly)
+
+where
+((
+      CurSoprDoc          == KatSopr.nRec
+  and KatSopr.nRec        == SpSopr.cSopr
+  and '1110'              == AttrVal.wTable
+  and 281474976710685     == AttrVal.cAttrNam
+  and SpSopr.nRec         == AttrVal.cRec
+
+  and AttrVal.vComp       == Persons.nRec
+  and Persons.nRec        == lSchet.tPerson
+  and lSchet.Cex          == KatPodr.nRec
+
+  and SpSopr.nRec         == SpOrder.cSpSopr
+  and SpOrder.cMC         == KatMC.nRec
+  and KatMC.cGroupMC      == GroupMc.nRec
+))
+;
+
+
+
+function GetInfo : string; {
+   GetInfo := 'Возвращает ссылку на таблицу из внешнего атрибута спецификации SoprDoc';
+}
+
+function ParamMaster : string; {
+   ParamMaster := ''  ;
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+!!!! ------------- Внимание------------------ !!!!
+!!!! для цикличиской обработки ТХО по SpSopr необходимо зайти в Support и руками завести в таблицу HOZOBOR
+!!!! запись с ссылкой на план счетов и ТХО, а так же заполнить в нём поле "A_Cycle1" значением "65530"
+
+!   TxoAllowRecallStoreCycles(hTxo);   // если оставить, тогда при групповом перепроведении ТХО - первые проводки повторяются во всех выделенных Хозоперациях
+   CurSoprDoc := buf.cSoprDoc;
+   InitGetCur;
+
+      _Loop SpSopr
+          {
+          If (GetFirst SpOrder = tsOK ) {
+               TxoBodyClear   (hTxo);
+               TxoBodySetSum  (hTxo, SpOrder.Kol * SpOrder.RsRPrice,  0, SpOrder.Kol);
+               TxoBodyAddSchet(hTxo, wFlKau_Mode1, '0' + SubStr(GroupMC.Kod, 1, 2),  SubStr(GroupMC.Kod, 3, 2) );
+
+               If (GetFirst AttrVal = tsOK)
+                 {
+                   TxoBodyAddKau (hTxo, wFlKau_Mode2, cgKau_Persons, AttrVal.vComp);
+
+                  if (GetFirst KatPodr = tsOK) {
+                   TxoBodyAddKau (hTxo, wFlKau_Mode2, cgKau_KatPodr, KatPodr.nRec);
+                   }
+                 }
+
+               TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatPodr, SpOrder.ccPodr);
+               TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMOL , SpOrder.ccMOL);
+               TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatMC  , SpOrder.cMC);
+               TxoBodyInsert  (hTxo);
+              }
+          }
+}
+
+
+Handleevent
+end;
+
+end.

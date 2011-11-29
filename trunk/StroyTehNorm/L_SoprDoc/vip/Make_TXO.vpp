@@ -1,0 +1,27 @@
+#doc
+Автоматическое формирование проводок по акту на оказание услуг (сбыт)
+Данная процедура на данный момент убрана, т.к. оплата будет по отгрузке.
+#end
+
+procedure Make_TXO;
+{
+Update_Current_KatSopr;
+ReReadRecord(#KatSopr);
+
+if (KatSopr.Summa <> double(0) and True
+        and BCase(GetFirst SchFact <> tsOK          : true
+                   , KatSopr.Summa <> SchFact.Summa : true
+                   , KatSopr.dSopr <> SchFact.dFact : true
+                   , KatSopr.nSopr <> SchFact.Num   : true
+                   , KatSopr.cOrg  <> SchFact.cOrg  : true; false))
+ {
+    iTxoBind.ResetServer;
+    
+//      iSHoz.CheckMagOper(#TSoprHozX(SoprHoz.bufferp),integer(1));        // вроде из-за этой строки вылетает сообщение "Возникло необработанное исключение"
+      if (iTxoBind.BuildTree(SoprHoz.bufferp))
+       if (iTxoBind.SetOperation(0, wOper_Bind, 281474976710937, 0))      // параметры:(делать проводки по всем найденым планам счетов, константа, nRec ТХО, не используется)
+        iTxoBind.RealizeAndApplyOperations(SoprHoz.bufferp)
+
+    iTxoBind.ProcessProtokol;
+ }
+}

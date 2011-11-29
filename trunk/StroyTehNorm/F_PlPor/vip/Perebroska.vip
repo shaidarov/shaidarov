@@ -1,0 +1,900 @@
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 8.10 - Бухгалтерский контур
+// Атлантис 5.4.16
+// Не присутствует в базовой версии!
+// Создал Шайдаров Игорь. shaidarov@hotmail.com
+// Справка для переброски суммы с одной организации на другую
+//------------------------------------------------------------------------------
+
+#include iSynch.vih        // синхронизация BaseFin и SoprHoz
+#include BuhDocRound.vih   // округление сумм
+#include Permission.vih    // проверка и установка прав доступа на редактирование
+
+Interface Perebroska 'Бухгалтерская справка - переброска оплаты' EscClose, Cyan;
+ show at (0, 0, 145, 25)
+
+Const
+  Num_Of_Fields = 3;
+  FullParams: LongInt = (1 shl Num_Of_Fields) - 1;
+end
+
+Create view
+Var
+  sSchet
+, sSubSchet
+, sfKatOrgTo
+, sfKatOrgFrom
+, TecNameFilter
+               : string;
+  myPlansNo
+, _cDogTo
+, _cDogFrom
+, _cSchetTo
+, _cSchetFrom
+, _cPol
+, _cPlat
+, _cDOto
+, _cDOfrom
+               : comp;
+  dBeg
+, dEnd
+, dBeg_2
+, dEnd_2                               // Чтобы bounds не срабатывал сразу в окне установки фильтров (при некорр. датах проявляется)
+               : date
+  prNormRec
+               : boolean;
+  iRound
+               : BuhDocRoundFuncs;     // Округление сумм
+  optView
+, oldView
+               : word;
+As select
+
+ if(BuhSchetTo.SubSch <> '', BuhSchetTo.SubSch, '')
+        ( FieldName = scSubSchTo ) ,
+
+ if(BuhSchetFrom.SubSch <> '', BuhSchetFrom.SubSch, '')
+        ( FieldName = scSubSchFrom ) ,
+
+*
+From
+  PlPor
+, SoprHoz
+, Oborot
+, KlVal
+, KatOrg
+, synonym KatOrg    KatOrgTo
+, synonym KatOrg    KatOrgFrom
+, synonym BaseFin   BaseFinTo
+, synonym BaseFin   BaseFinFrom
+, synonym SoprHoz   SoprHozTo
+, synonym SoprHoz   SoprHozFrom
+, synonym Dogovor   DogovorTo
+, synonym Dogovor   DogovorFrom
+, synonym BuhSchet  BuhSchetTo
+, synonym BuhSchet  BuhSchetFrom
+, synonym BaseDoc   BaseDocTo
+, synonym BaseDoc   BaseDocFrom
+
+Where ((  word(700)               == PlPor.TidK
+      and PlPor.cPol              == KatOrgTo.nRec
+      and PlPor.cPlat             == KatOrgFrom.nRec
+
+      and word(701)               == BaseFinTo.TipDoc
+      and PlPor.nRec              == BaseFinTo.cSoprDoc
+      and BaseFinTo.cDogovor      == DogovorTo.nRec
+
+      and word(702)               == BaseFinFrom.TipDoc
+      and PlPor.nRec              == BaseFinFrom.cSoprDoc
+      and BaseFinFrom.cDogovor    == DogovorFrom.nRec
+
+      and BaseFinTo.cPredoplDO    == BuhSchetTo.nRec            // что поделаешь? :) приходится так завязываться на бух. счёт
+      and BaseFinFrom.cPredoplDO  == BuhSchetFrom.nRec
+
+      and BaseFinTo.cStepDoc      == BaseDocTo.nRec
+      and BaseFinFrom.cStepDoc    == BaseDocFrom.nRec
+
+      and word(701)               == SoprHozTo.TipDoc
+      and PlPor.nRec              == SoprHozTo.cSoprDoc
+
+      and word(702)               == SoprHozFrom.TipDoc
+      and PlPor.nRec              == SoprHozFrom.cSoprDoc
+
+      and PlPor.TiDk              == Oborot.TiDk
+      and PlPor.nRec              == Oborot.cSoprDoc
+      and myPlansNo               == Oborot.cPlansSch
+
+      and PlPor.cVal              == KlVal.nRec
+      ))
+order by PlPor.DatVip
+
+bounds Pol_b  = _cPol             == PlPor.cPol           (noIndex)
+bounds Plat_b = _cPlat            == PlPor.cPlat          (noIndex)
+bounds Date_b = dBeg             <<= PlPor.DatVip
+           and dEnd              >>= PlPor.DatVip
+;
+
+
+#include iSynch.var       // Синхронизация SoprHoz и  Basefin
+#include Permission.var   // Проверка и установки прав доступа на редактирование (iPermission)
+
+Procedure SetTitlePlPor;
+{
+  TecNameFilter := 'Список перебросок оплаты';
+
+  if ( BoundActive(tbDate_b) )
+    TecNameFilter :=  TecNameFilter +
+                      ' с '  + DateToStr(dBeg,'DD/MM/YYYY') +
+                      ' по ' + DateToStr(dEnd,'DD/MM/YYYY');
+
+  if (BoundActive(tbPol_b))    TecNameFilter :=  TecNameFilter + ', Получатель: '  + string(sfKatOrgTo);
+  if (BoundActive(tbPlat_b))   TecNameFilter :=  TecNameFilter + ', Отправитель: ' + string(sfKatOrgFrom);
+
+  SetWindowTitle(wnMainWindow, TecNameFilter);
+}
+
+Procedure SetFilterBounds;
+{
+  if ( (optView and 00001b) > 0 )
+     { if ( not BoundActive(tbDate_b)   ) AddBounds(tbDate_b); }
+  else
+     { if (     BoundActive(tbDate_b)   ) SubBounds(tbDate_b); }
+
+  if ( (optView and 00010b) > 0 )
+     { if ( not BoundActive(tbPol_b)    ) AddBounds(tbPol_b); }
+  else
+     { if (     BoundActive(tbPol_b)    ) SubBounds(tbPol_b); }
+
+  if ( (optView and 00100b) > 0 )
+     { if ( not BoundActive(tbPlat_b)   ) AddBounds(tbPlat_b); }
+  else
+     { if (     BoundActive(tbPlat_b)   ) SubBounds(tbPlat_b); }
+
+  oldView := optView;
+}
+
+Window wFiltPerebroska 'Окно установки фильтров на переброску оплаты';
+ show at (0, 0, 90, 8)
+Screen sFiltPerebroska (, , sci13Esc);
+Fields
+    optView ('Установить фильтр', , ): NoProtect;
+    dBeg_2           ('Дата с')        : NoProtect;
+    dEnd_2           ('Дата по')       : NoProtect;
+
+    sfKatOrgTo      ('Организация-получатель')  : Protect;
+    sfKatOrgFrom    ('Организация-отправитель') : Protect;
+
+Buttons
+  cmOk, Default, , 'Ввод - применить фильтр', , ;
+  cmCancel, , , 'Отмена', , ;
+
+<<
+  Использовать фильтры:
+
+  [.] Дата:`       с .@@@@@@@@@@   по .@@@@@@@@@@
+  [.] Получатель `   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Отправитель`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        <. Установить .>    <.   Отмена   .>
+
+>>
+End; // Screen
+
+HandleEvent // Window
+cmPick: {
+  case CurField of
+    #sfKatOrgTo: {
+      if ( (RunInterface('L_KatOrg::GetKatOr', _cPol,  comp(0), false, comp(0), comp(0) ) <> cmCancel)
+              and
+             (GetFirst KatOrg where (( _cPol == KatOrg.nRec )) = tsOk )
+         ) {
+            set sfKatOrgTo := KatOrg.Name;
+            set optView  := optView or 00010b;
+         } else
+          set optView := optView and (FullParams - 00010b);
+    }
+
+    #sfKatOrgFrom: {
+      if ( (RunInterface('L_KatOrg::GetKatOr', _cPlat,  comp(0), false, comp(0), comp(0) ) <> cmCancel)
+              and
+             (GetFirst KatOrg where (( _cPlat == KatOrg.nRec )) = tsOk )
+         ) {
+            set sfKatOrgFrom := KatOrg.Name;
+            set optView  := optView or 00100b;
+         } else
+          set optView := optView and (FullParams - 00100b);
+    }
+  end;
+}
+
+
+cmInit: {
+  _cPol        := comp(0);
+  _cPlat       := comp(0);
+  sfKatOrgTo   := '';
+  sfKatOrgFrom := '';
+
+  ReadMyDSK(dBeg, 'Perebroska_dBeg', true);
+  ReadMyDSK(dEnd, 'Perebroska_dEnd', true);
+
+  ReadMyDSK(_cPol, 'Perebroska_cPol', true);
+      if(GetFirst KatOrg where (( _cPol == KatOrg.nRec )) = tsOk )
+        { sfKatOrgTo := KatOrg.Name; }
+
+  ReadMyDSK(_cPlat, 'Perebroska_cPlat', true);
+      if(GetFirst KatOrg where (( _cPlat == KatOrg.nRec )) = tsOk )
+        { sfKatOrgFrom := KatOrg.Name; }
+}
+
+cmOk: {
+  if ( dBeg_2 > dEnd_2 ) {
+      Message(''#3'Ошибка ввода диапазона дат', Error + CancelButton);
+      Abort; Exit;
+    }
+
+  dBeg := dBeg_2;
+  dEnd := dEnd_2;
+
+  SetFilterBounds;
+  PutCommand(cmClose);
+}
+
+cmDone: {
+  optView := oldView;
+  SaveMyDsk(dBeg       , 'Perebroska_dBeg');
+  SaveMyDsk(dEnd       , 'Perebroska_dEnd');
+  SaveMyDsk(_cPol      , 'Perebroska_cPol');
+  SaveMyDsk(_cPlat     , 'Perebroska_cPlat');
+}
+
+
+End; // HandleEvent Screen
+End; // Window
+
+Window wPerebroska 'Бухгалтерская справка - переброска оплаты';
+ show at (0, 0, 122, 7)
+Screen sPerebroska (, , sci1378Esc);
+  Table PlPor;
+Fields
+    PlPor.DesCr    ('Дескриптор пользователя')     : Skip, Protect, NoPickButton;
+    PlPor.DatVip   ('Дата документа');
+    PlPor.NoDok    ('Номер документа')             : NoPickButton;
+    PlPor.SumPlat  ('Сумма')                       : ['\+2p[|-]3666`666`666`666`666`667'], CalcButton, NoPickButton;
+    PlPor.SumPlatV ('Сумма в валюте',hcPlFSumVal)  : ['\+2p[|-]3666`666`666`666`666`667.88'], CalcButton, NoPickButton;
+    KlVal.Dollarah ('Наименование валюты',hcPlFVal): Protect;
+
+    KatOrgTo.Name      ('Организация-получатель')  : Protect;
+    DogovorTo.NoDoc    ('Договор-получатель')      : Protect;
+//    BuhSchetTo.SubSch  ('Субсчёт по дебету')       : Protect;
+    scSubSchTo         ('Субсчёт по дебету')       : Protect;
+    BaseDocTo.NoDoc    ('ДО по дебету')            : Protect;
+
+    KatOrgFrom.Name    ('Организация-отправитель') : Protect;
+    DogovorFrom.NoDoc  ('Договор-отправитель')     : Protect;
+//    BuhSchetFrom.SubSch('Субчёт по кредиту')       : Protect;
+    scSubSchFrom       ('Субчёт по кредиту')       : Protect;
+    BaseDocFrom.NoDoc  ('ДО по кредиту')           : Protect;
+
+<<
+
+ `Дескр.`  .@@@@@@   `Дата` .@@@@@@@@@@   `Номер` .@@@@@@@@@@ `Сумма` .@@@@@@@@@@@@@@@@@  в   руб.
+                                                                      .@@@@@@@@@@@@@@@@@ `в` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                                     Организация                             `Договор`   `Счёт` `Субсчёт`        `ДО`
+ `Дебет`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@  62    .@@@@@@@@ .@@@@@@@@@@@@@@@
+ `Кредит` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@  62    .@@@@@@@@ .@@@@@@@@@@@@@@@
+>>
+End; // Screen
+
+#include Pl_Protect.vpp // Обработка прав доступа к платежному документу
+
+Procedure UpDate_BaseFinOborot; {
+  if (PlPor.nRec = 0) Exit;
+
+    PlPor.DatOb              := PlPor.DatVip;
+    UpDate current PlPor;
+
+    BaseFinTo.dDoc           := PlPor.DatVip;
+    BaseFinTo.NoDoc          := PlPor.NoDok;
+//    BaseFinTo.Summa          := PlPor.SumPlat;           // Суммы разносим именно так, т.к. для 62 счёта оборот по кредиту - это и есть приход денег
+//    BaseFinTo.SumVal         := PlPor.SumPlatV;
+    BaseFinTo.Summa          := -PlPor.SumPlat;
+    BaseFinTo.SumVal         := -PlPor.SumPlatV;
+    BaseFinTo.cVal           := PlPor.cVal;
+    BaseFinTo.cOrg           := PlPor.cPol;
+    UpDate current BaseFinTo;
+
+    BaseFinFrom.dDoc         := PlPor.DatVip;
+    BaseFinFrom.NoDoc        := PlPor.NoDok;
+//    BaseFinFrom.Summa        := -PlPor.SumPlat;
+//    BaseFinFrom.SumVal       := -PlPor.SumPlatV;
+    BaseFinFrom.Summa        := PlPor.SumPlat;
+    BaseFinFrom.SumVal       := PlPor.SumPlatV;
+    BaseFinFrom.cVal         := PlPor.cVal;
+    BaseFinFrom.cOrg         := PlPor.cPlat;
+    UpDate current BaseFinFrom;
+
+    iSynch.SynchSoprHoz(BaseFinTo.BufferP);
+    iSynch.SynchSoprHoz(BaseFinFrom.BufferP);
+
+    Oborot.TiDk            := PlPor.TiDk;
+    Oborot.TiDkGal         := PlPor.TiDkGal;
+    Oborot.SubOsSch        := BuhSchetTo.SubSch;
+    Oborot.SubSchK         := BuhSchetFrom.SubSch;
+    Oborot.KAUOS[1]        := PlPor.cPol;
+    Oborot.KAUKS[1]        := PlPor.cPlat;
+
+   if (BaseFinTo.cDogovor > 0 ) {
+    Oborot.TBLOS[2]        := BuhSchetTo.KodTable[2];
+    Oborot.KAUOS[2]        := BaseFinTo.cDogovor;
+   } else {
+    Oborot.TBLOS[2]        := 0;
+    Oborot.KAUOS[2]        := 0;
+    }
+   if (BaseFinTo.cStepDoc > 0 ) {
+    Oborot.TBLOS[3]        := BuhSchetTo.KodTable[3];
+    Oborot.KAUOS[3]        := BaseFinTo.cStepDoc;
+   } else {
+    Oborot.TBLOS[3]        := 0;
+    Oborot.KAUOS[3]        := 0;
+   }
+
+   if (BaseFinFrom.cDogovor > 0 ) {
+    Oborot.TBLKS[2]        := BuhSchetFrom.KodTable[2];
+    Oborot.KAUKS[2]        := BaseFinFrom.cDogovor;
+   } else {
+    Oborot.TBLKS[2]        := 0;
+    Oborot.KAUKS[2]        := 0;
+   }
+   if (BaseFinFrom.cStepDoc > 0 ) {
+    Oborot.TBLKS[3]        := BuhSchetFrom.KodTable[3];
+    Oborot.KAUKS[3]        := BaseFinFrom.cStepDoc;
+   } else {
+    Oborot.TBLKS[3]        := 0;
+    Oborot.KAUKS[3]        := 0;
+    }
+
+    Oborot.DatOb           := PlPor.DatVip;
+    Oborot.DataOt          := PlPor.DatVip;
+    Oborot.NoDok           := PlPor.NoDok;
+    Oborot.SumOb           := PlPor.SumPlat;
+    Oborot.SumValut        := PlPor.SumPlatV;
+    Oborot.KodValut        := PlPor.cVal;
+    UpDate current Oborot;
+}
+
+Procedure CheckExistAnDO; {
+     if (PlPor.nRec > 0) {
+              if (BuhSchetTo.KodTable[3] <> 6) {
+                 set BaseFinTo.cStepDoc := 0;
+                 set BaseFinTo.cBaseDoc := 0;
+                 UpDate current BaseFinTo;
+
+                 SetFieldVisible(#BaseDocTo.NoDoc, false);
+              } else {
+                 SetFieldVisible(#BaseDocTo.NoDoc, true);
+                }
+
+              if (BuhSchetFrom.KodTable[3] <> 6) {
+                 set BaseFinFrom.cStepDoc := 0;
+                 set BaseFinFrom.cBaseDoc := 0;
+                 UpDate current BaseFinFrom;
+
+                 SetFieldVisible(#BaseDocFrom.NoDoc, false);
+              } else {
+                 SetFieldVisible(#BaseDocFrom.NoDoc, true);
+                }
+     }
+
+    if (PlPor.nRec = 0) {
+              SetFieldVisible(#BaseDocTo.NoDoc, false);
+              if (BuhSchetTo.KodTable[3] = 6) {
+                 SetFieldVisible(#BaseDocTo.NoDoc, true);
+              }
+
+              SetFieldVisible(#BaseDocFrom.NoDoc, false);
+              if (BuhSchetFrom.KodTable[3] = 6) {
+                 SetFieldVisible(#BaseDocFrom.NoDoc, true);
+              }
+    }
+
+UpDate_BaseFinOborot;
+}
+
+HandleEvent // wPerebroska
+
+cmCancel: {
+    If (PlPor.nRec > 0) {
+       PutCommand(cmUpdateRecord);
+       RescanPanel(tnPlPor);
+      }
+   }
+
+End; // HandleEvent wPerebroska
+End; // wPerebroska
+
+TableEvent // ValutDoc
+  Table PlPor;
+
+cmInsertRecord: {
+    PlPor.DesCr            := sGetTune('USER.DESCR');
+    PlPor.DesGr            := sGetTune('USER.DESGR');
+    PlPor.TiDkGal          := word(10);
+    PlPor.ModeDoc          := 1024;
+    insert current PlPor;
+
+    ClearBuffer(#BaseFinTo);
+    BaseFinTo.Descr        := PlPor.DesCr;
+    BaseFinTo.DesGr        := PlPor.DesGr;
+    BaseFinTo.TipDoc       := word(701);
+    BaseFinTo.TiDkGal      := word(10);            // Бух. справка
+    BaseFinTo.cSoprDoc     := PlPor.nRec;
+    BaseFinTo.cPlPor       := PlPor.nRec;
+    BaseFinTo.dDoc         := PlPor.DatVip;
+    BaseFinTo.NoDoc        := PlPor.NoDok;
+    BaseFinTo.Summa        := -PlPor.SumPlat;
+    BaseFinTo.Direct       := word(1);
+    BaseFinTo.cOrg         := PlPor.cPol;
+    BaseFinTo.cDogovor     := _cDogTo;
+    BaseFinTo.cPredoplDO   := _cSchetTo;
+    BaseFinTo.cStepDoc     := _cDOto;
+    BaseFinTo.cBaseDoc     := _cDOto;
+    insert current BaseFinTo;
+
+    ClearBuffer(#BaseFinFrom);
+    BaseFinFrom.Descr      := PlPor.DesCr;
+    BaseFinFrom.DesGr      := PlPor.DesGr;
+    BaseFinFrom.TipDoc     := word(702);
+    BaseFinFrom.TiDkGal    := word(10);            // Бух. справка
+    BaseFinFrom.cSoprDoc   := PlPor.nRec;
+    BaseFinFrom.cPlPor     := PlPor.nRec;
+    BaseFinFrom.dDoc       := PlPor.DatVip;
+    BaseFinFrom.NoDoc      := PlPor.NoDok;
+    BaseFinFrom.Summa      := PlPor.SumPlat;
+    BaseFinFrom.Direct     := word(1);
+    BaseFinFrom.cOrg       := PlPor.cPlat;
+    BaseFinFrom.cDogovor   := _cDogFrom;
+    BaseFinFrom.cPredoplDO := _cSchetFrom;
+    BaseFinFrom.cStepDoc   := _cDOfrom;
+    BaseFinFrom.cBaseDoc   := _cDOfrom;
+    insert current BaseFinFrom;
+
+    ClearBuffer(#Oborot);
+    Oborot.TidK            := PlPor.TidK;
+    Oborot.cSoprDoc        := PlPor.nRec;
+    Oborot.cPLansSch       := myPlansNo;
+    Oborot.DesCr           := PlPor.DesCr;
+    Oborot.DesGr           := PlPor.DesGr;
+    Oborot.SchetO          := BuhSchetTo.Schet;
+    Oborot.SubOsSch        := BuhSchetTo.SubSch;
+    Oborot.SchetK          := BuhSchetFrom.Schet;
+    Oborot.SubSchK         := BuhSchetFrom.SubSch;
+
+    Oborot.TBLOS[1]        := BuhSchetTo.KodTable[1];
+    Oborot.KAUOS[1]        := PlPor.cPol;
+
+   if (BaseFinTo.cDogovor > 0 ) {
+    Oborot.TBLOS[2]        := BuhSchetTo.KodTable[2];
+    Oborot.KAUOS[2]        := BaseFinTo.cDogovor;
+   }
+   if (BaseFinTo.cStepDoc > 0 ) {
+    Oborot.TBLOS[3]        := BuhSchetTo.KodTable[3];
+    Oborot.KAUOS[3]        := BaseFinTo.cStepDoc;
+   }
+
+    Oborot.TBLKS[1]        := BuhSchetFrom.KodTable[1];
+    Oborot.KAUKS[1]        := PlPor.cPlat;
+
+   if (BaseFinFrom.cDogovor > 0 ) {
+    Oborot.TBLKS[2]        := BuhSchetFrom.KodTable[2];
+    Oborot.KAUKS[2]        := BaseFinFrom.cDogovor;
+   }
+   if (BaseFinFrom.cStepDoc > 0 ) {
+    Oborot.TBLKS[3]        := BuhSchetFrom.KodTable[3];
+    Oborot.KAUKS[3]        := BaseFinFrom.cStepDoc;
+   }
+
+    Oborot.DatOb           := PlPor.DatVip;
+    Oborot.DataOt          := PlPor.DatVip;
+    Oborot.NoDok           := PlPor.NoDok;
+    Oborot.SumOb           := PlPor.SumPlat;
+    Oborot.DbSchetO        := '62';
+    Oborot.KrSchetK        := '62';
+    insert current Oborot;
+
+    _cDogTo      := comp(0);
+    _cDogFrom    := comp(0);
+    _cSchetTo    := comp(0);
+    _cSchetFrom  := comp(0);
+    _cDOto       := comp(0);
+    _cDOfrom     := comp(0);
+
+    UpDate_BaseFinOborot;
+}
+
+cmUpdateRecord: {
+    UpDate current PlPor;
+    UpDate_BaseFinOborot;
+}
+
+cmDeleteRecord: {
+  if (Message('Удалить переброску?', Warning + YesNo) = cmYes) {
+    delete current Oborot;
+    delete current BaseFinTo;
+    delete current BaseFinFrom;
+    delete current SoprHozTo;
+    delete current SoprHozFrom;
+    delete current PlPor;
+  }
+}
+
+cmPick: {
+  var MyDate: date;
+  case CurField of
+
+    #KatOrgTo.Name:
+      if (RunInterface('L_KatOrg::GetKatOr', PlPor.cPol,  comp(0), false, comp(0), comp(0) ) <> cmCancel) {
+        UpDate_BaseFinOborot;
+      }
+
+    #KatOrgFrom.Name:
+      if (RunInterface('L_KatOrg::GetKatOr', PlPor.cPlat, comp(0), false, comp(0), comp(0) ) <> cmCancel) {
+        UpDate_BaseFinOborot;
+      }
+
+    #DogovorTo.NoDoc: {
+          SaveMyDsk(PlPor.cPol        , 'GetSDog_pKontr2');            // Фильтр по контрагенту
+          SaveMyDsk(true              , 'GetSDog_NeedFilterOnKontr2'); // Сразу установить фильтр по контрагенту
+          SaveMyDsk(coGetTune('MYORG'), 'GetDAK_MyOrg');               // Фильтр по собственной организации
+
+      if (RunInterface('L_Dogovor::GetSomeDogovor', 0, 4Fh, 1, 0, false, _cDogTo, true, 0 ) ) <> cmCancel {
+        if (GetFirst BaseFinTo = tsOK) {
+            set BaseFinTo.cDogovor := _cDogTo;
+            UpDate current BaseFinTo;
+
+            UpDate_BaseFinOborot;
+        } else
+            set BaseFinTo.cDogovor := _cDogTo;  // без UpDate, так интерфейс перерисую просто
+      }
+    }
+
+    #DogovorFrom.NoDoc: {
+          SaveMyDsk(PlPor.cPlat       , 'GetSDog_pKontr2');            // Фильтр по контрагенту
+          SaveMyDsk(true              , 'GetSDog_NeedFilterOnKontr2'); // Сразу установить фильтр по контрагенту
+          SaveMyDsk(coGetTune('MYORG'), 'GetDAK_MyOrg');               // Фильтр по собственной организации
+
+      if (RunInterface('L_Dogovor::GetSomeDogovor', 0, 4Fh, 1, 0, false, _cDogFrom, true, 0 ) ) <> cmCancel {
+        if (GetFirst BaseFinFrom = tsOK) {
+            set BaseFinFrom.cDogovor := _cDogFrom;
+            UpDate current BaseFinFrom;
+
+            UpDate_BaseFinOborot;
+        } else
+            set BaseFinFrom.cDogovor := _cDogFrom;  // без UpDate, так интерфейс перерисую просто
+      }
+    }
+
+    #scSubSchTo:
+      if (RunInterface('F_BuhSchet::GetBuhSchet', cgiPickSub, myPlansNo, sSchet, sSubSchet ) ) <> cmCancel {
+
+            if (GetFirst BaseFinTo = tsOK) {
+              if (GetFirst BuhSchetTo where (( sSchet    == BuhSchetTo.Schet
+                                           and sSubSchet == BuhSchetTo.SubSch )) = tsOk) {
+                  set BaseFinTo.cPredoplDO := BuhSchetTo.nRec;
+                  UpDate current BaseFinTo;
+
+                  UpDate_BaseFinOborot;
+                 }
+            } else {
+              if (GetFirst BuhSchetTo where (( sSchet    == BuhSchetTo.Schet
+                                           and sSubSchet == BuhSchetTo.SubSch )) = tsOk)
+                 _cSchetTo := BuhSchetTo.nRec;
+            }
+      CheckExistAnDO;
+      }
+
+    #scSubSchFrom:
+      if (RunInterface('F_BuhSchet::GetBuhSchet', cgiPickSub, myPlansNo, sSchet, sSubSchet ) ) <> cmCancel {
+
+            if (GetFirst BaseFinFrom = tsOK) {
+              if (GetFirst BuhSchetFrom where (( sSchet  == BuhSchetFrom.Schet
+                                           and sSubSchet == BuhSchetFrom.SubSch )) = tsOk) {
+                  set BaseFinFrom.cPredoplDO := BuhSchetFrom.nRec;
+                  UpDate current BaseFinFrom;
+
+                  UpDate_BaseFinOborot;
+                 }
+            } else {
+              if (GetFirst BuhSchetFrom where (( sSchet  == BuhSchetFrom.Schet
+                                           and sSubSchet == BuhSchetFrom.SubSch )) = tsOk)
+                 _cSchetFrom := BuhSchetFrom.nRec;
+            }
+      CheckExistAnDO;
+      }
+
+   #KlVal.Dollarah: {
+      if ((PlPor.SumPlatV = 0) and (PlPor.SumPlat = 0))
+        message('Не задана сумма оборотов по документу', Information);
+      else {
+        if iRound.RoundChoiceVal(10, PlPor.cVal, PlPor.DatVip, PlPor.SumPlat, PlPor.SumPlatV) {
+          set PlPor.cVal := PlPor.cVal;
+        }
+
+        RedrawPanel(#PlPor);
+      }
+   }
+
+   #BaseDocTo.NoDoc :
+      if (RunInterface('F_SoprHoz::GetDBase', true, 1, 0, _cDOto, 0, 0)) <> cmCancel {
+        if (GetFirst BaseFinTo = tsOK) {
+            set BaseFinTo.cStepDoc := _cDOto;
+            set BaseFinTo.cBaseDoc := _cDOto;
+            UpDate current BaseFinTo;
+
+            UpDate_BaseFinOborot;
+        } else
+            set BaseFinTo.cStepDoc := _cDOto;  // без UpDate, так интерфейс перерисую просто
+      }
+
+   #BaseDocFrom.NoDoc :
+      if (RunInterface('F_SoprHoz::GetDBase', true, 1, 0, _cDOfrom, 0, 0)) <> cmCancel {
+        if (GetFirst BaseFinFrom = tsOK) {
+            set BaseFinFrom.cStepDoc := _cDOfrom;
+            set BaseFinFrom.cBaseDoc := _cDOfrom;
+            UpDate current BaseFinFrom;
+
+            UpDate_BaseFinOborot;
+        } else
+            set BaseFinFrom.cStepDoc := _cDOfrom;  // без UpDate, так интерфейс перерисую просто
+      }
+
+
+  end;  // case
+}
+
+
+cmDelOnProtect: {
+  case CurField of
+     #DogovorTo.NoDoc: {
+        BaseFinTo.cDogovor := 0
+        UpDate current BaseFinTo;
+
+        UpDate_BaseFinOborot;
+     }
+
+     #DogovorFrom.NoDoc: {
+        BaseFinFrom.cDogovor := 0
+        UpDate current BaseFinFrom;
+
+        UpDate_BaseFinOborot;
+     }
+
+   #KlVal.Dollarah: {
+      set PlPor.SumPlatV := 0;
+      set PlPor.cVal     := 0;
+      UpDate current PlPor;
+      UpDate_BaseFinOborot
+    }
+
+   #BaseDocTo.NoDoc : {
+        BaseFinTo.cStepDoc := 0
+        BaseFinTo.cBaseDoc := 0
+        UpDate current BaseFinTo;
+
+        UpDate_BaseFinOborot;
+   }
+
+   #BaseDocFrom.NoDoc : {
+        BaseFinFrom.cStepDoc := 0
+        BaseFinFrom.cBaseDoc := 0
+        UpDate current BaseFinFrom;
+
+        UpDate_BaseFinOborot;
+   }
+
+    #scSubSchTo: {
+      sSubSchet := '';
+
+            if (GetFirst BaseFinTo = tsOK) {
+              if (GetFirst BuhSchetTo where (( sSchet    == BuhSchetTo.Schet
+                                           and sSubSchet == BuhSchetTo.SubSch )) = tsOk) {
+                  set BaseFinTo.cPredoplDO := BuhSchetTo.nRec;
+                  UpDate current BaseFinTo;
+
+                  UpDate_BaseFinOborot;
+                 }
+            } else {
+              if (GetFirst BuhSchetTo where (( sSchet    == BuhSchetTo.Schet
+                                           and sSubSchet == BuhSchetTo.SubSch )) = tsOk)
+                 _cSchetTo := BuhSchetTo.nRec;
+            }
+      CheckExistAnDO;
+      }
+
+    #scSubSchFrom: {
+      sSubSchet := '';
+
+            if (GetFirst BaseFinFrom = tsOK) {
+              if (GetFirst BuhSchetFrom where (( sSchet  == BuhSchetFrom.Schet
+                                           and sSubSchet == BuhSchetFrom.SubSch )) = tsOk) {
+                  set BaseFinFrom.cPredoplDO := BuhSchetFrom.nRec;
+                  UpDate current BaseFinFrom;
+
+                  UpDate_BaseFinOborot;
+                 }
+            } else {
+              if (GetFirst BuhSchetFrom where (( sSchet  == BuhSchetFrom.Schet
+                                           and sSubSchet == BuhSchetFrom.SubSch )) = tsOk)
+                 _cSchetFrom := BuhSchetFrom.nRec;
+            }
+      CheckExistAnDO;
+      }
+
+  end; // case
+
+  ReReadRecord(tnPlPor);
+}
+
+cmPositionChanged: {
+  SetProtectEditPlPor;
+  CheckExistAnDO;
+}
+
+
+cmCheckField:
+   UpDate_BaseFinOborot;
+
+cmSetDefault: {
+   PlPor.DatVip := Cur_Date;
+   SetFieldVisible(#BaseDocTo.NoDoc  , false);
+   SetFieldVisible(#BaseDocFrom.NoDoc, false);
+
+    if (GetFirst BuhSchetTo where (( sSchet    == BuhSchetTo.Schet
+                                 and ''        == BuhSchetTo.SubSch )) = tsOk) {
+       _cSchetTo   := BuhSchetTo.nRec;
+       }
+
+    if (GetFirst BuhSchetFrom where (( sSchet  == BuhSchetFrom.Schet
+                                 and ''        == BuhSchetFrom.SubSch )) = tsOk) {
+       _cSchetFrom := BuhSchetFrom.nRec;
+       }
+}
+
+cmCheckRecord: {
+  prNormRec := true;
+
+  if (PlPor.NoDok = '') {
+    message('Не задан номер документа.'#13#13 +
+            'Определите значение поля или удалите запись.', Information);
+    prNormRec := false;
+    SelectField(#PlPor.NoDok);
+  }
+
+  if (prNormRec)
+    if (longint(PlPor.DatVip) = 0)
+    {
+      message('Не задана дата формирования документа.'#13#13 +
+              'Определите значение поля или удалите запись.', Information);
+      prNormRec := false;
+      SelectField(#PlPor.DatVip);
+    }
+
+  if (prNormRec)
+    if (PlPor.SumPlat <= 0)
+    {
+      message('Не корректна сумма документа.'#13#13 +
+              'Определите значение поля или удалите запись.', Information);
+      prNormRec := false;
+      SelectField(#PlPor.SumPlat);
+    }
+
+//  if (prNormRec)
+//    if (PlPor.cPol = 0 or PlPor.cPlat = 0)
+//    {
+//      message('Не заполнена информация об организациях.'#13#13 +
+//              'Определите значение поля или удалите запись.', Information);
+//      prNormRec := false;
+//      SelectField(#KatOrgTo.Name);
+//    }
+
+  if (prNormRec)
+    if (GetFirst BaseFinTo = tsOK) {
+        if (BaseFinTo.cPredoplDO = 0) {
+            message('Не заполнена информация о счетах.'#13#13 +
+                    'Определите значение поля или удалите запись.', Information);
+            prNormRec := false;
+            SelectField(#BuhSchetTo.Code);
+        }
+    } else {
+        if (_cSchetTo = 0) {
+            message('Не заполнена информация о счетах.'#13#13 +
+                    'Определите значение поля или удалите запись.', Information);
+            prNormRec := false;
+            SelectField(#BuhSchetTo.Code);
+        }
+    }
+
+  if (prNormRec)
+    if (GetFirst BaseFinFrom = tsOK) {
+        if (BaseFinFrom.cPredoplDO = 0) {
+            message('Не заполнена информация о счетах.'#13#13 +
+                    'Определите значение поля или удалите запись.', Information);
+            prNormRec := false;
+            SelectField(#BuhSchetFrom.Code);
+        }
+    } else {
+        if (_cSchetFrom = 0) {
+            message('Не заполнена информация о счетах.'#13#13 +
+                    'Определите значение поля или удалите запись.', Information);
+            prNormRec := false;
+            SelectField(#BuhSchetFrom.Code);
+        }
+    }
+
+  if (not prNormRec)
+    abort;
+}
+
+End; // TableEvent
+
+Browse bPerebroska 'Список справок - перебросок оплаты' (, , sci13478EscIns);  //     sci1478InsPM
+  Table PlPor;
+Fields
+  {Font = {Color = if (GetProtectDoc <> cgProt_None, ColorGray, 0)}};
+  PlPor.DesCr         #3'Дескр.'     ('Дескриптор')                 : [4]  ,Protect, NoAutoSize;
+  PlPor.DatVip        #3'Дата'       ('Дата формирования документа'): [10] ,Protect, NoAutoSize;
+  PlPOr.NoDok         #3'Номер'      ('Номер документа')            : [6]  ,Protect, NoAutoSize;
+  KatOrgTo.Name       #3'Получатель' ('Организация-получатель')     : [50] ,Protect, NoAutoSize;
+  KatOrgFrom.Name     #3'Отправитель'('Организация-отправитель')    : [50] ,Protect, NoAutoSize;
+  BuhSchetTo.Code     #3'Дебет'      ('Дебет')                      : [7]  ,Protect, NoAutoSize;
+  BuhSchetFrom.Code   #3'Кредит'     ('Кредит')                     : [7]  ,Protect, NoAutoSize;
+  PlPor.SumPlat       #3'Сумма'      ('Сумма')                      : [15, '\+2p[|-]3666`666`666`666`666`667'], Protect, NoAutoSize;
+  KlVal.Dollarah      #3'Валюта'     ('Валюта')                     : [10] ,Protect, NoAutoSize;
+End; // Browse
+
+
+// ----------------------------------------------------------------------------
+HandleEvent // Interface
+
+cmInit: {
+  myPlansNo := coGetTune('FIN.USER.CPLANSSCH');
+  sSchet    := '062';
+  SetTitlePlPor;
+
+  iPermission.SetCurParamDoc(coPlPor, 10, 700, CanUpdate(#PlPor));   // Инициализация параметров документа
+
+  // Проверка прав доступа к документам
+  if (not iPermission.CanOpenDoc(PlPor.DesGr, PlPor.DesCr, 'Справка-переброска', PlPor.NoDok, PlPor.DatOb)) {
+    Abort;  Exit;
+  }
+}
+
+cmInsert:
+  PutCommand(cmDefault)
+
+cmDefault:
+  RunWindow(wPerebroska);
+
+cmCallFilter : {
+  RunWindowModal('wFiltPerebroska');
+//  if (GetFirst PlPor = tsOK) {}  // для корректной перерисовки экрана
+  ReReadRecord(tnPlPor);
+  SetTitlePlPor;
+}
+
+cmHotKeys : {
+  var sA: string;
+  sA := #AddComp('F_PlPor')'mnuPerebroska_HotKeys';
+  PutHotCommand(RunDynMenu(sA));
+}
+
+End;  // HandleEvent
+
+End.
+
+mnuPerebroska_HotKeys menu
+{
+- 'Фильтр на данные',cmCallFilter, 'Установить фильтр на документы',,'Alt-B',kbAltB,scNoContext;
+}

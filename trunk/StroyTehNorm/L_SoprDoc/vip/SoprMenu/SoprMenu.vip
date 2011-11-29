@@ -1,0 +1,800 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Логистика
+// Объект SoprMenu: формирование контекстного меню в сопроводительных документах
+//******************************************************************************
+
+#include SoprMenu.Vih
+
+//******************************************************************************
+#doc
+  формирование контекстного меню в сопроводительных документах (используется как объектный)
+#end
+//******************************************************************************
+
+Interface SoprMenu;
+
+create view
+;
+
+//******************************************************************************
+// контекстные меню интерфейсов редактирования сопроводительных документов
+// pExtParam: битовый параметр
+Function MakeSoprEditMenu (bufKatSopr: type$KatSopr; pExtParam: word): string;
+var
+  sMenu
+, sMenuDop              // контекстное меню (дополнительно-персональное для всяких разных клиентов)
+, MenuPlugins           // формирование плагинов для контекстного меню
+, sMenuUKS              // контекстное меню УКСа
+, sMenuUKSExp           // контекстное меню УКСа (раскрытое)
+, sMenuKontrBal         // контекстное меню для баланса контрагентов
+, sMenuCalcKol          // контекстное меню для подсчета кол-ва
+, sMenuNalNakl          // контекстное меню для налоговых накладных
+, sRegNalAkts           // контекстное меню для регистрации налоговых актов
+, sKorrNakl             // контекстное меню для для корректирующей накладной
+, sGrVidDog             // контекстное меню для группы VIP-договоров
+, sBoxPlan              // контекстное меню для ячеек хранения
+, sAWPWeigher           // контекстное меню для АРМа весовщика
+, sSoprTara             // контекстное меню для возвратной тары
+  : string;
+
+{
+  MenuPlugins   := '';
+  sMenuUks      := '';
+  sMenuUKSExp   := '';
+  sMenuKontrBal := '';
+  sMenuCalcKol  := '';
+  sMenuNalNakl  := '';
+  sRegNalAkts   := '';
+  sKorrNakl     := '';
+  sGrVidDog     := '';
+  sBoxPlan      := '';
+  sAWPWeigher   := '';
+  sSoprTara     := '';
+  sMenuDop      := '';
+
+  // контекстное меню УКСа
+  if (UKS_Used)
+  {
+    var sMenuSmet: string;
+
+    sMenuSmet   := if(bufKatSopr.VidSopr = 110,';'
+                      + #AddComp('L_SOPRDOC')'Akt100FormAkt;'
+                      + #AddComp('L_SOPRDOC')'SmetKoeffSopr', '');
+
+    sMenuUks    := ';Separator;'
+                   + #AddComp('L_SOPRDOC')'SoprUKSEdit'
+                   + sMenuSmet;
+
+    sMenuUksExp := if(bufKatSopr.VidSopr <> 631, ';Separator;'
+                   + #AddComp('L_SOPRDOC')'SoprUKSEditExp'
+                   + sMenuSmet, '');
+  }
+
+#ifdef __MTR_TO_SPEC__
+    sMenuUks    := ';Separator;' + #AddComp('L_SOPRDOC')'SoprCelUch' + sMenuUks;
+    sMenuUksExp := ';Separator;' + #AddComp('L_SOPRDOC')'SoprCelUch' + sMenuUksExp;
+#end
+
+  // контекстное меню для баланса контрагентов
+  if (boGetTune('Oper.AutoCalcBalance'))
+  {
+    if not ((bufKatSopr.dOpr = Date(0,0,0)) AND (wGetTune('Oper.SoprInBalans') = 1))
+      if ((bufKatSopr.Status = 1) OR (bufKatSopr.Status = 4))         // статус -"исполняемый"
+        sMenuKontrBal := ';Separator;' + #AddComp('L_SOPRDOC')'SoprKontrBal';
+  }
+
+  if ((bufKatSopr.VidSopr = 101) OR (bufKatSopr.VidSopr = 201))
+    if (boGetTune('Doc.SD.WorkNormUb'))
+      sMenuCalcKol := ';Separator;' + #AddComp('L_SOPRDOC')'mnuNormUb';
+
+  // контекстное меню для подсчета кол-ва
+  if (boGetTune('Oper.CalcKol'))
+    sMenuCalcKol := ';Separator;' + #AddComp('C_COMMON')'CalcKol_HotKeys';
+
+  // контекстное меню для налоговых накладных
+  if (wGetTune('Country') = 2)
+    sMenuNalNakl := ';SEPARATOR;' + #AddComp('L_SOPRDOC')'mnuNalNaklDoc';
+
+  // контекстное меню для регистрации налоговых актов
+  if (bufKatSopr.VidSopr = 111) AND
+     ((bufKatSopr.wADoc = cgCustomAkt) or
+      ((wGetTune('Country') = ccBel) and (bufKatSopr.cNote = coGetTune('Nalog.Bel.GTD_Status'))))
+    sRegNalAkts := if (sMenuNalNakl = '', ';SEPARATOR;', ';') + #AddComp('L_SOPRDOC')'mnuRegNalAkts';
+
+  // контекстное меню для приходной накладной
+  if ((bufKatSopr.VidSopr = 101))
+  {
+    // контекстное меню для корректирующей накладной
+    if (bufKatSopr.wADoc = adSoprDocKN)
+      sKorrNakl := ';SEPARATOR;' + #AddComp('L_SOPRDOC')'mnuSoprDocKN';
+    else
+      sKorrNakl := ';SEPARATOR;' + #AddComp('L_SOPRDOC')'mnuSoprDocPN';
+
+    sKorrNakl := sKorrNakl + ';' + #AddComp('L_SOPRDOC')'mnuSoprc45';
+
+    // контекстное меню для группы VIP-договоров
+    if (coGetTune('Dog.GrVipDog') <> comp(0))
+      if (wGetTune('Doc.Buy.MakeRaspMC') = word(1))
+        if (bufKatSopr.wADoc <> adSoprDocKN)
+          sGrVidDog := ';SEPARATOR;' + #AddComp('L_SOPRDOC')'mnuGrVipDogRasprMC';
+
+    // контекстное меню для ячеек хранения
+    if boGetTune('Oper.UseBoxes')
+      sBoxPlan := ';SEPARATOR;' + #AddComp('L_SOPRDOC')'SoprBoxPlan';
+  }
+
+  // контекстное меню для АРМа весовщика
+  if ((bufKatSopr.VidSopr = 201))
+    if (boGetTune('Ves.Use2'))
+      sAWPWeigher := ';SEPARATOR;' + #AddComp('L_SOPRDOC')'mnuSopDocKatSoprGetWeight';
+
+  // контекстное меню для возвратной тары
+  if (boGetTune('Tara.AutoPaste'))
+    sSoprTara := ';SEPARATOR;' + #AddComp('L_SOPRDOC')'SoprDocTara';
+
+  // формирование плагинов и контекстного меню
+  case (bufKatSopr.VidSopr) of
+    101:
+    {
+      MenuPlugins := sMenuUks + sBoxPlan + sMenuCalcKol + sKorrNakl + sMenuKontrBal + sGrVidDog;
+      sMenu := 'mnuSoprDocB';
+    }
+    102:
+    {
+      MenuPlugins := sMenuKontrBal + sMenuCalcKol;
+      sMenu := 'mnuSoprDocVozvKonsKatSopr';
+    }
+    103:
+    {
+      MenuPlugins := sBoxPlan + sMenuKontrBal + sMenuCalcKol;
+      sMenu := 'mnuSoprDocB';
+    }
+    106:
+    {
+      MenuPlugins := sMenuUks + sMenuKontrBal + sMenuCalcKol;
+      sMenu := 'mnuSoprDocAktRecKatSopr';
+    }
+    110:
+    {
+      MenuPlugins := sMenuUksExp + sMenuKontrBal + sMenuNalNakl + sRegNalAkts;
+      sMenu := 'mnuSoprUslKatSoprB22forUKS';
+    }
+    111:
+    {
+      MenuPlugins := sMenuUksExp + sMenuKontrBal + sMenuNalNakl + sRegNalAkts;
+      sMenu := 'mnuSoprUslKatSoprB22';
+    }
+    114:
+    {
+      sMenu := 'mnuSoprUslKatSoprPri';
+    }
+    201:
+    {
+      MenuPlugins := sMenuUks + sMenuKontrBal + sMenuCalcKol + sSoprTara + sAWPWeigher;
+      sMenu := 'mnuSoprDocRashKatSopr';
+
+      epMenuSoprDoc;
+
+      if ( Not ReadMyDsk(sMenuDop, 'SoprMenu_Dop', TRUE) )
+        sMenuDop := '';
+
+      SaveMyDsk('', 'SoprMenu_Dop');
+    }
+    202:
+    {
+      MenuPlugins := sMenuKontrBal + sMenuCalcKol;
+      sMenu := 'mnuSoprDocRashKatSopr';
+
+      epMenuSoprDoc202;
+
+      if ( Not ReadMyDsk(sMenuDop, 'SoprMenu_Dop', TRUE) )
+        sMenuDop := '';
+
+      SaveMyDsk('', 'SoprMenu_Dop');
+    }
+    203:
+    {
+      MenuPlugins := sMenuKontrBal + sMenuCalcKol;
+      sMenu := 'mnuSoprDocRashKatSopr';
+    }
+    206:
+    {
+      MenuPlugins := sMenuUks + sMenuKontrBal + sMenuCalcKol;
+      sMenu := 'mnuSoprDocAktRecKatSopr';
+    }
+    210:
+    {
+      MenuPlugins := sMenuUksExp + sMenuKontrBal;
+      sMenu := 'mnuSoprDocRashKatSopr210';
+    }
+    229:
+    {
+      MenuPlugins := sMenuUksExp;
+      sMenu := 'mnuSoprDocRashKatSopr229';
+    }
+    211:
+    {
+      MenuPlugins := sMenuUks + sMenuKontrBal + sMenuNalNakl;
+      sMenu := 'mnuSoprUslKatSopr';
+    }
+    610:
+    {
+      MenuPlugins := sMenuUksExp + sMenuNalNakl;
+      sMenu := 'mnuSoprDocAktRecKatSopr610';
+    }
+    629:
+    {
+      MenuPlugins := sMenuUksExp + sMenuKontrBal + sMenuNalNakl;
+      sMenu := 'mnuSoprDocAktRecKatSopr629';
+    }
+    1610:
+    {
+      MenuPlugins := sMenuUksExp + sMenuNalNakl;
+      sMenu := 'mnuSoprDocAktRecKatSopr1610';
+    }
+    631:
+    {
+      MenuPlugins := sMenuUksExp + sMenuKontrBal + sMenuNalNakl;
+      sMenu := 'mnuSoprUslKatSopr631';
+    }
+
+  end;
+
+  // формирование контекстного меню
+  MakeSoprEditMenu := sMenuDop + #AddComp('L_SOPRDOC')sMenu + MenuPlugins;
+}
+
+
+//******************************************************************************
+
+// формирование контекстного меню
+// pExtParam: битовый параметр
+// 1-й бит - меню в актах на услуги отнесенные на другого контрагента
+// 2-й бит - меню в корректирующей накладной
+// 3-й бит - меню в налоговой накладной
+Function MakeSoprMenu (pVidSopr: word; pExtParam: word): string;
+var
+  sMenu
+, MenuPlugins           // формирование плагинов для контекстного меню
+, MenuTXO               // меню для просмотра хозопераций по документу
+, MenuChObj
+  : string;
+
+{
+  MenuChObj   := ';Separator;' + #AddComp('L_SOPRDOC')'SoprDocsAll_ChangeObj';
+  MenuTXO     := ';Separator;' + #AddComp('L_SOPRDOC')'SoprDocsAll_TXO' + MenuChObj;
+  MenuPlugins := '';
+
+  if ((pVidSopr = 101))
+    MenuPlugins := #AddComp('L_SOPRDOC')if ((pExtParam AND 2) = 2,
+                                    'mnuSoprDocKN;' + #AddComp('L_SOPRDOC')'mnuSoprc45',
+                                    'mnuSoprDocPN;' + #AddComp('L_SOPRDOC')'mnuSoprc45');
+
+  case (pVidSopr) of
+    201:
+    {
+      var s201: string; s201 := MenuTXO;
+
+      if boGetTune('Oper.UseAkcizSkl')
+        s201 := ';Separator;' + #AddComp('L_SOPRDOC')'mnuSoprDocAlcohol' + MenuTXO;
+
+      if (boGetTune('Oper.CalcKol'))
+        sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain11_HotKeysVDE;' +
+                 #AddComp('C_COMMON')'CalcKol_HotKeys' + s201;
+      else
+        sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain11_HotKeysVDE' + s201;
+    }
+
+    202, 203:
+    {
+      sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain11_HotKeys' + MenuTXO;
+    }
+
+    211:
+    {
+      sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain12_HotKeys1' + MenuTXO;
+    }
+
+    613:
+    {
+      sMenu := #AddComp('L_SOPRDOC')'ActMtrList_HotKeys' + MenuTXO;
+    }
+
+    631:
+    {
+      sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain12_HotKeys631' + MenuTXO;
+    }
+
+    101, 102, 103:
+    {
+      var s101: string; s101 := MenuTXO;
+
+      if boGetTune('Oper.UseAkcizSkl')
+        s101 := ';Separator;'+ #AddComp('L_SOPRDOC')'mnuSoprDocAlcohol' + MenuTXO;
+
+      if ((pVidSopr = 101) and ((pExtParam and 2) <> 2)) // Для корректирующей накладной этот пункт не нужен
+        s101 := s101 +';Separator;' + #AddComp('L_SOPRDOC')'mnuCAkts;';
+
+      if ((pVidSopr = 101) AND boGetTune('Ves.ImpVagon'))
+      {
+        if (boGetTune('Oper.CalcKol'))
+          sMenu := #AddComp('L_SOPRDOC')'mnuSHT_CE_SoprDoc;' +
+                   MenuPlugins + ';' + #AddComp('C_COMMON')'CalcKol_HotKeys' + s101
+        else
+          sMenu := #AddComp('L_SOPRDOC')'mnuSHT_CE_SoprDoc;' +
+                   MenuPlugins + s101;
+      }
+      else
+      {
+        if ((boGetTune('Oper.CalcKol')) AND (pVidSopr = 101))
+          sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain01_HotKeys;' +
+                   MenuPlugins + ';' + #AddComp('C_COMMON')'CalcKol_HotKeys' + s101
+        else
+          sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain01_HotKeys;' +
+                   MenuPlugins + s101;
+      }
+    }
+
+    114:
+    {
+      sMenu := #AddComp('L_SOPRDOC')'mnuMainMenuPri' + MenuTXO;
+    }
+
+    110:
+    {
+      sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain02_HotKeys' + MenuTXO;
+    }
+
+    111:
+    {
+      if ((pExtParam AND 1) = 1)
+        sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain02_HotKeys'   + MenuTXO
+                            + ';SEPARATOR;' + #AddComp('L_SOPRDOC')'mnuMakeLinks'
+                            + if ((pExtParam AND 4) = 4, ';SEPARATOR;'+ #AddComp('L_SOPRDOC')'mnuRegNalAkts','')
+      else
+        sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain02_HotKeys'   + MenuTXO
+                            + if ((pExtParam AND 4) = 4, ';SEPARATOR;' + #AddComp('L_SOPRDOC')'mnuRegNalAkts', '');
+    }
+
+    106, 206:
+    {
+      if (boGetTune('Oper.CalcKol'))
+        sMenu := #AddComp('L_SOPRDOC')'AktRecMain02_HotKeys;' +
+                 #AddComp('C_COMMON')'CalcKol_HotKeys' + MenuTXO;
+      else
+        sMenu := #AddComp('L_SOPRDOC')'AktRecMain02_HotKeys' + MenuTXO;
+    }
+
+    610, 629, 1610:
+    {
+      sMenu := #AddComp('L_SOPRDOC')'AktRecMain02_HotKeys629' + MenuTXO;
+    }
+
+    600:
+    {
+      var s600: string;
+      s600 := '';
+
+      if boGetTune('Oper.UseAkcizSkl')
+        s600 := ';Separator;' + #AddComp('L_SOPRDOC')'mnuSoprDocAlcohol;';
+
+      if (boGetTune('Oper.CalcKol'))
+        sMenu := #AddComp('L_SKLAD')'SoprDocsMain03_HotKeys;' +
+                 #AddComp('C_COMMON')'CalcKol_HotKeys' + MenuTXO + s600 + ';SEPARATOR;' +
+                 #AddComp('L_SKLAD')'Akt_MoveLoc';
+      else
+        sMenu := #AddComp('L_SKLAD')'SoprDocsMain03_HotKeys' + MenuTXO + s600 + ';SEPARATOR;' +
+                 #AddComp('L_SKLAD')'Akt_MoveLoc';
+    }
+
+    601:  //для передачи в ОС
+    {
+      sMenu := #AddComp('L_SKLAD')'SoprDocsMain03B_601_HotKeys' + MenuTXO;
+    }
+
+    605:  //для передачи в НМА
+    {
+      sMenu := #AddComp('L_SKLAD')'SoprDocsMain03B_605_HotKeys' + MenuTXO;
+    }
+
+    602, 603:
+    {
+      sMenu := #AddComp('L_SKLAD')'SoprDocsMain03B_HotKeys' + MenuTXO;
+    }
+
+    606:
+    {
+      var s606: string;
+      s606 := '';
+
+      if boGetTune('Oper.UseAkcizSkl')
+        s606 := ';Separator;'+ #AddComp('L_SOPRDOC')'mnuSoprDocAlcohol;';
+
+      sMenu := #AddComp('L_SKLAD')'SoprDocsMain03_HotKeys' + MenuTXO + s606;
+    }
+
+    204: // акты на списание МЦ
+    {
+      if (boGetTune('Oper.CalcKol'))
+        sMenu := #AddComp('L_SKLAD')'SrPriceRecalcMnu;' +
+                 #AddComp('L_SKLAD')'FiltersMnu;' +
+                 #AddComp('L_SOPRDOC')'SoprDocsMain_HotKeys;' +
+                 #AddComp('C_COMMON')'CalcKol_HotKeys' + MenuTXO + ';SEPARATOR;' +
+                 #AddComp('L_SKLAD')'Akt_SpisLoc'
+      else
+        sMenu := #AddComp('L_SKLAD')'SrPriceRecalcMnu;' +
+                 #AddComp('L_SKLAD')'FiltersMnu;' +
+                 #AddComp('L_SOPRDOC')'SoprDocsMain_HotKeys' + MenuTXO + ';SEPARATOR;' +
+                 #AddComp('L_SKLAD')'Akt_SpisLoc';
+    }
+
+    229, 210: //акт на передачу оборудования в монтаж, акт на передачу материалов в строительство
+    {
+      sMenu := #AddComp('L_SOPRDOC')'mnuFltSoprDocInList' + ';SEPARATOR;' +
+               #AddComp('L_SOPRDOC')'SoprDocsMain_HotKeys;' + MenuTXO + ';' +
+               #AddComp('L_SOPRDOC')'mnuSoprDocCalcSrPrice';
+    }
+
+    612: // акт недостачи
+    {
+      sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain_HotKeys11;' + MenuTXO + ';SEPARATOR;' +
+               #AddComp('L_SKLAD')'mnuInv_RashInList';
+    }
+
+    611: // акт об избытках
+    {
+      sMenu := #AddComp('L_SKLAD')'mnuInv_PrihInList'  + ';SEPARATOR;' +
+               #AddComp('L_SOPRDOC')'SoprDocsMain_HotKeys11;' + MenuTXO
+               ;
+    }
+    else
+    {
+      sMenu := #AddComp('L_SOPRDOC')'SoprDocsMain_HotKeys_Filtr' + ';SEPARATOR;' +
+               #AddComp('L_SOPRDOC')'SoprDocsMain_HotKeys' + MenuTXO;
+    }
+  end;
+
+  MakeSoprMenu := sMenu;
+}
+
+//********************************************************************************
+
+HandleEvent
+end;
+
+end.
+
+//**********************************************************************************************
+// К О Н Т Е К С Т Н Ы Е    М Е Н Ю    С О П Р О В О Д И Т Е Л Ь Н Ы Х   Д О К У М Е Н Т О В
+//**********************************************************************************************
+
+SoprDocsMain11_HotKeysVDE Menu
+{
+-'Фильтры по документу',cmFilterSave,'Установка и снятие фильтров по документу',hcLok_Filtr_Doc,'Alt-B',kbAltB,sci1Esc;
+------------;
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+-'Печать документа в FastReport', cmValue36, 'Печать документа в FastReport', hcctxSoprPrintDoc,'',, sci1Esc;
+-'Печать реестра накладных',cmPlansNo,'Печать реестра накладных на отпуск',hcm_sell_Pechat_Reesrtrov,'Alt-P',kbAltP,sci1Esc;
+------------;
+//-'Внешняя классификация',cmPickClass,'Установка внешней классификации к позиции',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+//-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к позиции',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+//------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+//-----------;
+//-'Пересчет налогов',cmDoRaschet,'Пересчет налогов по документу за интервал дат',hcDSoprNalogsCalcParams,'',,sci1Esc;
+//-'Пересчет с учетом настройки "правила округления"',cmValue22,'Пересчет цен и налогов в документе учитывая настройку "правила округления"',hcDSoprNalogsCalcParams2,'',,sci1Esc;
+-'Пересчет средних цен в документе',cmCalcSrPrice,'Пересчет средних цен в документе',hcctxRecalcSrPrice,'',,sci1Esc;
+-'Пересчет стоимости услуг',cmValue32,'Пересчет стоимости услуг',,'',,sci1Esc;
+//-'Установка цен из прайс-листа',cmValue5,'Установка цен в документах из выбранного прайс-листа',hcCtxPriceIzm,'',,sci1Esc;
+-----------;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+//-----------;
+//-'Дата формирования документа',cmVal1,'Дата выписки накладной по умолчанию',hcNastrDocDateDefault,,,sci1Esc;
+//-'Поиск документа по номеру вагона',cmVal2,'Поиск документа по номеру вагона',hcSellLocMFindByVagon,,,sci1Esc;
+}
+
+SoprDocsMain_HotKeys Menu
+{
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+//-'Группы платежных средств',cmValue1,'Привязка группы платежных средств',hcNoContext,'',,sci1Esc;
+-------------;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+//-----------;
+}
+
+SoprDocsMain_HotKeys_Filtr Menu
+{
+-'Фильтр по датам',cmFilterSave,'Установка и снятие фильтра по датам',hcctxSoprFilterSave,'Alt-B',kbAltB,sci1Esc;
+}
+
+SoprDocsMain11_HotKeys Menu
+{
+-'Фильтры по документу',cmFilterSave,'Установка и снятие фильтров по документу',hcLok_Filtr_Doc,'Alt-B',kbAltB,sci1Esc;
+------------;
+//-'Внешняя классификация',cmPickClass,'Установка внешней классификации к позиции',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+//-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к позиции',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+//------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+-----------;
+//-'Пересчет налогов',cmDoRaschet,'Пересчет налогов по документу за интервал дат',hcDSoprNalogsCalcParams,'',,sci1Esc;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+//-----------;
+//-'Установка цен из прайс-листа',cmValue5,'Установка цен в документах из выбранного прайс-листа',hcCtxPriceIzm,'',,sci1Esc;
+}
+
+SoprDocsMain12_HotKeys Menu
+{
+-'Фильтры по документу',cmFilterSave,'Установка и снятие фильтров по документу',hcLok_Filtr_Doc,'Alt-B',kbAltB,sci1Esc;
+------------;
+//-'Внешняя классификация',cmPickClass,'Установка внешней классификации к позиции',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+//-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к позиции',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+//------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+-----------;
+//-'Пересчет налогов',cmDoRaschet,'Пересчет налогов по документу за интервал дат',hcDSoprNalogsCalcParams,'',,sci1Esc;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+-'Печать реестра актов',cmPlansNo,'Печать реестра актов на оказание услуг',hcm_sell_Pechat_Reesrtrov,'Alt-P',kbAltP,sci1Esc;
+-----------;
+//-'Установка цен из прайс-листа',cmValue5,'Установка цен в документах из выбранного прайс-листа',hcCtxPriceIzm,'',,sci1Esc;
+-----------;
+='Печать документа в Excel','Печать документа в Excel-формате',hcctxSoprPrintDoc,sci1Esc;
+  {
+   - 'Настройка печати',cmValue11,'Настройка шаблона для Excel-отчета',,,,sci1Esc;
+   - 'Акт на отпуск услуг заказчику (вал-руб)', cmValue21,,hcNoContext,,,sci1Esc;
+   - 'Акт на отпуск услуг с учетными единицами (вал-руб)', cmValue22,,hcNoContext,,,sci1Esc;
+   - 'Стандартная форма акта на отпуск услуг', cmValue23,,hcNoContext,,,sci1Esc;
+   - 'Стандартный акт с учетными единицами измерения',cmValue24 ,,hcNoContext,,,sci1Esc;
+   - 'Стандартный акт на реализацию услуг с налогами', cmValue25,,hcNoContext,,,sci1Esc;
+  }
+}
+
+SoprDocsMain_HotKeys11 Menu
+{
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+-'Печать документа Excel',cmValue33,'Печать текущего документа',,,,;
+//-'Настройка Excel шаблона',cmValue15,'Настройка Excel шаблона',,,,sci1Esc;
+//-'Группы платежных средств',cmValue1,'Привязка группы платежных средств',hcNoContext,'',,sci1Esc;
+-------------;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+//-----------;
+}
+
+SoprDocsMain12_HotKeys1 Menu
+{
+-'Фильтры по документу',cmFilterSave,'Установка и снятие фильтров по документу',hcLok_Filtr_Doc,'Alt-B',kbAltB,sci1Esc;
+------------;
+//-'Внешняя классификация',cmPickClass,'Установка внешней классификации к позиции',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+//-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к позиции',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+//------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+-----------;
+//-'Пересчет налогов',cmDoRaschet,'Пересчет налогов по документу за интервал дат',hcDSoprNalogsCalcParams,'',,sci1Esc;
+-'Пересчет стоимости услуг',cmValue32,'Пересчет стоимости услуг',,'',,sci1Esc;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+-'Печать реестра актов',cmPlansNo,'Печать реестра актов на оказание услуг',hcm_sell_Pechat_Reesrtrov,'Alt-P',kbAltP,sci1Esc;
+//-'Печать отчета агента',cmValue13,'Печать отчета агента', hcN_Otch_Agent_Dog,'',,sci1Esc;
+-'Печать документа в FastReport',cmValue21,'Печать документа в FastReport',hcctxSoprPrintDoc,,,sci1Esc;
+//-----------;
+//-'Установка цен из прайс-листа',cmValue5,'Установка цен в документах из выбранного прайс-листа',hcCtxPriceIzm,'',,sci1Esc;
+}
+
+SoprDocsMain12_HotKeys631 Menu
+{
+-'Фильтры по документу',cmFilterSave,'Установка и снятие фильтров по документу',hcLok_Filtr_Doc,'Alt-B',kbAltB,sci1Esc;
+------------;
+//-'Внешняя классификация',cmPickClass,'Установка внешней классификации к позиции',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+//-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к позиции',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+}
+
+SoprDocsMain01_HotKeys Menu
+{
+-'Фильтры по документу',cmFilterSave,'Установка и снятие фильтров по документу',hcLok_Filtr_Doc,'Alt-B',kbAltB,sci1Esc;
+------------;
+//-'Внешняя классификация',cmPickClass,'Установка внешней классификации к позиции',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+//-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к позиции',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+//------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+//-----------;
+//-'Пересчет налогов',cmDoRaschet,'Пересчет налогов по документу за интервал дат',hcDSoprNalogsCalcParams,'',,sci1Esc;
+-'Пересчет стоимости услуг', cmValue32, 'Пересчет стоимости услуг', hcm_sell_Stoim_Uslyg, , , sci1Esc;
+//-'Пересчет с учетом настройки "правила округления"',cmValue22,'Пересчет цен и налогов в документе учитывая настройку "правила округления"',hcDSoprNalogsCalcParams2,'',,sci1Esc;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+-'Печать реестра накладных',cmPlansNo,'Печать реестра приходных накладных',hcm_sell_Pechat_Reesrtrov,'Alt-P',kbAltP,sci1Esc;
+//-'Перенос поля "Нетто" в "Количество"',cmFilialNo,'Переносит значение поля "Нетто" в поле "Количество"',hcSoprPrihLocMNetto,'Alt-N',kbAltN,sci1Esc;
+//-----------;
+//-'Установка цен из прайс-листа',cmValue5,'Установка цен в документах из выбранного прайс-листа',hcCtxPriceIzm,'',,sci1Esc;
+//-----------;
+//-'Дата формирования документа',cmVal1,'Дата выписки накладной по умолчанию',hcNastrDocDateDefault,,,sci1Esc;
+//-'Поиск документа по номеру вагона',cmVal2,'Поиск документа по номеру вагона',hcSellLocMFindByVagon,,,sci1Esc;
+}
+
+mnuSHT_CE_SoprDoc Menu
+{
+-'Фильтры по документу',cmFilterSave,'Установка и снятие фильтров по документу',hcLok_Filtr_Doc,'Alt-B',kbAltB,sci1Esc;
+------------;
+//-'Внешняя классификация',cmPickClass,'Установка внешней классификации к позиции',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+//-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к позиции',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+//------------;
+//-'Экспорт',cmExp,'Экспорт документов',hcSwiftMAll,'Alt-O',kbAltO,sci1Esc;
+//-'Импорт',cmImp,'Импорт документов',hcSwiftMAll,'Alt-I',kbAltI,sci1Esc;
+//-'Протокол',cmIEHist,'Протокол экспорта/импорта',hcSwiftMAll,'Alt-H',kbAltH,sci1Esc;
+//-----------;
+//-'Пересчет налогов',cmDoRaschet,'Пересчет налогов по документу за интервал дат',hcDSoprNalogsCalcParams,'',,sci1Esc;
+//-'Пересчет с учетом настройки "правила округления"',cmValue22,'Пересчет цен и налогов в документе учитывая настройку "правила округления"',hcDSoprNalogsCalcParams2,'',,sci1Esc;
+-'Сохранить документ в буфер',cmSaveDoc,'Сохранение документа в буфер',hcctxSoprSaveDoc,'Ctrl-F2',kbCtrlF2,sci1Esc;
+-'Копирование документа из буфера',cmRestoreDoc,'Копировать сохраненный в буфере документ',hcctxSoprRestoreDoc,'Ctrl-F3',kbCtrlF3,sci1Esc;
+-'Печать документа',cmPrintDoc,'Печать текущего документа',hcctxSoprPrintDoc,'Ctrl-P',kbCtrlP,sci1Esc;
+-'Печать реестра накладных',cmPlansNo,'Печать реестра приходных накладных',hcm_sell_Pechat_Reesrtrov,'Alt-P',kbAltP,sci1Esc;
+//-'Перенос поля "Нетто" в "Количество"',cmFilialNo,'Переносит значение поля "Нетто" в поле "Количество"',hcSoprPrihLocMNetto,'Alt-N',kbAltN,sci1Esc;
+//-----------;
+//-'Установка цен из прайс-листа',cmValue5,'Установка цен в документах из выбранного прайс-листа',hcCtxPriceIzm,'',,sci1Esc;
+//-----------;
+//-'Дата формирования документа',cmVal1,'Дата выписки накладной по умолчанию',hcNastrDocDateDefault,,,sci1Esc;
+//-'Поиск документа по номеру вагона',cmVal2,'Поиск документа по номеру вагона',hcSellLocMFindByVagon,,,sci1Esc;
+//-'Импорт результатов взвешивания ж/д состава из DBF',cmValue19,'Импорт результатов взвешивания ж/д состава из DBF',hcImportVesGD,,,sci1Esc;
+}
+
+SoprUslSpSoprExt_HotKeys Menu
+{
+//-'Выбор группы налогов',cmSetGrNal,'Выбор группы налогов для позиции спецификации документа',hcSpSoprSetGrNal,'',,sci1Esc;
+//-'Просмотр/редактирование налогов',cmAttrib,'Просмотр/редактирование налогов к позиции документа',hcSellM1DocNal,'Ctrl-Enter',kbCtrlEnter,sci1Esc;
+/*
+#ifdef __MTR_TO_SPEC__
+-----------;
+-'Целевой учет', cmIerarchy, '', hcUKS_LokM_Chelev, 'Ctrl-U', kbCtrlU, sci1Esc;
+#end
+*/
+}
+
+mnuSoprDocPN Menu
+{
+-----------;
+-'Создать / Редактировать Корректирующую накладную',cmInsertEditKN,'Создать, если еще не создана, и редактировать Корректирующую накладную',hcSoprPrihKN,'Alt-K',kbAltK,sciEsc;
+}
+
+mnuSoprDocKN Menu
+{
+-----------;
+-'Показать корректируемую накладную',cmInsertEditKN,'Найти приходную накладную, соответствующую данной Корректирующей накладной',hcSoprPrihKN,'Alt-K',kbAltK,sciEsc;
+}
+
+mnuSoprDocAlcohol menu
+{
+//-'Атрибуты "Акцизные товары"',cmValue10,'Ввод/Редактирование атрибутов "Акцизные товары"',hcSkladInmovListLMAkciz,,,sci1Esc;
+//-'Печать журнала уведомлений',cmValue11,'Печать журнала уведомлений за выбранный период',hcSkladInmovListLMAkciz,,,sci1Esc;
+//-'Печать отчета наличия алк.продукции',cmValue12,'Отчет об объемах алкогольной продукции на акцизном складе',hcSkladInmovListLMAkciz,,,sci1Esc;
+}
+
+SoprDocsAll_TXO menu
+{
+-'Хозоперации по документу',cmHozOper,'Просмотр хозопераций по документу',hcXozOperDOC,'Ctrl-H',kbCtrlH,sci1Esc;
+}
+
+SoprDocsAll_ChangeObj menu
+{
+//- 'Замена объектов строительства', cmValue59, 'Замена объектов строительства', hcuks_Zamen_ObStroit,,, sci1Esc;
+}
+
+//******************************************************************************
+//  К О Н Т Е К С Т Н Ы Е   М Е Н Ю   О К О Н   Р Е Д А К Т И Р О В А Н И Я
+//******************************************************************************
+
+SoprUKSEdit menu
+{
+ = 'Управление капитальным строительством', 'Функции управления капитальным строительством', , sci1Esc;
+{
+#ifndef __MTR_TO_SPEC__
+-'Объект строительства для всего документа',cmValue6,'Выбор объекта строительства для всех позиций спецификации документа',hcUKSPrivDocKObjStr,'',,sci1Esc;
+-'Статья затрат для всего документа',cmValue10,'Выбор статьи затрат для всех позиций спецификации документа',hci_naklFLOKStatZatr,'',,sci1Esc;
+-'Разноска Объектов строительства/Статей затрат по спецификации',cmVal8,'Выбор Объектов строительства/Статей затрат для нескольких позиций спецификации',hcUKS_RaznosPoSpesific,'',,sci1Esc;
+#end
+-'Просмотр базисных цен',cmShowUKSPrice,'Просмотр базисных цен в документе',hci_sopprh_ProsmBaz_Cen,'',,sci1Esc;
+-----------;
+-'Отобразить спецификацию в виде сметы',cmValue60,'Отобразить спецификацию в виде сметы', hcuks_Otobraz_Sp_VidSmet,'',,sci1Esc;
+}
+}
+
+SoprUKSEditExp menu
+{
+#ifndef __MTR_TO_SPEC__
+-'Объект строительства для всего документа',cmValue6,'Выбор объекта строительства для всех позиций спецификации документа',hcUKSPrivDocKObjStr,'',,sci1Esc;
+-'Статья затрат для всего документа',cmValue10,'Выбор статьи затрат для всех позиций спецификации документа',hci_naklFLOKStatZatr,'',,sci1Esc;
+-'Разноска Объектов строительства/Статей затрат по спецификации',cmVal8,'Выбор Объектов строительства/Статей затрат для нескольких позиций спецификации',hcUKS_RaznosPoSpesific,'',,sci1Esc;
+#end
+-'Просмотр базисных цен',cmShowUKSPrice,'Просмотр базисных цен в документе',hci_sopprh_ProsmBaz_Cen,'',,sci1Esc;
+-----------;
+-'Отобразить спецификацию в виде сметы',cmValue60,'Отобразить спецификацию в виде сметы', hcuks_Otobraz_Sp_VidSmet,'',,sci1Esc;
+}
+
+SoprKontrBal Menu
+{
+-'Аналитический разрез учета сальдо контрагентов',cmChangeViewMode,'Определение значений аналитического разреза учета сальдо контрагентов',hcSellNaklLocMAnalytSaldo,'Alt-F2',kbAltF2,sci1Esc;
+}
+
+mnuNalNaklDoc Menu
+{
+- 'Документы для учета НДС',cmVrem,'Просмотр документов для учета НДС',,'',,sci1Esc;
+}
+
+mnuRegNalAkts Menu
+{
+- 'Регистрация ГТД',cmValue18,'Регистрация налоговых актов в книге покупок',hci_gtd_RegGTD_Akt,'',,sci1Esc;
+}
+
+SoprBoxPlan Menu
+{
+ = 'План размещения МЦ по ячейкам', 'Операции с планом размещения МЦ по ячейкам хранения', hcPrihNaklLocMFormRaspedCell, sci1Esc;
+{
+  -'Автоматическое формирование', cmPacketBoxPlan, 'Производит формирование плана размещения МЦ для всех спецификаций накладной', hcPrihNaklLocMFormRaspedCellTop, , , sci1Esc;
+  -'Удаление плана', cmClearBoxPlan, 'Удаление плана размещения для всех спецификаций накладной', hcNoContext, , , sci1Esc;
+  -'Печать плана', cmPrintBoxplan, 'Печать сформированного плана размещения МЦ', hcNoContext, , , sci1Esc;
+  -'Печать бирок по плану размещения', cmBoxBirks, 'Печать бирок по плану размещения', hcPrihNaklLocMFormRaspedCellPrint, '', , sci1Esc;
+}
+}
+
+SoprDocTara Menu
+{
+-'Отвязать нагрузку', cmValue24, 'Функция позволяет отвязать нагрузку', hcRashNaklLocMDelNagruz, , , sci1Esc;
+}
+
+Akt100FormAkt menu
+{
+-'Формирование спецификации по другим актам выполненных работ',cmValFld16,'Формирование спецификации по спецификации других актам выполненных работ',hcuks_Form_Sp_Akt,'',,sci1Esc;
+}
+
+SoprCelUch menu
+{
+-'Разноска Объектов целевого учета по спецификации',cmVal8,'Выбор Объектов целевого учета для нескольких позиций спецификации',hcUKS_RaznosPoSpesific,'',,sci1Esc;
+}
+
+SmetKoeffSopr menu
+{
+  = 'Сметные коэффициенты', 'Работа со сметными коэффициентами ', hcuks_Smet_Koff, sci1Esc;
+  {
+    -'Обновление', cmValFld7, 'Обновление сметных коэффициентов акта выполненных работ из смет', hcuks_Smet_Koff, '', , sci1Esc;
+    -'Редактирование', cmVal7, 'Редактирование сметных коэффициентов акта выполненных работ', hcuks_Smet_Koff, '', , sci1Esc;
+  }
+}
+
+mnuSoprUslKatSopr631 Menu
+{
+-'Изменить дескриптор',cmManagerID,'Изменение/установка дескриптора пользователя',hcIGetDescr,'Alt-M',kbAltM,sci1Esc;
+-'Внешняя классификация',cmPickClass,'Установка внешней классификации документа',hcGkatalM1ExtClass,'Alt-C',kbAltC,sci1Esc;
+-'Внешние атрибуты',cmPickAttr,'Установка внешних атрибутов к документу',hcGkatalM1Attr,'Alt-A',kbAltA,sci1Esc;
+}
+
+mnuNormUb Menu
+{
+-'Включить/отключить работу с нормами убыли', cmNormUb , 'Включить/выключить работу с нормами убыли', hci_nakl_Lok_NormYb, , , sci1Esc;
+-'Просмотр излишков, недостачи'             , cmNormUb2, 'Просмотр излишков, недостачи', hci_nakl_Lok_Prosmotr, , , sci1Esc;
+}

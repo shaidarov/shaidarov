@@ -1,0 +1,582 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2000 корпорация ГАЛАКТИКА                    ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Бухгалтерский контур                                      ║
+ ║ Версия        : 8.1x                                                      ║
+ ║ Назначение    : Создаёт документ для учёта НДС и запись в книге Продаж    ║
+ ║                 из Сопроводительного документа (в разрезе Договоров)      ║
+ ║ Ответственный : Шайдаров Игорь Александрович                              ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+#Component "F_TXO"
+
+VipInterface TXO_Kniga_Prodazh_Sopr_62 implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_Kniga_Prodazh_Sopr_62;
+var
+  CurSoprDoc : comp  ;
+  NDS_10     : double;
+  NDS_18     : double;
+  NDS_R      : double;
+  Opl_10     : double;
+  Opl_18     : double;
+  Opl_R      : double;
+  St_10      : double;
+  St_18      : double;
+  St_R       : double;
+ 
+  vNDE       : double;
+  vVal       : double;
+  vKol       : double;
+  dNDS       : double;
+  Par_Rasch  : word  ;
+
+  Book_Sum1  : double;
+  Book_Sum2  : double;
+  Book_Sum3  : double;
+  Book_Sum4  : double;
+  Book_Sum5  : double;
+  Book_Sum6  : double;
+
+  Book_Sum23 : double;
+  Book_Sum8  : double;
+  Book_Sum9  : double;
+
+  Book_Sum11 : double;
+  Book_Sum12 : double;
+  Book_Sum13 : double;
+  Book_Sum14 : double;
+  Book_Sum15 : double;
+  Book_Sum16 : double;
+  Book_Sum21 : double;
+  Book_Sum22 : double;
+  Book_Summa : double;
+
+  T_temp     : LongInt;
+  x          : Integer;
+  KodGrUsl   : Word   ;
+  S18        : Word   ;
+  S10        : Word   ;
+  Sr         : Word   ;
+  N18        : Word   ; 
+  N10        : Word   ;
+  Nr         : Word   ;
+  St_it      : Double ;
+
+
+create view
+as select
+  *
+from
+     BookPrZk
+   , KatSopr
+   , SoprHoz
+   , SchFact
+   , SchFact   SchFact_G
+   , SpSopr
+   , SpDocNal
+
+   , KatUsl   
+   , GroupUsl
+
+where
+((
+       CurSoprDoc         == KatSopr.nRec
+   and KatSopr.VidSopr    == SoprHoz.TipDoc
+   and KatSopr.nRec       == SoprHoz.cSoprDoc
+   and SoprHoz.nRec       == SchFact.cSoprHoz
+!   and KatSopr.cSchFact   == SchFact.nRec
+   and SchFact.nRec       == BookPrZk.cSchFact
+   and KatSopr.nRec       == SpSopr.cSopr
+   and SpSopr.nRec        == SpDocNal.cSpDoc    (noindex)
+   and coGetTune('Nalog.cNalogNDS')
+                          == SpDocNal.cNalog
+
+   and SpSopr.cMcUsl      == KatUsl.nRec
+   and KatUsl.cGroupUsl   == GroupUsl.nRec
+
+   and KatSopr.cOrg       == SchFact_G.cOrg     (noindex)
+   and word(7217)         == SchFact_G.TipUser  (noindex)
+   and KatSopr.cDogovor   == SchFact_G.CRECS[1] (noindex)
+   and SchFact.SS[1]      == SchFact_G.SS[1]    (noindex)
+   and 0                  << SchFact_G.SummaReg (noindex)
+
+))
+;
+
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Создаёт запись в книге продаж';
+}
+
+
+Window wParam 'Задайте параметры идентификатора' (,,) EscClose;
+  Show at (2,12,75,20);
+    Screen scParam (,,);
+
+      Fields
+        Par_Rasch ('Выберите требуемый результат расчета идентификатора',,sci1EnEsc) :
+            [LIST 0  'Создание счётов-фактур и записи в книге продаж',
+                  1  'Сумма записи в книге по ставке НДС 10%',
+                  2  'Сумма записи в книге по ставке НДС 18%',
+                  3  'Сумма оплаты'], protect;
+
+<<
+                       `Основной параметр результата`
+
+      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+
+End;
+
+HandleEvent // window
+
+ cmDefault : CloseWindow(wParam);
+
+End;  // HandleEvent
+End;  // window
+
+
+function ParamMaster : string;
+{
+   // вызов окошка, чтобы помочь пользователю заполнить строку дополнительных параметров идентификатора
+   RunWindow(wParam);
+   PackFields;
+   case Par_Rasch of
+     0  : ParamMaster := '[Рез:InsUp]';
+     1  : ParamMaster := '[Рез:НДС10]';
+     2  : ParamMaster := '[Рез:НДС18]';
+     3  : ParamMaster := '[Рез:безНДС]';
+   end;
+}
+
+procedure ParamParser(hTxo : longint);
+{
+   var i : Longint;
+
+   for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   {  case TxoParamName(hTxo,i) of
+        'РЕЗ': {
+                 case TxoParamValue(hTxo,i) of
+                    'INSUP'   : Par_Rasch := 0;
+                    'НДС10'   : Par_Rasch := 1;
+                    'НДС18'   : Par_Rasch := 2;
+                    'БЕЗНДС'  : Par_Rasch := 3;
+                 end;
+               }
+      end;
+   }
+}
+
+
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+    CurSoprDoc := buf.cSoprDoc;
+
+    ParamParser(hTxo);
+
+
+
+   InitGetCur;
+   Case Par_Rasch of
+        0  : {
+
+    NDS_10   := 0
+    NDS_18   := 0
+    St_10    := 0
+    St_18    := 0
+    vNDE     := 0
+
+! Создаём таблицу в памяти для подсчёта сумм по отделам и создания нескольких счёт-фактур, привязанных к одному Акту
+
+T_temp  := TblInitNew(10,1);            // создаем таблицу
+KodGrUsl:= TblNewField(T_temp,ftString);
+TblEndKey(T_temp);                      // строим индекс по полю
+
+S18     := TblNewField(T_temp,ftDouble);
+N18     := TblNewField(T_temp,ftDouble);
+S10     := TblNewField(T_temp,ftDouble);
+N10     := TblNewField(T_temp,ftDouble);
+Sr      := TblNewField(T_temp,ftDouble);
+Nr      := TblNewField(T_temp,ftDouble);
+
+TblSetDuplicate(T_temp,True);        // допускать дублирование записей
+TblClearBuffer(T_temp);              // очищаем буфер таблицы
+
+
+
+If (KatSopr.VhodNal = 1) // Налоги входят
+  {
+
+      _LOOP SpSopr
+       {
+
+      TblSfString(T_temp, KodGrUsl, GroupUsl.Kod);      // Записываем в таблицу
+
+  if  TblGetEqual(T_temp)                               // Если запись есть
+    {
+          if (SpDocNal.Nalog = 18)
+            {
+            TblSfDouble(T_temp, S18, TblGfDouble(T_temp,S18) + SpSopr.rPrice * SpSopr.KolFact - SpDocNal.Summa );
+            TblSfDouble(T_temp, N18, TblGfDouble(T_temp,N18) + SpDocNal.Summa );
+            }
+     
+          if (SpDocNal.Nalog = 10)
+            {
+            TblSfDouble(T_temp, S10, TblGfDouble(T_temp,S10) + SpSopr.rPrice * SpSopr.KolFact - SpDocNal.Summa );
+            TblSfDouble(T_temp, N10, TblGfDouble(T_temp,S10) + SpDocNal.Summa );
+            }
+
+          if (SpDocNal.Nalog <> 18 and SpDocNal.Nalog <> 10 ) // расчётная ставка НДС
+            {
+            TblSfDouble(T_temp, Sr,  TblGfDouble(T_temp,Sr) + SpSopr.rPrice * SpSopr.KolFact - SpDocNal.Summa );
+            TblSfDouble(T_temp, Nr,  TblGfDouble(T_temp,Sr) + SpDocNal.Summa );
+            }
+
+            TblUpDateCurrent(T_temp);
+    }
+   else
+    {
+          if (SpDocNal.Nalog = 18)
+            {
+            TblSfDouble(T_temp, S18, SpSopr.rPrice * SpSopr.KolFact - SpDocNal.Summa );
+            TblSfDouble(T_temp, N18, SpDocNal.Summa );
+            }
+
+          if (SpDocNal.Nalog = 10)
+            {
+            TblSfDouble(T_temp, S10, SpSopr.rPrice * SpSopr.KolFact - SpDocNal.Summa );
+            TblSfDouble(T_temp, N10, SpDocNal.Summa );
+            }
+
+          if (SpDocNal.Nalog <> 18 and SpDocNal.Nalog <> 10 ) // расчётная ставка НДС
+            {
+            TblSfDouble(T_temp, Sr,  SpSopr.rPrice * SpSopr.KolFact - SpDocNal.Summa );
+            TblSfDouble(T_temp, Nr,  SpDocNal.Summa );
+            }
+
+            TblInsertCurrent(T_temp);
+     }
+
+       }
+  }
+     else  // налоги не входят
+     {
+      _LOOP SpSopr
+       {
+
+      TblSfString(T_temp, KodGrUsl, GroupUsl.Kod);      // Записываем в таблицу
+
+  if  TblGetEqual(T_temp)                               // Если запись есть
+    {
+          if (SpDocNal.Nalog = 18)
+            {
+            TblSfDouble(T_temp, S18, TblGfDouble(T_temp,S18) + SpSopr.rPrice * SpSopr.KolFact );
+            TblSfDouble(T_temp, N18, TblGfDouble(T_temp,N18) + SpDocNal.Summa );
+            }
+
+          if (SpDocNal.Nalog = 10)
+            {
+            TblSfDouble(T_temp, S10, TblGfDouble(T_temp,S10) + SpSopr.rPrice * SpSopr.KolFact );
+            TblSfDouble(T_temp, N10, TblGfDouble(T_temp,N10) + SpDocNal.Summa );
+            }
+
+          if (SpDocNal.Nalog <> 18 and SpDocNal.Nalog <> 10 ) // расчётная ставка НДС
+            {
+            TblSfDouble(T_temp, Sr, TblGfDouble(T_temp,Sr) + SpSopr.rPrice * SpSopr.KolFact );
+            TblSfDouble(T_temp, Nr, TblGfDouble(T_temp,Sr) + SpDocNal.Summa );
+            }
+
+            TblUpDateCurrent(T_temp);
+    }
+   else
+    {
+        TblSfString(T_temp, KodGrUsl, GroupUsl.Kod);            // Записываем в таблицу
+
+          if (SpDocNal.Nalog = 18)
+            {
+            TblSfDouble(T_temp, S18, SpSopr.rPrice * SpSopr.KolFact );
+            TblSfDouble(T_temp, N18, SpDocNal.Summa );
+            }
+
+          if (SpDocNal.Nalog = 10)
+            {
+            TblSfDouble(T_temp, S10, SpSopr.rPrice * SpSopr.KolFact );
+            TblSfDouble(T_temp, N10, SpDocNal.Summa );
+            }
+
+          if (SpDocNal.Nalog <> 18 and SpDocNal.Nalog <> 10 ) // расчётная ставка НДС
+            {
+            TblSfDouble(T_temp, Sr,  SpSopr.rPrice * SpSopr.KolFact );
+            TblSfDouble(T_temp, Nr,  SpDocNal.Summa );
+            }
+
+            TblInsertCurrent(T_temp);
+     }
+
+       }
+     }
+
+     
+ Do         //    While ( x <= (TblRecords(T_temp)-1) )
+   {
+   if (TblGetIndex(T_temp,x) )
+     {
+            ClearBuffer(#SchFact);
+
+            SchFact.nRec      := GetNextNRec(#SchFact, 0);
+            SchFact.DIRECT    := word(1);
+            SchFact.STATUS    := word(1);
+            SchFact.TIPUSER   := word(7200);
+            SchFact.DFACT     := KatSopr.dSopr;
+            SchFact.DPOST     := KatSopr.dSopr;
+            SchFact.SCHYEAR   := Year(KatSopr.dSopr);
+            SchFact.NUM       := KatSopr.nSopr;
+            SchFact.CORG      := KatSopr.cOrg;
+            SchFact.cSoprHoz  := SoprHoz.nRec;
+            SchFact.cBaseDoc  := KatSopr.cSchFact;
+            SchFact.cStepDoc  := KatSopr.cStepDoc;
+            SchFact.CRECS[1]  := KatSopr.cDogovor;   
+            SchFact.SS[1]     := TblGfString(T_temp, KodGrUsl);
+        
+            SchFact.SUM[1]    := TblGfDouble(T_temp,S18);
+            SchFact.SUM[2]    := TblGfDouble(T_temp,N18);
+            SchFact.SUM[3]    := TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N18);
+        
+            SchFact.SUM[4]    := TblGfDouble(T_temp,S10);
+            SchFact.SUM[5]    := TblGfDouble(T_temp,N10);
+            SchFact.SUM[6]    := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,N10);
+        
+            SchFact.SUM[11]   := TblGfDouble(T_temp,S18);
+            SchFact.SUM[12]   := TblGfDouble(T_temp,N18);
+            SchFact.SUM[13]   := TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N18);
+        
+            SchFact.SUM[14]   := TblGfDouble(T_temp,S10);
+            SchFact.SUM[15]   := TblGfDouble(T_temp,N10);
+            SchFact.SUM[16]   := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,N10);
+        
+            SchFact.SUM[23]   := TblGfDouble(T_temp,Sr);
+            SchFact.SUM[8]    := TblGfDouble(T_temp,Nr);
+            SchFact.SUM[9]    := TblGfDouble(T_temp,Sr) + TblGfDouble(T_temp,Nr);
+
+
+            SchFact.SUM[21]   := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N10) + TblGfDouble(T_temp,N18) + TblGfDouble(T_temp,Sr) + TblGfDouble(T_temp,Nr);
+            SchFact.SUM[22]   := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N10) + TblGfDouble(T_temp,N18) + TblGfDouble(T_temp,Sr) + TblGfDouble(T_temp,Nr);
+
+            SchFact.SUM[30]   := 1;
+            SchFact.SUMIN[5]  := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N10) + TblGfDouble(T_temp,N18) + TblGfDouble(T_temp,Sr) + TblGfDouble(T_temp,Nr);
+            SchFact.SUMIN[10] := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N10) + TblGfDouble(T_temp,N18) + TblGfDouble(T_temp,Sr) + TblGfDouble(T_temp,Nr);
+            SchFact.Summa     := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N10) + TblGfDouble(T_temp,N18) + TblGfDouble(T_temp,Sr) + TblGfDouble(T_temp,Nr);
+            SchFact.SummaReg  := TblGfDouble(T_temp,S10) + TblGfDouble(T_temp,S18) + TblGfDouble(T_temp,N10) + TblGfDouble(T_temp,N18) + TblGfDouble(T_temp,Sr) + TblGfDouble(T_temp,Nr);
+        
+            SchFact.PRSTAV    := word(1);
+
+            if (Insert current SchFact = tsOK) {}
+        
+             KatSopr.cSchFact := SchFact.nRec
+             if (UpDate current KatSopr = tsOK) {}
+
+
+        Book_Sum1  := 0;
+        Book_Sum2  := 0;
+        Book_Sum3  := 0;
+        Book_Sum4  := 0;
+        Book_Sum5  := 0;
+        Book_Sum6  := 0;
+
+        Book_Sum23 := 0;
+        Book_Sum8  := 0;
+        Book_Sum9  := 0;
+
+        Book_Sum11 := 0;
+        Book_Sum12 := 0;
+        Book_Sum13 := 0;
+        Book_Sum14 := 0;
+        Book_Sum15 := 0;
+        Book_Sum16 := 0;
+        Book_Sum21 := 0;
+        Book_Sum22 := 0;
+        Book_Summa := 0;
+
+
+        If (GetFirst SchFact_G = tsOK)
+          Do
+          {
+
+If (SchFact_G.SummaReg  > SchFact.SummaReg)
+  {
+    vNDE := SchFact.SummaReg;
+  }
+     else
+    {
+      vNDE := SchFact_G.SummaReg;
+    }
+
+dNDS := vNDE / SchFact.SummaReg;
+
+         ClearBuffer(#BookPrZk)
+
+         BookPrZk.TipUser    := 7404;
+         BookPrZk.cSchFactS  := SchFact_G.nRec;
+
+         BookPrZk.cOrg       := KatSopr.cOrg;
+         BookPrZk.cSchFact   := KatSopr.cSchFact;
+         BookPrZk.Descr      := 'VER_VN';
+         BookPrZk.Direct     := 1;
+         BookPrZk.dOpl       := SchFact_G.dPost;
+         BookPrZk.dOpr       := SchFact.dPost;
+         BookPrZk.dReg       := If(SchFact.dPost > SchFact_G.dPost, SchFact.dPost, SchFact_G.dPost);
+         BookPrZk.Num        := KatSopr.nSopr;
+         BookPrZk.SubTip     := 4;
+
+         BookPrZk.Sum[1]  := (SchFact.SUM[1] - Book_Sum1)  * dNDS;
+         BookPrZk.Sum[2]  := (SchFact.SUM[2] - Book_Sum2)  * dNDS;
+         BookPrZk.Sum[3]  := (SchFact.SUM[3] - Book_Sum3)  * dNDS;
+
+         BookPrZk.SUM[4]  := (SchFact.SUM[4] - Book_Sum4)  * dNDS;
+         BookPrZk.SUM[5]  := (SchFact.SUM[5] - Book_Sum5)  * dNDS;
+         BookPrZk.SUM[6]  := (SchFact.SUM[6] - Book_Sum6)  * dNDS;
+
+         BookPrZk.SUM[23] := (SchFact.SUM[23]- Book_Sum23) * dNDS;
+         BookPrZk.SUM[8]  := (SchFact.SUM[8] - Book_Sum8)  * dNDS;
+         BookPrZk.SUM[9]  := (SchFact.SUM[9] - Book_Sum9)  * dNDS;
+
+         BookPrZk.Sum[11] := (SchFact.SUM[11] - Book_Sum11) * dNDS;
+         BookPrZk.Sum[12] := (SchFact.SUM[12] - Book_Sum12) * dNDS;
+         BookPrZk.Sum[13] := (SchFact.SUM[13] - Book_Sum13) * dNDS;
+
+         BookPrZk.Sum[14] := (SchFact.SUM[14] - Book_Sum14) * dNDS;
+         BookPrZk.Sum[15] := (SchFact.SUM[15] - Book_Sum15) * dNDS;
+         BookPrZk.Sum[16] := (SchFact.SUM[16] - Book_Sum16) * dNDS;
+
+         BookPrZk.Sum[21] := (SchFact.SUM[21] - Book_Sum21) * dNDS;
+         BookPrZk.Sum[22] := (SchFact.SUM[22] - Book_Sum22) * dNDS;
+
+         BookPrZk.Summa   := (SchFact.Summa   - Book_Summa) * dNDS;
+
+
+
+           if (Insert current BookPrZk = tsOK) {}
+           if (UpDate current BookPrZk = tsOK) {}
+
+         SchFact.SummaReg := SchFact.SummaReg - BookPrZk.Summa;
+           if (UpDate current SchFact = tsOK) {}
+
+         SchFact_G.SummaReg := SchFact_G.SummaReg - BookPrZk.Summa;
+           if (UpDate current SchFact_G = tsOK) {}
+
+          Book_Sum1    :=  Book_Sum1  +  BookPrZk.Sum[1]  ;
+          Book_Sum2    :=  Book_Sum2  +  BookPrZk.Sum[2]  ;
+          Book_Sum3    :=  Book_Sum3  +  BookPrZk.Sum[3]  ;
+          Book_Sum4    :=  Book_Sum4  +  BookPrZk.Sum[4]  ;
+          Book_Sum5    :=  Book_Sum5  +  BookPrZk.Sum[5]  ;
+          Book_Sum6    :=  Book_Sum6  +  BookPrZk.Sum[6]  ;
+
+          Book_Sum23   :=  Book_Sum23 +  BookPrZk.Sum[23] ;
+          Book_Sum8    :=  Book_Sum8  +  BookPrZk.Sum[8]  ;
+          Book_Sum9    :=  Book_Sum9  +  BookPrZk.Sum[9]  ;
+
+          Book_Sum11   :=  Book_Sum11 +  BookPrZk.Sum[11] ;
+          Book_Sum12   :=  Book_Sum12 +  BookPrZk.Sum[12] ;
+          Book_Sum13   :=  Book_Sum13 +  BookPrZk.Sum[13] ;
+          Book_Sum14   :=  Book_Sum14 +  BookPrZk.Sum[14] ;
+          Book_Sum15   :=  Book_Sum15 +  BookPrZk.Sum[15] ;
+          Book_Sum16   :=  Book_Sum16 +  BookPrZk.Sum[16] ;
+          Book_Sum21   :=  Book_Sum21 +  BookPrZk.Sum[21] ;
+          Book_Sum22   :=  Book_Sum22 +  BookPrZk.Sum[22] ;
+          Book_Summa   :=  Book_Summa +  BookPrZk.Summa   ;
+          
+          }
+          While ( SchFact.SummaReg > 0 and (GetNext SchFact_G = tsOK) )
+
+     x := x + 1;
+     }   // if (TblGetIndex(T_temp,x))
+   }
+   While ( x <= (TblRecords(T_temp)-1) )
+
+             } // CASE 0:
+       
+        1  : {
+
+         If (GetFirst BookPrZk = tsOK)   
+           Do
+           {
+          
+            NDS_10 := 0;
+            NDS_10 := BookPrZk.Sum[5];
+
+             TxoBodyClear(hTxo);
+             TxoBodySetSum (hTxo, NDS_10,  0, 0);
+             TxoBodyAddKau (hTxo, wFlKau_Auto, 10001, BookPrZk.nRec);
+             TxoBodyAddDate(hTXO, wflKau_Mode1, BookPrZk.dReg); 
+             TxoBodyInsert (hTxo);
+           }            
+           While (GetNext BookPrZk = tsOK) 
+             }
+
+        2  : {
+
+         If (GetFirst BookPrZk = tsOK)
+           Do
+           {
+
+
+            NDS_18 := 0;
+            NDS_18 := BookPrZk.Sum[2];
+
+             TxoBodyClear(hTxo);
+             TxoBodySetSum (hTxo, NDS_18,  0, 0);
+             TxoBodyAddKau (hTxo, wFlKau_Auto, 10001, BookPrZk.nRec);
+             TxoBodyAddDate(hTXO, wflKau_Mode1, BookPrZk.dReg)
+             TxoBodyInsert (hTxo);
+           }
+           While (GetNext BookPrZk = tsOK)
+             }
+
+        3  : {
+
+         If (GetFirst SchFact = tsOK)
+           Do
+           {
+
+               If (GetFirst BookPrZk = tsOK)
+                 Do
+                 {
+                     If (GetFirst KatPodr where ((SubStr(SchFact.SS[1],2, 3) == KatPodr.SkPrior (noindex) )) = tsOK) {}
+
+                  St_it := 0;
+                  St_it := BookPrZk.Sum[3] + BookPrZk.Sum[6] + BookPrZk.Sum[9] + BookPrZk.Sum[10] + BookPrZk.Sum[7];   // просто сумма без НДС
+      
+                   TxoBodyClear   (hTxo);
+                   TxoBodyAddSchet(hTxo, wFlKau_Mode1,   '062',  SubStr(SchFact.SS[1], 3, 2) );
+                   TxoBodyAddSchet(hTxo, wFlKau_Mode1,  '0062',  SubStr(SchFact.SS[1], 3, 2) );
+                   TxoBodySetSum  (hTxo, St_it,  0, 0);
+                   TxoBodyAddDate (hTXO, wflKau_Mode1, BookPrZk.dReg)
+                   TxoBodyAddKau  (hTxo, wFlKau_Mode1, 10001, BookPrZk.nRec);
+                   TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_KatPodr, KatPodr.nRec);
+                   TxoBodyAddKau  (hTxo, wFlKau_Mode1, cgKau_Dogovor, KatSopr.cDogovor);
+                   TxoBodyInsert  (hTxo);
+                 }
+                 While (GetNext BookPrZk = tsOK)
+
+           }
+           While (GetNext SchFact = tsOK)
+
+             }
+
+
+    end; // Case
+}
+
+handleevent
+end;
+
+end.

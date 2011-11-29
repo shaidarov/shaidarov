@@ -1,0 +1,30 @@
+// Автоматическое присвоение номера договору в зависимотси от кода выбранного вида договора и текущего года
+
+create view tNum
+  from
+  KatVidD
+, Dogovor
+;
+
+
+procedure Dog_Num(cDog: comp; cVidD: comp);
+{
+var
+   Num_vid : string;
+   Num_vid := '';
+
+   If (boGetTune('STN.Num_Dog_bo') <> 1) {Exit;}
+
+   If (tNum.GetFirst KatVidD Where ((cVidD == KatVidD.nRec)) = tsOK )
+         Num_vid := tNum.KatVidD.sName;
+         
+   If (tNum.GetFirst Dogovor Where ((  cDog     == Dogovor.nRec
+                                   and '000000' == Dogovor.NoDoc (noindex) )) = tsOK )
+         {
+          tNum.Dogovor.NoDoc := lGetTune('STN.Num_Dog') + '-' + Num_vid + '/' + DateToStr( Cur_Date, 'YY');
+          lSetTune('STN.Num_Dog', string( lGetTune('STN.Num_Dog') + 1 ) );
+          
+          If (tNum.UpDate current Dogovor <> tsOK) exit;
+          ReReadRecord(#Dogovor);
+         }
+}

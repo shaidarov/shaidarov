@@ -1,0 +1,2155 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.50 - Касса и Управление транспортом
+// Расшифровка КУ, АО, РКО (подотчетники)
+//------------------------------------------------------------------------------
+
+
+#include Rashifr.vih
+#include PlPor.vih
+#include SHManager.vih
+#include docs2obj.vih
+#include SchFactFunctions.vih
+#include iSynch.vih      // синхронизация SoprHoz и BaseFin
+#include PrikAttr.vih    // Атрибуты командировки сотрудника
+#include PSaldo.vih      // Сальдо по подотчетникам
+#include marker.vih
+#include ExtAttrClass.vih
+#include ExtAttr.vih    // Внешние атрибуты
+#include ExtClass.vih    // внешняя классификация
+
+#include SDfuns.vih
+#include ModifSal.VIH
+#include MSview.VIH
+#include SpNext.VIH
+#include BoxFuncsFunctions.vih
+#include MTRFuncs.vih
+
+#doc
+Расшифровка расходов по КУ, АО, РКО (подотчетники).
+#end
+Interface Rashifr 'Расходы на командировку' EscClose, Cyan;
+
+Procedure GetClassifier; forward;
+Procedure GetAttribute; forward;
+// ----------------------------------------------------------------------------
+Const
+  // В cmSetDefault нужно сгенерить событие, по которому будет открыто окно редактирования.
+  // Для того, чтобы это событие не попало в контейнер, в который встроен этот интерфейс
+  // и не было там обработано, нужно чтобы константа этого события была уникальна.
+  cmOnNewRD = 6003;
+End;
+
+var iPlPor: PlPor;
+var iSHoz: SHmanager;   // объект для работы с Soprhoz
+var iPSaldo: PSaldo;    // Сальдо по подотчетникам
+var pMarker: IMarker(Marker) new;
+var iAttr  : iExtAttr;       // внешние атрибуты
+var iClass : iExtClass;      // внешняя классификация
+var iAttrClass: iExtAttrClass
+
+#include GetCurTunes.vpp
+#include PrikAttr.var    // Атрибуты командировки сотрудника (iPrikAttr)
+
+#include SDfuns.var      // oSDfuns
+#include MTRFuncs.var    // oMTRFun          ЇєэъЎшш Ўхыхтюую єў╕Єр
+
+Create view
+var
+  myNRec,
+  CurNrec,
+  cPrikEtap,
+  N_rec,
+  myGrup,
+  myState,
+  myCity,
+  myVal,
+  myPersons,          // задается в SetVar, используется в DolgPodot при формировании долга
+  myHoz: comp;
+  myTip: word;        // тип RashDoc
+  mySum,
+  mySumV,
+  myCurVal,
+  NormSum,
+  NormSum1,
+  NormSum2: double;
+  OkData,
+  pr_avt,
+  pr_grup: boolean;
+  Npp: byte;
+  dFormNa: date;
+  CurProcProtect: word;
+  MarkerTmp,
+  indexNo: longint;
+
+  sSchet
+, sSubSchet : string
+  _Sum_     : double;        // сумма для незыблимости НДС :)
+  SkPr      : word;          // Склад / Производство
+  _KodParty : string;
+  _cParty   : comp;
+
+As select
+  if(BuhSchet.Code <> '', BuhSchet.Code, '')
+    (FieldName = scBuhSchet) ,
+  if(RashDoc.cVal1 = 0, if(RashDoc.SumV1 = 0, '', sGetTune('NDE.NameRublAH')), KlVal1.Dollarah)
+    (FieldName = simv_V1),
+  if(RashDoc.cVal2 = 0, if(RashDoc.SumV2 = 0, '', sGetTune('NDE.NameRublAH')), KlVal2.Dollarah)
+    (FieldName = simv_V2),
+  if(NormRash.cVal = 0, sGetTune('NDE.NameRublAH'), KlVal.Dollarah)
+    (FieldName = simv_V3),
+  if(RashDoc.cNorm = 0, if(RashDoc.Kol = 0, RashDoc.SumV1, RashDoc.SumV1 * RashDoc.Kol),
+     if(NormRash.PrTime = 0, RashDoc.SumV1 * RashDoc.Kol, RashDoc.SumV1))
+    (FieldName = Sum_V1),
+  if(RashDoc.cNorm = 0, if(RashDoc.Kol = 0, RashDoc.SumV2, RashDoc.SumV2 * RashDoc.Kol),
+     if(NormRash.PrTime = 0, RashDoc.SumV2 * RashDoc.Kol, RashDoc.SumV2))
+    (FieldName = Sum_V2),
+  if(RashDoc.cNorm = 0, if(RashDoc.Kol = 0, RashDoc.Sum, RashDoc.Sum * RashDoc.Kol),
+     if(NormRash.PrTime = 0, RashDoc.Sum * RashDoc.Kol, RashDoc.Sum))
+    (FieldName = Sum_N),
+  if(RashDoc.cHozOper = 0, '', HozOper.Name1)
+    (FieldName = HozName),
+  // IsMultiPr
+  if(iPrikAttr.IsMultiPrik(Prikaz.wAttr), true, false)
+    (FieldName = IsMultiPr),
+  if(isValid(tnNormRash) and (NormRash.PrTime <> 1), string(RashDoc.Kol, 6, 1), '')
+    (FieldName = Dney),
+  if(isValid(tnBaseFinRD), KatOrgRD.Name, '-нет-синх-') (FieldName = KatOrgName),
+  RashDoc.*
+, SpSopr.Price * SpSopr.Kol
+       ( FieldName = SumPrice )
+From
+  Prikaz   PrikazEtap,
+  Prikaz   PrikazEtapSyn,
+  KlVal    KlVal1,
+  KlVal    KlVal2,
+  KatState KatStateR,
+  KatCity  KatCityR,
+  NormRash NormRashS,
+  Pick     PickS,
+  Pick     PickPers,
+  NormGrup,
+  NormRash, // вся таблица - без ограничений
+  Persons,
+  KatOrg,
+  KlVal,
+  SoprHoz,
+  HozOper,
+  Prikaz,
+  SpPrikaz,
+  DocPodot,
+  Pick     (Normal),
+  RashDoc,
+  PlPor,
+  KatPodr,
+  KatState,
+  KatCity,
+  BaseDoc,
+  StepDoc,
+  Podotchet,
+  AllMemo,
+  SoprHoz SoprHozRD,
+  BaseFin BaseFinRD,
+  KatOrg KatOrgRD
+, synonym KatPodr KatPodrOpr
+, synonym KatMOL KatMOLOpr
+, SpSopr
+, KatParty
+, SklOrder
+, SpOrder
+where
+((
+      word(45)          == PickPers.wList   // выбранные сотрудники или документы
+  and CurNrec           == PlPor.NRec
+  and CurNrec           == SpPrikaz.NRec    // спецификация приказа
+! ------------------------------------------
+  and myTip             == RashDoc.TipDoc
+  and CurNrec           == RashDoc.cSoprDoc
+  and (0                <> RashDoc.cSoprDoc)
+  and cPrikEtap         == RashDoc.cPrikaz
+! ------------------------------------------
+  and SpPrikaz.cPrikaz  == Prikaz.NRec      // сам приказ
+  and SpPrikaz.cPersons == Persons.Nrec     // сотрудник
+! ------------------------------------------
+  and word(2)           == PrikazEtapSyn.TipDoc
+  and SpPrikaz.NRec     == PrikazEtapSyn.cSpPrikaz //  этап приказа
+  and Persons.GalDep    == KatPodr.NRec
+  and RashDoc.cNorm     == NormRash.NRec    // норма расходов
+  and NormRash.cVal     == KlVal.NRec       // валюта нормы
+  and RashDoc.cVal1     == KlVal1.NRec      // валюта нормы
+  and RashDoc.cVal2     == KlVal2.NRec      // валюта аванса
+  and RashDoc.cState    == KatStateR.NRec   // каталог стран для расшифровки
+  and RashDoc.cCity     == KatCityR.NRec    // каталог городов для расшифровки
+  and NormRash.cGrup    == NormGrup.NRec    // группа норм расходов
+  and RashDoc.cHozOper  == HozOper.NRec     // хоз.операция
+  and PlPor.NRec        == SoprHoz.cSoprDoc // связи с ТХО
+  and PlPor.TiDk        == SoprHoz.TipDoc
+  // для многоэтапной командировки
+  and cPrikEtap         == PrikazEtap.NRec  // спецификация приказа
+  // мемо-поле
+  and RashDoc.cDoc      == AllMemo.NRec     // основание для нераспределения валюты
+  and RashDoc.cKredCard == SoprhozRD.Nrec      //синхрониз специфик. с хозопер
+  and SoprhozRD.Nrec    == BaseFinRD.cSoprhoz  //синхрониз специфик. с хозопер
+  and BaseFinRD.cOrg    == KatOrgRD.Nrec       //синхрониз специфик. с хозопер
+  // igor                                      // RASHDOC.VALCURSE2 - заполненное поле это признак оприходования
+  and RashDoc.cDoc      == BuhSchet.nRec
+  and RashDoc.cState    == KatPodrOpr.nRec
+  and RashDoc.cCity     == KatMOLOpr.nRec
+  and word(9)           == SpSopr.VidSopr      // надеюсь на такой код больше нигде нет завязки
+  and word(1)           == SpSopr.PrMc        (noIndex)
+  and RashDoc.nRec      == SpSopr.cSopr       (noIndex)
+  and SpSopr.cMCUsl     == KatMC.nRec
+  and SpSopr.cParty     == KatParty.nRec
+))
+
+// нужен для печати расходов по выбранным сотрудникам - старая подцепка
+Bounds bySoprDoc =    myTip   == RashDoc.TipDoc
+                  and CurNrec == RashDoc.cSoprDoc
+Bounds byEtap    =   cPrikEtap == RashDoc.cPrikaz(NoIndex)
+;
+
+
+Parameters
+  myNrec, // SpPrikaz.NRec для myTip = cgRashDoc_KU, иначе - PlPor.NRec
+  myTip;  // тип документа
+
+Form frmRahKom('RahKom.OUT', 'RahKom');
+
+#include iSynch.var      // синхронизация SoprHoz и BaseFin
+#include direct.vpp
+#include s_close.vpp
+
+#include serv_pod.vpp    // Печать и выбор норм расходов
+#include rashsum.vpp     // Расчет сумм по спецификации
+#include E:\!StroyTehNorm\!project\F_Podot\vip\rashtxo.vpp     // Формирование ТХО по спецификации
+#include NNewOrd.vpp
+#include SaldoMcS.vpp
+
+Procedure CheckSklOrder; {
+      if (RashDoc.NoDoc = 'Опр') {
+          ClearFieldOption(#KatPodrOpr.Name, ofSelectable );
+          ClearFieldOption(#KatMOLOpr.Name , ofSelectable );
+          ClearFieldOption(#KatMC.BarKod   , ofSelectable );
+          ClearFieldOption(#KatMC.Name     , ofSelectable );
+          ClearFieldOption(#SpSopr.Kol     , ofSelectable );
+          ClearFieldOption(#SpSopr.Price   , ofSelectable );
+          ClearFieldOption(#SumPrice       , ofSelectable );
+          ClearFieldOption(#KatParty.Name  , ofSelectable );
+      } else {
+          SetFieldOption(#KatPodrOpr.Name, ofSelectable );
+          SetFieldOption(#KatMOLOpr.Name , ofSelectable );
+          SetFieldOption(#KatMC.BarKod   , ofSelectable );
+          SetFieldOption(#KatMC.Name     , ofSelectable );
+          SetFieldOption(#SpSopr.Kol     , ofSelectable );
+          SetFieldOption(#SpSopr.Price   , ofSelectable );
+          SetFieldOption(#SumPrice       , ofSelectable );
+          SetFieldOption(#KatParty.Name  , ofSelectable );
+       }
+}
+
+
+// изменение сумм по документу и ссылки на валюту
+public Function Pr_Sum: boolean;
+var
+  SumV, Summ: double;
+  val: comp;
+  pr_z: boolean;
+  sosed: word;
+{
+  Pr_Sum := false;
+
+  if (not UpdateTable)
+    Exit;
+
+//  if isSpecSynch
+//  {
+//    Pr_Sum := true;
+//    Exit;
+//  }
+
+  case myTip of
+  // АО, РКО, ВРКО
+    cgRashDoc_AO, cgRashDoc_RKO, cgRashDoc_VRKO:
+    {
+      if (GetFirst PlPor where ((myNRec == PlPor.NRec)) <> tsOk)
+        Exit;
+
+      SumV := 0;
+      Summ := 0;
+      val := 0;
+      pr_z := false;
+
+      if (GetFirst RashDoc where ((myTip == RashDoc.TipDoc
+                              and myNRec == RashDoc.cSoprDoc)) = tsOk)
+      {
+        Val := RashDoc.cVal2;
+
+        do
+          if not ((myTip = cgRashDoc_AO) and (RashDoc.PrOst = 1))
+          // нет остатка предыдущего аванса
+          {
+            if (Val = RashDoc.cVal2)
+            {
+              SumV := SumV + Sum_V2;
+
+              if (RashDoc.cVal2 <> 0)
+              {
+                // пересчитывает валюту в рубли
+                if (RashDoc.ValCurse2 <> 0)
+                  Summ := Summ + Sum_V2 * RashDoc.ValCurse2;
+                else
+                  Summ := Summ + oValFunc.GetNatCurrency(RashDoc.cVal2, Sum_V2, RashDoc.DateR);
+              }
+            }
+            else
+            {
+//              message('Спецификация документа содержит разные валюты.'#13 +
+//                      'Проверьте спецификацию документа.', Information);
+//              SumV := 0;
+//              Exit;
+            }
+          }
+        while (GetNext RashDoc where ((myTip  == RashDoc.TipDoc
+                                   and myNRec == RashDoc.cSoprDoc)) = tsOk);
+      }
+
+      if (Val <> 0)
+      {
+        if (SumV <> PlPor.SumPlatV) or (Summ <> PlPor.SumPlat)
+          pr_z := true;
+      }
+      else
+      {
+        if (SumV <> PlPor.SumPlat)
+        {
+          pr_z := true;
+          Summ := SumV;
+          SumV := 0;
+        }
+        else
+        {
+          Summ := 0;
+          SumV := 0;
+        }
+      }
+
+      if (((SumV <> 0) or (Summ <> 0)) and pr_z)
+      {
+//        if (message('Сумма по спецификации и по документу'#13 +
+//                    'не совпадают.'#13 +
+//                    'Изменить сумму документа ?', Confirmation + YesNo) = Yes)
+//        {
+//          iPlPor.InitPlPor(PlPor.TiDkGal, PlPor.TiDk);
+//
+//          if iPlPor.LoadPlPor(PlPor.nRec)
+//          {
+//            iPlPor.UpDateRecordPlPor(Summ, SumV, val, true);
+//
+//            RereadRecord(#PlPor); // обязательно делать рерид! иначе баг 102.20845
+//          }
+//
+//          iPlPor.UnLoadPlPor;
+//
+//          iPlPor.DonePlPor;
+//        }
+      }
+    }
+  // РРВ
+    cgRashDoc_RRV1, cgRashDoc_RRV2:
+    {
+      SumV := 0;
+      Summ := 0;
+
+      _loop RashDoc
+      {
+        SumV := SumV + RashDoc.SumV1;
+        Summ := Summ + RashDoc.SumV2;
+      }
+
+      if (myTip = cgRashDoc_RRV1)
+        sosed := cgRashDoc_RRV2;
+      else
+        sosed := cgRashDoc_RRV1;
+
+      _loop RashDoc where ((sosed == RashDoc.TipDoc
+                      and CurNrec == RashDoc.cSoprDoc))
+      {
+        SumV := SumV + RashDoc.SumV1;
+        Summ := Summ + RashDoc.SumV2;
+      }
+
+      iPlPor.InitPlPor(PlPor.TiDkGal, PlPor.TiDk);
+
+      if iPlPor.LoadPlPor(PlPor.nRec)
+      {
+        iPlPor.UpDateRecordPlPor(0, SumV, PlPor.cVal, true);
+
+        RereadRecord(#PlPor); // обязательно делать рерид! иначе баг 102.20845
+      }
+
+      iPlPor.UnLoadPlPor;
+
+      iPlPor.DonePlPor;
+
+      update current PlPor
+          set PlPor.Summa1 := Summ,
+              PlPor.Summa3 := Round((PlPor.SumPlatV - PlPor.Summa1) * PlPor.Summa2 / 100, 2);
+    }
+  end;
+
+  Pr_Sum := true;
+}
+
+// автоматический выбор направлений расходов
+// только для типа cgRashDoc_KU
+Procedure AutoPickNorma(NormRashNRec, SpPrikNrec, PrEtapNrec: comp);
+{
+  set CurNrec := SpPrikNrec;
+  set cPrikEtap := PrEtapNrec;
+
+  if (GetFirst SpPrikaz = tsOk)
+    if (GetFirst Prikaz = tsOk)
+      dFormNa := Prikaz.dDoc;
+
+  if (GetFirst NormRashS where((NormRashNRec == NormRashS.NRec)) = tsOk)
+  {
+    ClearBuffer(#RashDoc);
+    RashDoc.TipDoc   := cgRashDoc_KU;
+    RashDoc.cSoprDoc := SpPrikNrec;
+    RashDoc.cPrikaz  := PrEtapNrec;
+    RashDoc.DateR    := dFormNa;
+    RashDoc.Name     := NormRashS.Name;
+    RashDoc.cNorm    := NormRashS.NRec;
+//    RashDoc.cState   := NormRashS.cState;
+//    RashDoc.cCity    := NormRashS.cCity;
+    RashDoc.SumV1    := NormRashS.Summa;
+    RashDoc.cVal1    := NormRashS.cVal;
+    RashDoc.cVal2    := NormRashS.cVal;
+
+    if (NormRashS.PrTime = 1)
+      set RashDoc.Kol := 1;
+    else
+      if (NormRashS.ExprDay = '1')
+        RashDoc.Kol := CalcDaysBetweenDates(Prikaz.dStart, Prikaz.dEnd, false);
+      else
+       {
+          if (PrEtapNrec <> 0 )
+              RashDoc.Kol := PrikazEtap.KolDay;
+          else
+              RashDoc.Kol := Prikaz.KolDay;
+       }
+    PereschetSumm(false);
+
+    insert current RashDoc;
+  }
+}
+
+Procedure DeleteRashDoc(SpPrikNrec, PrEtapNrec: comp);
+var boDelEtap: Boolean;
+{
+  set CurNrec   := SpPrikNrec;
+  set cPrikEtap := PrEtapNrec;
+  set myTip     := cgRashDoc_KU;
+
+  boDelEtap := IsMultiPr and (PrEtapNrec = comp(0));
+
+  if boDelEtap
+  {
+    ResetBounds(#RashDoc);
+    PushBounds(tbbySoprDoc);
+  }
+
+  _loop RashDoc
+    delete current RashDoc;
+
+  if boDelEtap
+  {
+    PopBounds(tbbySoprDoc);
+    SetBounds(#RashDoc);
+  }
+}
+
+// выбор долга из карточки подотчетника
+Procedure DolgPodot;
+var
+  SumSaldo: double;
+{
+  if NullVipRef(iPSaldo)
+    GetVipInterface(iPSaldo);
+
+  case myTip of
+  // АО
+    cgRashDoc_AO:
+    {
+      if (wGetTune('Fin.Doc.WhatPodSaldoToSp') = 0)
+        SumSaldo := iPSaldo.GetSaldoT(myPersons, PlPor.cVal);   // сальдо текущее
+      else   // в качестве долга брать сальдо расчетное
+      {
+        iPSaldo.CalcSaldoRForDate(myPersons, PlPor.cVal, dFormNa);
+
+        SumSaldo := iPSaldo.GetSaldoR(myPersons, PlPor.cVal);
+      }
+
+      if (SumSaldo = 0)
+        message('По сотруднику нет долга.');
+      else
+        iPSaldo.InsSaldoToRashDoc(myNRec, cPrikEtap, myTip, dFormNa, PlPor.cVal, SumSaldo);
+
+      RereadRecord(#RashDoc);
+    }
+  // РКО, ВРКО, приказ на командировку
+  else
+  {
+    var myPers: comp;
+
+    myPers := myPersons;
+
+    // через myPers передается выбранный Podotchet.NRec
+    if (RunInterface(Podotchet, myPers, word(1), word(0)) = cmDefault)
+      if (GetFirst Podotchet where ((myPers == Podotchet.NRec)) = tsOk)
+      {
+        SumSaldo := iPSaldo.GetSaldoT(Podotchet.cPersons, Podotchet.cVal);
+
+        iPSaldo.InsSaldoToRashDoc(myNRec, cPrikEtap, myTip, dFormNa, Podotchet.cVal, SumSaldo);
+
+        RereadRecord(#RashDoc);
+      }
+  }
+  end;
+}
+
+// формирование спецификации АО по сформированным SoprHoz
+Procedure MakeSpecification;
+var Make: boolean;
+{
+  if (GetFirst PlPor <> tsOk)
+    Exit;
+
+  PushPos(#RashDoc);
+  ResetBounds(#RashDoc);
+  PushPos(#SoprHoz);
+  Make := false;
+
+  _loop SoprHoz
+  {
+    if (SoprHoz.cStepDoc <> 0)  // есть привязка к ДО
+    {
+      // могут быть уже привязаны к спецификации
+      if (RecordExists RashDoc where ((SoprHoz.nRec == RashDoc.cKredCard (noindex))) = tsOk)
+        Continue;
+
+      if (RecordExists RashDoc where ((SoprHoz.nRec == RashDoc.cAvans (noindex))) = tsOk)
+        Continue;
+
+      // создаем статью расходов в спецификации
+      ClearBuffer(#RashDoc);
+      RashDoc.NRec := GetNextNRec(#RashDoc, 0);
+      RashDoc.cSoprDoc := PlPor.nRec;
+      RashDoc.TipDoc := PlPor.TiDkGal;  // cgRashDoc_AO
+      RashDoc.DateR := PlPor.DatVip;
+      RashDoc.cVal2 := PlPor.cVal;
+      RashDoc.prZarp := 1;
+      RashDoc.Kol := 1;  // тип расчета - по сумме
+      RashDoc.cKredCard := SoprHoz.nRec;
+      RashDoc.cVal1 := SoprHoz.KodValut;
+      RashDoc.SumV1 := if(SoprHoz.KodValut = 0, SoprHoz.Summa, SoprHoz.SumValut);
+
+      // пересчитываем валюту SoprHoz'а в валюту документа (АО)
+      if (RashDoc.cVal1 <> RashDoc.cVal2)
+      {
+        if (RashDoc.cVal1 <> 0)
+          RashDoc.Sum := oValFunc.GetNatCurrency(RashDoc.cVal1, RashDoc.SumV1, RashDoc.DateR);
+        else
+          RashDoc.Sum := RashDoc.SumV1;
+
+        if (RashDoc.cVal2 <> 0) and (RashDoc.Sum <> 0)
+          RashDoc.SumV2 := oValFunc.GetAnyCurrency(comp(0), RashDoc.Sum, RashDoc.DateR, RashDoc.cVal2);
+        else
+          if (RashDoc.Sum <> 0)
+            RashDoc.SumV2 := RashDoc.Sum;
+      }
+      else
+        RashDoc.SumV2 := RashDoc.SumV1;
+
+      if (GetFirst StepDoc where ((SoprHoz.cStepDoc == StepDoc.NRec)) = tsOk)
+        if (GetFirst BaseDoc where ((StepDoc.cBaseDoc == BaseDoc.NRec)) = tsOk)
+        {
+          RashDoc.NomKvit := BaseDoc.NoDoc;
+          RashDoc.DatePay := BaseDoc.dDoc;
+          RashDoc.Name := GetVidBaseDocName(BaseDoc.VidDoc);
+        }
+
+      insert current RashDoc;
+
+      if (not Make)
+        Make := true;
+    }
+  }
+
+  PopPos(#SoprHoz);
+  SetBounds(#RashDoc);
+  PopPos(#RashDoc);
+  RereadRecord(#RashDoc);
+
+  if (not Make)
+    message('По ДО уже сформированы статьи расходов.', Information);
+}
+
+Window PrNorm 'Нормы расходов' EscClose;
+  Show at(, , 95, 16);
+
+Panel p1
+  Table RashDoc;
+
+Screen scPrNorm ('Нормы расходов', hcscrPrNorm, sci1Esc);
+Fields
+  NormRash.Summa: Skip;
+  simv_V3: Skip;
+  SumV1: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  simv_V1: Skip;
+  ValCurse1: [10.2], Skip;
+  Sum_V1: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  NormSum: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  sGetTune('NDE.NameRublAH'): Skip;
+  NormSum*RashDoc.Kol: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  NormSum1: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  simv_V3: Skip;
+  ValCurse3 ('Курс для пересчета', , sci13Esc): [10.2], NoProtect;
+  NormSum1*RashDoc.Kol: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  NormSum2: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  simv_V3: Skip;
+  NormSum2*RashDoc.Kol: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  SumN ('Сумма отклонения от нормы в нац.валюте'): [14.2,'\2p[|-]3666`666`666`666`666.88'], NoProtect;
+  sGetTune('NDE.NameRublAH'): Skip;
+  SumN*RashDoc.Kol: [14.2,'\2p[|-]3666`666`666`666`666.88'], Skip;
+  SumU ('Сумма для учета в зарплате'): [14.2,'\2p[|-]3666`666`666`666`666.88'], NoProtect;
+  HozName ('Типовая хозяйственная операция.', , sci13Esc): Protect;
+<<
+                             Сумма            Валюта
+ `Норма`            .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@
+
+  Расход                                                           Курс             Итого
+`в валюте документа`.@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@ .@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@
+`в нац. валюте`     .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@              .@@@@@@@@@@@@@@@@@@
+`в валюте нормы`    .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@ .@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@
+
+  Отклонение
+`в валюте нормы`    .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@              .@@@@@@@@@@@@@@@@@@
+`в нац. валюте`     .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@              .@@@@@@@@@@@@@@@@@@
+`учтено в зарплате`                                                      .@@@@@@@@@@@@@@@@@@
+
+`Операция`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen
+
+HandleEvent
+
+cmPositionChanged: {
+  if (CurWindow = PrNorm) {
+     RecalcPrN;
+     }
+
+  CheckSklOrder;
+  }
+
+
+cmPick:
+  case CurField of
+
+    #ValCurse3:
+      if (RunInterface(GetValuta, NormRash.cVal, RashDoc.DateR, mySum, mySumV) = cmDefault)
+      {
+        // mySum - курс валюты, mySumV - коэфф-нт пересчета, обычно = 1
+        set ValCurse3 := mySum / mySumV;
+
+        RecalcPrN;
+
+        SetModified(true);
+        UpDateTable;
+      }
+  end;
+end;
+end; // panel
+
+HandleEvent
+
+cmInit:
+  RecalcPrN;
+end;
+end; // window PrNorm
+
+Procedure SetViewFields;
+{
+  if (not IsValid(#NormRash))
+  {
+    HideLabel4Field(#RashDoc.Kol);
+    ClearFieldState(#RashDoc.Kol, sfVisible);
+  }
+  else
+    if (NormRash.PrTime = 0)
+    {
+      SetFieldState(#RashDoc.Kol, sfVisible);
+      ShowLabel4Field(#RashDoc.Kol);
+    }
+    else
+    {
+      HideLabel4Field(#RashDoc.Kol);
+      ClearFieldState(#RashDoc.Kol, sfVisible);
+
+      if (RashDoc.Kol <> 1)
+        set RashDoc.Kol := 1;
+    }
+}
+
+procedure GetClassAndAttr;
+{
+ iAttrClass.CopyAllEx(coNormRash, NormRash.NRec, coRashDoc, RashDoc.NRec);
+}
+
+//Function CheckDelete(var No_Order: string;
+//                     var Date_Order: date): boolean;
+//{
+//  CheckDelete := TRUE;
+//
+//      //проверка по настройке "запрет редактирования ордеров задним числом"
+//      if (IsOstOnMSPrPer(0, SklOrder.dOrd)) {
+//          No_Order    := SklOrder.nOrder;
+//          Date_Order  := SklOrder.dOrd;
+//          CheckDelete := FALSE;
+//          Message('В настройке стоит запрет на редактирование ордеров в закрытом периоде');
+//          Exit;
+//        }
+//}
+
+Function DeleteOrders: boolean; {
+  DeleteOrders := TRUE;
+
+//   if (NOT CheckDelete(askContinue, no_Order, Date_Order)) {
+//          if del_Prih
+//          {
+//            if ( wGetTune('Oper.Sklad.EditPrihOrdWithRash') = 1 )
+//              {
+//                ShowTune( 'Запрещена модификация приходных ордеров при наличии после них расходных!'
+//                        , 'Oper.Sklad.EditPrihOrdWithRash');
+//                DeleteOrders := FALSE;
+//                Exit;
+//              }
+//          }
+//   }
+
+      if (NOT oSDfuns.CanDeleteDocument(SklOrder.dOrd)) {
+          DeleteOrders := FALSE;
+          Exit;
+        }
+
+      if (NOT oSDfuns.CanDeleteDocumentOborot(SklOrder.nRec, if(SklOrder.vidOrder = 0, word(150), word(250))) ) {
+          DeleteOrders := FALSE;
+          Exit;
+        }
+
+
+  StartNewVisual(2 , vfTimer, 'Удаление складских ордеров', 1 );
+
+      While GetFirst SpOrder where ((SklOrder.nRec == SpOrder.cSklOrder)) = tsOk Do {
+          NextVisual;
+
+          if (OneSpOrder_Delete <> tsOk) // УДАЛЕНИЕ СПЕЦИФИКАЦИИ ОРДЕРА
+            Break;
+        }
+
+        Delete current SklOrder;
+
+  StopVisual('', 0);
+}
+
+
+Window wiEditRashNorm 'Редактирование расходов' EscClose;
+//  Show at(, 13, 99, 25);
+  Show at(, , 114, 21);
+
+Panel pEditRashNorm;
+  Table RashDoc;
+
+//Screen scRashKU_RKO ('Направление расхода', hcRashDoc, scI1378Esc);
+//Fields
+//  NormGrup.Name: Skip;
+//  RashDoc.Name ('Направление расхода.'): noprotect;
+//  KatStateR.Name: Skip;
+//  KatCityR.Name: Skip;
+//  RashDoc.Kol ('Количество дней для нормы'): [6.1], NoStatic;
+//  DateR ('Дата расчета аванса'): noprotect;
+//  PrOst ('Признак долга от предыдущего аванса', , scI178Esc): noprotect;
+//  SumV1 ('Сумма расхода в валюте нормы', , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], noprotect;
+//  simv_V1 ('Валюта нормы'): Protect;
+//  ValCurse1 ('Курс для пересчета: валюта нормы - нац.валюта'): [10.2], noprotect;
+//  Sum_V1 ('Сумма расхода в валюте нормы', , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], protect;
+//  Sum ('Сумма расхода в нац.валюте', , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], protect;
+//  sGetTune('NDE.NameRublAH'): Skip;
+//  ValCurse2 ('Курс для пересчета: нац.валюта - валюта аванса'): [10.2], noprotect;
+//  Sum_N ('Сумма расхода в нац.валюте', , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], protect;
+//  SumV2 ('Сумма по норме в валюте аванса', , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], noprotect;
+//  simv_V2 ('Наименование валюты аванса'): Protect;
+//  ValCurse12 ('Курс для пересчета: валюта нормы - валюта аванса', , scI178Esc): [10.2], noprotect;
+//  Sum_V2 ('Сумма по норме в валюте аванса', , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], protect;
+//<<
+//                       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//`Наименование расходов`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//
+//`Страна`               .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//`Город`                .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//`Количество дней`      .@@@@@          `Дата расчета`.@@@@@@@@@@                [.] Признак долга`
+//
+//                            Сумма                 Валюта            Курс            Итого
+//`в валюте нормы`       .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@
+//`в нац. валюте`        .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@
+//`в валюте аванса`      .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@@@ .@@@@@@@@@   .@@@@@@@@@@@@@@@@@@
+//>>
+//end; // screen
+
+//-------------------------------------------------------------------------------------------------
+Screen scRashAO ('Направление расхода', hcRashDoc, scI1378Esc);
+ Show (, , , 13); //*************************************
+Fields
+  NormGrup.Name: Skip;
+  RashDoc.Name ('Направление расхода.', , scI1378Esc): noprotect;
+  KatOrgName        ('Контрагент для расчетов'): Protect,PickButton,
+                     {Font = {Color = if(isValid(#BasefinRD),0,ColorSysGray)}};
+  RashDoc.NomKvit ('Номер отчетного документа',,scI178Esc): noProtect;
+  RashDoc.DatePay ('Дата отчетного документа',,scI178Esc): noProtect;
+
+
+  PrOst ('Признак долга от предыдущего аванса', , scI178Esc): noProtect;
+  SumV2 ('Сумма расхода в валюте документа', , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], noprotect;
+  Simv_V2 ('Валюта нормы'): Protect;
+  Sum   ('Сумма расхода в нац.валюте'      , , scI178Esc): [14.2, '\2p[|-]3666`666`666`666`666.88'], noProtect;
+  scBuhSchet ('Счёт затрат'      , , scI1378Esc): Protect;
+  KatPodrOpr.Name ('Склад для оприходования МЦ'  , , scI1378Esc): Protect, PickButton;
+  KatMOLOpr.Name  ('МО,Л для оприходования МЦ'    , , scI1378Esc): Protect, PickButton;
+Buttons
+  cmMakePrih, , , 'Оприходование МЦ на склад', ,;
+  cmValue15 , , , 'Отмена оприходования', ,;
+
+
+
+<<
+                       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Наименование расходов`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+           `Контрагент`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+    `Отчетный документ`.@@@@@@@@@@@@@@@@@@  `Дата документа` .@@@@@@@@@         [.] Признак долга`
+
+                `Сумма`.@@@@@@@@@@@@@@@@@@  `Валюта` .@@@@@@@@@@@@@@@@@
+                  `НДС`.@@@@@@@@@@@@@@@@@@                                `Счёт затрат` .@@@@@@@@
+
+`Склад `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  <.  Оприходование МЦ  .>
+
+`МОЛ   `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  <.Отмена оприходования.>
+>>
+
+end; // screen
+end; // panel
+
+Panel pnSpecif
+Show (, 14, , 20)
+  Table SpSopr;
+
+Browse brSpecif ('Спецификация МЦ, приобритённых за наличный расчёт', , sci1378Esc)
+
+Fields
+  KatMC.BarKod    #3'Код'        : [13], NoAutoSize;
+  KatMC.Name      #3'Материал'   : [60], NoAutoSize;
+  SpSopr.Kol      #3'Количество' : [10, 2, '\2p[|-]3666`666`666`666`666.88'], NoAutoSize, noPickButton;
+  SpSopr.Price    #3'Цена'       : [10, 2, '\2p[|-]3666`666`666`666`666.88'], NoAutoSize, noPickButton;
+  SumPrice        #3'Сумма'      : [10, 2, '\2p[|-]3666`666`666`666`666.88'], NoAutoSize, noPickButton;
+  KatParty.Name   #3'Партия'     : [15], NoAutoSize, noPickButton;
+end;
+
+HandleEvent
+   cmPick : {
+     Case CurField of
+        #KatMC.Name
+      , #KatMC.BarKod: {
+          var wLst  : word;
+          var PrNom : word;
+          var sv_   : word;
+          var mu    : comp;
+
+          wLst := 7;
+          Delete Pick where ((wLst == Pick.wList));
+          ReadMyDsk(sv_, 'PickMC_EdIzm_Okr', TRUE);
+          SaveMyDsk(wGetTune('Pick.cOtpEdForPick'), 'PickMC_EdIzm_Okr');
+
+          PrNom := SpSopr.PrMC;
+          mu    := SpSopr.cMCUsl;
+
+          var ResPick: word;
+          ResPick := RunInterface('L_MCU::GetSomeMC', -12345);
+
+          SaveMyDsk(sv_, 'PickMC_EdIzm_Okr');
+          if (ResPick = cmCancel)
+          Exit;
+
+          InitMCinfo(PlPor.DatVip);
+
+          if (NOT isNew)
+          oSDfuns.SpSopr_Delete(SpSopr.NRec);
+
+     if (GetFirst Pick where ((wLst == Pick.wList)) ordered by index Pick02 = tsOk)
+       {
+
+       _LOOP Pick where ((wLst == Pick.wList)) ordered by index Pick02
+        {
+              ClearBuffer(#SpSopr);
+
+              SpSopr.cOtpEd := fEdIzm.GetAktOtpEdNRec(Pick.cRec, PrNom);
+
+              if (PrNom > 2)
+                Pick.PickKol := 1;
+
+              if (Pick.PickKol <> 0)
+                fEdIzm.CheckKolDiskret(Pick.PickKol, SpSopr.cOtpEd, TRUE, TRUE);
+
+              var koefp: double;
+              koefp := fEdIzm.GetKoefOtpEd(SpSopr.cOtpEd);
+
+              SpSopr.cMcUsl  := Pick.cRec;
+              SpSopr.cVal    := RashDoc.cVal2;
+              SpSopr.PrMC    := PrNom;
+              SpSopr.cSopr   := RashDoc.nRec;
+              SpSopr.VidSopr := word(9);
+              SpSopr.dSopr   := PlPor.DatVip;
+              SpSopr.dOprttn := PlPor.DatVip;
+              SpSopr.Kol     := Pick.PickKol;
+              SpSopr.KolFact := Pick.PickKol;
+              SpSopr.KolOpl  := Pick.PickKol;
+
+              SpSopr.KolFact := Pick.PickKol;
+
+              SpSopr.Kol     := SpSopr.KolFact;
+              SpSopr.KolOpl  := SpSopr.KolFact;
+
+               if (GetFirst KatMc where ((Pick.cRec == KatMC.NRec)) = tsOk)
+                {
+                  SpSopr.ProcUb := oSDfuns.GetNormUbFromKatalog(SpSopr.VidSopr, 0, KatMC.NormUb);
+                  SpSopr.KolOpl := Pick.PickKol * (1 - SpSopr.ProcUb / 100);
+                  SpSopr.Netto  := KatMC.Massa;
+                  SpSopr.mTara  := KatMC.mTara;
+                }
+
+                 SpSopr.Price   := AveragePrice  * koefp;
+                 SpSopr.rPrice  := SpSopr.Price;
+                 SpSopr.VPrice  := AverageVPrice * koefp;
+                 SpSopr.rVPrice := SpSopr.VPrice;
+
+                 Insert Current SpSopr;
+
+                 RereadRecord(#SpSopr);
+       }
+     }
+     DoneMCInfo;
+     }
+   end;  // case
+
+
+     _Loop SpSopr {
+             _KodParty := GetLastNumD(60);
+
+              ClearBuffer(#KatParty);
+              KatParty.nRec    := GetNextnRec(#KatParty, 0);
+              KatParty.Kod     := _KodParty;
+              KatParty.Name    := 'АО/' +  PlPor.DatVip + '/' + PlPor.NoDok + '/' + _KodParty;
+              KatParty.dGodN   := Date(31, 12, Year(PlPor.DatVip));
+              KatParty.cMC     := Pick.cRec;
+              KatParty.cOrgPar := KatOrgRD.Nrec;
+              Insert current KatParty;
+
+              SpSopr.cParty  := KatParty.nRec;
+              UpDate current SpSopr;
+       }
+ }
+
+   cmCheckField: {
+     if (SpSopr.cMcUsl = 0)
+        {
+          Message('Не указана матценность.');
+          ReReadRecord(#SpSopr);
+          Exit;
+        }
+
+            Case CurField of
+              #SpSopr.Price,
+              #SpSopr.VPrice: {
+                  set SpSopr.rPrice  := SpSopr.Price;
+                  set SpSopr.rvPrice := SpSopr.vPrice;
+                }
+              #SpSopr.rPrice,
+              #SpSopr.rVPrice: {
+                  set SpSopr.Price   := SpSopr.rPrice;
+                  set SpSopr.vPrice  := SpSopr.rvPrice;
+
+                }
+              #SumPrice : {
+                set SpSopr.Price     := SumPrice / SpSopr.Kol;
+                set SpSopr.rPrice    := SumPrice / SpSopr.Kol;
+                }
+            end;
+
+     Update Current SpSopr;
+   }
+
+  cmInsertRecord : {
+//      SpSopr.Npp := oSpNext.GetSpNppNext(RashDoc.nRec, coSpSopr);
+      if (Insert current SpSopr <> tsOk) {}
+  }
+
+  cmUpdateRecord : {
+    Update current SpSopr;
+  }
+
+
+  cmCheckField : {
+    case CurField of
+      #SpSopr.Price: {
+              SpSopr.Price := SpSopr.Price;
+          set SpSopr.rPrice := SpSopr.Price;
+        }
+      #SpSopr.VPrice: {
+              SpSopr.VPrice := SpSopr.VPrice;
+          set SpSopr.rVPrice:=SpSopr.VPrice;
+        }
+      #SpSopr.rPrice:
+        set SpSopr.rPrice := SpSopr.rPrice;
+      #SpSopr.rVPrice:
+        set SpSopr.rVPrice := SpSopr.rVPrice;
+    end;
+  }
+
+  cmDeleteRecord: {
+    oSDfuns.SpSopr_Delete(SpSopr.NRec)
+  }
+
+
+
+end; // handle pnSpecif
+end; // Panel pnSpecif
+
+
+
+HandleEvent
+
+cmInit:
+{
+  case myTip of
+  // КУ, РКО, ВРКО
+//    cgRashDoc_KU, cgRashDoc_RKO, cgRashDoc_VRKO:
+//      SetFormat(scRashKU_RKO);
+  // АО
+    cgRashDoc_AO:
+      SetFormat(scRashAO);
+  end;
+
+  SetViewFields;
+}
+
+// проверка превышения нормы расходов
+cmAccording:
+  if (myTip = cgRashDoc_AO)
+    if (cNorm = 0)
+      message('Данное направление расхода не нормировано.', Information);
+    else
+    {
+      RunWindow(PrNorm);
+      Stop;
+    }
+
+// выбор долга из карточки подотчетника
+cmDocBas:
+  if UpDateTable
+    DolgPodot;
+
+// формирование спецификации по ДО
+cmNal:
+  if (myTip = cgRashDoc_AO)
+    MakeSpecification;
+
+// формирование ХозОпераций
+cmAttrib: // формирование хоз.операций по спецификации
+  case myTip of // только для PlPor
+
+    cgRashDoc_AO, cgRashDoc_RKO, cgRashDoc_VRKO:
+      // на всякий случай поставим защиту закрытого отчетного периода по дате обработки документа
+      if (CheckCloseBuhPeriod(PlPor.DatOb))
+        if UpDateTable
+          InsSoprHoz;
+  end;
+
+// бухкалькулятор
+cmBuhCalculator:
+  RunInterface('Buh_Calc', 0, 0, 0);
+
+cmHotKeys:
+  case myTip of
+
+    cgRashDoc_AO, cgRashDoc_RKO, cgRashDoc_VRKO:
+      PutHotCommand(RunMenu('Rashifr_HotKeys'));
+
+    cgRashDoc_KU:
+      PutHotCommand(RunMenu('RasKomEd_HotKeys'));
+  end;
+
+cmPick:
+  case CurField of
+
+//    #RashDoc.Name:
+//    {
+//      if PickNormRash
+//      GetClassAndAttr;
+//      SetViewFields;
+//    }
+    #KatPodrOpr.Name:
+      if (coGetTune('User.cCurSklad') <> 0) {
+          Message('Установлен текущий склад'#13+
+                  '(для выбора других уберите текущий в Настройке пользователя).',
+                  Warning+CancelButton);
+          Abort;
+        }
+      else
+        {
+          RunInterface('Z_KatPodr::GetSklad', RashDoc.cState);
+
+          if (RashDoc.cCity = 0) and boGetTune('Pick.AvtoMol')
+            {
+              // проверяем, если на складе 1 МОЛ - то заносим его сразу, если нет - выбор
+              var SaveMol: comp;
+              if GetFirst KatMolOpr where ((RashDoc.cState == KatMolOpr.cSkl)) = tsOk
+                {
+                  SaveMol := KatMolOpr.nRec;
+                  if GetLast KatMolOpr where ((RashDoc.cState == KatMolOpr.cSkl)) = tsOk
+                    if SaveMol = KatMolOpr.nRec
+                      set RashDoc.cCity := SaveMol;
+                    else
+                      {
+                        SelectField(#KatMolOpr.Name);
+                        PutCommand(cmPick);
+                      }
+                }
+              else
+                {
+                  SelectField(#KatMolOpr.Name);
+                  PutCommand(cmPick);
+                }
+            }
+        } // BIG IF else
+
+    #KatMolOpr.Name: {
+      RunInterface('L_MOL::GetMol', RashDoc.cCity, RashDoc.cState);
+      RescanPanel(#RashDoc);
+      }
+
+
+
+    #DateR:
+      set RashDoc.DateR := dFormNa;
+
+    #RashDoc.Kol:
+      if (myTip = cgRashDoc_KU)
+        set RashDoc.Kol := Prikaz.KolDay;
+
+    #simv_V1:
+      if (RashDoc.SumV1 <> 0)
+      {
+        if (RunInterface(GetValOt, myVal) = cmDefault)
+          if (RashDoc.cVal1 <> myVal)
+          {
+            set RashDoc.cVal1     := myVal;
+            set RashDoc.ValCurse1 := 0;
+          }
+
+        _Sum_ := RashDoc.Sum;
+
+        PereschetSumm(true);
+        RashDoc.Sum := _Sum_;
+        UpDate current RashDoc;
+      }
+
+    #simv_V2:
+      if (RashDoc.SumV2 <> 0) or (RashDoc.Sum <> 0)
+      {
+        if (RunInterface(GetValOt, myVal) = cmDefault)
+        {
+          set RashDoc.cVal2     := myVal;
+          set RashDoc.ValCurse2 := 0;
+        }
+
+        _Sum_ := RashDoc.Sum;
+
+        PereschetSumm(true);
+
+        RashDoc.Sum := _Sum_;
+        UpDate current RashDoc;
+      }
+
+    #ValCurse1:
+      if (RashDoc.cVal1 <> RashDoc.cVal2)
+      {
+        if (RunInterface(GetValuta, RashDoc.cVal1, RashDoc.DateR, mySum, mySumV) = cmDefault)
+        {
+          set ValCurse1 := mySum / mySumV;
+
+          PereschetSumm(true);
+        }
+      }
+      else
+        case myTip of
+
+          cgRashDoc_AO:
+            message('Выбор курса не имеет смысла.'#13 +
+                    'Валюта аванса и валюта отчетного документа совпадают.', Information);
+
+          cgRashDoc_KU, cgRashDoc_RKO, cgRashDoc_VRKO:
+            message('Выбор курса не имеет смысла.'#13 +
+                    'Валюта нормы и валюта аванса совпадают.', Information);
+        end;
+
+    #ValCurse2:
+      if (RashDoc.cVal1 <> RashDoc.cVal2)
+      {
+        if (RunInterface(GetValuta, RashDoc.cVal2, RashDoc.DateR, mySum, mySumV) = cmDefault)
+        {
+          set ValCurse2 := mySum / mySumV;
+
+
+          PereschetSumm(true);
+        }
+      }
+      else
+        case myTip of
+
+          cgRashDoc_AO:
+            message('Выбор курса не имеет смысла.'#13 +
+                    'Валюта аванса и валюта отчетного документа совпадают.', Information);
+
+          cgRashDoc_KU, cgRashDoc_RKO, cgRashDoc_VRKO:
+            message('Выбор курса не имеет смысла.'#13 +
+                    'Валюта нормы и валюта аванса совпадают.', Information);
+        end;
+
+    #HozName:
+      // .................... Хоз. операция ...................
+      if (RashDoc.cHozOper = 0)
+        // формирование ТХО на превышение без ТХО на норму
+        // режим формирования, альтернативный Ctrl+Enter'у
+        if (RashDoc.SumN <= 0)
+          message('Норма не превышена.', Information);
+        else
+        {
+          myHoz := NormRash.cHozOper;
+
+          if (RunInterface('GetHozOper', 0, word(9), 0, myHoz, (cgiPick or cgiSetFilter)) = cmDefault)
+          {
+            set RashDoc.cHozOper := myHoz;
+            update current RashDoc;
+
+            if (GetFirst NormRash = tsOk)
+            {
+              // вставка ТХО из нормы
+
+              InsertToSoprHozE;  // ТХО на превышение
+
+              if (wGetTune('TProv.FormTP') <> 0)
+                TxoMakeSimple(SoprHoz.NRec, SoprHoz.cHozOper);
+            }
+
+            SetModified(true);
+            UpDateTable;
+            RereadRecord;
+          }
+        }
+    #KatOrgName :
+    {
+       if isValid(#BaseFinRD)
+       {
+         if (RunInterface('GetKatOr', SoprHozRD.cOrg, 0, false, 0, 0) = cmDefault)
+         {
+           /*if (SoprHoz.cStepDoc <> 0) and (SoprHoz.cOrg <> BaseDoc.cOrg)
+             message('Контрагент не тот, что в привязанном'#13 +
+                     'документе-основании.', Warning);*/
+           set SoprHozRD.cOrg := SoprHozRD.cOrg;
+           if (update current SoprHozRD = tsOk)
+             iSynch.SynchBaseFin(SoprHozRD.BufferP);
+           ReScanPanel(#RashDoc);
+         }
+       }
+    }
+
+  end;
+
+cmDone: {
+  if isModified
+    if (not UpDateTable)
+      Abort;
+  }
+
+cmMakePrih: {
+//  //-- проверка параметра запрет редактирования задним числом
+//  if IsOstOnMSPrPer(SpSopr.cMCUsl, PlPor.DatVip) {
+//        Message('В настройке стоит запрет на редактирование ордеров в закрытом периоде');
+//      Exit;
+//    }
+
+//  if( NOT SetSemaphoreSklad('KatSopr_makeprih', KatSopr.NRec) )
+//    Exit;
+
+  if (RecordExists SpSopr  <> tsOK) {Exit;}
+
+  StartNewVisual(2 , vfTimer, 'Создание складских ордеров', 1 );
+
+  if (GetLast SklOrder = tsOk) {}
+
+  ClearBuffer(#SklOrder);
+  SklOrder.cSopr    := RashDoc.nRec;
+  SklOrder.TipOrd   := 9;
+  SklOrder.VidOrder := 0;
+  SklOrder.cPodr    := RashDoc.cState;
+  SklOrder.cGrPodr  := RashDoc.cState;
+  SklOrder.cMol     := RashDoc.cCity;
+  SklOrder.dOrd     := PlPor.DatVip;
+  SklOrder.YearOrd  := Year(PlPor.DatVip);
+  SklOrder.nOrder   := GetNextNOrder(true, RashDoc.cState);
+  SklOrder.Descr    := PlPor.Descr;
+  SklOrder.DesGr    := PlPor.DesGr;
+  if (Insert current SklOrder = tsOk) {};
+
+   _Loop SpSopr {
+      ClearBuffer(#SpOrder);
+      SpOrder.cSklOrder := SklOrder.nRec;
+      SpOrder.dOrd      := PlPor.DatVip;
+      SpOrder.cVal      := 0000000000000005h // белорусские рубли
+      SpOrder.Empty     := 1;
+      SpOrder.TipOrd    := SklOrder.TipOrd;
+      SpOrder.VidOrder  := SklOrder.VidOrder;
+      SpOrder.cSpSopr   := SpSopr.nRec;
+      SpOrder.cMC       := SpSopr.cMcUsl;
+      SpOrder.cParty    := SpSopr.cParty;
+      SpOrder.ccMol     := SklOrder.cMol;
+      SpOrder.ccPodr    := SklOrder.cPodr;
+      SpOrder.DesCr     := SklOrder.DesCr;
+      SpOrder.DesGr     := SklOrder.DesGr;
+      SpOrder.Kol       := SpSopr.Kol;
+      SpOrder.Ostatok   := SpSopr.Kol;
+      SpOrder.vPrice    := SpSopr.Price;
+      SpOrder.srPrice   := SpSopr.Price;
+      SpOrder.rSrPrice  := SpSopr.Price;
+      SpOrder.rVPrice   := SpSopr.Price;
+
+      SpOrder.nRec := GetNextNrec(#SpOrder, 0);//CTN
+//      if (Insert current SpOrder = tsOK) {}
+
+      if OneSpOrder_Insert <> tsOk {
+          message('Ошибка формирования спецификации Складского ордера');
+          Break;
+        }
+//      else {
+//          ModifyTekOst;
+//        }
+   }
+
+  RashDoc.NoDoc := 'Опр';   // Признак проведённого оприходования по спецификации
+  UpDate current RashDoc;
+
+  StopVisual('', 0);
+  CheckSklOrder;
+ }
+
+ cmValue15: {
+   if (GetFirst SklOrder where (( 9            == SklOrder.TipOrd  (noIndex)
+                              and RashDoc.nRec == SklOrder.cSopr              )) = tsOk) {
+      DeleteOrders;
+
+      RashDoc.NoDoc := '';   // Признак проведённого оприходования по спецификации
+      UpDate current RashDoc;
+    }
+   CheckSklOrder;
+   }
+
+cmPickClass:
+  GetClassifier;
+
+cmPickAttr:
+    GetAttribute;
+end;
+end; // window wiEditRashNorm
+
+Window wiEditRashRRV 'Редактирование поступлений валюты' EscClose;
+  Show at(, , 85, 12);
+
+Panel pEditRashRRV;
+  Show at(, , , 6);
+  Table RashDoc;
+
+Screen scRashRRV ('Учет поступлений валюты', , scI178Esc);
+Fields
+  RashDoc.DateR ('Дата поступления иностранной валюты',,scI1378Esc);
+  RashDoc.SumV1 ('Сумма поступившей иностранной валюты, подлежащей распределению'):
+                [14.2, '\2p[|-]3666`666`666`666`666.88'];
+  simv_V1: skip;
+  RashDoc.SumV2 ('Сумма иностранной валюты, не подлежащая распределению для осуществления обязательной продажи'):
+                [14.2, '\2p[|-]3666`666`666`666`666.88'];
+  simv_V1: skip;
+  RashDoc.Kol   ('Процент от общей суммы валюты, подлежащей обязательной продаже'): [5.2], skip;
+  RashDoc.Sum   ('Сумма, подлежащая обязательной продаже'):
+                [14.2, '\2p[|-]3666`666`666`666`666.88'];
+  simv_V1: skip;
+<<
+                                   `Дата`        `Сумма`
+`Поступление иностранной валюты`.@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@@@
+                                                 `Сумма`
+&Не подлежит распределению                  .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@@@
+                                                 `Сумма`
+`Подлежит обязательной продаже `.@@@@@@`%`  .@@@@@@@@@@@@@@@@@@ в .@@@@@@@@@@@@@@@@@@
+>>
+end; // screen
+end; // panel
+
+Panel pMemo;
+  Show at(, 7, , );
+  Table AllMemo;
+
+Text AllMemo.Mem 'Основание для неосуществления обязательной продажи';
+
+HandleEvent
+
+cmInsertRecord:
+{
+  AllMemo.wTable := coRashDoc;
+  AllMemo.cRec   := RashDoc.NRec;
+  AllMemo.Tip    := myTip;
+  insert current AllMemo;
+  RashDoc.cDoc := AllMemo.NRec;
+  update current RashDoc;
+}
+
+cmUpdateRecord:
+  update current AllMemo;
+
+cmDeleteRecord:
+  delete current AllMemo;
+end; // handleevent
+end; // panel
+
+HandleEvent
+
+cmInit:
+  case myTip of
+  // РРВ таблица 1
+    cgRashDoc_RRV1:
+    {
+      SetFormat(scRashRRV);
+      SetWindowTitle(wieditRashRRV, 'Учет фактических поступлений иностранной валюты');
+    }
+  // РРВ таблица 2
+    cgRashDoc_RRV2:
+    {
+      SetFormat(scRashRRV);
+      SetInternalHelpLine(scRashRRV, #RashDoc.DateR, 'Дата распределения иностранной валюты либо дата поступления нераспределенной иностранной валюты');
+      SetInternalHelpLine(scRashRRV, #RashDoc.SumV1, 'Сумма иностранной валюты, освобожденной от осуществления обязательной продажи, либо нераспределенной иностранной валюты');
+      SetWindowTitle(wieditRashRRV, 'Учет нераспределенной ранее иностранной валюты');
+    }
+  end;
+
+cmPick:
+  case CurField of
+
+    #DateR:
+      set RashDoc.DateR := dFormNa;
+  end;
+
+cmDone:
+  if isModified
+    if (not UpDateTable)
+      Abort;
+end;
+end; // window wiEditRashRRV
+
+Function IsKassaDoc(Tip: word): boolean;
+{
+  case Tip of
+    cgRashDoc_KU, cgRashDoc_RKO, cgRashDoc_VRKO, cgRashDoc_AO:
+      IsKassaDoc := true;
+    else
+      IsKassaDoc := false;
+  end;
+}
+
+Panel pRashDoc
+  Table RashDoc;
+
+HandleEvent
+
+cmOnNewRD:
+{
+  if IsKassaDoc(myTip)
+  {
+    RunWindow(wiEditRashNorm);
+    SelectField(#RashDoc.Name);
+
+    SetViewFields;
+  }
+  else
+  {
+    RunWindow(wiEditRashRRV);
+    SelectField(#RashDoc.DateR);
+  }
+}
+
+cmSetDefault:
+{
+  ClearBuffer(#RashDoc);
+
+  RashDoc.NRec     := GetNextNRec(#RashDoc, 0);
+  RashDoc.cSoprDoc := CurNRec;
+  RashDoc.TipDoc   := myTip;
+
+  if IsKassaDoc(myTip)
+  {
+    RashDoc.DateR    := dFormNa;     // спецификация формируется на дату документа
+    RashDoc.prZarp   := 1;
+
+    case myTip of
+    //-----------
+      cgRashDoc_KU:
+      {
+        RashDoc.cPrikaz := cPrikEtap;
+        RashDoc.cVal2   := NormRash.cVal;
+      }
+    //-----------
+      cgRashDoc_RKO, cgRashDoc_VRKO:
+        RashDoc.cVal2 := PlPor.cVal;
+    //-----------
+      cgRashDoc_AO:
+        RashDoc.cVal2 := PlPor.cVal;
+    end;
+  }
+  else
+  {
+    RashDoc.cVal1 := PlPor.cVal;  // валюта поступлений
+    RashDoc.Kol := PlPor.Summa2;  // % обязательной продажи
+  }
+
+  PutCommand(cmOnNewRD);
+}
+
+cmDelOnProtect:
+  case CurField of
+
+    #simv_V1:
+      if IsKassaDoc(myTip)
+        set RashDoc.cVal1 := 0;
+
+    #simv_V2:
+      if (myTip = cgRashDoc_KU)
+        set RashDoc.cVal2 := 0;
+
+    #HozName:
+      // на всякий случай поставим защиту закрытого отчетного периода по дате обработки документа
+      if (CheckCloseBuhPeriod(PlPor.DatOb)) and (RashDoc.cHozOper <> 0)
+        if (message('Удалить операцию ?', Confirmation + YesNo) = cmYes)
+        {
+          _loop SoprHoz
+            if (RashDoc.cHozOper = SoprHoz.cHozOper) and (SoprHoz.Summa = RashDoc.SumN)
+            {
+              iSHoz.DeleteRec(SoprHoz.NRec);
+
+              Break;
+            }
+
+          set RashDoc.cHozOper := 0;
+          update current RashDoc;
+        }
+    #KatOrgName :
+    {
+      if isValid(#BaseFinRD)
+      {
+        Set SoprhozRD.cOrg := 0;
+        if (update current SoprHozRD = tsOk)
+          iSynch.SynchBaseFin(SoprHozRD.BufferP);
+      }
+    }
+  end;
+
+cmCheckField:
+  if IsKassaDoc(myTip)
+  {
+    if (CurField = #RashDoc.Name)
+      RashDoc.Name := Trim(RashDoc.Name);
+
+    case CurField of
+
+      #RashDoc.Kol, #RashDoc.SumV1, #RashDoc.ValCurse1, #RashDoc.ValCurse2, #RashDoc.ValCurse12:
+        PereschetSumm(true);
+
+      #RashDoc.SumV2:
+        RashDoc.SumV2 := RoundNorm(RashDoc.cVal2, RashDoc.SumV2);
+
+      #RashDoc.DateR:
+        if UpDateTable
+        {
+          PereschetSumm(true);
+
+          SetModified(true);
+
+          PrNr;
+        }
+
+      #RashDoc.SumU:
+      {
+        CheckHStatus;
+
+        UpDateTable;
+      }
+    end;
+  }
+  else
+  {
+    case CurField of
+
+      #RashDoc.DateR:
+        if (longint(RashDoc.DateR) = 0)
+        {
+          message('Определите дату поступления иностранной валюты!', Warning);
+          Abort;
+        }
+
+      #RashDoc.SumV1:
+        if (RashDoc.SumV1 = 0)
+        {
+          message('Задайте сумму поступления иностранной валюты!', Warning);
+          Abort;
+        }
+    end;
+
+    case CurField of
+
+      #RashDoc.SumV1, #RashDoc.SumV2, #RashDoc.Kol:
+        RashDoc.Sum := Round((RashDoc.SumV1 - RashDoc.SumV2) * RashDoc.Kol / 100, 2);
+    end;
+  }
+
+cmCheckRecord:
+  if IsKassaDoc(myTip)
+  {
+    if (RashDoc.Name = '')
+    {
+      message('Определите наименование расходов!', Warning);
+      SelectField(#RashDoc.Name);
+      Abort;
+    }
+  }
+  else
+  {
+    if (longint(RashDoc.DateR) = 0)
+    {
+      message('Определите дату поступления иностранной валюты!', Warning);
+      SelectField(#RashDoc.DateR);
+      Abort;
+    }
+    else
+      if (RashDoc.SumV1 = 0)
+      {
+        message('Задайте сумму поступления иностранной валюты!', Warning);
+        SelectField(#RashDoc.SumV1);
+        Abort;
+      }
+  }
+
+cmPositionChanged:
+  if IsKassaDoc(myTip)
+    SetViewFields;
+
+cmInsertRecord:
+  insert current RashDoc;
+
+cmUpdateRecord:
+  update current RashDoc;
+
+cmDeleteRecord: {
+
+  if ( RashDoc.NoDoc <> 'Опр' ) {
+      delete current RashDoc;
+    } else {
+      message('По Авансовому отчёту были Оприходованы МЦ! Удаление невозможно.');
+      Abort;
+      }
+
+
+  if (myTip = cgRashDoc_KU)
+  {
+    MarkerTmp := InitMarker('', 8, 255, 10);
+    pMarker.ExportTo(MarkerTmp);
+
+    if (GetMarkerCount(MarkerTmp) > 0)
+    {
+      if (message('Удалить помеченные нормы расходов?', Confirmation + YesNo) = cmYes)
+      {
+        _loop RashDoc
+          if SearchMarker(MarkerTmp,RashDoc.nRec,indexNo)
+          {
+            iAttrClass.DeleteAll(word(CurTableCode), RashDoc.NRec);
+            delete current RashDoc;
+      }
+      }
+      else
+        Abort;
+    }
+    else
+    {
+    if (message('Удалить текущую норму расходов?', Confirmation + YesNo) = cmYes)
+    {
+      iAttrClass.DeleteAll(word(CurTableCode), RashDoc.NRec);
+      delete current RashDoc;
+    }
+    else
+      Abort;
+    }
+
+    DoneMarker(MarkerTmp, '');
+  }
+  else
+  {
+//    if (message(if(IsKassaDoc(myTip),
+//                'Удалить текущую норму расходов?',
+//                'Удалить текущее поступление валюты?'), Confirmation + YesNo) = cmYes)
+//    {
+//      iAttrClass.DeleteAll(word(CurTableCode), RashDoc.NRec);
+//      delete current RashDoc;
+//    }
+//    else
+//      Abort;
+  }
+}
+end;
+end;  // panel
+
+
+Browse brRashDoc (, hcRashDoc, sci13478EnEsc);
+  Table RashDoc;
+Fields
+  RashDoc.Name      #3'Наименование расходов' ('Наименование статьи расходов'): [35], Protect, PickButton;
+//  KatOrgName        #3'Контрагент'            ('Контрагент'): [10],Protect,
+//                     {Font = {Color = if(isValid(#BasefinRD),0,ColorSysGray)}};
+//  Dney              #3'Дни'                   ('Количество дней'): [6], Protect, noAutoSize;
+  SumV2             #3'Сумма'                 ('Сумма по данной статье расходов'): [14,2, '\2p[|-]3666`666`666`666`666.88'], noProtect, noAutoSize;
+  Sum               #3'НДС'                   ('НДС')                            : [14,2, '\2p[|-]3666`666`666`666`666.88'], noProtect, noAutoSize;
+  scBuhSchet        #3'Счёт затрат' ('Счёт затрат'): [10], Protect, PickButton;
+  Simv_V2           #3'Валюта'                ('Валюта статьи'): [10], Protect, PickButton, noAutoSize;
+//  KlVal1.SimvolV    #3'Валюта'                ('Валюта статьи'): [10], Protect, PickButton, noAutoSize;
+//  KlVal2.SimvolV    #3'Валюта'                ('Валюта статьи'): [10], Protect, noAutoSize;
+//  RashDoc.ValCurse2 #3'Курс'                  ('Курс для пересчета'): [10,2], Protect, noAutoSize;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+end; // browse
+
+Browse brRashDocPrikaz (, hcRashDoc, sci1478EnEsc);
+  Table RashDoc;
+  recMarker = pMarker {RashDoc.nRec};
+Fields
+  RashDoc.Name      #3'Наименование расходов' ('Наименование статьи расходов'): [35], Protect;
+  KatOrgName        #3'Контрагент'            ('Контрагент'): [10],Protect,
+                     {Font = {Color = if(isValid(#BasefinRD),0,ColorSysGray)}};
+  Dney              #3'Дни'                   ('Количество дней'): [6], Protect, noAutoSize;
+  Sum_V2            #3'Сумма'                 ('Сумма по данной статье расходов'): [14,2, '\2p[|-]3666`666`666`666`666.88'], Protect, noAutoSize;
+  KlVal2.SimvolV    #3'Валюта'                ('Валюта статьи'): [10], Protect, noAutoSize;
+  RashDoc.ValCurse2 #3'Курс'                  ('Курс для пересчета'): [10,2], Protect, noAutoSize;
+end; // browse
+
+Browse brRashDoc (, hcRashDoc, sci1478EnEsc);
+  Table RashDoc;
+Fields
+  RashDoc.Name      #3'Наименование расходов' ('Наименование статьи расходов'): [35], Protect;
+  KatOrgName        #3'Контрагент'            ('Контрагент'): [10],Protect,
+                     {Font = {Color = if(isValid(#BasefinRD),0,ColorSysGray)}};
+  Dney              #3'Дни'                   ('Количество дней'): [6], Protect, noAutoSize;
+  Sum_V2            #3'Сумма'                 ('Сумма по данной статье расходов'): [14,2, '\2p[|-]3666`666`666`666`666.88'], Protect, noAutoSize;
+  KlVal2.SimvolV    #3'Валюта'                ('Валюта статьи'): [10], Protect, noAutoSize;
+  RashDoc.ValCurse2 #3'Курс'                  ('Курс для пересчета'): [10,2], Protect, noAutoSize;
+end; // browse
+
+Browse brValReceipt (, , sci1478EnEsc);
+  Table RashDoc;
+Fields
+  RashDoc.DateR #3'Дата'
+                ('Дата поступления иностранной валюты'):
+                [, 'DD/MM/YYYY'], Protect, NoAutoSize;
+  RashDoc.SumV1 #3'Сумма', #3'поступления'
+                ('Сумма поступившей иностранной валюты, подлежащей распределению'):
+                [, '\2p[|-]3666`666`666`666`666.88'], Protect, noAutoSize;
+  RashDoc.SumV2 #3'Не подлежит,', #3'распределению'
+                ('Сумма иностранной валюты, не подлежащая распределению для осуществления обязательной продажи'):
+                [, '\2p[|-]3666`666`666`666`666.88'], Protect, noAutoSize;
+  RashDoc.Kol   #3'%'
+                ('Процент от общей суммы валюты, подлежащей обязательной продаже'):
+                [, '\2p[|-]3666`666`666`666`666.88'], Protect, noAutoSize;
+  RashDoc.Sum   #3'Сумма', #3'обяз. продажи' ('Сумма, подлежащая обязательной продаже'):
+                [, '\2p[|-]3666`666`666`666`666.88'], Protect, noAutoSize;
+end; // browse
+
+Function GetMarker(var marker : longint) : boolean;
+{
+  GetMarker := false;
+
+  if pMarker.count = 0
+    Exit;
+
+  PushPos(#RashDoc);
+  ResetBounds(#RashDoc);
+
+  pMarker.ExportTo(marker);
+
+  SetBounds(#RashDoc);
+  PopPos(#RashDoc);
+
+  if GetMarkerCount(marker) > 0
+    GetMarker := true;
+}
+
+Procedure ClearMarker;
+{
+  pMarker.UnselectAll;
+}
+
+Procedure SetVar(_myNRec: comp; _myTip: word; _PrEtapNRec: comp);
+{
+  set myNRec  := _myNRec;
+  set myTip   := _myTip;
+  set CurNRec := _myNRec;
+  set cPrikEtap := _PrEtapNRec;
+  myPersons := 0;
+  myState   := 0;
+  myCity    := 0;
+  dFormNa   := Cur_Date;
+
+  case myTip of
+  //-----------
+    cgRashDoc_AO, cgRashDoc_RKO, cgRashDoc_VRKO:
+    {
+      if (GetFirst PlPor = tsOk)
+      {
+        myPersons := PlPor.cPersons;
+        dFormNa   := PlPor.DatVip;
+
+        if (GetFirst KatOrg where ((PlPor.cPlat == KatOrg.NRec)) = tsOk)
+        {
+          myState := KatOrg.cState;
+          myCity  := KatOrg.cCity;
+        }
+      }
+
+      SetFormat(brRashDoc);
+    }
+  //-----------
+    cgRashDoc_KU:
+    {
+      if (GetFirst SpPrikaz = tsOk)
+        if (GetFirst Prikaz = tsOk)
+        {
+          myPersons := SpPrikaz.cPersons;
+          dFormNa   := Prikaz.dDoc;
+          myState   := Prikaz.cState;
+          myCity    := Prikaz.cCity;
+        }
+
+      SetFormat(brRashDocPrikaz);
+      pMarker.IsNeedCheckDelete := false;
+    }
+  // РРВ таблица 1
+    cgRashDoc_RRV1:
+    {
+      SetFormat(brValReceipt);
+    }
+  // РРВ таблица 2
+    cgRashDoc_RRV2:
+    {
+      SetFormat(brValReceipt);
+      SetInternalHelpLine(brValReceipt, #RashDoc.DateR, 'Дата распределения иностранной валюты либо дата поступления нераспределенной иностранной валюты');
+      SetInternalHelpLine(brValReceipt, #RashDoc.SumV1, 'Сумма иностранной валюты, освобожденной от осуществления обязательной продажи, либо нераспределенной иностранной валюты');
+    }
+  end;
+
+  ReReadRecord;
+}
+
+Procedure GetClassifier;
+{
+  if (not UpdateTable)
+    Exit;
+
+  If Curtable = #RashDoc
+    iClass.Pick(True, word(CurTableCode), RashDoc.NRec);
+
+  ReReadRecord(CurTable);
+}
+
+Procedure GetAttribute;
+{
+  if (not UpdateTable)
+    Exit;
+
+  If Curtable = #RashDoc
+    iAttr.Pick(True, word(CurTableCode), RashDoc.NRec);
+
+  ReReadRecord(CurTable);
+}
+
+// ------------------------- HandleEvent Interface -----------------------------
+HandleEvent
+
+cmPick : {                                 // Здесь "куски" обработчиков браузера и окна - чтобы срабатывали события в браузере
+  case CurField of
+    #RashDoc.Name: {
+      PickNormRash;
+//      SetViewFields;
+    }
+
+
+    #scBuhSchet : {
+     if (RunInterface('F_BuhSchet::GetBuhSchet', cgiPick, coGetTune('FIN.USER.CPLANSSCH'), sSchet, sSubSchet ) ) <> cmCancel {
+
+              if (GetFirst BuhSchet where (( sSchet    == BuhSchet.Schet
+                                         and sSubSchet == BuhSchet.SubSch )) = tsOk) {
+                  set RashDoc.cDoc := BuhSchet.nRec;
+                  UpDate current RashDoc;
+                 }
+      }
+    }
+
+    #simv_V2:
+      if (RashDoc.SumV2 <> 0) or (RashDoc.Sum <> 0)
+      {
+        if (RunInterface(GetValOt, myVal) = cmDefault)
+        {
+          set RashDoc.cVal2     := myVal;
+          set RashDoc.ValCurse2 := 0;
+        }
+
+        _Sum_ := RashDoc.Sum;
+
+        PereschetSumm(true);
+
+        RashDoc.Sum := _Sum_;
+        UpDate current RashDoc;
+      }
+
+//    #simv_V1:
+//      if (RashDoc.SumV1 <> 0)
+//      {
+//        if (RunInterface(GetValOt, myVal) = cmDefault)
+//          if (RashDoc.cVal1 <> myVal)
+//          {
+//            set RashDoc.cVal1     := myVal;
+//            set RashDoc.ValCurse1 := 0;
+//          }
+//
+//        _Sum_ := RashDoc.Sum;
+//
+//        PereschetSumm(true);
+//
+//        RashDoc.Sum := _Sum_;
+//        UpDate current RashDoc;
+//      }
+
+  end;
+  }
+
+cmDelOnProtect: {
+  case CurField of
+    #scBuhSchet : {
+      set RashDoc.cDoc := comp(0);
+      UpDate current RashDoc;
+    }
+  end;
+ }
+
+
+cmInit:
+{
+  if (myNRec = 0) or (myTip = 0)
+  {
+    Abort;
+    Exit;
+  }
+
+  if (myTip <> cgRashDoc_KU)
+  {
+    if (myTip = cgRashDoc_AO)
+      SetTitle('Спецификация авансового отчета');
+    else
+      SetTitle('Спецификация расходного ордера');
+
+    if not LoadVipInterface(iPlPor)
+    {
+      message('Ошибка! Не удалось загрузить интерфейс ФСД!', Warning);
+      Abort;
+      Exit;
+    }
+  }
+
+  SetVar(myNRec, myTip, comp(0));
+}
+
+cmPositionChanged:
+  case myTip of
+  // КУ
+    cgRashDoc_KU:
+      SetWindowTitle(wieditRashNorm, 'Расходы по командировке: ' + Persons.FIO);
+  // РРВ таблица 1
+    cgRashDoc_RRV1:
+      SetWindowTitle(wieditRashRRV, 'Учет фактических поступлений иностранной валюты');
+  // РРВ таблица 2
+    cgRashDoc_RRV2:
+      SetWindowTitle(wieditRashRRV, 'Учет нераспределенной ранее иностранной валюты');
+  end;
+
+cmDefault:
+{
+  if (not IsFocusInContainer)
+  {
+    if (IsKassaDoc(myTip)) // Кассовые документы
+      RunWindow(wiEditRashNorm);
+    else  // РРВ
+      RunWindow(wiEditRashRRV);
+
+    Stop;
+  }
+}
+
+cmEdit:
+  if IsKassaDoc(myTip)  // кассовые документы
+    RunWindow(wiEditRashNorm);
+  else  // РРВ
+    RunWindow(wiEditRashRRV);
+
+// выбор долга из карточки подотчетника
+cmDocBas:
+  DolgPodot;
+
+// проверка превышения нормы расходов
+cmAccording:
+  if (myTip = cgRashDoc_AO)
+    if (cNorm = 0)
+      message('Данное направление расхода не нормировано.', Information);
+    else
+    {
+      RunWindow(PrNorm);
+      Stop;
+    }
+
+// формирование спецификации по ДО
+cmNal:
+  if (myTip = cgRashDoc_AO)
+    MakeSpecification;
+
+// формирование ХозОпераций
+cmAttrib: // формирование хоз.операций по спецификации
+  case myTip of
+
+    cgRashDoc_AO, cgRashDoc_RKO, cgRashDoc_VRKO:
+      // на всякий случай поставим защиту закрытого отчетного периода по дате обработки документа
+      if CheckCloseBuhPeriod(PlPor.DatOb)
+        if Pr_Sum
+          InsSoprHoz;
+  end;
+
+// бухкалькулятор
+cmBuhCalculator:
+  RunInterface('Buh_Calc', 0, 0, 0);
+
+cmHotKeys:
+  case myTip of
+
+    cgRashDoc_AO, cgRashDoc_RKO, cgRashDoc_VRKO:
+    {
+      if IsAO(myTip)
+      {
+        EnableCommand(cmNal);
+        EnableCommand(cmAccording);
+      }
+      else
+      {
+        DisableCommand(cmNal);
+        DisableCommand(cmAccording);
+      }
+
+      PutHotCommand(RunMenu('Rashifr_HotKeys'));
+    }
+  end;
+
+cmDone:
+{
+  if (not NullVipRef(iPSaldo))
+    FreeVipInterface(iPSaldo);
+}
+
+cmPickClass:
+  GetClassifier;
+
+cmPickAttr:
+    GetAttribute;
+End;
+End.
+
+Rashifr_HotKeys Menu
+{
+- 'Формирование спецификации по ДО', cmNal, 'Автоформирование статей спецификации по ДО', hcRashDoc, 'Alt+F', kbAltF, sci1Esc;
+- 'Формирование хоз.операций', cmAttrib, 'Формирование хоз.операций по спецификации', hcRashDoc, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+- 'Выбор долга из карточки подотчетника', cmDocBas, 'Выбор долга из карточки подотчетника при расчете командировки', hcRashDoc, 'Alt+D', kbAltD, sci1Esc;
+- 'Проверка на превышение нормы расхода', cmAccording, 'Проверка на превышение нормы расхода по данному отчетному документу',hcRashDoc, 'Alt+S', kbAltS, sci1Esc;
+- 'Бухгалтерский калькулятор', cmBuhCalculator, 'Расчеты сумм оборотов, проводок и сальдо по счетам бухгалтерского учета', hcBuh_Calculator, 'Shift+F3', kbShiftF3, sci1Esc;
+-----------;
+- 'Внешняя классификация', cmPickClass, 'Внешняя классификация', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+- 'Внешние атрибуты', cmPickAttr, 'Заполнение внешних атрибутов по данной позиции', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+}
+
+RasKomEd_HotKeys Menu
+{
+- 'Выбор долга из карточки подотчетника', cmDocBas, 'Выбор долга из карточки подотчетника при расчете командировки',, 'Alt+D', kbAltD, sci1Esc;
+- 'Бухгалтерский калькулятор', cmBuhCalculator, 'Расчеты сумм оборотов, проводок и сальдо по счетам бухгалтерского учета', hcBuh_Calculator, 'Shift+F3', kbShiftF3, sci1Esc;
+}

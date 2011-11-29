@@ -1,0 +1,108 @@
+
+#include notes.vih
+#include statlog.vih
+
+#include KatSopr.vih
+
+#component "L_SoprDoc"
+
+Interface Otdel11_UpDateActID 'Otdel11_UpDateActID' EscClose DoAccept;
+
+#include KatSopr.var
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, OrgUNN
+, OrgName
+, _CUST_ID
+, _DOGNUM
+, _Account
+, _ACTNUM
+, _ACT_ID
+, _ACT_NUM
+, _CUSTNUM
+               : string;
+  _ACTSUM
+, _NDS
+, _SUM
+               : double;
+  ErrImport
+               : boolean;
+  _DATESTATEM
+, _ACTDATE
+               : date;
+  _Type
+               : word;
+  oNotes       : iNotes;
+  oStatlog     : vipStatlog;
+
+as select * from
+  KatOrg
+, KatBank
+, Dogovor
+, KatSopr
+, SpSopr
+, SpDocNal
+, PlPor
+, SoprHoz
+, BaseFin
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\BuhServer\GalSrv\62_11\select5.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка Otdel11_UpDateActID', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            _ACT_NUM := string( DBFGetFieldValue(Handle,'NSOPR') );
+            _ACT_ID  := string( DBFGetFieldValue(Handle,'ACT_ID') );
+
+            if (GetFirst KatSopr where (( 211                    == KatSopr.VidSopr
+                                      and Year(date(01,01,2010)) == KatSopr.YearSopr
+                                      and _ACT_NUM               == KatSopr.nSopr
+                                      and ''                     == KatSopr.nKvit     (noIndex)   )) = tsOK) {
+
+   LogStrToFile('C:\1.txt', KatSopr.nSopr + ' ' + _ACT_NUM + ' ' + _ACT_ID);
+                KatSopr.nKvit :=  _ACT_ID;
+                UpDate current KatSopr;
+              }  else {
+   LogStrToFile('C:\2.txt', KatSopr.nSopr + ' ' + _ACT_NUM + ' ' + _ACT_ID);
+                }
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.
+
+.Form 'Закачка Otdel11_UpDateActID'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_SoprDoc::Otdel11_UpDateActID');
+end.
+
+.endform
+

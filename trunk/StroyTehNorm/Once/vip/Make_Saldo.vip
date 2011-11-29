@@ -1,0 +1,68 @@
+.Form 'Закачка сальдо'
+.Ard
+.F 'Nul'
+
+.begin
+        RunInterface ('Intfc_Saldo_7001_01122009');
+end.
+.endform
+
+
+interface Intfc_Saldo_7001_01122009;
+
+create view
+ as select *
+from SaldMoun
+;
+
+var
+  Handle          : longint;
+  _path
+, _LS
+                  : string;
+  k
+, i
+                  : integer;
+
+HandleEvent
+  cmInit :
+    {
+    set _path := '\\BuhServer\GalSrv\igor\7001.dbf'
+    StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Просмотрено: 0', 178);
+    Handle := DBFOpen(_path,stOpen);
+
+
+    if (DBFGetFirst(Handle) = tsok)
+     Do {
+       _LS := string(DBFGetFieldValue(Handle,'LS'));
+
+       if (GetFirst lSchet where ((_LS == lSchet.TabN)) <> tsOK) {
+         LogStrToFile('C:\1.txt', _LS);
+         Continue;
+         }
+
+       ClearBuffer(#SaldMoun);
+       SaldMoun.CPLANSSCH := comp(2);
+       SaldMoun.SCHETO    := '070';
+       SaldMoun.SUBOSSCH  := '01';
+       SaldMoun.DBSCHETO  := '70';
+       SaldMoun.TBLOS[1]  := word(3);
+       SaldMoun.TBLOS[2]  := word(2);
+       SaldMoun.KAUOS[1]  := lSchet.tPerson;
+       SaldMoun.KAUOS[2]  := lSchet.Cex;
+       SaldMoun.VIOB      := 2;
+       SaldMoun.SUMS      := double(DBFGetFieldValue(Handle,'SUMS'));
+       SaldMoun.DATESAL   := date(01, 12, 2009);
+       Insert current SaldMoun;
+
+        NextVisual();
+     }
+      While (DBFGetNext(Handle) = tsok)
+
+    StopVisual('',0);
+    message('Просмотрено: ' + String(k)+'; Вставлено: '+string(i));
+    DBFClose(Handle);
+    CloseInterFace(cmdefault);
+    }
+  end;
+end.

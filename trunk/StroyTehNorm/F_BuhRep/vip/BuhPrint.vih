@@ -1,0 +1,104 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.8 - Бухгалтерский контур
+// Объектный интерфейс печати оборотов и сальдо
+//------------------------------------------------------------------------------
+
+#ifndef _BuhPrint_vih_Included
+#define _BuhPrint_vih_Included
+
+#ifdef ComponentVersion
+#Component "F_BuhRep"
+#end
+
+#include BuhFiltr.vpp  // Тип для фильтра
+#include BuhRep.vpp    // type TPasReportParams & TVipReportParams
+
+!-------------------------------------------------------------------------------
+#doc
+Объектный интерфейс печати оборотов и сальдо
+#end
+ObjInterface ObjBuhPrint;
+!-------------------------------------------------------------------------------
+  #doc
+  Печать фильтра в форму FrmHandle
+  FltType - тип (сальдо, обороты) cgBuhFilter_*
+  #end
+  procedure PrintFilter      (Filter: BuhFilterRecord; FltType: word; FrmHandle: longint);
+
+!-------------------------------------------------------------------------------
+  #doc
+  Выгрузка оборотов в таблицу RepOborot по фильтру.<br>
+  byGroup   - с группировками или без<br>
+  byPick    - по маркеру или по всем из фильтра<br>
+  #end
+  procedure UploadOborot     (Filter: BuhFilterRecord; byGroup, byPick: boolean; Marker: longint);
+
+!-------------------------------------------------------------------------------
+  #doc
+  Печать проводок<br>
+  <b>Mode</b><br>
+  <ul>
+  <li>0 - книга проводок
+  <li>1 - контроль корреспонденции
+  <li>2 - отвязанные проводки
+  </ul>
+  #end
+  procedure PrintOborot      (Filter: BuhFilterRecord; byGroup: boolean; Marker: longint; Mode: word);
+!-------------------------------------------------------------------------------
+
+  #doc
+  Печать сальдо за день<br>
+  Marker - маркер с выделенными записями (0, если нет помеченных)
+  #end
+  procedure PrintSaldoDay    (Filter: BuhFilterRecord; Marker: longint);
+
+!-------------------------------------------------------------------------------
+  #doc
+  Печать сальдо за месяц<br>
+  isConsol = true, если отчет консолидированный
+  #end
+  procedure PrintSaldoMon    (Filter: BuhFilterRecord; Marker: longint; isConsol: boolean; onlyView: boolean);
+
+!-------------------------------------------------------------------------------
+
+  #doc
+  Печать сальдо по группам счетов. С группировкой по ДАС.
+  #end
+  procedure PrintSaldoDas    (Filter: BuhFilterRecord);
+
+!-------------------------------------------------------------------------------
+  #doc
+  Печать фильтров согласно содержимого PickBuh, опираясь на параметры RepParams<br>
+  Аналог метода TBuhProcess.PrintFilter (BProcess.pas)<br>
+  Фильтры печатаются в такую структуру:<br>
+  <pre>
+  .if <переменная цикла (fcEnter)>
+  .{
+     ^
+  .{
+     ^ ^
+  .}
+  .}
+  .end
+  </pre>
+  #end
+  procedure PrintFilter_FromPickBuh (RepParams : TVipReportParams; FrmHandle : longint; fcEnter : word);
+
+!-------------------------------------------------------------------------------
+  #doc
+  Аналог PrintFilter_FromPickBuh для XLT отчетов
+  #end
+  procedure xlPrintFilter_FromPickBuh(RepParams : TVipReportParams);
+
+!-------------------------------------------------------------------------------
+  #doc
+  Аналог PrintOborot c формированием Excel-отчета по xlt-шаблону.
+  #end
+  procedure ExcelPrintOborot(Filter: BuhFilterRecord; byGroup: boolean; Marker: longint);
+end;
+!-------------------------------------------------------------------------------
+//VipInterface VipBuhPrint implements ObjBuhPrint #Licensed_KBU;
+VipInterface VipBuhPrint implements ObjBuhPrint Licensed(Free);
+!-------------------------------------------------------------------------------
+#end

@@ -1,0 +1,306 @@
+#doc
+  Выполнение объёмов работ и реализация
+#end
+
+#component "L_SoprDoc"
+
+#include xlReport.Vih
+
+Interface Sell 'Отчёт по выполнению объёмов работ и реализации' ;
+ Show at (, , 70, 7);
+
+      Table struct tSell  (
+          sOtdel     : string
+        , cOtdel     : comp
+        , sIstFin    : string
+        , Realiz     : double
+        , NDS        : double
+        , NP         : double        // Налог с продаж
+        , Selo       : double        // Сельхоз налог
+        )
+        with index (
+            Sell01 = sOtdel
+          , Sell02 = sOtdel + sIstFin
+          , Sell03 = cOtdel + sIstFin
+          );
+
+      Table struct tSellItog  (
+          sIstFin    : string
+        , Realiz     : double
+        , NDS        : double
+        , NP         : double        // Налог с продаж
+        , Selo       : double        // Сельхоз налог
+        )
+        with index (
+            Sell02 = sIstFin
+          );
+
+
+Create view
+var
+  dBeg
+, dEnd
+                : date;
+  pXL
+                : XLSRepBuilder;
+  sXLTFileName
+, sXLSFileName
+, StrIstFin
+                : string;
+  SumSpB_NDS                                   // Сумма по спецификации без НДС
+                : double;
+
+as select * from
+  KatSopr
+, SpSopr
+, KatUsl
+, GroupUsl
+, UserDeskRep
+, synonym SpDocNal SpDocNal_NDS
+, synonym SpDocNal SpDocNal_NP
+where
+  ((
+       word ( 211 )      == KatSopr.VidSopr      // 211 - акт на оказание услуг
+   and dBeg             <<= KatSopr.Dopr
+   and dEnd             >>= KatSopr.Dopr
+
+   and KatSopr.nrec      == SpSopr.cSopr
+   and SpSopr.cMcUsl     == KatUsl.nRec
+   and KatUsl.cGroupUsl  == GroupUsl.nRec
+   and SpSopr.cResOtgr   == ResOtgr.nRec
+//   and KatUsl.cGroupUsl  == GroupUsl.nRec
+   and SpSopr.nRec       == SpDocNal_NP.cSpDoc    (noindex)
+   and coGetTune('Nalog.cNalogProd')
+                         == SpDocNal_NP.cNalog
+
+   and SpSopr.nRec       == SpDocNal_NDS.cSpDoc    (noindex)
+   and coGetTune('Nalog.cNalogNDS')
+                         == SpDocNal_NDS.cNalog
+
+   ))
+ ;
+
+Function StartRep(isCreateXLT : boolean) : boolean;
+{
+ StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выгрузка отчёта', 1);
+
+ StartRep := False;
+
+  if (not isCreateXLT)
+    Set sXLSFileName := pXL.CreateReport(sXLTFileName, True);
+  else
+    Set sXLSFileName := pXL.CreateXLT(sXLTFileName, True);
+
+  // Инициализация переменных
+  pXL.CreateVar(sXLSFileName);
+
+  pXL.SetDateVar('DateFrom', dBeg);
+  pXL.SetDateVar('DateEnd' , dEnd);
+
+  pXL.PublishVar;
+
+  // Выгрузка таблицы отчёта
+  pXL.CreateTbls(sXLSFileName);
+  // Определение таблицы отчёта (DBTbl Constructor)
+  pXL.CreateTbl('KatSopr');
+
+  // Определение полей таблицы
+  pXL.CreateTblFld('Otdel');
+  pXL.CreateTblFld('IstFin');
+  pXL.CreateTblFld('Realiz');
+  pXL.CreateTblFld('NDS');
+  pXL.CreateTblFld('NP');
+  pXL.CreateTblFld('Selo');
+
+  // Выгрузка полей таблицы
+  if (not isCreateXLT)
+
+ _Loop KatSopr {
+     _Loop SpSopr {
+if (GetFirst KatUsl where ((SpSopr.cMCUsl == KatUsl.nRec)) <> tsOK) { Continue; }
+if ( SubStr(KatUsl.Kod, 1, 2) = '20') { Continue; }      // Мат. затраты следует не включать в этот Отчёт
+
+    if ( SubStr(KatUsl.Kod, 1, 1) = '3' ) {              // Министерство
+       if (GetFirst ResOtgr <> tsOK) {
+           if (SpDocNal_NDS.Summa > 0) {
+                 StrIstFin := 'иф-бюджет';
+             } else {
+                 StrIstFin := 'иф-бюджет-ниокр';
+               }
+        } else {
+            StrIstFin := ResOtgr.Name;
+          }
+      } else {
+        StrIstFin := 'х.д.'
+        }
+
+
+
+          if (GetFirst tSell where ((KatUsl.cGroupUsl  == tSell.cOtdel
+                                 and StrIstFin         == tSell.sIstFin)) = tsOK) {
+
+             if (GetFirst SpDocNal_NDS = tsOK) {tSell.NDS := tSell.NDS + SpDocNal_NDS.Summa;}
+             if (GetFirst SpDocNal_NP  = tsOK) {tSell.NP  := tSell.NP  + SpDocNal_NP.Summa; }
+
+                 if( KatSopr.VhodNal = 1 ) {               // Налоги входят в цену
+              tSell.Realiz  := tSell.Realiz + SpSopr.rPrice * SpSopr.KolFact;
+                 } else {
+              tSell.Realiz  := tSell.Realiz + SpSopr.rPrice * SpSopr.KolFact + SpSopr.SumNDS;
+                   }
+
+              UpDate current tSell;
+            } else {
+                  ClearBuffer(#tSell);
+                  tSell.sOtdel  := GroupUsl.Name;
+                  tSell.cOtdel  := KatUsl.cGroupUsl;
+                  tSell.sIstFin := StrIstFin;
+
+                if (GetFirst SpDocNal_NDS = tsOK) {tSell.NDS     := SpDocNal_NDS.Summa;}
+                if (GetFirst SpDocNal_NP  = tsOK) {tSell.NP      := SpDocNal_NP.Summa;}
+
+                     if( KatSopr.VhodNal = 1 ) {               // Налоги входят в цену
+                  tSell.Realiz  := SpSopr.rPrice * SpSopr.KolFact;
+                     } else {
+                  tSell.Realiz  := SpSopr.rPrice * SpSopr.KolFact + SpSopr.SumNDS;
+                       }
+                  Insert current tSell;
+              }
+         }
+     }
+
+
+ _Loop tSell {
+    pXL.ClearTblBuffer;                                             // Очищаем буфер записи таблицы
+
+    pXL.SetTblStringFldValue('Otdel'         , tSell.sOtdel);
+    pXL.SetTblStringFldValue('IstFin'        , tSell.sIstFin);
+    pXL.SetTblNumberFldValue('Realiz'        , tSell.Realiz);
+    pXL.SetTblNumberFldValue('NDS'           , tSell.NDS);
+    pXL.SetTblNumberFldValue('NP'            , tSell.NP);
+    pXL.SetTblNumberFldValue('Selo'          , tSell.Selo);
+
+    pXL.InsTblRow;
+
+      if (GetFirst tSellItog where ((tSell.sIstFin == tSellItog.sIstFin)) = tsOK) {
+          tSellItog.NDS    := tSellItog.NDS + tSell.NDS;
+          tSellItog.NP     := tSellItog.NP  + tSell.NP;
+          tSellItog.Realiz := tSellItog.Realiz + tSell.Realiz;
+          UpDate current tSellItog;
+        } else {
+              ClearBuffer(#tSellItog);
+              tSellItog.sIstFin := tSell.sIstFin
+              tSellItog.NDS     := tSell.NDS
+              tSellItog.NP      := tSell.NP
+              tSellItog.Realiz  := tSell.Realiz
+              Insert current tSellItog;
+          }
+ }
+
+  pXL.PublishTbl('KatSopr');
+
+  // Определение таблицы отчёта (DBTbl Constructor)
+  pXL.CreateTbl('KatSoprItog');
+
+  pXL.CreateTblFld('It_IstFin');
+  pXL.CreateTblFld('It_Realiz');
+  pXL.CreateTblFld('It_NDS');
+  pXL.CreateTblFld('It_NP');
+  pXL.CreateTblFld('It_Selo');
+
+
+ _Loop tSellItog {
+    pXL.ClearTblBuffer;                                             // Очищаем буфер записи таблицы
+
+    pXL.SetTblStringFldValue('It_IstFin'     , tSellItog.sIstFin);
+    pXL.SetTblNumberFldValue('It_Realiz'     , tSellItog.Realiz);
+    pXL.SetTblNumberFldValue('It_NDS'        , tSellItog.NDS);
+    pXL.SetTblNumberFldValue('It_NP'         , tSellItog.NP);
+    pXL.SetTblNumberFldValue('It_Selo'       , tSellItog.Selo);
+
+    pXL.InsTblRow;
+ }
+
+  pXL.PublishTbl('KatSoprItog');
+
+
+  pXL.LoadReport(sXLSFileName);
+  pXL.DisConnectExcel;
+
+  StartRep := True;
+  StopVisual('',0);
+} // Function StartRep(isCreateXLT : boolean) : boolean;
+
+
+
+Screen stexP 'Установка параметров формирования отчёта';
+Fields
+ dBeg    ('Дата с',,)           : [, 'DD/MM/YYYY'], NoProtect;
+ dEnd    ('Дата по',,)          : [, 'DD/MM/YYYY'], NoProtect;
+
+Buttons
+  cmOk, Default, , 'Сформировать отчёт', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+
+           `За период с` .@@@@@@@@@@   `по`.@@@@@@@@@@
+
+            <. Сформировать .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent
+ cmInit: {
+   sXLTFileName := '\\BuhServer\GalSrv\exe\_Resources\xlt\Sell.xlt';
+//   sXLTFileName := 'E:\!StroyTehNorm\!project\UserReport\xlt\Sell.xlt';
+
+   dBeg     := dGetTune('Dat_M_Ot');
+   dEnd     := Date( Last_Day(dBeg), Month(dBeg), Year(dBeg) );
+ }
+
+ cmCheckField : {
+  case CurField Of
+     #dBeg:
+    {
+       if( dBeg > dEnd )
+         SetFontBackgroundColor(0, #dBeg, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dBeg, 0);
+         SetFontBackgroundColor(0, #dEnd, 0);
+       }
+    }
+
+     #dEnd:
+    {
+       if( dBeg > dEnd )
+         SetFontBackgroundColor(0, #dEnd, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dBeg, 0);
+         SetFontBackgroundColor(0, #dEnd, 0);
+       }
+    }
+  end;
+ }
+
+ cmOK : {
+    if ( dBeg = 0 or
+         dBeg >  dEnd)
+    { Message(''#3'Ошибка ввода диапазона дат', Error+CancelButton);
+      Abort;
+      Exit;
+    }
+
+  StartRep(False);
+  CloseInterface (cmOK) ;
+ }
+
+ cmCancel :
+   CloseInterface (cmCancel) ;
+
+end; // HandleEvent
+
+
+end.
