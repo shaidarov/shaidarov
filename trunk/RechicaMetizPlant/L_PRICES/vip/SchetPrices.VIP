@@ -1,0 +1,671 @@
+#doc
+Интерфейс пересчёт цен прайс-листа, специально для Речицкого Метизного Завода
+Здесь только отображение настроек пересчёта
+#end
+
+
+interface SchetPrices 'Пересчёт цен текущего прайс-листа для РМЗ' EscClose DoAccept;
+  Show at (, , 115, 35);
+
+create view
+var
+
+  cKlPrices    : comp;
+
+  nReport
+, unig         : word;
+
+  dDiametrOt
+, dDiametrDo   : double;
+
+  kBlackFree
+, kBlack1
+, kBlack2      : double;
+
+  d_NotColor6
+, p_NotColor6
+, d_Color6
+, p_Color6
+, d_NotColor9
+, p_NotColor9
+, d_Color9
+, p_Color9
+, d_NotColor12
+, p_NotColor12
+, d_Color12
+, p_Color12
+, d_Hot70
+, p_Hot70
+, d_Hot80
+, p_Hot80
+, d_Hot100
+, p_Hot100
+, d_Hot120
+, p_Hot120
+, d_Phosphor
+, p_Phosphor
+, d_Termo
+, p_Termo
+, d_Otzhig
+, p_Otzhig
+, d_Prepacked
+, p_Prepacked
+, d_Blister2
+, p_Blister2
+, d_Blister4
+, p_Blister4
+, d_Blister17
+, p_Blister17      : LongInt;
+
+  piExClass        : iExtClass;
+
+  Error_Volume     : boolean;
+
+as select
+  if (UserDeskRep.ResComp[1] <> 0, tfGroupMC.Name,
+     if (UserDeskRep.ResWord[1] <> 0, 'Множественный выбор (' + UserDeskRep.ResWord[2] + ')', ''))
+           (FieldName = sGroupMC)
+   , if (UserDeskRep.ResWord[3] <> 0, ''#251, '')
+           (FieldName = notGroupMC)
+
+, if (UserDeskRep.ResComp[2] <> 0, ExClassSeg_g.Name,
+     if (UserDeskRep.ResWord[4] <> 0, 'Множественный выбор (' + UserDeskRep.ResWord[5] + ')', ''))
+           (FieldName = sGOST)
+   , if (UserDeskRep.ResWord[6] <> 0, ''#251, '')
+           (FieldName = notGOST)
+
+   , if (UserDeskRep.ResWord[7] <> 0, ''#251, '')
+           (FieldName = notDiametr)
+      from
+     Pick
+   , PickRep
+   , UserDeskRep
+   , Prices
+   , KatMC
+   , GroupMC
+   , ExClassVal
+   , ExClassName
+   , synonym GroupMC tfGroupMC
+   , synonym ExClassVal ExClassVal_g
+   , synonym ExClassSeg ExClassSeg_g
+
+  where (( UserName                              == UserDeskRep.OwnName
+      and  nReport                               == UserDeskRep.nRep
+      and  UserDeskRep.ResComp[1]                == tfGroupMC.nRec
+      and  UserDeskRep.ResComp[2]                == ExClassSeg_g.nRec
+
+      and  cKlPrices                             == Prices.cKlPrice
+      and  Prices.cThing                        /== KatMC.nRec
+
+      and  word(1411)                            == ExClassVal.wTable
+      and  KatMC.nRec                            == ExClassVal.cRec
+      and  word(54)                              == ExClassVal.ClassCode         (noindex)
+
+      and  word(1411)                            == ExClassName.wTable
+      and  KonsDoc                               == ExClassName.ClassCode
+       ))
+
+    Bounds GroupMC_b    = UserDeskRep.ResComp[1] == KatMC.cGroupMC               (noindex)
+
+    Bounds GOST_b1      = word(1411)             == ExClassVal_g.wTable
+    Bounds GOST_b2      = KatMC.nRec            /== ExClassVal_g.cRec
+    Bounds GOST_b3      = KonsDoc                == ExClassVal_g.ClassCode       (noindex)
+    Bounds GOST_b4      = UserDeskRep.ResComp[2] == ExClassVal_g.cClassSeg       (noindex)
+
+    Bounds DiametrOt_b  = dDiametrOt            <<= KatMC.SizeX                  (noindex)
+    Bounds DiametrDo_b  = dDiametrDo            >>= KatMC.SizeX                  (noindex)
+;
+
+Parameters
+  cKlPrices        // nRec прайс-листа
+;
+
+#include pmarker.vpp
+
+Function FindInPickRep ( _wList : word ; _cRec : comp ) : word;
+{
+  FindInPickRep := GetFirst PickRep where ((  UserName          == PickRep.OwnName
+                                          and UserDeskRep.nRec  == PickRep.cUserDeskRep
+                                          and _wList            == PickRep.wList
+                                          and _cRec             == PickRep.cRec
+                                          ))
+}
+
+Function ThisRecordIsOK  : boolean;
+{
+  ThisRecordIsOK := false;
+
+// Группа МЦ
+  if( UserDeskRep.ResComp[1] = 0 )
+   { if( UserDeskRep.ResWord[1] <> 0 )
+      { if (UserDeskRep.ResWord[3] = 0 )
+         {if (FindInPickRep( nReport + 1, KatMC.cGroupMC) <> tsOK)
+              Exit ;
+         } else
+               {if (FindInPickRep( nReport + 1, KatMC.cGroupMC) = tsOK)
+                    Exit ;
+               }
+      }
+   } else
+         { if (UserDeskRep.ResWord[3] <> 0 )                                     // стоит обратный фильтр для одиночного выбора
+               if (KatMC.cGroupMC = UserDeskRep.ResComp[1])
+                   Exit ;
+         }
+// ГОСТ
+  if( UserDeskRep.ResComp[2] = 0 )
+   { if( UserDeskRep.ResWord[4] <> 0 )
+      { if (UserDeskRep.ResWord[6] = 0 )
+         { if (GetFirst ExClassVal = tsOK)
+               {if (  FindInPickRep( nReport + 2, ExClassVal.cClassSeg) <> tsOK )
+                   Exit;
+               }
+            else
+                   Exit;
+         } else
+               { if (GetFirst ExClassVal = tsOK)
+                     {if (FindInPickRep( nReport + 2, ExClassVal.cClassSeg) = tsOK)
+                         Exit;
+                     }
+               }
+      }
+   } else
+         { if (UserDeskRep.ResWord[6] <> 0 )                                     // стоит обратный фильтр для одиночного выбора
+              if (GetFirst ExClassVal = tsOK)
+                 if (ExClassVal.cClassSeg = UserDeskRep.ResComp[2])
+                   Exit ;
+         }
+
+// Диаметр
+
+  if (UserDeskRep.ResWord[7] <> 0)
+     if (dDiametrOt <= KatMC.SizeX and KatMC.SizeX <= dDiametrDo)
+        Exit;
+
+  ThisRecordIsOK := true;
+}
+
+#include E:\!RechicaMetizPlant\!project\L_PRICES\vip\FuncObrabotka.vpp            // функции, определяющие мех. обработку МЦ
+
+Procedure loop_Prices;
+{
+  StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm, ''#3'Выполняется пересчёт', 1);
+
+ _loop Prices
+ { if( NOT ThisRecordIsOK ) Continue;
+  if (iskBlack1)    UpDate current Prices set Prices.Price := Trunc(Prices.Price * kBlack1);
+  if (iskBlack2)    UpDate current Prices set Prices.Price := Trunc(Prices.Price * kBlack2);
+
+  if (isNotColor6)  UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_NotColor6);
+  if (isColor6)     UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Color6);
+  if (isNotColor9)  UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_NotColor9);
+  if (isColor9)     UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Color9);
+  if (isNotColor12) UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_NotColor12);
+  if (isColor12)    UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Color12);
+  if (isHot70)      UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot70 * KatMC.Volume);
+  if (isHot80)      UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot80 * KatMC.Volume);
+  if (isHot100)     UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot100 * KatMC.Volume);
+  if (isHot120)     UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot120 * KatMC.Volume);
+//  if (isHot70)      UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot70);
+//  if (isHot80)      UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot80);
+//  if (isHot100)     UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot100);
+//  if (isHot120)     UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Hot120);
+
+  if (piExClass.GetSegCode(TipPokr , KatMC.nRec) = '03') UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Phosphor);  // Тип покрытия: Фосфатирование
+  if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '02') UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Termo);     // Термообработка: термообработка
+  if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '01') UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Otzhig);    // Термообработка: отжиг
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '01') UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Prepacked); // Упаковка: мелкорасфасованная
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '02') UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Blister2);  // Упаковка: Блистер БЛ-002/1
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '03') UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Blister4);  // Упаковка: Блистер БЛ-004/1
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '04') UpDate current Prices set Prices.Price := Trunc(Prices.Price - d_Blister17); // Упаковка: Блистер К-17
+
+  if (not iskBlack1 and not iskBlack2) UpDate current Prices set Prices.Price := Trunc(Prices.Price * kBlackFree);
+
+  if (isNotColor6)  UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_NotColor6);
+  if (isColor6)     UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Color6);
+  if (isNotColor9)  UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_NotColor9);
+  if (isColor9)     UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Color9);
+  if (isNotColor12) UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_NotColor12);
+  if (isColor12)    UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Color12);
+  if (isHot70)      UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot70 * KatMC.Volume);
+  if (isHot80)      UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot80 * KatMC.Volume);
+  if (isHot100)     UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot100 * KatMC.Volume);
+  if (isHot120)     UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot120 * KatMC.Volume);
+//  if (isHot70)      UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot70);
+//  if (isHot80)      UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot80);
+//  if (isHot100)     UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot100);
+//  if (isHot120)     UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Hot120);
+
+  if (piExClass.GetSegCode(TipPokr , KatMC.nRec) = '03') UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Phosphor);  // Тип покрытия: Фосфатирование
+  if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '02') UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Termo);     // Термообработка: термообработка
+  if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '01') UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Otzhig);    // Термообработка: отжиг
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '01') UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Prepacked); // Упаковка: мелкорасфасованная
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '02') UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Blister2);  // Упаковка: Блистер БЛ-002/1
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '03') UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Blister4);  // Упаковка: Блистер БЛ-004/1
+  if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '04') UpDate current Prices set Prices.Price := Trunc(Prices.Price + p_Blister17); // Упаковка: Блистер К-17
+ }
+
+  StopVisual('',0);
+}
+
+Procedure SetFilterBounds;
+{
+  if ( UserDeskRep.ResWord[3] = 0 and UserDeskRep.ResComp[1] <> 0 )
+     { if ( not BoundActive(tbGroupMC_b)   ) AddBounds(tbGroupMC_b);
+     }
+  else
+     { if (     BoundActive(tbGroupMC_b)   ) SubBounds(tbGroupMC_b);
+     }
+
+  if (UserDeskRep.ResWord[6] = 0 and UserDeskRep.ResComp[2] <> 0 )
+     { if ( not BoundActive(tbGOST_b1)   ) AddBounds(tbGOST_b1);
+       if ( not BoundActive(tbGOST_b2)   ) AddBounds(tbGOST_b2);
+       if ( not BoundActive(tbGOST_b3)   ) AddBounds(tbGOST_b3);
+       if ( not BoundActive(tbGOST_b4)   ) AddBounds(tbGOST_b4);
+     }
+  else
+     { if (     BoundActive(tbGOST_b1)   ) SubBounds(tbGOST_b1);
+       if (     BoundActive(tbGOST_b2)   ) SubBounds(tbGOST_b2);
+       if (     BoundActive(tbGOST_b3)   ) SubBounds(tbGOST_b3);
+       if (     BoundActive(tbGOST_b4)   ) SubBounds(tbGOST_b4);
+     }
+
+  if (UserDeskRep.ResWord[7] <> 0 or (dDiametrOt = 0 and dDiametrDo = 0) )
+     { if (     BoundActive(tbDiametrOt_b)   ) SubBounds(tbDiametrOt_b);
+       if (     BoundActive(tbDiametrDo_b)   ) SubBounds(tbDiametrDo_b);
+     }
+  else
+     { if ( not BoundActive(tbDiametrOt_b)   ) AddBounds(tbDiametrOt_b);
+       if ( not BoundActive(tbDiametrDo_b)   ) AddBounds(tbDiametrDo_b);
+     }
+
+}
+
+Screen sBaseFilter;
+Table UserDeskRep;
+
+bevel b01 {1, 0, 68, 5, bsLowered, bsFrame};
+Fields
+
+  sGroupMC   ('Выбор группы МЦ'         , , sci13Esc  ): Protect, PickButton;
+  notGroupMC ('Обратный выбор группы МЦ', , sci13Esc  ): Protect, PickButton;
+  sGOST      ('Выбор ГОСТа'             , , sci13Esc  ): Protect, PickButton;
+  notGOST    ('Обратный выбор ГОСТа'    , , sci13Esc  ): Protect, PickButton;
+
+  dDiametrOt ('Выбор диаметра От'                     ): ['\2p[|-]3666`666`666`666`666.89'], NoProtect;
+  dDiametrDo ('Выбор диаметра До'                     ): ['\2p[|-]3666`666`666`666`666.89'], NoProtect;
+  notDiametr ('Обратный выбор диамера'  , , sci13Esc  ): Protect, PickButton;
+
+  kBlackFree ('Коэффициент без покрытия'           ): ['\2p[|-]3666`666`666`666`666.8889'], NoProtect;
+  kBlack1    ('Коэффициент на продукцию 1-го сорта'): ['\2p[|-]3666`666`666`666`666.8889'], NoProtect;
+  kBlack2    ('Коэффициент на продукцию 2-го сорта'): ['\2p[|-]3666`666`666`666`666.8889'], NoProtect;
+
+d_NotColor6  ('до Оцинкованная бесцветное хромир. 6'    ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_NotColor6  ('после Оцинкованная бесцветное хромир. 6' ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Color6     ('до Оцинкованная радужное хромир. 6'      ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Color6     ('после Оцинкованная радужное хромир. 6'   ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_NotColor9  ('до Оцинкованная бесцветное хромир. 9'    ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_NotColor9  ('после Оцинкованная бесцветное хромир. 9' ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Color9     ('до Оцинкованная радужное хромир. 9'      ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Color9     ('после Оцинкованная радужное хромир. 9'   ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_NotColor12 ('до Оцинкованная бесцветное хромир. 12'   ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_NotColor12 ('после Оцинкованная бесцветное хромир. 12'): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Color12    ('до Оцинкованная радужное хромир. 12'     ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Color12    ('после Оцинкованная радужное хромир. 12'  ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Hot70      ('до Горячеоцинкованная 70'                ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Hot70      ('после Горячеоцинкованная 70'             ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Hot80      ('до Горячеоцинкованная 80'                ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Hot80      ('после Горячеоцинкованная 80'             ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Hot100     ('до Горячеоцинкованная 100'               ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Hot100     ('после Горячеоцинкованная 100'            ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Hot120     ('до Горячеоцинкованная 120'               ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Hot120     ('после Горячеоцинкованная 120'            ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Phosphor   ('до Фосфатированная'                      ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Phosphor   ('после Фосфатированная'                   ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Termo      ('до Термообработанная'                    ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Termo      ('после Термообработанная'                 ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Otzhig     ('до Отожжённая'                           ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Otzhig     ('после Отожжённая'                        ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Prepacked  ('до Мелко расфасовання'                   ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Prepacked  ('после Мелко расфасовання'                ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Blister2   ('до Расфасованная в блистеры БЛ-002/1'    ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Blister2   ('после Расфасованная в блистеры БЛ-002/1' ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Blister4   ('до Расфасованная в блистеры БЛ-004/1'    ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Blister4   ('после Расфасованная в блистеры БЛ-004/1' ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+d_Blister17  ('до Расфасованная в блистеры К-17'        ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+p_Blister17  ('после Расфасованная в блистеры К-17'     ): ['\2p[|-]3666`666`666`666`666'], NoProtect;
+
+Buttons
+  cmOk, Default, , 'Ввод - выполнить пересчёт', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+  Установка фильтров:                                       Кроме:
+      Группа МЦ   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@
+      ГОСТ        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@
+      Диаметр          от: .@@@@@@@@@@ до:.@@@@@@@@@@       .@@@
+
+ `Коэффициент повышения цены продукции без покрытия `.@@@@@@@@@@
+ `Коэффициент на чёрную продукцию 1-го сорта        `.@@@@@@@@@@
+ `Коэффициент на чёрную продукцию 2-го сорта        `.@@@@@@@@@@
+
+                                                                           До повышения           После повышения
+
+ `Оцинкованная продукция бесцветное хромирование толщина покрытия 6 мкм  `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Оцинкованная продукция радужное хромирование толщина покрытия 6 мкм    `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Оцинкованная продукция бесцветное хромирование толщина покрытия 9 мкм  `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Оцинкованная продукция радужное хромирование толщина покрытия 9 мкм    `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Оцинкованная продукция бесцветное хромирование толщина покрытия 12 мкм `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Оцинкованная продукция радужное хромирование толщина покрытия 12 мкм   `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Горячеоцинкованная продукция толщина покрытия 70 мкм                   `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Горячеоцинкованная продукция толщина покрытия 80 мкм                   `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Горячеоцинкованная продукция толщина покрытия 100 мкм                  `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Горячеоцинкованная продукция толщина покрытия 120 мкм                  `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Фосфатированная продукция                                              `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Термообработання продукция                                             `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Отожжённая продукция                                                   `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Мелко расфасованная продукция                                          `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Продукция, расфасованная в блистеры БЛ-002/1                           `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Продукция, расфасованная в блистеры БЛ-004/1                           `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+ `Продукция, расфасованная в блистеры К-17                               `.@@@@@@@@@@@@            .@@@@@@@@@@@@
+
+                          <. Пересчёт .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInsertRecord:
+  Insert Current UserDeskRep;
+
+cmUpdateRecord:
+{  UserDeskRep.OwnName := UserName;
+   update current UserDeskRep;
+}
+
+cmDeleteRecord:
+    Delete Current UserDeskRep;
+
+
+cmInit:
+{
+  nReport      := 17030;
+
+   if (GetFirst UserDeskRep <> tsOK)
+    {
+      ClearBuffer(#UserDeskRep);
+       UserDeskRep.OwnName := UserName;
+       UserDeskRep.nRep    := nReport;
+      insert current UserDeskRep;
+    }
+
+  if (GetFirst tfGroupMC    = tsOK) {}
+  if (GetFirst ExClassSeg_g = tsOK) {}
+
+  Error_Volume := false;
+
+  kBlackFree   := 0;
+  kBlack1      := 0;
+  kBlack2      := 0;
+
+  d_NotColor6  := 0;
+  p_NotColor6  := 0;
+  d_Color6     := 0;
+  p_Color6     := 0;
+  d_NotColor9  := 0;
+  p_NotColor9  := 0;
+  d_Color9     := 0;
+  p_Color9     := 0;
+  d_NotColor12 := 0;
+  p_NotColor12 := 0;
+  d_Color12    := 0;
+  p_Color12    := 0;
+  d_Hot70      := 0;
+  p_Hot70      := 0;
+  d_Hot80      := 0;
+  p_Hot80      := 0;
+  d_Hot100     := 0;
+  p_Hot100     := 0;
+  d_Hot120     := 0;
+  p_Hot120     := 0;
+  d_Phosphor   := 0;
+  p_Phosphor   := 0;
+  d_Termo      := 0;
+  p_Termo      := 0;
+  d_Otzhig     := 0;
+  p_Otzhig     := 0;
+  d_Prepacked  := 0;
+  p_Prepacked  := 0;
+  d_Blister2   := 0;
+  p_Blister2   := 0;
+  d_Blister4   := 0;
+  p_Blister4   := 0;
+  d_Blister17  := 0;
+  p_Blister17  := 0;
+
+  ReadMyDSK(dDiametrOt             , 'SchetPrices_dDiametrOt'             , true);
+  ReadMyDSK(dDiametrDo             , 'SchetPrices_dDiametrDo'             , true);
+  ReadMyDSK(kBlackFree             , 'SchetPrices_kBlackFree'             , true);
+  ReadMyDSK(kBlack1                , 'SchetPrices_kBlack1'                , true);
+  ReadMyDSK(kBlack2                , 'SchetPrices_kBlack2'                , true);
+  ReadMyDSK(d_NotColor6            , 'SchetPrices_d_NotColor6'            , true);
+  ReadMyDSK(p_NotColor6            , 'SchetPrices_p_NotColor6'            , true);
+  ReadMyDSK(d_Color6               , 'SchetPrices_d_Color6'               , true);
+  ReadMyDSK(p_Color6               , 'SchetPrices_p_Color6'               , true);
+  ReadMyDSK(d_NotColor9            , 'SchetPrices_d_NotColor9'            , true);
+  ReadMyDSK(p_NotColor9            , 'SchetPrices_p_NotColor9'            , true);
+  ReadMyDSK(d_Color9               , 'SchetPrices_d_Color9'               , true);
+  ReadMyDSK(p_Color9               , 'SchetPrices_p_Color9'               , true);
+  ReadMyDSK(d_NotColor12           , 'SchetPrices_d_NotColor12'           , true);
+  ReadMyDSK(p_NotColor12           , 'SchetPrices_p_NotColor12'           , true);
+  ReadMyDSK(d_Color12              , 'SchetPrices_d_Color12'              , true);
+  ReadMyDSK(p_Color12              , 'SchetPrices_p_Color12'              , true);
+  ReadMyDSK(d_Hot70                , 'SchetPrices_d_Hot70'                , true);
+  ReadMyDSK(p_Hot70                , 'SchetPrices_p_Hot70'                , true);
+  ReadMyDSK(d_Hot80                , 'SchetPrices_d_Hot80'                , true);
+  ReadMyDSK(p_Hot80                , 'SchetPrices_p_Hot80'                , true);
+  ReadMyDSK(d_Hot100               , 'SchetPrices_d_Hot100'               , true);
+  ReadMyDSK(p_Hot100               , 'SchetPrices_p_Hot100'               , true);
+  ReadMyDSK(d_Hot120               , 'SchetPrices_d_Hot120'               , true);
+  ReadMyDSK(p_Hot120               , 'SchetPrices_p_Hot120'               , true);
+  ReadMyDSK(d_Phosphor             , 'SchetPrices_d_Phosphor'             , true);
+  ReadMyDSK(p_Phosphor             , 'SchetPrices_p_Phosphor'             , true);
+  ReadMyDSK(d_Termo                , 'SchetPrices_d_Termo'                , true);
+  ReadMyDSK(p_Termo                , 'SchetPrices_p_Termo'                , true);
+  ReadMyDSK(d_Otzhig               , 'SchetPrices_d_Otzhig'               , true);
+  ReadMyDSK(p_Otzhig               , 'SchetPrices_p_Otzhig'               , true);
+  ReadMyDSK(d_Prepacked            , 'SchetPrices_d_Prepacked'            , true);
+  ReadMyDSK(p_Prepacked            , 'SchetPrices_p_Prepacked'            , true);
+  ReadMyDSK(d_Blister2             , 'SchetPrices_d_Blister2'             , true);
+  ReadMyDSK(p_Blister2             , 'SchetPrices_p_Blister2'             , true);
+  ReadMyDSK(d_Blister4             , 'SchetPrices_d_Blister4'             , true);
+  ReadMyDSK(p_Blister4             , 'SchetPrices_p_Blister4'             , true);
+  ReadMyDSK(d_Blister17            , 'SchetPrices_d_Blister17'            , true);
+  ReadMyDSK(p_Blister17            , 'SchetPrices_p_Blister17'            , true);
+}
+
+cmDone:
+{
+  SaveMyDSK(dDiametrOt             , 'SchetPrices_dDiametrOt');
+  SaveMyDSK(dDiametrDo             , 'SchetPrices_dDiametrDo');
+  SaveMyDSK(kBlackFree             , 'SchetPrices_kBlackFree');
+  SaveMyDSK(kBlack1                , 'SchetPrices_kBlack1');
+  SaveMyDSK(kBlack2                , 'SchetPrices_kBlack2');
+  SaveMyDSK(d_NotColor6            , 'SchetPrices_d_NotColor6');
+  SaveMyDSK(p_NotColor6            , 'SchetPrices_p_NotColor6');
+  SaveMyDSK(d_Color6               , 'SchetPrices_d_Color6');
+  SaveMyDSK(p_Color6               , 'SchetPrices_p_Color6');
+  SaveMyDSK(d_NotColor9            , 'SchetPrices_d_NotColor9');
+  SaveMyDSK(p_NotColor9            , 'SchetPrices_p_NotColor9');
+  SaveMyDSK(d_Color9               , 'SchetPrices_d_Color9');
+  SaveMyDSK(p_Color9               , 'SchetPrices_p_Color9');
+  SaveMyDSK(d_NotColor12           , 'SchetPrices_d_NotColor12');
+  SaveMyDSK(p_NotColor12           , 'SchetPrices_p_NotColor12');
+  SaveMyDSK(d_Color12              , 'SchetPrices_d_Color12');
+  SaveMyDSK(p_Color12              , 'SchetPrices_p_Color12');
+  SaveMyDSK(d_Hot70                , 'SchetPrices_d_Hot70');
+  SaveMyDSK(p_Hot70                , 'SchetPrices_p_Hot70');
+  SaveMyDSK(d_Hot80                , 'SchetPrices_d_Hot80');
+  SaveMyDSK(p_Hot80                , 'SchetPrices_p_Hot80');
+  SaveMyDSK(d_Hot100               , 'SchetPrices_d_Hot100');
+  SaveMyDSK(p_Hot100               , 'SchetPrices_p_Hot100');
+  SaveMyDSK(d_Hot120               , 'SchetPrices_d_Hot120');
+  SaveMyDSK(p_Hot120               , 'SchetPrices_p_Hot120');
+  SaveMyDSK(d_Phosphor             , 'SchetPrices_d_Phosphor');
+  SaveMyDSK(p_Phosphor             , 'SchetPrices_p_Phosphor');
+  SaveMyDSK(d_Termo                , 'SchetPrices_d_Termo');
+  SaveMyDSK(p_Termo                , 'SchetPrices_p_Termo');
+  SaveMyDSK(d_Otzhig               , 'SchetPrices_d_Otzhig');
+  SaveMyDSK(p_Otzhig               , 'SchetPrices_p_Otzhig');
+  SaveMyDSK(d_Prepacked            , 'SchetPrices_d_Prepacked');
+  SaveMyDSK(p_Prepacked            , 'SchetPrices_p_Prepacked');
+  SaveMyDSK(d_Blister2             , 'SchetPrices_d_Blister2');
+  SaveMyDSK(p_Blister2             , 'SchetPrices_p_Blister2');
+  SaveMyDSK(d_Blister4             , 'SchetPrices_d_Blister4');
+  SaveMyDSK(p_Blister4             , 'SchetPrices_p_Blister4');
+  SaveMyDSK(d_Blister17            , 'SchetPrices_d_Blister17');
+  SaveMyDSK(p_Blister17            , 'SchetPrices_p_Blister17');
+}
+
+cmPick:
+{
+ var
+  NumPick : Word;
+
+  case CurField of
+    #sGroupMC:
+      {
+       DelPick(Word(2));
+        PickRep2Pick(NReport  + 1, Word(2), UserDeskRep.ResComp[1]);
+        UserDeskRep.ResComp[1] := UserDeskRep.ResComp[1];
+
+        if ( RunInterface('L_MCU::GetGrMCS', comp(0), '', true) <> cmCancel )
+          {
+            DelPickRep(NReport + 1);
+            Pick2PickRep(Word(2), NReport + 1, UserDeskRep.ResComp[1], NumPick);
+
+            if ( NumPick > 1 )
+             { Set UserDeskRep.ResWord[1] := nReport + 1;
+               Set UserDeskRep.ResWord[2] := NumPick; }
+            else
+             { Set UserDeskRep.ResWord[1] := 0;
+               Set UserDeskRep.ResWord[2] := NumPick; }
+          }
+      if (GetFirst tfGroupMc = OK) {}
+      }
+
+    #sGOST:
+      {
+         DelPick(Word(633));
+          PickRep2Pick(nReport + 2, Word(633), UserDeskRep.ResComp[2]);
+
+          if (RunInterface('C_ExtClass::SomeExClassifier_RMZ', coKatMC
+                                                             , ExClassName.nRec
+                                                             , UserDeskRep.ResComp[2]) = cmDefault)
+          {
+            DelPickRep(nReport + 2);
+            Pick2PickRep(Word(633), NReport + 2, UserDeskRep.ResComp[2], NumPick);
+            if (NumPick > 1)
+              { Set UserDeskRep.ResWord[4] := nReport + 2;
+                Set UserDeskRep.ResWord[5] := NumPick; }
+            else
+              { Set UserDeskRep.ResWord[4] := 0;
+                Set UserDeskRep.ResWord[5] := NumPick; }
+          }
+      if (GetFirst ExClassSeg_g = OK) {}
+      }
+
+    #notGroupMC:
+      set UserDeskRep.ResWord[3] := UserDeskRep.ResWord[3] xor 1;
+
+    #notGOST:
+      set UserDeskRep.ResWord[6] := UserDeskRep.ResWord[6] xor 1;
+
+    #notDiametr:
+      set UserDeskRep.ResWord[7] := UserDeskRep.ResWord[7] xor 1;
+
+   end; // case
+                 RescanPanel(#UserDeskRep);
+}
+
+cmDelOnProtect:
+{
+  case CurField of
+    #sGroupMC:
+      {
+      DelPickRep( nReport + 1 );
+       Set UserDeskRep.ResComp[1] := 0;
+       Set UserDeskRep.ResWord[1] := 0;
+       Set UserDeskRep.ResWord[2] := 0;
+      }
+     #sGOST:
+      {
+      DelPickRep( nReport + 2 );
+       Set UserDeskRep.ResComp[2] := 0;
+       Set UserDeskRep.ResWord[4] := 0;
+       Set UserDeskRep.ResWord[5] := 0;
+      }
+  end;
+                 RescanPanel(#UserDeskRep);
+}
+
+cmCheckField :
+{
+  case CurField Of
+     #dDiametrOt:
+    {
+       if( dDiametrOt > dDiametrDo )
+         SetFontBackgroundColor(0, #dDiametrOt, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dDiametrOt, 0);
+         SetFontBackgroundColor(0, #dDiametrDo, 0);
+       }
+    }
+
+     #dDiametrDo:
+    {
+       if( dDiametrOt > dDiametrDo )
+         SetFontBackgroundColor(0, #dDiametrDo, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dDiametrOt, 0);
+         SetFontBackgroundColor(0, #dDiametrDo, 0);
+       }
+    }
+  end;
+}
+
+cmOK :
+{
+    if ( dDiametrOt <> 0 and
+         dDiametrDo <> 0 and
+         dDiametrOt >=  dDiametrDo)
+    { Message(''#3'Ошибка ввода диапазона диаметров', Error+CancelButton);
+      Abort;
+      Exit;
+    }
+
+    if (kBlackFree = 0)
+    { Message(''#3'Коэффициент без покрытия не указан!', Error+CancelButton);
+      Abort;
+      Exit;
+    }
+
+  SetFilterBounds;
+  loop_Prices;
+
+  if (Error_Volume) Message('В процессе пересчёта обнаружены МЦ с неуказанным объёмом!'#13 +
+   'смотри файл ' + 'C:\Documents and Settings\Error_' + Prices.Name + '_' + Cur_Date + '.log' , Warning);
+
+  CloseInterface (cmOK) ;
+}
+
+cmCancel  :
+{
+  CloseInterface (cmCancel) ;
+}
+
+end;
+
+end.

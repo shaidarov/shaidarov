@@ -1,0 +1,91 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Бухгалтерский контур
+// Точка расширения для удаления пользовательских данных
+// в момент отмены ТХО. См.ПИР 104.1473 отраслевое решение
+// для "Укрсоцстрах, ОАО Страховая компания"
+//******************************************************************************
+
+#include TxoUnBind.vih
+
+#Component "F_TXO"
+
+#doc
+Точка расширения для удаления пользовательских данных в момент отмены ТХО.
+#end
+
+interface TxoUserUnbinder 'Удаление при отвязке TXO';
+
+var
+   CurSoprHoz :comp;
+                
+create view
+as select                 
+  *
+from
+     BookPrZk
+   , KatSopr
+   , SchFact
+   , SchFact SchFact_2
+   , SoprHoz
+   , SoprHoz SoprHoz_2
+
+where
+((
+                             CurSoprHoz         == SoprHoz.nRec
+                         and SoprHoz.nRec       == SchFact.cSoprHoz
+                         and SoprHoz.cSoprDoc   == KatSopr.nRec
+))
+bounds SoprovDoc        =    SchFact.nRec       == BookPrZk.cSchFact
+bounds PlatDoc          =    SchFact.nRec       == BookPrZk.cSchFactS
+;
+
+// событие, происходит когда нужно удалить все записи по журналу хозопераций
+function OnDeleteHoz(cSoprHoz : comp; cPlansSch : comp) : boolean;
+{
+  comp(cSoprHoz);
+  comp(cPlansSch);
+  OnDeleteHoz := true;
+
+  CurSoprHoz := cSoprHoz;
+
+If (GetFirst SoprHoz = tsOK)
+
+   case SoprHoz.TipDoc of
+    101, 111, 211 :   // соответственно Накладная на приём товара и Акт на приём услуг, Акт на оказание услуг
+    {
+      PushBounds (tbSoprovDoc);
+
+        If (GetFirst BookPrZk = tsOK)
+          Do {
+             If (Delete current BookPrZk = tsOK) {}
+             }
+          While (GetNext BookPrZk = tsOK )
+
+    If (Delete current SchFact = tsOK) {}
+
+      If (GetFirst KatSopr = tsOK) {
+       set KatSopr.cSchFact := comp(0);
+       Update current KatSopr;
+      }
+    }
+
+    1, 2, 10031 :   // соответственно Платёжное собственное поручение, Платёжное стороннее поручение и Бухгалтерская справка
+    {
+
+      PushBounds (tbPlatDoc);
+
+         If (GetFirst BookPrZk = tsOK)
+           Do {
+             If (Delete current BookPrZk = tsOK) {}
+           }
+           While (GetNext BookPrZk = tsOK)
+
+    If (Delete current SchFact = tsOK) {}
+    
+    }
+    else  exit;
+   end;
+
+}
+end.

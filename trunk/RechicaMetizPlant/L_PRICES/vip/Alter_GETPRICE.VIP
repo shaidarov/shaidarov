@@ -1,0 +1,645 @@
+#component "L_Prices"
+
+alter interface GetPrice;
+
+Const
+  Num_Of_Fields = 9;
+  FullParams: LongInt = (1 shl Num_Of_Fields) - 1;
+end
+
+  create view
+  var
+  optView
+, oldView
+, VlozhGrW
+, unig          : word;
+
+  sGOST
+, sGroupMC
+, sPokrit
+, sTermo
+, sOtbor
+, sProch
+, sRezb         : string;
+
+  dDiametr
+, dDlina        : double;
+
+  cGOST
+, cGroupMC
+, cPokrit
+, cTermo
+, cOtbor
+, cProch
+, cRezb         : comp;
+
+  as select
+   if (VlozhGrW <> 0, ''#251, '')
+           (FieldName = VlozhGr)
+
+  from
+  synonym GroupMC tfGroupMC
+
+, synonym ExClassSeg ExClassSeg_g
+, synonym ExClassSeg ExClassSeg_p
+, synonym ExClassSeg ExClassSeg_t
+, synonym ExClassSeg ExClassSeg_o
+, synonym ExClassSeg ExClassSeg_pch
+, synonym ExClassSeg ExClassSeg_r
+
+, synonym ExClassVal ExClassVal_g
+, synonym ExClassVal ExClassVal_p
+, synonym ExClassVal ExClassVal_t
+, synonym ExClassVal ExClassVal_o   
+, synonym ExClassVal ExClassVal_pch
+, synonym ExClassVal ExClassVal_r
+
+  where ((              Prices.cThing      /== KatMC.nRec
+        ))
+  Bounds GroupMC_b     = tfGroupMC.nRec     == KatMC.cGroupMC               (noindex)
+
+  Bounds GroupMC_vlozh =
+                         tfGroupMC.Kod     <<= KatMC.kGroupMC               (noindex)
+      and PadCh(tfGroupMC.Kod, ''#255, 20) >>= KatMC.kGroupMC               (noindex)
+                         
+  Bounds Diametr_b     = dDiametr           == KatMC.SizeX                  (noindex)
+  Bounds Dlina_b       = dDlina             == KatMC.SizeY                  (noindex)
+//  Bounds GOST_b        = sGOST              == KatMC.Obozn                  (noindex)
+
+  Bounds GOST_b1       = word(1411)         == ExClassVal_g.wTable
+  Bounds GOST_b2       = KatMC.nRec        /== ExClassVal_g.cRec
+  Bounds GOST_b3       = word(54)           == ExClassVal_g.ClassCode       (noindex)
+  Bounds GOST_b4       = cGOST              == ExClassVal_g.cClassSeg       (noindex)
+
+  Bounds Pokrit_b1     = word(1411)         == ExClassVal_p.wTable
+  Bounds Pokrit_b2     = KatMC.nRec        /== ExClassVal_p.cRec
+  Bounds Pokrit_b3     = word(29)           == ExClassVal_p.ClassCode       (noindex)
+  Bounds Pokrit_b4     = cPokrit            == ExClassVal_p.cClassSeg       (noindex)
+
+  Bounds Termo_b1      = word(1411)         == ExClassVal_t.wTable
+  Bounds Termo_b2      = KatMC.nRec        /== ExClassVal_t.cRec
+  Bounds Termo_b3      = word(32)           == ExClassVal_t.ClassCode       (noindex)
+  Bounds Termo_b4      = cTermo             == ExClassVal_t.cClassSeg       (noindex)
+
+  Bounds Otbor_b1      = word(1411)         == ExClassVal_o.wTable
+  Bounds Otbor_b2      = KatMC.nRec        /== ExClassVal_o.cRec
+  Bounds Otbor_b3      = word(21)           == ExClassVal_o.ClassCode       (noindex)
+  Bounds Otbor_b4      = cOtbor             == ExClassVal_o.cClassSeg       (noindex)
+
+  Bounds Proch_b1      = word(1411)         == ExClassVal_pch.wTable
+  Bounds Proch_b2      = KatMC.nRec        /== ExClassVal_pch.cRec
+  Bounds Proch_b3      = word(28)           == ExClassVal_pch.ClassCode     (noindex)
+  Bounds Proch_b4      = cProch             == ExClassVal_pch.cClassSeg     (noindex)
+
+  Bounds Rezb_b1       = word(1411)         == ExClassVal_r.wTable
+  Bounds Rezb_b2       = KatMC.nRec        /== ExClassVal_r.cRec
+  Bounds Rezb_b3       = word(33)           == ExClassVal_r.ClassCode       (noindex)
+  Bounds Rezb_b4       = cRezb              == ExClassVal_r.cClassSeg       (noindex)
+  ;
+
+Procedure SetFilterBounds;
+{
+  if ( (optView AND 000000001b) > 0 and VlozhGrW = 0)
+     { if ( not BoundActive(tbGroupMC_b)   ) AddBounds(tbGroupMC_b); }
+  else
+     { if (     BoundActive(tbGroupMC_b)   ) SubBounds(tbGroupMC_b); }
+
+  if ( (optView AND 000000001b) > 0 and VlozhGrW <> 0)
+     { if ( not BoundActive(tbGroupMC_vlozh)   ) AddBounds(tbGroupMC_vlozh); }
+  else
+     { if (     BoundActive(tbGroupMC_vlozh)   ) SubBounds(tbGroupMC_vlozh); }
+
+  if ( (optView AND 000000010b) > 0 )
+     { if ( not BoundActive(tbDiametr_b)   ) AddBounds(tbDiametr_b); }
+  else
+     { if (     BoundActive(tbDiametr_b)   ) SubBounds(tbDiametr_b); }
+
+  if ( (optView AND 000000100b) > 0 )
+     { if ( not BoundActive(tbDlina_b)     ) AddBounds(tbDlina_b); }
+  else
+     { if (     BoundActive(tbDlina_b)     ) SubBounds(tbDlina_b); }
+
+//  if ( (optView AND 000001000b) > 0 )
+//     { if ( not BoundActive(tbGOST_b)      ) AddBounds(tbGOST_b); }
+//  else
+//     { if (     BoundActive(tbGOST_b)      ) SubBounds(tbGOST_b); }
+
+// -------------- GOST ----------------------------------
+  if ( (optView AND 000001000b) > 0 )
+     { 
+       if ( not BoundActive(tbGOST_b1)   ) AddBounds(tbGOST_b1);
+       if ( not BoundActive(tbGOST_b2)   ) AddBounds(tbGOST_b2);
+       if ( not BoundActive(tbGOST_b3)   ) AddBounds(tbGOST_b3);
+       if ( not BoundActive(tbGOST_b4)   ) AddBounds(tbGOST_b4);
+     }
+  else
+     { 
+       if (     BoundActive(tbGOST_b1)   ) SubBounds(tbGOST_b1);
+       if (     BoundActive(tbGOST_b2)   ) SubBounds(tbGOST_b2);
+       if (     BoundActive(tbGOST_b3)   ) SubBounds(tbGOST_b3);
+       if (     BoundActive(tbGOST_b4)   ) SubBounds(tbGOST_b4);
+     }
+// -------------- Pokrit ----------------------------------
+  if ( (optView AND 000010000b) > 0 )
+     {
+       if ( not BoundActive(tbPokrit_b1)   ) AddBounds(tbPokrit_b1);
+       if ( not BoundActive(tbPokrit_b2)   ) AddBounds(tbPokrit_b2);
+       if ( not BoundActive(tbPokrit_b3)   ) AddBounds(tbPokrit_b3);
+       if ( not BoundActive(tbPokrit_b4)   ) AddBounds(tbPokrit_b4);
+     }
+  else
+     {
+       if (     BoundActive(tbPokrit_b1)   ) SubBounds(tbPokrit_b1);
+       if (     BoundActive(tbPokrit_b2)   ) SubBounds(tbPokrit_b2);
+       if (     BoundActive(tbPokrit_b3)   ) SubBounds(tbPokrit_b3);
+       if (     BoundActive(tbPokrit_b4)   ) SubBounds(tbPokrit_b4);
+     }
+// -------------- Termo ----------------------------------
+  if ( (optView AND 000100000b) > 0 )
+     {
+       if ( not BoundActive(tbTermo_b1)    ) AddBounds(tbTermo_b1);
+       if ( not BoundActive(tbTermo_b2)    ) AddBounds(tbTermo_b2);
+       if ( not BoundActive(tbTermo_b3)    ) AddBounds(tbTermo_b3);
+       if ( not BoundActive(tbTermo_b4)    ) AddBounds(tbTermo_b4);
+     }
+  else
+     {
+       if (     BoundActive(tbTermo_b1)    ) SubBounds(tbTermo_b1);
+       if (     BoundActive(tbTermo_b2)    ) SubBounds(tbTermo_b2);
+       if (     BoundActive(tbTermo_b3)    ) SubBounds(tbTermo_b3);
+       if (     BoundActive(tbTermo_b4)    ) SubBounds(tbTermo_b4);
+     }
+// -------------- Otbor ----------------------------------
+  if ( (optView AND 001000000b) > 0 )
+     {
+       if ( not BoundActive(tbOtbor_b1)    ) AddBounds(tbOtbor_b1);
+       if ( not BoundActive(tbOtbor_b2)    ) AddBounds(tbOtbor_b2);
+       if ( not BoundActive(tbOtbor_b3)    ) AddBounds(tbOtbor_b3);
+       if ( not BoundActive(tbOtbor_b4)    ) AddBounds(tbOtbor_b4);
+     }
+  else
+     {
+       if (     BoundActive(tbOtbor_b1)    ) SubBounds(tbOtbor_b1);
+       if (     BoundActive(tbOtbor_b2)    ) SubBounds(tbOtbor_b2);
+       if (     BoundActive(tbOtbor_b3)    ) SubBounds(tbOtbor_b3);
+       if (     BoundActive(tbOtbor_b4)    ) SubBounds(tbOtbor_b4);
+     }
+
+// -------------- Proch
+  if ( (optView AND 010000000b) > 0 )
+     {
+       if ( not BoundActive(tbProch_b1)    ) AddBounds(tbProch_b1);
+       if ( not BoundActive(tbProch_b2)    ) AddBounds(tbProch_b2);
+       if ( not BoundActive(tbProch_b3)    ) AddBounds(tbProch_b3);
+       if ( not BoundActive(tbProch_b4)    ) AddBounds(tbProch_b4);
+     }
+  else
+     {
+       if (     BoundActive(tbProch_b1)    ) SubBounds(tbProch_b1);
+       if (     BoundActive(tbProch_b2)    ) SubBounds(tbProch_b2);
+       if (     BoundActive(tbProch_b3)    ) SubBounds(tbProch_b3);
+       if (     BoundActive(tbProch_b4)    ) SubBounds(tbProch_b4);
+     }
+
+
+
+// -------------- Rezb ----------------------------------
+  if ( (optView AND 100000000b) > 0 )
+     {
+       if ( not BoundActive(tbRezb_b1)     ) AddBounds(tbRezb_b1);
+       if ( not BoundActive(tbRezb_b2)     ) AddBounds(tbRezb_b2);
+       if ( not BoundActive(tbRezb_b3)     ) AddBounds(tbRezb_b3);
+       if ( not BoundActive(tbRezb_b4)     ) AddBounds(tbRezb_b4);
+     }
+  else
+     {
+       if (     BoundActive(tbRezb_b1)     ) SubBounds(tbRezb_b1);
+       if (     BoundActive(tbRezb_b2)     ) SubBounds(tbRezb_b2);
+       if (     BoundActive(tbRezb_b3)     ) SubBounds(tbRezb_b3);
+       if (     BoundActive(tbRezb_b4)     ) SubBounds(tbRezb_b4);
+     }
+
+  oldView := optView;
+}
+
+#doc
+Окно установки фильтров
+#end
+
+Window winExcClassMC_Filter 'Установка фильтров по внешней классификации МЦ' EscClose DoAccept;
+  Show at (, , 62, 18);
+
+Panel pExcClassMC;
+Screen ExcClassMC ('', , sci1Esc);
+Fields
+  optView ('Установить фильтр', , sci1Esc): NoProtect;
+
+  sGroupMC ('Выбор группы МЦ'      , , sci13Esc ): Protect, PickButton;
+  VlozhGr  ('Включая вложенные группы МЦ (по коду)', , sci13Esc  ): Protect, PickButton;
+  dDiametr ('Выбор диаметра'                    ): ['\2p[|-]3666`666`666`666`666.89'], NoProtect;
+  dDlina   ('Выбор длины'                       ): ['\2p[|-]3666`666`666`666`666.89'], NoProtect;
+  sGOST    ('Выбор ГОСТа'          , , sci13Esc ): Protect, PickButton;
+  sPokrit  ('Выбор типа покрытия'  , , sci13Esc ): Protect, PickButton;
+  sTermo   ('Выбор термообработки' , , sci13Esc ): Protect, PickButton;
+  sOtbor   ('Выбор признака отбора', , sci13Esc ): Protect, PickButton;
+  sProch   ('Выбор класса прочности', , sci13Esc): Protect, PickButton;
+  sRezb    ('Выбор шага резьбы'    , , sci13Esc ): Protect, PickButton;
+Buttons
+  cmOk, Default, , 'Ввод - принять выбор', , sci1Esc;
+  cmCancel, , , 'Отмена', , sci1Esc;
+<<
+
+ Использовать фильтры:
+  [.] Группа МЦ             `.@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@
+  [.] Диаметр               `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Длина                 `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] ГОСТ                  `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Тип покрытия          `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Термообработка        `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Признак отбора        `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Класс прочности       `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] Шаг резьбы            `.@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        <. Установить .>    <.   Отмена   .>
+
+>>
+End; // Screen
+
+HandleEvent // Panel
+
+cmPick:
+{
+  case CurField of
+    #sGroupMC:
+      {
+        if ( ( RunInterface('L_MCU::GetGrMCS', cGroupMC
+                                             , string('')
+                                             , false)  <> cmCancel )
+              AND
+             (GetFirst tfGroupMC where (( cGroupMC == tfGroupMC.nRec )) = tsOk )
+           )
+          {
+            set sGroupMC := tfGroupMC.Name;
+            set optView  := optView or 00001b; // 1
+          }
+        else
+          set optView := optView AND (FullParams - 00001b);
+      }
+
+    #sGOST:
+      {
+        if ( ( RunInterface('C_ExtClass::PickExClassifier2', ExClassVal_g.wTable
+                                                           , 54
+                                                           , cGOST
+                                                           , unig)  <> cmCancel )
+              AND
+             (GetFirst ExClassSeg_g where (( cGOST == ExClassSeg_g.nRec )) = tsOk )
+           )
+          {
+            set sGOST    := ExClassSeg_g.Name;
+            set optView  := optView or 8;
+          }
+        else
+          set optView := optView AND (FullParams - 8);
+      }
+
+    #sPokrit:
+      {
+        if ( ( RunInterface('C_ExtClass::PickExClassifier2', ExClassVal_p.wTable
+                                                           , 29
+                                                           , cPokrit
+                                                           , unig)  <> cmCancel )
+              AND
+             (GetFirst ExClassSeg_p where (( cPokrit == ExClassSeg_p.nRec )) = tsOk )
+           )
+          {
+            set sPokrit  := ExClassSeg_p.Name;
+            set optView  := optView or 16;
+          }
+        else
+          set optView := optView AND (FullParams - 16);
+      }
+
+    #sTermo:
+      {
+        if ( ( RunInterface('C_ExtClass::PickExClassifier2', ExClassVal_t.wTable
+                                                           , 32
+                                                           , cTermo
+                                                           , unig)  <> cmCancel )
+              AND
+             (GetFirst ExClassSeg_t where (( cTermo == ExClassSeg_t.nRec )) = tsOk )
+           )
+          {
+            set sTermo   := ExClassSeg_t.Name;
+            set optView  := optView or 32;
+          }
+        else
+          set optView := optView AND (FullParams - 32);
+      }
+
+    #sOtbor:
+      {
+        if ( ( RunInterface('C_ExtClass::PickExClassifier2', ExClassVal_o.wTable
+                                                           , 21
+                                                           , cOtbor
+                                                           , unig)  <> cmCancel )
+              AND
+             (GetFirst ExClassSeg_o where (( cOtbor == ExClassSeg_o.nRec )) = tsOk )
+           )
+          {
+            set sOtbor   := ExClassSeg_o.Name;
+            set optView  := optView or 64;
+          }
+        else
+          set optView := optView AND (FullParams - 64);
+      }
+
+    #sProch:
+      {
+        if ( ( RunInterface('C_ExtClass::PickExClassifier2', ExClassVal_pch.wTable
+                                                           , 28
+                                                           , cProch
+                                                           , unig)  <> cmCancel )
+              AND
+             (GetFirst ExClassSeg_pch where (( cProch == ExClassSeg_pch.nRec )) = tsOk )
+           )
+          {
+            set sProch   := ExClassSeg_pch.Name;
+            set optView  := optView or 128;
+          }
+        else
+          set optView := optView AND (FullParams - 128);
+      }
+
+    #sRezb:
+      {
+        if ( ( RunInterface('C_ExtClass::PickExClassifier2', ExClassVal_r.wTable
+                                                           , 33
+                                                           , cRezb
+                                                           , unig)  <> cmCancel )
+              AND
+             (GetFirst ExClassSeg_r where (( cRezb == ExClassSeg_r.nRec )) = tsOk )
+           )
+          {
+            set sRezb    := ExClassSeg_r.Name;
+            set optView  := optView or 256;
+          }
+        else
+          set optView := optView AND (FullParams - 256);
+      }
+    #VlozhGr:
+      {
+      set VlozhGrW := VlozhGrW xor 1;
+      }
+
+  end;      
+//  RescanPanel(CurTable);
+}
+
+cmDelOnProtect:
+{
+  case CurField of
+    #sGroupMC:
+      {
+        set sGroupMC := '';
+        set cGroupMC := 0;
+        set optView  := optView AND (FullParams - 01b);
+      }
+    #sGOST:
+      {
+        set sGOST    := '';
+        set cGOST    := 0;
+        set optView  := optView AND (FullParams - 8);
+      }
+    #sPokrit:
+      {
+        set sPokrit  := '';
+        set cPokrit  := 0;
+        set optView  := optView AND (FullParams - 16);
+      }
+    #sTermo:
+      {
+        set sTermo   := '';
+        set cTermo   := 0;
+        set optView  := optView AND (FullParams - 32);
+      }
+    #sOtbor:
+      {
+        set sOtbor   := '';
+        set cOtbor   := 0;
+        set optView  := optView AND (FullParams - 64);
+      }
+    #sProch:
+      {
+        set sProch   := '';
+        set cProch   := 0;
+        set optView  := optView AND (FullParams - 128);
+      }
+    #sRezb:
+      {
+        set sRezb    := '';
+        set cRezb    := 0;
+        set optView  := optView AND (FullParams - 256);
+      }
+  end;  
+//  RescanPanel(CurTable);
+}
+
+cmCheckField:
+{
+  case CurField of
+    #dDiametr:
+        set optView := optView or 2; // 00010b
+    #dDlina:
+        set optView := optView or 4; // 00100b
+//    #sGOST:
+//        set optView := optView or 8; // 01000b
+
+    #optView:
+      {
+        var wtmp: word; wtmp := optView xor word(OldFieldValue);
+
+        if ( wtmp > 0 )
+          case wtmp of
+            00001b:
+              if ( (optView AND 1) > 0 )
+                {
+                  SelectField(#sGroupMC);
+                  if ( cGroupMC = 0 )  PutCommand(cmPick);
+                }
+                
+            00010b:
+              if ( (optView AND 2) > 0 )
+                {
+                  SelectField(#dDiametr);
+                }
+                
+            00100b: 
+              if ( (optView AND 4) > 0 )
+                {
+                  SelectField(#dDlina);
+                }
+            
+//            01000b:
+//              if ( (optView AND 8) > 0 )
+//                {
+//                  SelectField(#sGOST);
+//                }
+
+             8:
+              if ( (optView AND 8) > 0 )
+                {
+                  SelectField(#sGOST);
+                  if ( cGOST = 0 )  PutCommand(cmPick);
+                }
+
+            16:
+              if ( (optView AND 16) > 0 )
+                {
+                  SelectField(#sPokrit);
+                  if ( cPokrit = 0 )  PutCommand(cmPick);
+                }
+
+            32:
+              if ( (optView AND 32) > 0 )
+                {
+                  SelectField(#sTermo);
+                  if ( cTermo = 0 )  PutCommand(cmPick);
+                }
+
+            64:
+              if ( (optView AND 64) > 0 )
+                {
+                  SelectField(#sOtbor);
+                  if ( cOtbor = 0 )  PutCommand(cmPick);
+                }
+
+           128:
+              if ( (optView AND 128) > 0 )
+                {
+                  SelectField(#sProch);
+                  if ( cProch = 0 )  PutCommand(cmPick);
+                }
+
+           256:
+              if ( (optView AND 256) > 0 )
+                {
+                  SelectField(#sRezb);
+                  if ( cRezb = 0 )  PutCommand(cmPick);
+                }
+          end;
+      }
+    
+  end;
+}
+end; // HandleEvent
+end; // Panel
+
+HandleEvent
+
+cmOk:
+{
+  SetFilterBounds;
+  PutCommand(cmDefault);
+}
+
+cmDone:
+  optView := oldView;
+
+end; // HandleEvent;
+end  // Window SetParam
+
+
+ HandleEvent
+  cmFilterSave:
+  { 
+    RunWindowModal(winExcClassMC_Filter);
+    
+    if (GetFirst Prices = tsOK) {}  // для корректной перерисовки экрана
+    RescanPanel(CurTable);
+  }
+
+  cmInit:
+  {
+  if (inherited::handleEvent (cmInit) = heAbort )
+    Abort;  
+
+    sGOST   := '';
+    sPokrit := '';
+    sTermo  := '';
+    sOtbor  := '';
+    sProch  := '';
+    sRezb   := '';
+    cGOST   := comp(0);
+    cPokrit := comp(0);
+    cTermo  := comp(0);
+    cOtbor  := comp(0);
+    cProch  := comp(0);
+    cRezb   := comp(0);
+
+    ReadMyDSK(cGroupMC, 'GetPrice_ExClassMC_cGroupMC', true);
+        if(GetFirst tfGroupMC where (( cGroupMC == tfGroupMC.nRec )) = tsOk )
+          { sGroupMC := tfGroupMC.Name; }
+
+    ReadMyDSK(VlozhGrW, 'GetPrice_ExClassMC_VlozhGrW', true);
+    ReadMyDSK(dDiametr, 'GetPrice_ExClassMC_dDiametr', true);
+    ReadMyDSK(dDlina,   'GetPrice_ExClassMC_dDlina'  , true);
+//    ReadMyDSK(sGOST,    'GetPrice_ExClassMC_sGOST'   , true);
+
+    ReadMyDSK(cGOST,    'GetPrice_ExClassMC_cGOST'   , true);
+        if(GetFirst ExClassSeg_g where (( cGOST == ExClassSeg_g.Nrec )) = tsOk )
+          { sGOST  := ExClassSeg_g.Name; }
+
+    ReadMyDSK(cPokrit,  'GetPrice_ExClassMC_cPokrit', true);
+        if(GetFirst ExClassSeg_p where (( cPokrit == ExClassSeg_p.Nrec )) = tsOk )
+          { sPokrit  := ExClassSeg_p.Name; }
+
+    ReadMyDSK(cTermo,   'GetPrice_ExClassMC_cTermo',  true);
+        if(GetFirst ExClassSeg_t where (( cTermo  == ExClassSeg_t.Nrec )) = tsOk )
+          { sTermo   := ExClassSeg_t.Name; }
+
+    ReadMyDSK(cOtbor,   'GetPrice_ExClassMC_cOtbor', true);
+        if(GetFirst ExClassSeg_o where (( cOtbor  == ExClassSeg_o.Nrec )) = tsOk )
+          { sOtbor   := ExClassSeg_o.Name; }
+
+    ReadMyDSK(cProch , 'GetPrice_ExClassMC_cProch', true);
+        if(GetFirst ExClassSeg_pch where (( cProch == ExClassSeg_pch.Nrec )) = tsOk )
+          { sProch   := ExClassSeg_pch.Name; }
+
+    ReadMyDSK(cRezb,  'GetPrice_ExClassMC_cRezb', true);
+        if(GetFirst ExClassSeg_r where (( cRezb == ExClassSeg_r.Nrec )) = tsOk )
+          { sRezb    := ExClassSeg_r.Name; }
+  }
+
+  cmDone:
+  {
+    SaveMyDsk(cGroupMC    , 'GetPrice_ExClassMC_cGroupMC');
+    SaveMyDsk(VlozhGrW    , 'GetPrice_ExClassMC_VlozhGrW');
+    SaveMyDsk(dDiametr    , 'GetPrice_ExClassMC_dDiametr');
+    SaveMyDsk(dDlina      , 'GetPrice_ExClassMC_dDlina');
+    SaveMyDsk(cGOST       , 'GetPrice_ExClassMC_cGOST');
+    SaveMyDsk(cPokrit     , 'GetPrice_ExClassMC_cPokrit');
+    SaveMyDsk(cTermo      , 'GetPrice_ExClassMC_cTermo');
+    SaveMyDsk(cOtbor      , 'GetPrice_ExClassMC_cOtbor');
+    SaveMyDsk(cProch      , 'GetPrice_ExClassMC_cProch');
+    SaveMyDsk(cRezb       , 'GetPrice_ExClassMC_cRezb');
+  }
+
+
+  cmHotKeys:
+  {
+  var sA: string;
+  sA := #AddComp('L_PRICES')'mnuGetPriceMCAltB' + ';SEPARATOR;' + #AddComp('L_PRICES')'mnuGetPrice1';
+
+  PutHotCommand(RunDynMenu(sA));
+  }
+ end;
+
+   
+end.
+
+mnuGetPriceMCAltB Menu
+{
+- 'Фильтр на МЦ', cmFilterSave, 'Фильтр на МЦ', , 'Alt-B', kbAltB, sci1Esc;
+}
+
