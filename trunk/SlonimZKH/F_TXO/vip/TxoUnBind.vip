@@ -1,0 +1,53 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Бухгалтерский контур
+// Точка расширения для удаления пользовательских данных
+// в момент отмены ТХО. См.ПИР 104.1473 отраслевое решение
+// для "Укрсоцстрах, ОАО Страховая компания"
+//******************************************************************************
+
+#include TxoUnBind.vih
+
+#Component "F_TXO"
+
+#doc
+Точка расширения для удаления пользовательских данных в момент отмены ТХО.
+#end
+
+interface TxoUserUnbinder 'Удаление при отвязке TXO';
+
+var
+   CurSoprHoz :comp;
+                
+create view
+as select                 
+  *
+from
+     BookPrZk
+   , SchFact
+   , SoprHoz
+where
+((
+      CurSoprHoz         == SoprHoz.nRec
+  and SoprHoz.nRec       == SchFact.cSoprHoz
+  and SchFact.nRec       == BookPrZk.cSchFact
+))
+;
+
+// событие, происходит когда нужно удалить все записи по журналу хозопераций
+function OnDeleteHoz(cSoprHoz : comp; cPlansSch : comp) : boolean;
+{
+  comp(cSoprHoz);
+  comp(cPlansSch);
+  OnDeleteHoz := true;
+
+  CurSoprHoz := cSoprHoz;
+
+If (GetFirst SoprHoz = tsOK)
+   If (GetFirst SchFact = tsOK)
+        If (GetFirst BookPrZk = tsOK)
+
+   If (Delete current BookPrZk = tsOK) {}
+   If (Delete current SchFact = tsOK)  {}
+}
+end.
