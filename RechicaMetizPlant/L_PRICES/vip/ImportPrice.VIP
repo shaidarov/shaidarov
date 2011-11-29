@@ -1,0 +1,586 @@
+#doc
+Интерфейс для закачки данных из Excel в прайс-лист
+Специально для Речицкого Метизного Завода
+#end
+
+
+interface ImportPrices 'Закачка прайс-листов из Excel для РМЗ' EscClose DoAccept;
+  Show at (, , 75, 7);
+
+var
+  aDiametr         : array [1..100] of double;
+  aDiametr_Range   : array [1..200] of double;
+  aDlina           : array [1..100] of double;
+  aGost            : array  [1..20] of string;
+
+  cKlPrice
+, cEdIzm
+, cEdIzmGr
+                   : comp;
+  raw                          // номер строки
+, col                          // номер колонки
+, col_Lim
+, cur_Sheet
+, nReport
+, g
+, i
+, Pos_GOST
+, Pos_Diametr
+, unig             : word;
+
+  dPrice
+, dDiametr
+, dDlina           : double;
+
+  kBlackFree
+, kBlack1
+, kBlack2          : double;
+
+  p_NotColor6
+, p_Color6
+, p_NotColor9
+, p_Color9
+, p_NotColor12
+, p_Color12
+, p_Hot70
+, p_Hot80
+, p_Hot100
+, p_Hot120
+, p_Phosphor
+, p_Termo
+, p_Otzhig
+, p_Prepacked
+, p_Blister2
+, p_Blister4
+, p_Blister17      : double;
+
+  piExClass        : iExtClass;
+
+  isExcelOK
+, Error_Volume     : boolean;
+  
+  s_GroupMC
+, k_GroupMC
+, k_GroupMC_next
+, k_GroupMC_nextSpecEd
+, sGOST
+, tmpGOST
+, tmpDiametr
+, cur_SheetName
+, sDiametr
+, fActiveXLSName   : string;
+
+  qw_Sheet         : integer;
+
+
+create view
+
+as select
+  if (UserDeskRep.ResName[1] <> '', UserDeskRep.ResName[1], '')
+         ( FieldName = fXLSFileName )
+, if (UserDeskRep.ResComp[1] <> 0, KatEd_SpecEd.Name, '')
+         ( FieldName = fEdIzmValue )
+, if (UserDeskRep.ResComp[2] <> 0, GroupMC_SpecEd.Name, '')
+         ( FieldName = fEdIzmGr )
+
+      from
+  Pick
+, PickRep
+, UserDeskRep
+, KlPrice
+, Prices
+, KatMC
+, GroupMC
+, ExClassVal
+, ExClassName
+, synonym KatEd    KatEd_SpecEd
+, synonym GroupMC  GroupMC_SpecEd
+
+  where ((UserName                               == UserDeskRep.OwnName
+      and nReport                                == UserDeskRep.nRep
+
+      and cKlPrice                               == KlPrice.nRec
+
+      and k_GroupMC                             <<= KatMC.kGroupMC
+      and k_GroupMC_next                         >> KatMC.kGroupMC
+        
+      and UserDeskRep.ResComp[1]                 == KatEd_SpecEd.nRec
+      and UserDeskRep.ResComp[2]                 == GroupMC_SpecEd.nRec
+        ))
+    Bounds KatMC_bDl  = aDlina[raw]              == KatMC.SizeY     (noIndex)
+      
+    Bounds KatMC_bD   = aDiametr[col]            == KatMC.SizeX     (noIndex)
+
+    Bounds KatMC_bDr  = aDiametr_Range[col]     <<= KatMC.SizeX     (noIndex)
+                    and aDiametr_Range[col+100] >>= KatMC.SizeX     (noIndex)
+
+    Bounds KatMC_bArh1 = 0                        == KatMC.IsArch   (noIndex)                  // Рабочие  МЦ
+    Bounds KatMC_bArh2 = 1                        == KatMC.IsArch   (noIndex)                  // Архивные МЦ
+;
+
+Parameters
+  cKlPrice         // nRec прайс-листа
+;
+
+#include pmarker.vpp
+
+#include E:\!RechicaMetizPlant\!project\L_PRICES\vip\FuncObrabotka.vpp            // функции, определяющие мех. обработку МЦ
+
+Procedure AddObrabotka;
+{
+  case KlPrice.TipMoney of
+    0 : {                                           // НДЕ
+        if (isNotColor6)  UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_NotColor6);
+        if (isColor6)     UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Color6);
+        if (isNotColor9)  UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_NotColor9);
+        if (isColor9)     UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Color9);
+        if (isNotColor12) UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_NotColor12);
+        if (isColor12)    UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Color12);
+//        if (isHot70)      UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot70 * KatMC.Volume);
+//        if (isHot80)      UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot80 * KatMC.Volume);
+//        if (isHot100)     UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot100 * KatMC.Volume);
+//        if (isHot120)     UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot120 * KatMC.Volume);
+        if (isHot70)      UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot70);
+        if (isHot80)      UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot80);
+        if (isHot100)     UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot100);
+        if (isHot120)     UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Hot120);
+
+        if (piExClass.GetSegCode(TipPokr , KatMC.nRec) = '03') UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Phosphor);  // Тип покрытия: Фосфатирование
+        if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '02') UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Termo);     // Термообработка: термообработка
+        if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '01') UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Otzhig);    // Термообработка: отжиг
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '01') UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Prepacked); // Упаковка: мелкорасфасованная
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '02') UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Blister2);  // Упаковка: Блистер БЛ-002/1
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '03') UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Blister4);  // Упаковка: Блистер БЛ-004/1
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '04') UpDate current Prices set Prices.Price := fRoundRub5(Prices.Price + p_Blister17); // Упаковка: Блистер К-17
+    }
+
+    1 : {                                           // НДЕ + валюты
+        if (isNotColor6)  { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_NotColor6 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_NotColor6); }
+        if (isColor6)     { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Color6 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Color6); }
+        if (isNotColor9)  { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_NotColor9 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_NotColor9); }
+        if (isColor9)     { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Color9 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Color9); }
+        if (isNotColor12) { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_NotColor12 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_NotColor12); }
+        if (isColor12)    { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Color12 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Color12); }
+//        if (isHot70)      { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot70 * KatMC.Volume * KlPrice.Curs),
+//                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot70 * KatMC.Volume) }
+//        if (isHot80)      { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot80 * KatMC.Volume * KlPrice.Curs),
+//                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot80 * KatMC.Volume); }
+//        if (isHot100)     { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot100 * KatMC.Volume * KlPrice.Curs),
+//                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot100 * KatMC.Volume); }
+//        if (isHot120)     { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot120 * KatMC.Volume * KlPrice.Curs),
+//                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot120 * KatMC.Volume); }
+        if (isHot70)      { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot70 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot70) }
+        if (isHot80)      { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot80 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot80); }
+        if (isHot100)     { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot100 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot100); }
+        if (isHot120)     { UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Hot120 * KlPrice.Curs),
+                                                      Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot120); }
+        if (piExClass.GetSegCode(TipPokr , KatMC.nRec) = '03') {                                            // Тип покрытия: Фосфатирование
+        UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Phosphor * KlPrice.Curs),
+                                  Prices.SumVal := fRoundVal5(Prices.SumVal + p_Phosphor); }
+        if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '02') {                                           // Термообработка: термообработка
+        UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Termo * KlPrice.Curs),
+                                  Prices.SumVal := fRoundVal5(Prices.SumVal + p_Termo); }
+        if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '01') {                                           // Термообработка: отжиг
+        UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Otzhig * KlPrice.Curs),
+                                  Prices.SumVal := fRoundVal5(Prices.SumVal + p_Otzhig); }
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '01') {                                           // Упаковка: мелкорасфасованная
+        UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Prepacked * KlPrice.Curs),
+                                  Prices.SumVal := fRoundVal5(Prices.SumVal + p_Prepacked); }
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '02') {                                            // Упаковка: Блистер БЛ-002/1
+        UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Blister2 * KlPrice.Curs),
+                                  Prices.SumVal := fRoundVal5(Prices.SumVal + p_Blister2); }
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '03') {                                            // Упаковка: Блистер БЛ-004/1
+        UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Blister4 * KlPrice.Curs),
+                                  Prices.SumVal := fRoundVal5(Prices.SumVal + p_Blister4); }
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '04') {                                           // Упаковка: Блистер К-17
+        UpDate current Prices set Prices.Price  := fRoundRub5(Prices.Price  + p_Blister17 * KlPrice.Curs),
+                                  Prices.SumVal := fRoundVal5(Prices.SumVal + p_Blister17); }
+    }
+
+    2 : {                                           // валюта
+        if (isNotColor6)  UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_NotColor6);
+        if (isColor6)     UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Color6);
+        if (isNotColor9)  UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_NotColor9);
+        if (isColor9)     UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Color9);
+        if (isNotColor12) UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_NotColor12);
+        if (isColor12)    UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Color12);
+//        if (isHot70)      UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot70 * KatMC.Volume);
+//        if (isHot80)      UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot80 * KatMC.Volume);
+//        if (isHot100)     UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot100 * KatMC.Volume);
+//        if (isHot120)     UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot120 * KatMC.Volume);
+        if (isHot70)      UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot70);
+        if (isHot80)      UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot80);
+        if (isHot100)     UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot100);
+        if (isHot120)     UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Hot120);
+
+        if (piExClass.GetSegCode(TipPokr , KatMC.nRec) = '03') UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Phosphor);  // Тип покрытия: Фосфатирование
+        if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '02') UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Termo);     // Термообработка: термообработка
+        if (piExClass.GetSegCode(Termo   , KatMC.nRec) = '01') UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Otzhig);    // Термообработка: отжиг
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '01') UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Prepacked); // Упаковка: мелкорасфасованная
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '02') UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Blister2);  // Упаковка: Блистер БЛ-002/1
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '03') UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Blister4);  // Упаковка: Блистер БЛ-004/1
+        if (piExClass.GetSegCode(Pack    , KatMC.nRec) = '04') UpDate current Prices set Prices.SumVal := fRoundVal5(Prices.SumVal + p_Blister17); // Упаковка: Блистер К-17
+    }
+  end;
+}
+
+Procedure StartImport;
+{
+Delete Prices Where (( cKlPrice == Prices.cKlPrice));
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выполняется импорт', 1);
+
+  xlCreateExcelWithTemplate(fXLSFileName, false);
+
+  IsExcelOK     := xlDisplayAlerts ( true );
+  IsExcelOK     := xlCreateExcelWithTemplate ( fXLSFileName, true ) ;
+  IsExcelOK     := xlIsExcelValid;
+  IsExcelOK     := xlGetActiveWorkBookName (fActiveXLSName );
+
+  if ( IsExcelOK = false ) {message('Ошибка открытия Excel - файла!');
+                            exit;
+                           }
+
+// Считываем повышающие суммы для продукции с обработкой
+  if (xlSetActiveSheetByName('Обработка') = false) {
+     message('В указанном файле не найден лист "Обработка"!');
+  }  else {
+          xlGetCellValue( 2, 3, p_NotColor6);
+          xlGetCellValue( 3, 3, p_Color6);
+          xlGetCellValue( 4, 3, p_NotColor9);
+          xlGetCellValue( 5, 3, p_Color9);
+          xlGetCellValue( 6, 3, p_NotColor12);
+          xlGetCellValue( 7, 3, p_Color12);
+          xlGetCellValue( 8, 3, p_Hot70);
+          xlGetCellValue( 9, 3, p_Hot80);
+          xlGetCellValue(10, 3, p_Hot100);
+          xlGetCellValue(11, 3, p_Hot120);
+          xlGetCellValue(12, 3, p_Phosphor);
+          xlGetCellValue(13, 3, p_Termo);
+          xlGetCellValue(14, 3, p_Otzhig);
+          xlGetCellValue(15, 3, p_Prepacked);
+          xlGetCellValue(16, 3, p_Blister2);
+          xlGetCellValue(17, 3, p_Blister4);
+          xlGetCellValue(18, 3, p_Blister17);
+     }
+  
+ xlGetSheetsCount(qw_Sheet);
+  
+
+  if (wGetTune('MCUSL.FILTERMCARCH') = 1) {                                    // Рабочие МЦ
+       if (     BoundActive(tbKatMC_bArh2 )  ) SubBounds(tbKatMC_bArh2 );
+       if ( not BoundActive(tbKatMC_bArh1 )  ) AddBounds(tbKatMC_bArh1 );
+  }
+
+  if (wGetTune('MCUSL.FILTERMCARCH') = 2) {                                    // Архивные МЦ
+       if (     BoundActive(tbKatMC_bArh1 )  ) SubBounds(tbKatMC_bArh1 );
+       if ( not BoundActive(tbKatMC_bArh2 )  ) AddBounds(tbKatMC_bArh2 );
+  }
+
+
+
+For ( cur_Sheet; cur_Sheet <= qw_Sheet; inc(cur_Sheet) )
+{
+       NextVisual();
+       SetVisualHeader('Анализируется лист №:' + cur_Sheet);
+
+
+  xlSetActiveSheet(cur_Sheet);
+  xlGetSheetName(cur_Sheet, cur_SheetName);
+  if (cur_SheetName = 'Обработка') Continue;
+
+  xlGetCellValue(1, 1, s_GroupMC);
+  
+if (GetFirst GroupMC Where ((s_GroupMC == GroupMC.Name)) <> tsOK) {
+   StopVisual('',0);
+   message('На листе №' + cur_Sheet + ' указана не существующая группа МЦ');
+   xlKillExcel;
+   Abort;
+   Exit;
+   }
+   
+  k_GroupMC      := GroupMC.Kod;
+  k_GroupMC_next := k_GroupMC;
+  NextNumStr(k_GroupMC_next);
+
+  xlGetCellValue(1, 2, sGOST);
+  
+  sGOST := RePlace(sGOST, 'ГОСТ', '');
+
+  g        := word(1);
+  Pos_GOST := word(1);
+  Pos_GOST := InStr(',', sGOST);
+
+if (Pos_GOST > 0)
+{
+  Do {
+  tmpGOST  := SubStr(sGOST, 1, Pos_GOST);
+  aGOST[g] := Trim( SubStr(sGOST, 1, Pos_GOST-1) );
+  sGOST    := RePlace(sGOST, tmpGOST, '');
+  Pos_GOST := InStr(',', sGOST);
+  inc(g);
+  } While Pos_GOST > 0
+}
+  aGOST[g] := Trim(sGOST);
+
+// Заполнение массива
+  raw          := 3;
+  col          := 4;
+
+  Do {
+     xlGetCellValue(raw, col, sDiametr);
+     dDiametr := 0;
+     dDiametr := double(sDiametr);
+     aDiametr[col] := dDiametr;
+
+         if (dDiametr = 0 ) {
+         Pos_Diametr := word(1);
+         Pos_Diametr := InStr('-', sDiametr);
+
+               if (Pos_Diametr > 0) {
+               tmpDiametr  := SubStr(sDiametr, 1, Pos_Diametr);
+               aDiametr_Range[col]       := double( Trim( SubStr(sDiametr, 1, Pos_Diametr-1) ) );
+               aDiametr_Range[col + 100] := double( Trim( RePlace(sDiametr, tmpDiametr, '') ) );
+               }
+         }
+
+     inc(col);
+     }
+  While ( sDiametr <> '' )
+
+     col_Lim         := col-1;
+     raw             := 4;
+     col             := 3;
+
+  Do {
+     xlGetCellValue(raw, col, dDlina);
+     aDlina[raw] := dDlina;
+     inc(raw);
+     }
+  While ( dDlina <> 0 )
+
+// Если в длине одна строка, надо всё таки запустить цикл и снять ограничения по длине
+  if (raw = 5) { inc(raw);
+                 if ( BoundActive(tbKatMC_bDl )  ) SubBounds(tbKatMC_bDl );
+               } else {
+                 if ( not BoundActive(tbKatMC_bDl )  ) AddBounds(tbKatMC_bDl );
+               }
+// ****
+  For (raw := raw - 2; raw > 3; raw := raw - 1 )
+  {
+    For (col := 4; col < col_Lim; col := col + 1)
+    {
+
+          xlGetCellValue(raw, col, dPrice);
+          if ( dPrice = 0 ) Continue;
+
+             if (aDiametr[col] <> 0) {
+                if (     BoundActive(tbKatMC_bDr)  ) SubBounds(tbKatMC_bDr);
+                if ( not BoundActive(tbKatMC_bD )  ) AddBounds(tbKatMC_bD );
+             } else {
+                if (     BoundActive(tbKatMC_bD )  ) SubBounds(tbKatMC_bD );
+                if ( not BoundActive(tbKatMC_bDr)  ) AddBounds(tbKatMC_bDr);
+               }
+
+
+          _Loop KatMC
+          {
+             For (i:=1; i<=g; inc(i))
+             {
+                 if (piExClass.GetSegCode(KonsDoc, KatMC.nRec) = aGOST[i]) {
+
+                  ClearBuffer(#Prices);
+                  Prices.cKlPrice  := cKlPrice;
+                  Prices.cThing    := KatMC.nRec;
+                  Prices.Name      := KatMC.Name;
+                  Prices.BarKod    := KatMC.BarKod;
+
+                if (GetFirst KatOtpEd Where (( word(1)         == KatOtpEd.PrMc
+                                           and KatMC.nRec      == KatOtpEd.cMCUsl
+                                           and word(1)         == KatOtpEd.Akt    )) = tsOK)
+                {  Prices.Diskret   := KatOtpEd.Diskret;
+                   Prices.cOtpEd    := KatOtpEd.nRec;
+                }
+                
+                if ( UserDeskRep.ResComp[1] <> 0 ) {
+                       if ( GroupMC_SpecEd.Kod    <= KatMC.kGroupMC
+                        and k_GroupMC_nextSpecEd  >  KatMC.kGroupMC  ) {
+
+                              if (GetFirst KatOtpEd Where (( word(1)                == KatOtpEd.PrMc
+                                                         and KatMC.nRec             == KatOtpEd.cMCUsl
+                                                         and UserDeskRep.ResComp[1] == KatOtpEd.cKatEd    )) = tsOK) {
+                   Prices.Diskret   := KatOtpEd.Diskret;
+                   Prices.cOtpEd    := KatOtpEd.nRec;
+                               
+                               }
+                        }
+                    }
+
+                case KlPrice.TipMoney of
+                  0 : {                                           // НДЕ
+                  Prices.Price     := fRoundRub5(dPrice);         // Округление согласно настройки для прайс-листов
+                  }
+
+                  1 : {                                           // НДЕ + валюты
+                  Prices.Price     := fRoundRub5(dPrice * KlPrice.Curs); // Выходит, что в Excel здесь надо указывать Валютную цену
+                  Prices.cVal      := KlPrice.cVal;
+                  Prices.SumVal    := fRoundVal5(dPrice);
+                  }
+
+                  2 : {                                           // валюта
+                  Prices.cVal      := KlPrice.cVal;
+                  Prices.SumVal    := fRoundVal5(dPrice);
+                  }
+                end;
+
+                  Prices.dForm     := Cur_Date;
+                  Prices.cGroupMC  := KatMC.cGroupMC;
+                  Prices.Kod       := KatMC.kGroupMC;
+                  if (insert current Prices = tsOK) {}
+
+                  AddObrabotka;                                   // увеличиваем полученную цену на ст-ть обработки
+                 }                                                // if (piExClass.GetSegCode(KonsDoc, KatMC.nRec) = aGOST[i])
+             }
+          }
+    }
+  }
+
+} // цикл по листам
+
+  StopVisual('',0);
+  xlKillExcel;
+}
+
+
+Screen sImportPrices;
+Fields
+  fXLSFileName ('Исходный файл Excel'            , , sci13Esc  ): Protect, PickButton;
+  fEdIzmGr     ('Группа МЦ для Единицы измерения', , sci13Esc  ): Protect, PickButton;
+  fEdIzmValue  ('Единица измерения для Саморезов', , sci13Esc  ): Protect, PickButton;
+
+Buttons
+  cmOk, Default, , 'Ввод - запустить импорт прайс-листа из выбранного файла', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+
+  Файл Excel с прайс-листом   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  
+  Единица измерения для группы МЦ .@@@@@@@@@@@@@@@@@@@@ : .@@@@@@@@@@@@
+
+                 <. Провести Импорт .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInsertRecord:
+  Insert Current UserDeskRep;
+
+cmUpdateRecord:
+{  UserDeskRep.OwnName := UserName;
+   update current UserDeskRep;
+}
+
+cmDeleteRecord:
+    Delete Current UserDeskRep;
+
+
+cmInit:
+{
+  nReport      := 17031;
+  cur_Sheet    := 1;
+  
+   if (GetFirst UserDeskRep <> tsOK)
+    { ClearBuffer(#UserDeskRep);
+       UserDeskRep.OwnName := UserName;
+       UserDeskRep.nRep    := nReport;
+      insert current UserDeskRep;
+    }
+}
+
+
+cmPick: {
+  Case CurField of
+   #fXLSFileName : {
+          UserDeskRep.RESNAME[1] := GetFileName ('*.XLS', 'Выберите файла для закачки прайс-листа' ) ;
+      Set UserDeskRep.RESNAME[1] := UserDeskRep.RESNAME[1] ;
+      if (Not UpdateTable()) Exit;
+      RescanPanel(#UserDeskRep);
+    }
+
+   #fEdIzmValue : {
+    if (RunInterface('L_MCU::GetEdIzm', cEdIzm) <> cmCancel) { 
+          UserDeskRep.ResComp[1] := cEdIzm;                            
+      Set UserDeskRep.ResComp[1] := UserDeskRep.ResComp[1] ;
+      if (Not UpdateTable()) Exit;
+      RescanPanel(#UserDeskRep);
+      } 
+    }
+
+   #fEdIzmGr : {
+    if (RunInterface('L_MCU::GetGrMCS', cEdIzmGr, 0, false) <> cmCancel) {  
+          UserDeskRep.ResComp[2] := cEdIzmGr;    
+      Set UserDeskRep.ResComp[2] := UserDeskRep.ResComp[2] ;
+      if (Not UpdateTable()) Exit;
+      RescanPanel(#UserDeskRep);
+      }
+    }
+  end;
+}
+
+cmDelOnProtect : {
+  Case CurField of
+   #fEdIzmValue : {
+          UserDeskRep.ResComp[1] := 0 ;
+      Set UserDeskRep.ResComp[1] := UserDeskRep.ResComp[1] ;
+      if (Not UpdateTable()) Exit;
+      RescanPanel(#UserDeskRep);
+    }
+
+   #fEdIzmGr : {
+          UserDeskRep.ResComp[2] := 0 ;
+      Set UserDeskRep.ResComp[2] := UserDeskRep.ResComp[2] ;
+      if (Not UpdateTable()) Exit;
+      RescanPanel(#UserDeskRep);
+    }
+  end;
+}
+
+
+
+cmOK : {
+  if ( UserDeskRep.ResComp[1] <> 0 and UserDeskRep.ResComp[2] = 0 ) {
+         Message(''#3'Не заданна группа МЦ для отбора единиц измерения!', Error+CancelButton);
+         Abort;
+         Exit;
+  }
+  
+  k_GroupMC_nextSpecEd := GroupMC_SpecEd.Kod; 
+  NextNumStr(k_GroupMC_nextSpecEd);
+  
+  StartImport;
+
+  if (Error_Volume) Message('В процессе пересчёта обнаружены МЦ с неуказанным объёмом!'#13 +
+   'смотри файл ' + 'C:\Documents and Settings\Error_' + Prices.Name + '_' + Cur_Date + '.log' , Warning);
+
+  CloseInterface (cmOK) ;
+}
+
+cmCancel  : {
+  CloseInterface (cmCancel) ;
+}
+
+end;
+
+end.

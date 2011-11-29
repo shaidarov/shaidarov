@@ -1,0 +1,104 @@
+#component "M_MnPlan"
+
+alter interface Bookings;
+
+var
+   _nOrg   : comp;
+   _updt   : boolean;
+
+  Create view tOrg
+  as select * from
+    KatOrgDescr
+  , synonym KatOrgDescr KatOrgDescr_gr
+  , FarInfo
+  where ((  _nOrg               == KatOrgDescr.cRec
+        and KatOrgDescr.cGroup  == KatOrgDescr_gr.nRec
+        and KatOrgDescr_gr.Name == FarInfo.Name
+        ));     
+
+  HandleEvent
+    cmPick:
+    {
+      if (curField <> fnCUSTOMER) exit;
+      _nOrg := KatOrg.nRec;
+      _updt := false;
+         
+      if(tOrg.GetFirst KatOrgDescr = tsOK) {}
+    
+tOrg._loop KatOrgDescr
+           {
+            if (tOrg.GetFirst FarInfo where ((KatOrgDescr_gr.Name == FarInfo.Name)) = tsOK)
+               {
+               set Indent.Priority := tOrg.FarInfo.nRec;
+               if (UpDate current Indent = tsOK) {}
+              
+               _updt := true;
+               exit;
+               }
+           }
+                        if (_updt = false) 
+                           {
+                           set Indent.Priority := comp(0);
+                           if (UpDate current Indent = tsOK) {}
+                           message('Не найден подходящий приоритет для выбранной Организации');
+                           
+                           RunInterface('Priority', word(1), word(0), Indent.Priority, '');
+                           }                                                        
+    }
+ end;
+end.
+
+
+alter interface irSpMnPlan;
+
+var
+   _nOrg   : comp;
+   _updt   : boolean;
+   
+  Create view
+  as select * from
+    KatOrgDescr
+  , synonym KatOrgDescr KatOrgDescr_gr
+  where ((  _nOrg               == KatOrgDescr.cRec
+        and KatOrgDescr.cGroup  == KatOrgDescr_gr.nRec
+        ));
+
+TabbedSheet bottom tbMain
+
+    HandleEvent
+    cmPick:
+    {
+    if (inherited::handleEvent (cmPick) = heAbort )
+    Abort;
+
+    if (curField <> 108) exit;
+
+    _nOrg := MnPlan.cAnVal1;
+    _updt := false;
+
+      if(GetFirst KatOrgDescr = tsOK) {}
+
+_loop KatOrgDescr
+      {
+      if (GetFirst KatOrgDescr_gr where ((KatOrgDescr.cGroup == KatOrgDescr_gr.nRec)) = tsOK)
+         {
+         set MnPlan.cAnVal2 := KatOrgDescr_gr.nRec;
+         if (UpDate current MnPlan = tsOK) {}
+
+         _updt := true;
+         exit;
+         }
+      }
+      
+      if (_updt = false)
+         {
+         set MnPlan.cAnVal2:= comp(0);
+         if (UpDate current MnPlan = tsOK) {}
+         message('Не найдена подходящая группа для выбранной Организации');
+         }
+    }
+    end;
+
+end;  //'tabbedsheet tbMain
+
+end.
