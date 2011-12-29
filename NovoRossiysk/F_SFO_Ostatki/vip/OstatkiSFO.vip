@@ -1,0 +1,549 @@
+#doc
+Интерфейс для закачки остатков Спецодежды, а так же попутно создания Личных карточек учёта СФО
+#end
+
+Interface OstatkiSFO 'Интерфейс для закачки остатков Спецодежды и создания Личных карточек учёта СФО' EscClose DoAccept;
+  Show at (, , 75, 6);
+
+create view
+var
+  Handle
+               : longint;
+  i
+, PosCherta
+               : integer;
+  _path
+, sDBFname
+, _nnMBP
+, schet
+, logFileName
+, Specialnost
+, PosName
+, NormName
+, NormKod
+               : string;
+  DateZak
+, date_in
+               : date;
+  _cPersons
+, _cPersons_do
+, cPodr
+, cPodr_do
+               : comp;
+  ErrOstatki
+               : boolean;
+  srok
+, Summa
+, Kol
+, iznos_Summa
+, iznos_proc
+               : double
+
+as select
+  if (sDBFname <> '', sDBFname, '')
+         ( FieldName = fDBFFileName ) ,
+
+ * from
+
+  Persons
+, lSchet
+, PersCard
+, KatMBP
+, ReqSFO
+, PersNorm
+, PersSpec
+, PersSFO
+, AttrVal
+, KatMC
+, GroupMC
+, MBPin
+, MBPout
+, MBPMove
+;
+
+Procedure DeletePrevious; {
+  if Message('Удалить предыдущие остатки за обрабатываемую дату?', YesNo + Information) = cmYes {
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Удаляем предыдущие остатки', 1);
+     _Loop PersCard where ((DateZak == PersCard.AttDate (NoIndex) )) {
+         _Loop PersNorm where ((PersCard.nRec ==  PersNorm.cPersCard)) {
+           Delete current PersNorm;
+           }
+
+         _Loop PersSpec where ((PersCard.nRec == PersSpec.cPersCard)) {
+           Delete current PersSpec;
+           }
+
+         _Loop ReqSFO where ((PersCard.nRec == ReqSFO.cPersCard)) {
+           Delete current ReqSFO;
+           }
+
+         _Loop PersSFO where ((PersCard.nRec == PersSFO.cPersCard)) {
+              _Loop AttrVal where ((word(4008)              == AttrVal.wTable
+                                and comp(013800000000231Ah) == AttrVal.cAttrNam
+                                and PersSFO.nRec            == AttrVal.cRec)) {
+                             Delete current AttrVal;
+                                  }
+
+              _Loop AttrVal where ((word(4008)              == AttrVal.wTable
+                                and comp(064000000000108h)  == AttrVal.cAttrNam
+                                and PersSFO.nRec            == AttrVal.cRec)) {
+                             Delete current AttrVal;
+                                  }
+
+              _Loop MBPin where ((PersSFO.cDocMBPin == MBPin.nRec)) {
+                  _Loop MBPout where ((MBPin.nRec == MBPout.cMBPin)) {
+                    Delete current MBPout;
+                    }
+                Delete current MBPin;
+                }
+
+           Delete current PersSFO;
+           }
+
+       Delete current PersCard;
+       }
+
+
+
+    _Loop MBPMove where ((  DateZak     == MBPMove.dMove
+                        and 'Остатки'   == MBPMove.Nom    )) {
+
+                          _Loop MBPin where ((MBPMove.nRec == MBPin.cSopr)) {
+                              _Loop MBPout where ((MBPin.nRec == MBPout.cMBPin)) {
+                                Delete current MBPout;
+                                }
+                            Delete current MBPin;
+                            }
+
+                          Delete current MBPMove;
+                          }
+
+  StopVisual('',0);
+    }
+}
+
+Procedure StartImport; {
+if Message('Загрузить остатки?', YesNo + Information) = cmYes {
+ _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выполняется импорт', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+ _nnMBP      := '';
+ schet       := '';
+ date_in     := LongInt(0);
+ _cPersons   := comp(0);
+ cPodr       := comp(0);
+ srok        := 0
+ Summa       := 0
+ Kol         := 0
+ iznos_Summa := 0
+ iznos_proc  := 0
+ Specialnost := '';
+ PosCherta   := 0;
+ PosName     := '';
+ NormName    := '';
+ NormKod     := '';
+
+      _cPersons := comp( DBFGetFieldValue(Handle,'NREC_PERS') );
+      _nnMBP    := string( DBFGetFieldValue(Handle,'NN') );
+      cPodr     := comp( DBFGetFieldValue(Handle,'NREC_PODR') );
+
+  if (GetFirst KatPodr where ((cPodr   == KatPodr.nRec)) <> tsOK) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не найдено Подразделение');
+         ErrOstatki := true;
+         Continue;
+        }
+
+  if (GetFirst KatMBP where (( _nnMBP == KatMBP.nNumber
+                           and 'SFO'  == KatMBP.DesGr )) <> tsOK) {
+          if (GetFirst KatMC where (( _nnMBP == KatMC.BarKod)) <> tsOK) {
+               LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не найден KatMC');
+               ErrOstatki := true;
+               Continue;
+            }
+
+          if (GetFirst GroupMC where ((KatMC.cGroupMC == GroupMC.nRec)) <> tsOK) {
+               LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не найдена Группа МЦ');
+               ErrOstatki := true;
+               Continue;
+            }
+
+           if (GetFirst GroupSFO where ((GroupMC.nRec == GroupSFO.cGroupMC)) <> tsOK) {
+               LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не существует такой группы Спецодежды');
+               ErrOstatki := true;
+               Continue;
+           }
+
+               ClearBuffer(#KatMBP);
+               KatMBP.cMC       := KatMC.nRec;
+               KatMBP.nNumber   := KatMC.BarKod;
+               KatMBP.Name      := KatMC.Name;
+               KatMBP.cEd       := KatMC.cEd;
+               KatMBP.cGroupMC  := KatMC.cGroupMC;
+               KatMBP.KodGr     := GroupMC.Kod;
+               KatMBP.DesGR     := 'SFO';
+               KatMBP.cWriteOff := comp(87820192733724678);
+               insert current KatMBP;
+  }
+
+   if (GetFirst GroupSFO where ((KatMBP.cGroupMC == GroupSFO.cGroupMC)) <> tsOK) {
+       LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не нашёл группу Спецодежды');
+       ErrOstatki := true;
+       Continue;
+   }
+
+      date_in := StrToDate(string(DBFGetFieldValue(Handle,'DATE_VV')), 'YYYYMMDD');
+      srok    := double(DBFGetFieldValue(Handle,'GODN'));
+      schet   := string(DBFGetFieldValue(Handle,'BS'));
+      Summa   := double(DBFGetFieldValue(Handle,'SUMMA1'));
+      Kol     := double(DBFGetFieldValue(Handle,'KOL'));;
+
+      if (schet = '00-13') {
+        iznos_Summa := 0;
+        } else {
+        iznos_Summa := double(DBFGetFieldValue(Handle,'SUM_AM'));
+          }
+
+      iznos_proc  := 100 * iznos_Summa / Summa;
+
+      if (Summa - iznos_Summa = 0 and Kol = 0) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Нулевая ост. стоимость и количество');
+         ErrOstatki := true;
+         Continue;
+        }
+
+      if (Kol < 0 ) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Отрицательное количество');
+         ErrOstatki := true;
+         Continue;
+        }
+
+      if (Summa < 0 ) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Отрицательная первоначальная стоимость');
+         ErrOstatki := true;
+         Continue;
+        }
+
+      if (iznos_Summa < 0 ) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Отрицательный износ');
+         ErrOstatki := true;
+         Continue;
+        }
+
+      if (schet = '10-09' and srok <= 12) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Срок не соответствует счёту');
+         ErrOstatki := true;
+         Continue;
+        }
+
+      if (schet = '00-13' and srok > 12) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Срок не соответствует счёту');
+         ErrOstatki := true;
+         Continue;
+        }
+
+
+      if (_cPersons = 0) {            // Дежурная спецодежда. Заполнено Подразделение, но не заполнен Persons
+                  if (cPodr <> cPodr_do)
+                  {
+                     ClearBuffer(#MBPMove);
+                     MBPMove.Nom    := 'Остатки';
+                     MBPMove.dMove  := DateZak;
+                     MBPMove.cMolT  := 87820192733737851;     // .Спецодежда
+                     MBPMove.cPodrT := cPodr;
+                     MBPMove.Status := word(9);
+                     if (insert current MBPMove = tsOK) {}
+                  }
+
+                    ClearBuffer(#MBPin);
+                    MBPin.Nom       := 'Остатки';
+                    MBPin.dIn       := DateZak;
+                    MBPin.Price     := Summa/Kol;
+                    MBPin.KolDoc    := Kol;
+                    MBPin.Summa     := Summa;
+                    MBPin.KOLFACT   := Kol;
+                    MBPin.SUMFACT   := Summa;
+                    MBPin.INSTATE   := word(9);
+                    MBPin.cMBP      := KatMBP.nRec;
+                    MBPin.cMOL      := 87820192733737851;
+                    MBPin.cPodr     := cPodr;
+                    MBPin.cSopr     := MBPMove.nRec;
+                    MBPin.STATUS    := word(1);
+                    MBPin.DATEZERO  := date(31, 12, 2050);
+                    MBPin.INEKSPL   := 1;
+                    MBPin.DATEEKSP  := Date_in;
+                    MBPin.DateEnd   := Add_Months(Date_in, srok);
+                    MBPin.EXTMOD    := 1;
+                    MBPin.SummaIsnN := Summa * iznos_proc / 100;
+                    MBPin.PercNach  := iznos_proc;
+                    if (insert current MBPin = tsOK) {}
+
+         cPodr_do := cPodr;
+         Continue;
+        }
+
+
+
+      if (GetFirst Persons where ((_cPersons == Persons.nRec)) <> tsOK) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не найден Persons');
+         ErrOstatki := true;
+         Continue;
+         }
+
+      if (Getfirst lSchet  where ((Persons.nRec      == lSchet.tPerson)) <> tsOK) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не найден lSchet');
+         ErrOstatki := true;
+         Continue;
+         }
+
+
+        if (GetFirst PersCard where (( lSchet.nRec  == PersCard.clSchet
+                                   and KatPodr.nRec == PersCard.cPodr
+                                    )) <> tsOK)
+               {
+               ClearBuffer(#PersCard);
+               PersCard.clSchet := lSchet.nRec;
+               PersCard.cPodr   := KatPodr.nRec;
+               PersCard.ChiPodr := lSchet.cApPoint;              // Должность
+               PersCard.cMol    := 87820192733737851;
+               PersCard.Status  := 1;
+               PersCard.AttDate := DateZak;
+               PersCard.CardNom := if(lSchet.TabN <> 0, lSchet.TabN, lSchet.StrTabN);
+               insert current PersCard;
+               }
+
+
+          if (_cPersons <> _cPersons_do) {
+                ClearBuffer(#ReqSFO);
+                ReqSFO.REQNOM    := i;
+                ReqSFO.FRMDATE   := DateZak;
+                ReqSFO.CPERSCARD := PersCard.nRec;
+                ReqSFO.CLSCHET   := lSchet.nRec;
+                ReqSFO.CPODR     := PersCard.cPodr;
+                ReqSFO.cMOL      := PersCard.cMol;
+                ReqSFO.STATUS    := word(5);
+                if (insert current REQSFO = tsOK) {inc(i);}
+                }
+
+ Specialnost := string( DBFGetFieldValue(Handle,'SPEC') );
+
+     PosCherta := 0;
+     PosName   := Specialnost;
+     While (InStr('_', PosName) > 0) {
+       PosCherta := PosCherta + InStr('_', PosName);
+       PosName   := SubStr(PosName, InStr('_', PosName) + 1, 200);
+     }
+
+     NormName := SubStr(Specialnost, PosCherta + 1, Length(Specialnost));
+     NormKod  := Trim(SubStr(Specialnost, 1, PosCherta - 1));
+
+     if (GetFirst NormSFO where ((NormKod == NormSFO.Kod)) <> tsOK) {
+         LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Не найдена норма');
+         ErrOstatki := true;
+         Continue;
+        }
+
+
+    if (GetFirst PersNorm where (( PersCard.nRec ==  PersNorm.cPersCard
+                               and NormSFO.nRec  ==  PersNorm.cNormSFO  (noIndex)  )) <> tsOK ) {
+       ClearBuffer(#PersNorm);
+       PersNorm.cPersCard := PersCard.nRec;
+       PersNorm.cNormSFO  := NormSFO.nRec;
+       PersNorm.cPodr     := PersCard.cPodr;
+       PersNorm.cPost     := lSchet.cAppoint;
+       PersNorm.cMOL      := PersCard.cMOL;
+       PersNorm.FrDate    := DateZak;
+       PersNorm.OsnFlag   := 0;
+       PersNorm.SpecFlag  := 1;
+       PersNorm.Status    := 1;
+       insert current PersNorm;
+
+    if (GetFirst NormDateSFO where (( NormSFO.nRec     == NormDateSFO.cNormSFO)) = tsOK) {
+         _Loop NormGroupSFO where (( NormDateSFO.nRec == NormGroupSFO.cNormDate)) {
+                 ClearBuffer(#PersSpec);
+                 PersSpec.cPersCard  := PersCard.nRec;
+                 PersSpec.cPersNorm  := PersNorm.nRec;
+                 PersSpec.cNormSpec  := NormGroupSFO.nRec;
+                 PersSpec.cGroupSFO  := NormGroupSFO.cGroupSFO;
+                 PersSpec.ExplDate   := DateZak;
+                 PersSpec.FrstKol    := NormGroupSFO.FirstKol;
+                 PersSpec.Kol        := NormGroupSFO.Kol;
+                 PersSpec.Srok       := NormGroupSFO.Srok;
+                 PersSpec.FrDate     := DateZak;
+                 PersSpec.Status     := 1;
+                 PersSpec.SpecFlag   := 1;
+                 PersSpec.OsnFlag    := 0;
+                 insert current PersSpec;
+       }
+     }
+    }
+
+    if (GetFirst PersSpec where ((     PersCard.nRec == PersSpec.cPersCard
+                                   and PersNorm.nRec == PersSpec.cPersNorm
+                                   and GroupSFO.nRec == PersSpec.cGroupSFO  (noIndex)
+                                   and Srok          == PersSpec.Srok       (noIndex)   // Завязка на срок обязательна!!! Иначе при дальнейших операциях будет возвращён срок из нормы
+                                )) <> tsOK) {
+            ClearBuffer(#PersSFO);
+            PersSFO.cPersCard := PersCard.nRec;
+            PersSFO.cMBPmove  := ReqSFO.nRec;
+            PersSFO.cKatMBP   := KatMBP.nRec;
+            PersSFO.ExplDate  := date_in;
+            PersSFO.GiveDate  := date_in;
+            PersSFO.Srok      := Srok;
+            PersSFO.OperDate  := DateZak;
+            PersSFO.EndDate   := Add_Months(date_in, Srok);
+            PersSFO.GiveNom   := ReqSFO.ReqNom;
+            PersSFO.DocKol    := Kol;
+            PersSFO.CurKol    := Kol;
+            PersSFO.ZeroKol   := 1;
+            PersSFO.cPersSpec := 0;
+            PersSFO.cGroupSFO := GroupSFO.nRec;
+            PersSFO.SpecFlag  := 1;
+
+           if (insert current PersSFO = tsOK) {
+              ClearBuffer(#AttrVal);
+              AttrVal.wTable    := word(4008);
+              AttrVal.cRec      := PersSFO.nRec;
+              AttrVal.cAttrNam  := comp(064000000000108h);
+//              AttrVal.cAttrNam  := comp(0001000000000013h);  // Локальная база
+              AttrVal.vDouble   := Summa / kol;
+              insert current AttrVal;
+
+              ClearBuffer(#AttrVal);
+              AttrVal.wTable    := word(4008);
+              AttrVal.cRec      := PersSFO.nRec;
+              AttrVal.cAttrNam  := comp(013800000000231Ah);
+//              AttrVal.cAttrNam  := comp(0001000000000014h);  // Локальная база
+              AttrVal.vDouble   := iznos_proc;
+              insert current AttrVal;
+           }
+
+           LogStrToFile( logFileName, _cPersons + '*' + _nnMBP + '*Справочно: Нет спецификации нормы');
+           ErrOstatki := true;
+    } else {
+          if (PersSpec.Kol = Kol + PersSpec.GivKol) {
+            PersSpec.EmptClosed := 1;
+          }
+            PersSpec.GivKol     := Kol + PersSpec.GivKol;
+            update current PersSpec;
+
+
+                  ClearBuffer(#PersSFO);
+                  PersSFO.cPersCard := PersCard.nRec;
+                  PersSFO.cMBPmove  := ReqSFO.nRec;
+                  PersSFO.cKatMBP   := KatMBP.nRec;
+                  PersSFO.ExplDate  := date_in;
+                  PersSFO.GiveDate  := date_in;
+                  PersSFO.Srok      := Srok;
+                  PersSFO.OperDate  := DateZak;
+                  PersSFO.EndDate   := Add_Months(date_in, Srok);
+                  PersSFO.GiveNom   := ReqSFO.ReqNom;
+                  PersSFO.DocKol    := Kol;
+                  PersSFO.CurKol    := Kol;
+                  PersSFO.ZeroKol   := 1;
+                  PersSFO.cPersSpec := PersSpec.nRec;
+                  PersSFO.cGroupSFO := GroupSFO.nRec;
+
+                 if (insert current PersSFO = tsOK) {
+                    ClearBuffer(#AttrVal);
+                    AttrVal.wTable    := word(4008);
+                    AttrVal.cRec      := PersSFO.nRec;
+                    AttrVal.cAttrNam  := comp(28147497671065864);
+//                    AttrVal.cAttrNam  := comp(0001000000000013h);  // Локальная база
+                    AttrVal.vDouble   := Summa / kol;
+                    insert current AttrVal;
+
+                    ClearBuffer(#AttrVal);
+                    AttrVal.wTable    := word(4008);
+                    AttrVal.cRec      := PersSFO.nRec;
+                    AttrVal.cAttrNam  := comp(87820192733733658);
+//                    AttrVal.cAttrNam  := comp(0001000000000014h);  // Локальная база
+                    AttrVal.vDouble   := iznos_proc;
+                    insert current AttrVal;
+                 }
+           }
+
+     _cPersons_do := _cPersons;
+    } While (DBFGetNext(Handle) = tsok)
+
+  StopVisual('',0);
+
+   if (ErrOstatki) {
+        _try {
+        message('При выполнении Импорта были ошибки');
+        ProcessText(logFileName, vfDefault, 'Ошибки при Импорте остатков Спецодежды');
+        }
+    } else {
+      message('Импорт завершён успешно!');
+      }
+
+ DBFClose(Handle);
+ } // message
+}
+
+
+Screen sOstatkiSFO;
+Fields
+  DateZak      ('Дата закачки'                 , , sci13Esc  ): [,'DD/MM/YYYY'], NoProtect, ;
+  fDBFFileName ('Исходный файл DBF'            , , sci13Esc  ): Protect, PickButton;
+
+
+Buttons
+  cmOk, Default, , 'Ввод - запустить закачку остатков Спецодежды', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+               `Закачка остатков на дату` .@@@@@@@@@@@
+
+ `Файл DBF `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                 <. Провести Импорт .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInit:{
+  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'OstatkiSFO_' + Hour(cur_time) + '_' + Minute(cur_time) + '.log';
+}
+
+
+
+cmPick: {
+  Case CurField of
+   #fDBFFileName : {
+          sDBFname := GetFileName ('*.dbf', 'Выберите файла для закачки остатков Спецодежды' ) ;
+      Set sDBFname := sDBFname ;
+    }
+  end;
+}
+
+cmOK : {
+  if ( DateZak = LongInt(0) ) {
+    message('Укажите дату закачки!');
+    Abort;
+    Exit;
+    }
+
+  DeletePrevious;
+  StartImport;
+  CloseInterface (cmOK) ;
+}
+
+cmCancel  : {
+  CloseInterface (cmCancel) ;
+}
+
+end;
+
+end.

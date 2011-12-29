@@ -1,0 +1,208 @@
+#doc
+test fo Vova
+Интерфейс для закачки норм выдачи Спецодежды из Excel
+#end
+
+Interface ImportNorms 'Интерфейс для закачки норм выдачи Спецодежды из Excel' EscClose DoAccept;
+  Show at (, , 75, 5);
+
+create view
+var
+    raw                          // номер строки
+  , cur_sheet
+  , PosCherta
+                     : word;
+    isExcelOK
+  , ErrGroupSFO
+                     : boolean;
+    fActiveXLSName
+  , sXLSname
+  , Specialnost
+  , sGroupSFO
+  , GroupSFO
+  , PosName
+  , NormName
+  , NormKod
+  , logFileName
+                     : string;
+    dVvod
+                     : date;
+    SumPerv
+  , SumIzn
+  , Srok
+  , Kol
+                     : double;
+
+
+as select
+  if (sXLSname <> '', sXLSname, '')
+         ( FieldName = fXLSFileName ) ,
+
+ * from
+  NormSFO
+, NormDateSFO
+, NormGroupSFO
+, GroupSFO
+
+ where (( NormSFO.nRec     == NormDateSFO.cNormSFO
+      and NormDateSFO.nRec == NormGroupSFO.cNormDate
+       ))
+;
+
+File TheFile;
+
+Procedure StartImport; {
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выполняется импорт', 1);
+
+  xlCreateExcelWithTemplate(fXLSFileName, false);
+
+  IsExcelOK := xlDisplayAlerts ( true );
+  IsExcelOK := xlCreateExcelWithTemplate ( fXLSFileName, true ) ;
+  IsExcelOK := xlIsExcelValid;
+  IsExcelOK := xlGetActiveWorkBookName (fActiveXLSName );
+
+  if ( IsExcelOK = false ) {message('Ошибка открытия Excel - файла!');
+                            exit;
+                           }
+
+  xlSetActiveSheet(cur_Sheet);
+
+   _Loop GroupMC where (('1008' <<= GroupMC.Kod
+                     and '1009' >>  GroupMC.Kod)) {
+     if (GetFirst GroupSFO where ((GroupMC.Kod == GroupSFO.Kod)) <> tsOK) {
+             ClearBuffer(#GroupSFO);
+             GroupSFO.Kod          := GroupMC.Kod;
+             GroupSFO.Name         := GroupMC.Name;
+             GroupSFO.lKod         := Length( Trim(GroupMC.Kod) );
+             GroupSFO.cGroupMC     := GroupMC.nRec;
+             GroupSFO.cEd          := GroupMC.cEd;
+             GroupSFO.POSITIONS[1] := string(2);
+             GroupSFO.POSITIONS[2] := string(1);
+             GroupSFO.POSITIONS[4] := string(3);
+             insert current GroupSFO;
+     }
+ }
+
+
+  raw := 2;
+
+  Do {
+     xlGetCellValue(raw,  1, Specialnost);
+     xlGetCellValue(raw,  2, sGroupSFO);
+     xlGetCellValue(raw,  3, GroupSFO);       GroupSFO := '1008.' + GroupSFO;
+     xlGetCellValue(raw,  4, Srok);
+     xlGetCellValue(raw,  5, Kol);
+
+     PosCherta := 0;
+     PosName   := Specialnost;
+     While (InStr('_', PosName) > 0) {
+       PosCherta := PosCherta + InStr('_', PosName);
+       PosName   := SubStr(PosName, InStr('_', PosName) + 1, 200);
+     }
+
+     NormName := Trim( SubStr(Specialnost, PosCherta + 1, Length(Specialnost)) );
+     NormKod  := Trim( SubStr(Specialnost, 1, PosCherta - 1) );
+
+     if (GetFirst NormSFO where ((NormKod == NormSFO.Kod)) <> tsOK) {
+            if (RecordExists NormSFO where ((NormName == NormSFO.Name)) = tsOK) {
+               NormName := NormName + '_' + NormKod;
+              }
+
+         ClearBuffer(#NormSFO);
+         NormSFO.Name := NormName;
+         NormSFO.Kod  := NormKod;
+         NormSFO.lKod := Length( NormKod );
+         insert current NormSFO;
+
+         ClearBuffer(#NormDateSFO);
+         NormDateSFO.cNormSFO := NormSFO.nRec;
+         NormDateSFO.FrDate   := date(01, 10, 2009);
+         insert current NormDateSFO;
+     }
+
+     if (NormName <> NormSFO.Name and NormName + '_' + NormKod <> NormSFO.Name) {
+           LogStrToFile( logFileName, Specialnost + '*' + sGroupSFO + '*' + GroupSFO + '*' + Srok + '*' + Kol + '*Существует норма с таким же кодом, но с другим названием');
+           ErrGroupSFO := true;
+           inc(raw);
+           Continue;
+       }
+
+     if (GetFirst GroupSFO where ((GroupSFO == GroupSFO.Kod)) <> tsOK) {
+         LogStrToFile( logFileName, Specialnost + '*' + sGroupSFO + '*' + GroupSFO + '*' + Srok + '*' + Kol + '*Не найдена группа СФО');
+         ErrGroupSFO := true;
+         inc(raw);
+         Continue;
+     }
+
+     ClearBuffer(#NormGroupSFO);
+     NormGroupSFO.cNormDate := NormDateSFO.nRec;
+     NormGroupSFO.cGroupSFO := GroupSFO.nRec;
+     NormGroupSFO.FirstKol  := Kol;
+     NormGroupSFO.Kol       := Kol;
+     NormGroupSFO.Srok      := Srok;
+     insert current NormGroupSFO;
+
+      inc(raw);
+      } While ( Specialnost <> '' )
+
+
+  StopVisual('',0);
+  xlKillExcel;
+
+  if (ErrGroupSFO) {
+        _try {
+        message('При выполнении Импорта были ошибки');
+        ProcessText(logFileName, vfDefault, 'Ошибки при Импорте норм выдачи Спецодежды');
+        }
+    } else {
+      message('Импорт завершён успешно!');
+      }
+}
+
+
+Screen sImportNorms;
+Fields
+  fXLSFileName ('Исходный файл Excel'            , , sci13Esc  ): Protect, PickButton;
+
+Buttons
+  cmOk, Default, , 'Ввод - запустить импорт норм из выбранного файла', , sci1Esc;
+  cmCancel,    , , 'Отмена', , sci1Esc;
+
+<<
+
+  Файл Excel .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                 <. Провести Импорт .>    <.   Отмена   .>
+>>
+
+End; // Screen
+
+HandleEvent
+
+cmInit:{
+  cur_Sheet   := 1;
+  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'ImportNorms_' + Hour(cur_time) + '_' + Minute(cur_time) + '.log';
+}
+
+
+cmPick: {
+  Case CurField of
+   #fXLSFileName : {
+          sXLSname := GetFileName ('*.XLS', 'Выберите файла для закачки Норм выдачи Спеодежды' ) ;
+      Set sXLSname := sXLSname ;
+    }
+  end;
+}
+
+cmOK : {
+  StartImport;
+  CloseInterface (cmOK) ;
+}
+
+cmCancel  : {
+  CloseInterface (cmCancel) ;
+}
+
+end;
+
+end.

@@ -1,0 +1,54 @@
+#doc
+Создание карточек МБП из карточек МЦ
+#end
+
+
+Interface CreateKatMBP 'Создание карточек МБП из карточек МЦ' EscClose DoAccept;
+  Show at (, , 75, 6);
+
+create view
+as select * from
+  KatMC
+, KatMBP
+, GroupMC
+
+Where (( '1008'         <<= KatMC.kGroupMC
+     and '1009'         >>  KatMC.kGroupMC
+     and KatMC.nRec     ==  KatMBP.cMC
+     and KatMC.cGroupMC ==  GroupMC.nRec
+     ))
+;
+
+
+HandleEvent
+
+cmInit:{
+  _Loop KatMC {
+      if (GetFirst KatMBP <> cmOK) {
+               ClearBuffer(#KatMBP);
+               KatMBP.cMC       := KatMC.nRec;
+               KatMBP.nNumber   := KatMC.BarKod;
+               KatMBP.Name      := KatMC.Name;
+               KatMBP.cEd       := KatMC.cEd;
+               KatMBP.cGroupMC  := KatMC.cGroupMC;
+               KatMBP.KodGr     := GroupMC.Kod;
+               KatMBP.DesGR     := 'SFO';
+               KatMBP.cWriteOff := comp(87820192733724678);
+               insert current KatMBP;
+        }
+    }
+}
+
+end;
+
+end.
+
+.Form 'CreateKatMBP Создание карточек МБП из карточек МЦ'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('CreateKatMBP');
+end.
+
+.endform
+
