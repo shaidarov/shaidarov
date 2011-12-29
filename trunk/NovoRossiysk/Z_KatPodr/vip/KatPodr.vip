@@ -1,0 +1,934 @@
+//******************************************************************************
+//  12                                                    (с) корпорация Галактик
+// Галактика 7.12 - Общесистемные каталоги
+// Просмотр и редактирование каталога подразделений
+//******************************************************************************
+
+#include ExtAttr.vih
+#include PickCat.vih
+#include AllowedDepartmentGroupList.vih // работа со списком разрешенных групп подразделений
+#include AdrFunc.vih // функции для работы с почтовыми адресами
+#include Contexts.vih  // Контексты
+#include GetKau.vih
+#include AttrTablePick.vih
+#include ShowKau.vpp
+
+// AttrName.nRec в  KatPodr
+const
+  c_schet = 013800000000231Fh;
+  c_tbl1  = 0138000000002320h;
+  c_tbl2  = 0138000000002321h;
+  c_tbl3  = 0138000000002322h;
+  c_tbl4  = 0138000000002323h;
+  c_tbl5  = 0138000000002324h;
+  c_tbl6  = 0138000000002325h;
+  c_kau1  = 0138000000002328h;
+  c_kau2  = 0138000000002327h;
+  c_kau3  = 0138000000002326h;
+  c_kau4  = 0138000000002329h;
+  c_kau5  = 013800000000232Ah;
+  c_kau6  = 013800000000232Bh;
+end;
+
+
+#doc
+Просмотр и редактирование каталога подразделений
+#end
+Interface KatPodr_Schet 'Каталог подразделений с Бухгалтерским счётом' escclose,cyan;
+Create View vKatPodr
+Var
+  TreeView:         boolean;
+  node:             comp;
+  mode:             integer;
+  FirstTimes:       word;
+  OldPodr:          comp;
+  c1:               comp;
+  lastskl:          word;
+  iTmp:             integer;
+  cLinkType:        Comp;  // NREC корня, он же вид связи
+  cParentCode:      Comp;  // NREC вышестоящего каталога для подцепки
+  cRootNode:        Comp;  // NRec корня каталога единиц ШР
+  parrec:           comp;
+  MainLinksCat:     comp;
+  ErrorInExprField: boolean;
+  wAkcizPrizn:      word;
+  OrderFieldNum:    longint;
+  Flag:             word    // для передачи параметра печати
+  // функции обработки адресов (Кадры)
+  AF:               AddressFunc;
+// настройка методики списания
+// 0 - по настройке 1 - по фактической цене приобретения
+  doMethodSpis:     longint;
+
+  piExAttr:         iExtAttr; //ссылка на объектый интерфейс по вн.атрибутам
+  // список разрешенных групп подразделений
+  ADGL:             IAllowedDepartmentGroupList;
+  _Schet          : tSchet3;
+  _SubSchet       : tSubSch;
+  sSchet
+, sSubSchet       : string;
+  cSchet
+, cKau1
+, cKau2
+, cKau3
+, cKau4
+, cKau5
+, cKau6           : comp;
+  iGetKau         : GetKau;
+  refAttrTablePick
+                  : AttrTablePick;
+
+
+As select
+  if ((KATPODR.CPRICEL = 0) or not IsValid(tnKLPRICE), 'не задан', KLPRICE.NAME)
+  (fieldname = PriceListName),
+
+  if ((KATPODR.CRESHR = 0) or not IsValid(tnKLRESHR), 'не задан', KLRESHR.NAME)
+  (fieldname = StockingResourceName),
+
+  if ((KATPODR.CORG = 0) or not IsValid(tnKATORG), 'не задан', KATORG.NAME)
+  (fieldname = KatOrgName),
+
+  Time2StrSep(double(KATPODR.HOUR[1]) + double(KATPODR.MINUT[1]) / 60, 0, ':')
+  (fieldname = ShiftTime1),
+  Time2StrSep(double(KATPODR.HOUR[2]) + double(KATPODR.MINUT[2]) / 60, 0, ':')
+  (fieldname = ShiftTime2),
+  Time2StrSep(double(KATPODR.HOUR[3]) + double(KATPODR.MINUT[3]) / 60, 0, ':')
+  (fieldname = ShiftTime3),
+
+
+  refAttrTablePick.sGetValue( coKatPodr, c_schet, KatPodr.nRec )
+           (FieldName = fldSchet) ,
+
+  #ShowKAU( piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl1), piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_kau1) )
+           (FieldName = fldKau1) ,
+
+  #ShowKAU( piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl2), piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_kau2) )
+           (FieldName = fldKau2) ,
+
+  #ShowKAU( piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl3), piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_kau3) )
+           (FieldName = fldKau3) ,
+
+  #ShowKAU( piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl4), piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_kau4) )
+           (FieldName = fldKau4) ,
+
+  #ShowKAU( piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl5), piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_kau5) )
+           (FieldName = fldKau5) ,
+
+  #ShowKAU( piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl6), piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_kau6) )
+           (FieldName = fldKau6) ,
+
+  GetAnalitikName(piExAttr.sGetAttrID( coKatPodr, KatPodr.nRec, c_tbl1 ))
+           (FieldName = nmKau1) ,
+
+  GetAnalitikName(piExAttr.sGetAttrID( coKatPodr, KatPodr.nRec, c_tbl2 ))
+           (FieldName = nmKau2) ,
+
+  GetAnalitikName(piExAttr.sGetAttrID( coKatPodr, KatPodr.nRec, c_tbl3 ))
+           (FieldName = nmKau3) ,
+
+  GetAnalitikName(piExAttr.sGetAttrID( coKatPodr, KatPodr.nRec, c_tbl4 ))
+           (FieldName = nmKau4) ,
+
+  GetAnalitikName(piExAttr.sGetAttrID( coKatPodr, KatPodr.nRec, c_tbl5 ))
+           (FieldName = nmKau5) ,
+
+  GetAnalitikName(piExAttr.sGetAttrID( coKatPodr, KatPodr.nRec, c_tbl6 ))
+           (FieldName = nmKau6) ,
+
+  //KlResHr.Name,
+  KatPodr.*,
+  SpSklad.*,
+  KatMC.Name,
+  DepFunc.nmFunc,
+  GrPodr.Name,
+#ifdef GAL5_80
+  Grafik.Nrec,
+  Grafik.Code,
+  Grafik.Name,
+  Calendar.Nrec,
+  Calendar.Code,
+  Calendar.Name,
+#end
+  Katpodr2.Name
+
+From
+  KatPodr (KatPodr02),
+  SpSklad (SpSklad02),
+  KatMC (ReadOnly),
+  GrPodr (ReadOnly),
+  synonym KatPodr Katpodr2(readonly),
+  synonym KatPodr Katpodr3,
+  synonym KatPodr Katpodr4,
+  synonym KatPodr Katpodr5,
+  SklOrder,
+  PodrIer,
+  synonym PodrIer PodrIer1,
+  synonym PodrIer PodrIer2,
+  synonym PodrIer PodrIer3,
+  UserRights,
+  Catalogs,
+  StaffSet,
+  ExtCatLinks,
+  KLPRICE (readonly),
+  KLRESHR (readonly)
+  , CURLSCHET
+  , KATLINK
+  , Calendar
+  , Grafik
+  , KatOrg
+  , CatHist // история подразделений ШР
+  // код отрасли
+  , CATALOGS BRANCH
+  , DEPFUNC
+  , KATKOD
+  , SHR_Condition
+  , SHR_Condition SHR_ConditionNew
+Where
+((
+  KatPodr.cPodr   == KatPodr2.NRec    and
+  KatPodr.nRec    == PodrIer1.cRecDs  and
+  KatPodr.cResHr  == KlResHr.NRec     and
+  KatPodr.NRec    == KatPodr3.cPodr   and
+  KatPodr.NRec    == SpSklad.cPodr    and
+  SpSklad.cMC     == KatMC.NRec       and
+  KatPodr.cGrPodr == GrPodr.NRec      and
+  KatPodr.cFunc   == DepFunc.cFunc    and
+  PodrIer.cRecDs  == KatPodr5.nRec    and
+  KATPODR.CPRICEL == KlPrice.NRec
+  and KatPodr.cOrg    == KatOrg.nRec
+
+  and KatPodr.cCalendar == Calendar.Nrec
+  and KatPodr.cGrafik   == Grafik.Nrec
+  and KATPODR.CREC      == BRANCH.NREC
+  and KATPODR.CKPP      == KATKOd.NREC
+))
+  bounds Node =
+    Node == KatPodr.cPodr
+
+  condition Allowed
+    // подразделения без ссылки на группу подразделений или относящиеся к одной из
+    // разрешенных групп
+    (KATPODR.CGRPODR = 0) or ADGL.Has(KATPODR.CGRPODR)
+
+  bounds OrderedByName ordered by KATPODR.NAME
+  bounds OrderedByCode ordered by KATPODR.KOD
+
+;
+
+Parameters
+  mode,      // режим работы
+             //   0 - редактирования
+             //  -1 - добавление подразделения
+             //  -2 - добавление склад
+             //  -3 - добавление торгового зал
+  c1;        // NRec подразделения по умолчанию
+
+Form frmKatPodr('KATPODR.OUT','KATPODR');
+
+var
+  DepartmentType: array[0..0] of string;
+  RegularStockType: array[1..2] of string;
+  TransitStockType: array[1..4] of string;
+
+#include DepartmentTreeSession.vpp
+
+
+window wKatPodr 'Редактирование подразделения' (,hcGkatalM1Podr) escclose;
+  show at (,,,16);
+
+//------------------------------------------------------------------------------
+  screen scKatPodrSklRZ (,, sci1378Esc);
+//    show(,,,16);
+    table KATPODR;
+    fields
+      KatPodr2.Name ('Наименование вышестоящего подразделения'): skip;
+      KatPodr.Name  ('Наименование подразделения',, sci178Esc) : skip, {font = {bold = true}};
+      KatPodr.Kod   ('Код подразделения',,sci178Esc)           : skip;
+
+      fldSchet      ('Бухгалтерский счёт',,sci13Esc): protect, PickButton;
+      nmKau1        ('Имя КАУ 1'         ,,sci13Esc): skip;
+      fldKau1       ('    КАУ 1'         ,,sci13Esc): protect, PickButton;
+      nmKau2        ('Имя КАУ 2'         ,,sci13Esc): skip;
+      fldKau2       ('    КАУ 2'         ,,sci13Esc): protect, PickButton;
+      nmKau3        ('Имя КАУ 3'         ,,sci13Esc): skip;
+      fldKau3       ('    КАУ 3'         ,,sci13Esc): protect, PickButton;
+      nmKau4        ('Имя КАУ 4'         ,,sci13Esc): skip;
+      fldKau4       ('    КАУ 4'         ,,sci13Esc): protect, PickButton;
+      nmKau5        ('Имя КАУ 5'         ,,sci13Esc): skip;
+      fldKau5       ('    КАУ 5'         ,,sci13Esc): protect, PickButton;
+      nmKau6        ('Имя КАУ 6'         ,,sci13Esc): skip;
+      fldKau6       ('    КАУ 6'         ,,sci13Esc): protect, PickButton;
+    <<
+ `Вышестоящее` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Наименование`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Код`         .@@@@@@@@@@@@@
+
+ `Бухгалтерский счёт`    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  .@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  .@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  .@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  .@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  .@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  .@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    >>
+  end;
+
+
+
+
+procedure Abort_message; {
+  message('Интерфейс предназначен для заполнения затратного счёта.'#13#13
+        + 'Для редактирования воспользуйтесь стандартным интерфейсом KatPodr.');
+  Abort;
+  }
+
+procedure UpdateView;
+{
+#ifndef __TVEL__
+  HideLabel4Field(#KatOrgName);
+  ClearFieldState(#KatOrgName, sfVisible);
+#end
+
+#ifndef __CentrOtv__
+  HideLabel4Field(#KATPODR.FIO_GB);
+  ClearFieldState(#KATPODR.FIO_GB, sfVisible);
+#end
+
+  if (KATPODR.SKLAD = 2)
+  {
+    SetFieldState(#PriceListName, sfVisible);
+    SetFieldState(#KATPODR.TYPEUCH, sfVisible);
+    ShowLabel4Field(#PriceListName);
+    ShowLabel4Field(#KATPODR.TYPEUCH);
+  }
+  else
+  {
+    HideLabel4Field(#PriceListName);
+    HideLabel4Field(#KATPODR.TYPEUCH);
+    ClearFieldState(#PriceListName, sfVisible);
+    ClearFieldState(#KATPODR.TYPEUCH, sfVisible);
+  }
+
+  if (KATPODR.SKLAD > 0)
+  {
+    SetFieldState(#KATPODR.INTERN, sfVisible);
+    SetFieldState(#KATPODR.VOLUME, sfVisible);
+    SetFieldState(#StockingResourceName, sfVisible);
+    SetFieldState(#KATPODR.UCHPRC, sfVisible);
+    ShowLabel4Field(#KATPODR.INTERN);
+    ShowLabel4Field(#KATPODR.VOLUME);
+    ShowLabel4Field(#StockingResourceName);
+    ShowLabel4Field(#KATPODR.UCHPRC);
+  }
+  else
+  {
+    HideLabel4Field(#KATPODR.INTERN);
+    HideLabel4Field(#KATPODR.VOLUME);
+    HideLabel4Field(#StockingResourceName);
+    HideLabel4Field(#KATPODR.UCHPRC);
+
+    ClearFieldState(#KATPODR.INTERN, sfVisible);
+    ClearFieldState(#KATPODR.VOLUME, sfVisible);
+    ClearFieldState(#StockingResourceName, sfVisible);
+    ClearFieldState(#KATPODR.UCHPRC, sfVisible);
+  }
+} // procedure UpdateView
+
+
+//------------------------------------------------------------------------------
+procedure EditExternalAttributes;
+{
+  if ((UpdateTable) and (katpodr.NRec <> 0))
+    RunInterface(Attribute, word(coKatPodr), KatPodr.NRec);
+}
+
+procedure EditExternalClassification;
+{
+  if ((UpdateTable) and (KatPodr.NRec <> 0))
+    RunInterface(ExClassifier, word(coKatPodr), KatPodr.NRec);
+}
+
+procedure EditInfrastructure;
+{
+  RunInterface('KatBoxesEdit',comp(0),KatPodr.NRec);
+  ReReadRecord;
+}
+
+//// Возвращает наименование счёта, субсчёт
+//Function GetNameSch(Sch : tSchet3; Sub : tSubSch) : String;
+//{
+//  if (Sub <> cgDefSub)
+//    iPickBuh.FoundFirstSub(Sch, Sub);
+//
+//  if (GetFirst FastFirstRow BuhSchet where ((Sch == BuhSchet.Schet and
+//                                             Sub == BuhSchet.SubSch)) = tsOk)
+//    GetNameSch := BuhSchet.Code + ' ' + BuhSchet.Name;
+//}
+
+  HandleEvent
+    cmPick: {
+      Case CurField of
+        #fldSchet : {
+           if (refAttrTablePick.PickValue(coKatPodr, c_schet, KatPodr.nRec)) {
+
+              cSchet := piExAttr.coGetAttrID(coKatPodr, KatPodr.nRec, c_schet);
+
+              if (GetFirst BuhSchet where ((cSchet == BuhSchet.nRec)) = tsOK) {
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl1, BuhSchet.KodTable[1] );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl2, BuhSchet.KodTable[2] );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl3, BuhSchet.KodTable[3] );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl4, BuhSchet.KodTable[4] );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl5, BuhSchet.KodTable[5] );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl6, BuhSchet.KodTable[6] );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau1, string(0) );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau2, string(0) );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau3, string(0) );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau4, string(0) );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau5, string(0) );
+                   piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau6, string(0) );
+                }
+            }
+          }
+        #fldKau1 : {
+            if ( iGetKAU.GetCodeKau(cgiPick, piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl1), cKau1) <> 0) {
+               piExAttr.sSetAttrID(coKatPodr, KatPodr.nRec, c_kau1, cKau1);
+              }
+          }
+        #fldKau2 : {
+            if ( iGetKAU.GetCodeKau(cgiPick, piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl2), cKau2) <> 0) {
+               piExAttr.sSetAttrID(coKatPodr, KatPodr.nRec, c_kau2, cKau2);
+              }
+          }
+
+        #fldKau3 : {
+            if ( iGetKAU.GetCodeKau(cgiPick, piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl3), cKau3) <> 0) {
+               piExAttr.sSetAttrID(coKatPodr, KatPodr.nRec, c_kau3, cKau3);
+              }
+          }
+        #fldKau4 : {
+            if ( iGetKAU.GetCodeKau(cgiPick, piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl4), cKau4) <> 0) {
+               piExAttr.sSetAttrID(coKatPodr, KatPodr.nRec, c_kau4, cKau4);
+              }
+          }
+        #fldKau5 : {
+            if ( iGetKAU.GetCodeKau(cgiPick, piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl5), cKau5) <> 0) {
+               piExAttr.sSetAttrID(coKatPodr, KatPodr.nRec, c_kau5, cKau5);
+              }
+          }
+        #fldKau6 : {
+            if ( iGetKAU.GetCodeKau(cgiPick, piExAttr.sGetAttrID(coKatPodr, KatPodr.nRec, c_tbl6), cKau6) <> 0) {
+               piExAttr.sSetAttrID(coKatPodr, KatPodr.nRec, c_kau6, cKau6);
+              }
+          }
+      End;
+
+      ReScanPanel(CurTable);
+      }
+
+
+    cmInit:
+    {
+      SelectField(#KatPodr_Name);
+
+      DisableCommand(cmAccording);
+      DisableCommand(cmPrintDoc);
+      PutCommand(cmValue1);
+    }
+
+    cmValue1:
+      UpdateView;
+
+
+    cmCancel:
+      if not UpdateTable
+        abort;
+
+    cmClose:
+      if not UpdateTable
+        abort;
+
+    cmDone:
+    {
+      EnableCommand(cmPrintDoc);
+      EnableCommand(cmAccording);
+
+      if (mode <> 0)or(c1 <> 0) or
+        ((not isModified) and (FirstTimes = 1)) //закрыть,если ничего не ввели в первый раз
+        PutCommand(cmClose);
+      if isModified
+        if not UpdateTable abort;
+      RescanPanel(#KatPodr);
+    }
+
+    cmValue2:
+      if UpDateTable
+        RunInterface(GetTarrir, KatPodr.nRec);
+
+    cmAttrib:
+      if UpDateTable
+       RunInterface('GetCapacity',
+                             word(0),
+                             word(1),
+                             KatPodr.Nrec,comp(0),date(0,0,0),time(0,0,0,0),double(0),double(0),false
+                            ,word(0)
+                            ,comp(0)
+                             );
+
+
+    // информация о центре ответственности
+    cmValue4:
+    {
+      if UpdateTable
+        RunInterface('M_MnPlan::iShowInfoAboutWorkCentre', cgKau_KatPodr, KATPODR.NREC);
+    }
+
+    cmOpenSearch:
+    {
+      abort;
+      case CurField of
+        #doMethodSpis,
+        #KATPODR.SKLAD,
+        #KATPODR.INTERN,
+        #KATPODR.UCHPRC,
+        #KatPodr.TYPEUCH,
+        #KATPODR.LastUser:
+          PutCommand(cmRotateList);
+      end; //case
+    }
+
+    cmInsert: {
+      Abort_message;
+    }
+
+    cmDelete: {
+      Abort_message;
+    }
+
+    cmPickClass:
+      EditExternalClassification;
+
+    cmPickAttr:
+      EditExternalAttributes;
+
+    cmVal1:  // просмотр инфраструктуры складов
+      EditInfrastructure;
+  end;
+end; //window
+
+
+Tree trPodr (, hcGkatalM1Podr, sci1478EscTree)// дерево
+  Table KatPodr;
+  Fields
+    KatPodr.Name  'Наименование' ('Наименование подразделения'):[39], protect;
+    KatPodr.Kod   'Код' ('Код подразделения'):[10], protect;
+    refAttrTablePick.sGetValue( coKatPodr, c_schet, KatPodr.nRec ) 'Счёт' ('Счёт затрат'):[10], protect;
+end; //tree
+
+//------------------------------------------------------------------------------
+procedure SetupBounds(ChangeSortOrder: boolean);
+{
+  var cTmp : comp;
+  cTmp := KatPodr.nRec;
+
+  PopBounds(#KatPodr);
+  PopAllConditionForLeave(#KATPODR);
+
+  if TreeView
+    AddBounds(tbNode);
+
+  if not ADGL.IsEmpty
+    PushConditionForLeave(tcAllowed, #KATPODR);
+
+  TreeJumpToRecord(trPodr, cTmp);
+
+  case OrderFieldNum of
+    #KATPODR.NAME:
+    {
+      AddBounds(tbOrderedByName);
+      Flag := 0;
+    }
+    #KATPODR.KOD:
+    {
+      AddBounds(tbOrderedByCode);
+      Flag := 1;
+    }
+  end; //case
+
+  var ColumnSorting: integer;
+
+  ColumnSorting := GetColumnSorting(trPodr, OrderFieldNum);
+  if ChangeSortOrder or (ColumnSorting = 0)
+    ColumnSorting := if(ColumnSorting = 1, -1, 1);
+
+  ClearColumnsSorting(trPodr);
+  // установить признак сортировки для нужной колонки
+  SetColumnSorting(trPodr, OrderFieldNum, ColumnSorting);
+  SetTableBackOrderIn(CurTable, ColumnSorting < 0);
+  ReScanPanel(#KATPODR);
+}
+
+
+#include doierarh.vpp
+Panel pan1;
+  Table KatPodr;
+
+  HandleEvent
+
+    cmTreeTop      : Node := 0;
+    cmTreeUp       : Node := KatPodr.CPodr;
+    cmTreeDown     : Node := KatPodr.NRec;
+    cmTreeNodeType :
+      if not TreeView or not IsValid(#KATPODR3) or not IsValid(#KATPODR)
+        TreeSetNodeType(trPodr, 2);
+
+    cmTreeNeedOwner: TreeJumpToRecord(trPodr, KatPodr.cPodr);
+
+    cmPositionChanged:
+    {
+      OldPodr := KatPodr.cPodr;
+      if CurWindow <> wnMainWindow
+      {
+        UpdateView;
+      }
+    }
+
+  cmSetDefault:
+  {
+    PushPos(#KATPODR);
+    var DepartmentCodeStr: string;
+    if (getlast katpodr ordered by KATPODR.KOD = 0)
+      DepartmentCodeStr := nextnumstr(KATPODR.KOD);
+    else
+      DepartmentCodeStr := '00000001';
+    PopPos(#KATPODR);
+
+    ClearBuffer(#KATPODR);
+    KATPODR.KOD := DepartmentCodeStr;
+    KatPodr.sklad := if (mode = 0, LastSkl, word(abs(mode) - 1));
+
+    KatPodr.Smen := 1;
+    SelectField(#KatPodr_Name);
+
+    var cFun: longint;
+    var DH: boolean;
+    if (ReadMyDsk(cFun,'KatPodr_cFuncASUP',DH)) KatPodr.cFunc := cFun;
+      KATPODR.ISLEAF := 1;
+
+    if not ADGL.IsEmpty
+      KATPODR.CGRPODR := ADGL.GetAt(0);
+
+    SelectFormat(scKatPodrSklRZ);
+    SelectField(#KATPODR.NAME);
+
+    UpdateView;
+  }
+
+  cmExprFieldChanged:
+  {
+    ErrorInExprField := false;
+    case CurField of
+      #ShiftTime1,
+      #ShiftTime2,
+      #ShiftTime3:
+      {
+        var Value: double;
+        _try
+        {
+          Value := Str2TimeSep(ExprFieldValue, ':');
+          if (Value > 24.00)
+            _raise ExNumberConvert;
+          var I: integer;
+          case CurField of
+            #ShiftTime1: I := 1;
+            #ShiftTime2: I := 2;
+            #ShiftTime3: I := 3;
+          end; //case
+          KATPODR.HOUR[I] := byte(Trunc(Value));
+          set KATPODR.MINUT[I] := byte(Round((Value - KATPODR.HOUR[I]) * 60));
+        }
+        _except
+          on ExNumberConvert:
+          {
+            Message('Введена недопустимая величина', Error + OkButton);
+            ErrorInExprField := true;
+          }
+      }
+    end; //case
+  }
+
+cmDeleteRecord : {
+  Abort_message;
+  }
+
+
+cmInsertRecord: {
+  Abort_message;
+}
+end;
+end;
+
+  HandleEvent
+
+   cmDelOnProtect: {
+      Case CurField of
+        #fldSchet : {
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_schet,  comp(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl1, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl2, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl3, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl4, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl5, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_tbl6, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau1, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau2, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau3, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau4, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau5, string(0) );
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau6, string(0) );
+          }
+        #fldKau1 : {
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau1, string(0) );
+          }
+        #fldKau2 : {
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau2, string(0) );
+          }
+        #fldKau3 : {
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau3, string(0) );
+          }
+        #fldKau4 : {
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau4, string(0) );
+          }
+        #fldKau5 : {
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau5, string(0) );
+          }
+        #fldKau6 : {
+           piExAttr.sSetAttrID( coKatPodr, KatPodr.nRec, c_kau6, string(0) );
+          }
+      End;
+
+      ReScanPanel(CurTable);
+    }
+
+    cmInit:
+    {
+      DepartmentType[0] := 'подразделение';
+      DepartmentType[1] := 'склад';
+      DepartmentType[2] := 'розничная торговля';
+
+      SetEnumList(scKatPodrSklRZ, #KATPODR.SKLAD, DepartmentType);
+
+      RegularStockType[1] := 'внешний';
+      RegularStockType[2] := 'внутренний';
+
+      TransitStockType[1] := 'промежуточный';
+      TransitStockType[2] := 'пограничный';
+      TransitStockType[3] := 'конечный';
+      TransitStockType[4] := 'отказной';
+      FirstTimes := 0;
+      Node := 0;
+
+      //создадим атрибут, если он учитывается и его еще нету
+      if (boGetTune('Pick.UchVnAttribNotPick_Podr'))
+        piExAttr.CreateAttr(coKatPodr,'Запрет одиночного выбора с',cgAttrType_Date);
+
+      TreeView := (Mode = 0) and (C1 = 0) and boGetTune('Pick.IerPodr');
+
+      LoadVipRef(ADGL, 'AllowedDepartmentGroupList');
+      ADGL.Load(UserId);
+
+      if wGetTune('Pick.Departments.SortOrder') = 1
+        OrderFieldNum := #KATPODR.KOD;
+      else
+        OrderFieldNum := #KATPODR.NAME;
+
+      SetupBounds(false);
+
+
+      if TreeJumpToRecord(trPodr, c1)
+        PutCommand(cmDefault);
+      else
+      {
+        if not TreeGetFirst(trPodr)
+          FirstTimes := 1;
+      }
+
+      if boGetTune('Doc.Capacity.VidSopr201')
+        ShowButton(scKatPodrSklRZ, cmValue2, True);
+      else
+      {
+        ShowButton(scKatPodrSklRZ, cmValue2, False);
+        DisableCommand(cmValue2);
+      }
+    }
+
+    cmAccording:
+    {
+      TreeView := not TreeView;
+      SetupBounds(false);
+    }
+
+    cmAddNewRec: {
+      Abort_message;
+      }
+
+    cmInsert: {
+      Abort_message;
+    }
+
+    cmEdit:
+      PutCommand(cmDefault);
+
+    cmDelete: {
+      Abort_message;
+    }
+
+    cmDone:
+    {
+      c1 := katpodr.NRec;
+      SaveMyDsk(katpodr.NRec, 'katpodr_NRec');
+    }
+
+    cmPickClass:
+      EditExternalClassification;
+
+    cmPickAttr:
+      EditExternalAttributes;
+
+    cmPrintDoc:
+    {
+      if (updatetable)
+      {
+        Runinterface('GroupHierarchy', Flag);
+      } // update table
+      else
+        message(''#3'Перед печатью заполните документ',Information+CancelButton);
+    }
+
+    cmHotKeys :
+      PutHotCommand(RunMenu('mnuKatPodr_Schet'));
+
+    cmDefault:
+    {
+/* пользователи пожелали, чтобы при редактировании не изменялось отображение
+      var OldTreeView: boolean;
+      OldTreeView := TreeView;
+      TreeView := false;
+      SetupBounds(false);
+*/
+      RunWindowModal(wKatPodr);
+/* пользователи пожелали, чтобы при редактировании не изменялось отображение
+      if (OldTreeView xor TreeView)
+      {
+        TreeView := OldTreeView;
+        SetupBounds(false);
+      }
+*/
+    }
+
+    cmVal1:  // просмотр инфраструктуры складов
+      EditInfrastructure;
+
+    // Калибровочная таблиц
+    cmValue2:
+      if UpDateTable
+        RunInterface(GetTarrir, KatPodr.nRec);
+
+    // дополнительно
+    cmAttrib:
+      if UpDateTable
+       RunInterface('GetCapacity',
+                             word(0),
+                             word(1),
+                             KatPodr.Nrec,comp(0),date(0,0,0),time(0,0,0,0),double(0),double(0),false
+                            ,word(0)
+                            ,comp(0)
+                             );
+
+    // юридические атрибуты подразделения
+    cmValue3:
+    {
+      if not UpdateTable
+        exit;
+
+      if KATPODR.NREC <> 0
+        RunInterface('DepartmentAttributes', KATPODR.NREC);
+    }
+
+    // информация о центре ответственности
+    cmValue4:
+    {
+      if UpdateTable
+        RunInterface('M_MnPlan::iShowInfoAboutWorkCentre', cgKau_KatPodr, KATPODR.NREC);
+    }
+
+    cmColumnClicked:
+    {
+      var SortOrder: word;
+
+      case Target of
+        #KATPODR.NAME:
+          SortOrder := 0;
+
+        #KATPODR.KOD:
+          SortOrder := 1;
+      else
+        exit;
+      end; //case
+
+      SetTune('Pick.Departments.SortOrder', SortOrder);
+      OrderFieldNum := Target;
+      SetupBounds(true);
+    }
+  end;
+end.
+
+mnuKatPodr_Schet Menu
+{
+  - 'Режим представления: линейный/иерархический', cmAccording,
+    'Переключение представления иерархии подразделений (дерево/список)', hcGkatalSHier, 'Alt+S', kbAltS, sci1Esc;
+  ----------;
+  - 'Печать...', cmPrintDoc,
+    'Печать каталога', hcPrintKatalog, 'Ctrl+P', kbCtrlP, sci1Esc;
+  ----------;
+  - 'Внешние атрибуты', cmPickAttr,
+    'Заполнение внешних атрибутов по данной позиции', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+}
+
+
+#include UserReport.vih
+
+VipInterface UserReport_KatPodr_Schet implements IUserReport;
+
+interface UserReport_KatPodr_Schet;
+  view;
+
+  procedure Run;
+    begin
+      RunInterface('KatPodr_Schet');
+    end;
+
+  function GetReportName : string;
+    begin
+      result:='Проставление бухгалтерского счёта в каталоге Подразделений';
+    end;
+
+  function GetGroupName(Level : Word) : string;
+    begin
+      result:='';
+    end;
+
+  function GetPriority : Integer;
+    begin
+      result:=0;
+    end;
+
+  function VisibleInModule(Ind : Byte) : String;
+    begin
+      result:='';
+      case Ind of
+        1: result:='SFO';
+      end;
+    end;
+end.

@@ -1,0 +1,153 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2010 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Бухгалтерский контур                                      ║
+ ║ Версия        : 8.1x                                                      ║
+ ║ Назначение    : Возвращает срок носки и даты из PersSFO                   ║
+ ║ Ответственный : Шайдаров Игорь Александрович                              ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_SFOpersDate implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_SFOpersDate;
+var
+  CurSoprDoc  : comp   ;
+  CurTiDkGal  : word   ;
+  Par_Rasch   : word   ;
+  logFileName : string ;
+create view
+as select
+  *
+from
+     MBPin        (ReadOnly)
+   , MBPout       (ReadOnly)
+   , PersSFO      (ReadOnly)
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Срок носки и даты выдачи из PersSFO';
+}
+
+Window wParam 'Задайте параметры идентификатора' (,,) EscClose;
+  Show at (2,12,75,20);
+    Screen scParam (,,);
+
+      Fields
+        Par_Rasch ('Выберите требуемый результат расчета идентификатора',,sci1EnEsc) :
+            [LIST 0  'Срок носки Спецодежды               (PersSFO.Srok)'     ,
+                  1  'Дата выдачи Спецодежды              (PersSFO.GiveDate)' ,
+                  2  'Дата отсчёта срока носки Спецодежды (PersSFO.ExplDate)' ,
+                  3  'Дата окончания носки Спецодежды     (PersSFO.EndDate)'] , protect;
+
+<<
+                       `Основной параметр результата`
+
+      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+
+
+
+
+End;
+
+HandleEvent // window
+
+ cmDefault : CloseWindow(wParam);
+
+End;  // HandleEvent
+End;  // window
+
+
+function ParamMaster : string;
+{
+   // вызов окошка, чтобы помочь пользователю заполнить строку дополнительных параметров идентификатора
+   RunWindow(wParam);
+   PackFields;
+   case Par_Rasch of
+     0  : ParamMaster := '[Рез:Srok]'      ;
+     1  : ParamMaster := '[Рез:GiveDate]'  ;
+     2  : ParamMaster := '[Рез:ExplDate]'  ;
+     3  : ParamMaster := '[Рез:EndDate]'   ;
+   end;
+}
+
+procedure ParamParser(hTxo : longint);
+{
+   var i : Longint;
+
+   for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   {  case TxoParamName(hTxo,i) of
+        'РЕЗ': {
+                 case TxoParamValue(hTxo,i) of
+                    'SROK'       : Par_Rasch := 0;
+                    'GIVEDATE'   : Par_Rasch := 1;
+                    'EXPLDATE'   : Par_Rasch := 2;
+                    'ENDDATE'    : Par_Rasch := 3;
+                 end;
+               }
+      end;
+   }
+}
+
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'SFO_TXO_PersDate.log';
+
+   CurSoprDoc := buf.cSoprDoc;
+   CurTiDkGal := buf.TiDkGal;
+   ParamParser(hTxo);
+
+   InitGetCur;
+
+   if (CurTiDkGal = 12 or CurTiDkGal = 20) {                                                                   // приход и внутренне перемещение
+     if (GetFirst PersSFO where ((CurSoprDoc == PersSFO.cCurMBPin     (noIndex) )) <> tsOK) {Exit;}
+     }
+
+   if (CurTiDkGal = 13 or CurTiDkGal = 19) {                                                                  // списание и износ
+!LogStrToFile(logFileName, '1' + CurSoprDoc + '*' +  MBPout.nRec + '*' + MBPOut.cMBPin + '*' + PersSFO.cDocMBPin + '*' + PersSFO.Srok);
+     if (GetFirst MBPout  where ((CurSoprDoc    == MBPout.nRec                     )) <> tsOK) {Exit;}
+     if (GetFirst PersSFO where ((MBPOut.cMBPin == PersSFO.cCurMBPin     (noIndex) )) <> tsOK) {Exit;}
+
+!LogStrToFile(logFileName, '2' + CurSoprDoc + '*' +  MBPout.nRec + '*' + MBPOut.cMBPin + '*' + PersSFO.cDocMBPin + '*' + PersSFO.Srok);
+
+     }
+
+   Case Par_Rasch of
+        0  : {
+             TxoBodyClear(hTxo);
+             TxoBodySetSum (hTxo, PersSFO.Srok,  0, PersSFO.Srok);
+             TxoBodyInsert (hTxo);
+        }
+        1  : {
+             TxoBodyClear(hTxo);
+             TxoBodySetSum (hTxo, PersSFO.GiveDate,  0, PersSFO.GiveDate);
+             TxoBodyInsert (hTxo);
+        }
+        2  : {
+             TxoBodyClear(hTxo);
+             TxoBodySetSum (hTxo, PersSFO.ExplDate,  0, PersSFO.ExplDate);
+             TxoBodyInsert (hTxo);
+        }
+        3  : {
+             TxoBodyClear(hTxo);
+             TxoBodySetSum (hTxo, PersSFO.EndDate ,  0, PersSFO.EndDate);
+             TxoBodyInsert (hTxo);
+        }
+
+    end; // Case
+
+}
+
+handleevent
+end;
+
+end.
