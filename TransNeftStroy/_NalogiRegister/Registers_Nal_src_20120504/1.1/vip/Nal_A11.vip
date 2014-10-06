@@ -1,0 +1,659 @@
+VipInterface UserRep_NalA_11   Licensed(Free);
+#include NalFunc.vih
+
+// ==============================  Получение имени организации-налогоплательщика и ее ИНН =======================================
+Interface UserRep_NalA_11 'Затраты по приобретению (строительству) основных средств либо увеличению стоимости';
+create view
+var
+  dFrom
+ ,dTo: date;
+   Glo_dFrom
+ , Glo_dTo : date;
+  iNalFunc: NalFunc;
+//var
+//  OrgName, INN:string;
+ _cMethodNal : comp;
+  FltBySPO   : word;
+  boFltBySPO : boolean;
+
+as select *
+from
+   katos
+ , spkatos
+ , klassos
+ , nastros
+ , nastros NastrosNal
+ , oborot
+ , spKau
+ , pickBuh
+ , MoveOS
+ , SpMove
+ , SpMoveOS
+where
+((
+  katos.nrec == spkatos.ckatos
+  and spkatos.cgram == klassos.nrec
+  and spkatos.cnastros==nastros.nrec
+))
+and nastros.name='Бухгалтерский учет'
+;
+// ==============================   Сумма по графе 5(A1.1) =======================================
+Function GetSumGr6(dFrom, dTo: date; KatOSNrec: comp;  var SchetKredit: string): double;
+{
+  Result := 0;
+  SchetKredit := '';
+
+  _loop oborot where((     'T01'     == oborot.scheto
+                       and KatOSNrec == oborot.kauos[5]
+                       and dTo     >>= oborot.datob
+                       and dFrom   <<= oborot.datob
+                     ))
+                     and
+                     (
+                            ( 'Tсальдо'     = oborot.schetk )
+                          or ('T08'  = oborot.schetk and oborot.subschk='20')
+                          or ('T08'  = oborot.schetk and oborot.subschk='99')
+                     )
+  {
+    Result += Oborot.SumOb;
+
+    var tmpSchet : string;
+    tmpSchet := SubStr(oborot.schetk, 2, length(oborot.schetk)) + if(length(oborot.subschk) > 0, '.', '') + oborot.subschk;
+    if inStr(tmpSchet, SchetKredit) = 0
+    {
+      if Length(SchetKredit) = 0
+        SchetKredit := tmpSchet;
+      else
+        SchetKredit := SchetKredit + ', ' + tmpSchet;
+    }
+  }
+
+  _loop oborot where((     'T03'     == oborot.scheto
+                       and KatOSNrec == oborot.kauos[5]
+                       and dTo     >>= oborot.datob
+                       and dFrom   <<= oborot.datob
+                     ))
+                     and
+                     (
+                            ( 'Tсальдо'     = oborot.schetk )
+                          or ('T08'  = oborot.schetk and oborot.subschk='20')
+                          or ('T08'  = oborot.schetk and oborot.subschk='99')
+                     )
+  {
+    Result += Oborot.SumOb;
+
+    var tmpSchet : string;
+    tmpSchet := SubStr(oborot.schetk, 2, length(oborot.schetk)) + if(length(oborot.subschk) > 0, '.', '') + oborot.subschk;
+    if inStr(tmpSchet, SchetKredit) = 0
+    {
+      if Length(SchetKredit) = 0
+        SchetKredit := tmpSchet;
+      else
+        SchetKredit := SchetKredit + ', ' + tmpSchet;
+    }
+  }
+  SchetKredit := '''' + SchetKredit;
+}
+
+!--------------------------------------------------------------------------------------------------------------
+!A1.1  Сумма по графе 6 (SumGr7_1) - по обороту 01-08.10,20=======================================
+!!!!!Переделать все функции ниже на вложенный селект sum или DirectSQl одним запросом вытянет
+!--------------------------------------------------------------------------------------------------------------
+function GetSumGr7_1(dFrom, dTo: date; KatOSNrec: tNrec): double ;
+{
+  Result := 0;
+  _loop Oborot where ((15 == oborot.tblos[5] and KatOSNrec/==oborot.kauos[5] and oborot.kauks[3]/==spkau.nrec))
+                  //фильтры
+                  and (oborot.scheto='T01' or oborot.scheto='T03')
+                  and oborot.schetk='T08' and (oborot.subschk='20')
+                  and (spkau.code='002008' or spkau.code='002009')
+                  and  oborot.datob <= dTo and oborot.datob >= dFrom
+  {
+//    if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+//      continue;
+
+    Result += Oborot.SumOb;
+  }
+
+}
+
+// ==============================   Сумма по графе 6 - обороты 01-08.99=======================================
+function GetSum0899ForOS(dFrom,dTo: date; KatOSNrec: comp; var KatStroyNrec: comp): double;
+{
+  Result := 0;
+  _loop Oborot where ((15 == oborot.tblos[5] and KatOSNrec/==oborot.kauos[5]))
+                   and oborot.scheto='T01'
+                   and oborot.schetk='T08'
+                   and oborot.subschk='99'
+                   and oborot.datob<=dTo and oborot.datob>=dFrom
+  {
+//    if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+//      continue;
+
+    Result += Oborot.SumOb;
+	  KatStroyNrec := oborot.kauks[1];
+  }
+}
+
+
+// ==============================  Для получения суммы 08.99 - 08.30,50 ( с аналитикой) по конкретному Капвложению =======================================
+function GetSum0899(dTo: date; KatStroyNrec: tNrec): double ;
+{
+  Result := 0;
+  _loop oborot where ((40 == oborot.tblos[1] and KatStroyNrec/==Oborot.Kauos[1] and oborot.kauks[3]==spkau.nrec ))
+        	  and (oborot.tblks[1]=40 ) and (oborot.kauks[1]=KatStroyNrec)
+            and oborot.scheto='T08' and oborot.subossch='99'
+            and oborot.schetk='T08' and   (oborot.subschk='30' or  oborot.subschk='50')
+            and spkau.code='005012'
+            and oborot.datob <= dTo
+  {
+//    if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+//      continue;
+
+    Result += Oborot.SumOb;
+  }
+}
+// ==============================  Для получения суммы 08.99 - 08.30,50 (весь) по конкретному Капвложению =======================================
+function GetSum0899all(dTo: date; KatStroyNrec: tNrec): double ;
+{
+  Result := 0;
+
+ _loop oborot where ((40 == oborot.tblos[1] and KatStroyNrec/==Oborot.Kauos[1]   ))
+        	  and (oborot.tblks[1]=40 ) and (oborot.kauks[1]=KatStroyNrec)
+            and oborot.scheto='T08' and oborot.subossch='99'
+            and oborot.schetk='T08' and   (oborot.subschk='30' or  oborot.subschk='50')
+            and oborot.datob <= dTo
+  {
+//    if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+//      continue;
+
+    Result += Oborot.SumOb;
+  }
+}
+
+// ==============================   Сумма по графе 7 =======================================
+function GetSumGr8(dFrom, dTo: date; KatOSNrec: tNrec): double ;
+{
+  Result := 0;
+  _loop Oborot where ((15 == oborot.tblos[5] and KatOSNrec/==oborot.kauos[5] and oborot.kauks[3]/==spkau.nrec))
+                  and (oborot.scheto = 'T01' or oborot.scheto = 'T03')
+                  and  oborot.schetk = 'T08' and (oborot.subschk = '20')
+                  and (spkau.code = '002010003002' or spkau.code = '002010003004')
+                  and  oborot.datob<=dTo and oborot.datob>=dFrom
+  {
+//    if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+//      continue;
+
+    Result += Oborot.SumOb;
+  }
+}
+// ==============================   Сумма по графе 8 =======================================
+function GetSumGr9(dFrom, dTo: date; KatOSNrec: tNrec): double ;
+{
+  Result := 0;
+  _loop Oborot where ((15 == oborot.tblos[5] and KatOSNrec/==oborot.kauos[5] and oborot.kauks[3]/==spkau.nrec))
+                  and (oborot.scheto = 'T01' or oborot.scheto = 'T03')
+                  and  oborot.schetk = 'T08' and (oborot.subschk = '20')
+                  and (spkau.code='002010008002' or spkau.code='003002')
+                  and  oborot.datob<=dTo and oborot.datob>=dFrom
+  {
+//    if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+//      continue;
+
+    Result += Oborot.SumOb;
+  }
+}
+
+// ==============================   Налоговая стоимость ОС =======================================
+function GetNStoim(dFrom, dTo: date; KatOSNrec: tNrec; var xx : double; var PostuplFlag : boolean): boolean ;
+var NStoim : double
+{
+  xx     := 0;
+  NStoim := 0;
+
+  _loop Oborot where ((    15         == oborot.tblos[5]
+                       and KatOSNrec  == oborot.kauos[5] ))
+                       and oborot.scheto = 'N901'
+                       and oborot.kauos[2] = comp(0064000000000063h)
+                       and oborot.datob < dFrom
+  {
+    NStoim += oborot.sumob;
+  }
+
+  _loop Oborot where ((    15         == oborot.tblks[5]
+                       and KatOSNrec  == oborot.kauks[5] ))
+                       and oborot.schetk = 'N901'
+                       and oborot.kauks[2] = comp(0064000000000063h)
+                       and oborot.datob < dFrom
+  {
+    NStoim -= oborot.sumob;
+  }
+
+  // определяем наличие оборотов в периоде
+  _loop Oborot where ((    15         == oborot.tblos[5]
+                       and KatOSNrec  == oborot.kauos[5] ))
+                       and oborot.scheto = 'N901'
+                       and oborot.kauos[2] = comp(0064000000000063h)
+                       and oborot.schetk = 'N900'
+                       and oborot.datob >= dFrom
+                       and oborot.datob <= dTo
+  {
+    if boFltBySPO
+      if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+        continue;
+    xx += oborot.sumob;
+  }
+
+  _loop Oborot where ((15             == oborot.tblos[5]
+                       and KatOSNrec  == oborot.kauos[5] ))
+                       and oborot.scheto = 'N901'
+                       and oborot.kauos[2] = comp(0064000000000063h)
+                       and oborot.schetk = 'N901'
+                       and oborot.kauks[2] = comp(0064000000000086h)
+                       and oborot.datob >= dFrom
+                       and oborot.datob <= dTo
+  {
+    if boFltBySPO
+      if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+        continue;
+
+    xx += oborot.sumob;
+  }
+
+  // дальше идет мрачный алгоритм анализа было ли это поступление или модернизация
+  var tmpDate : date;
+  PostuplFlag := false;
+  tmpDate := Sub_Months(dFrom, 1);
+  tmpDate := date(Last_Day(tmpDate), Month(tmpDate), Year(tmpDate));
+  if xx > 0 // нет движения нет и признака поступления
+  {
+    if NStoim <= 0.00001 // есть стоимость, значит модернизация, нет стоимости - анализируем дальше
+    {
+      // Дополнительный анализ чтобы отсеять те, у которых просто нулевая стоимость НУ на начало периода (полученные при реорганизации с нулевой стоимостью)
+      if getfirst ArcIznos where ((     KatOSNrec   == ArcIznos.cKatOS
+                                    and _cMethodNal == ArcIznos.cNastrOS
+                                    and tmpDate     == ArcIznos.Data
+                                  )) = tsOk
+      {
+        if ArcIznos.Stoim > 0.00001
+          { PostuplFlag := true; }
+          // если нулевая стоимость на 901 в НУ, а также нулевая стоимость в карточке ОС,
+          // то это не поступление а ОС с нулевой стоимостью в НУ
+      }
+      else
+      { PostuplFlag := true; } // если нет в архиве инфы, то поступление
+    }
+    else
+    { PostuplFlag := false; } // если есть накопленная стоимость по заданному признаку значит точно не поступление.
+  }
+}
+
+function GetSumGr12(dFrom, dTo: date; KatOSNrec: tNrec; var SumGr12, SumGr12new : double) : boolean;
+{
+  var SumGr : double;
+  var PrL   : double;
+
+  SumGr      := 0;
+  SumGr12    := 0;
+  SumGr12new := 0;
+  /*
+  if getfirst klassos = tsOk
+  {
+    if (klassos.kod='03' or klassos.kod='04' or klassos.kod='05' or klassos.kod='06' or klassos.kod='07')
+      gr9new:=XX*0.3;
+    else
+      gr9:=XX*0.1;
+  }
+  */
+  _loop SpMoveOS where ((
+                               _cMethodNal  ==  SpMoveOS.CNASTROS
+                           and KatOSNrec    ==  SpMoveOS.CKATOS
+                           and dFrom       <<= SpMoveOS.DATOB
+                           and dTo         >>= SpMoveOS.DATOB
+                       ))
+  {
+    SumGr := SpMoveOS.Rashod;
+    PrL   := 0;
+    if getfirst MoveOS where (( SpMoveOS.cMoveOS == MoveOS.NRec )) = tsOk
+    {
+      case MoveOs.SysOper of
+        cgOs_1_Post:
+          PrL := SpMoveOs.Rashod / SpMoveOs.NewStoim ;
+        cgOs_3_IzmStm:
+          PrL := SpMoveOs.Rashod / (SpMoveOs.NewStoim - SpMoveOs.OldStoim);
+      end;
+    }
+
+    Case PrL of
+      0.1 : SumGr12    += SumGr;
+      0.3 : SumGr12New += SumGr;
+      else SumGr12     += SumGr;
+    end;
+  }
+}
+
+function GetOSInCapital( KatOSNrec: tNrec) : boolean;
+{
+  result := GetKauReffStrKod('KATOS', KatOSNrec, 20067) = '004';
+}
+
+procedure PrintReport;
+var
+  CurIndex
+ ,NPP, i: word;
+  Sum :double;
+  numCol: word;
+  OrgName, OrgInn: string;
+  SchetKredit: string;
+  KatStroyNrec: tNrec;
+
+   XX, NStoim, Sum0899ForOS
+ , SumGr6
+ , Sum0899all, Sum0899, SumGr7_1,SumGr7_2, SumGr7
+ , SumGr10
+ , SumGr8, SumGr9
+ , SumGr12new, SumGr12
+ , itogo4, itogo5
+ , itogo6, itogo7
+ , itogo8a, itogoNalStoim
+ , itogo9, itogo9new : double;
+ PostuplFlag : boolean
+{
+  numCol := 13;
+
+  iNalFunc.GetOrgInfo(OrgName, OrgInn);
+  xlCreateExcel('report.xls',true);
+  xlCreateMatrix(5000, numCol);
+
+ // xlSetColumnWidth(4,1,1,1,1);
+ // xlSetColumnWidth(20,1,2,1,2);
+ // xlSetColumnWidth(25,1,3,1,3);
+ // xlSetColumnWidth(10,1,4,1,8);
+
+  CurIndex:=1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'А 1.1');
+  CurIndex ++;
+  xlSetFontStyle(1,CurIndex,1,CurIndex + 3,numCol);
+  xlSetFontSize(8, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Наименование организации-налогоплательщика: '+ OrgName);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex, 1,'ИНН налогоплательщика: ' + OrgInn);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex,1,'Дата составления: ' + dateToStr(Cur_Date,'DD Mon YYYY г.'));
+  CurIndex ++;
+
+
+  xlMergeCells(CurIndex, 1, CurIndex, numCol);
+  xlSetFontStyle(1, CurIndex, 1, CurIndex + 4, numCol);
+  xlAlignCellsEx(3, 2, CurIndex, 1, CurIndex + 4, numCol);
+  xlSetFontSize(12, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Регистр №А 1.1  "Затраты по приобретению (строительству) основных средств либо увеличению стоимости"');
+  CurIndex += 2;
+
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  //xlAlignCellsEx(2,2,CurIndex,1,CurIndex, numCol);
+  //xlSetFontSize(12,1,1,1,1);
+  xlSTWriteToMatrix(CurIndex, 1, 'за период с '+dateToStr(Glo_dFrom,'DD/MM/YYYY')+' по '+dateToStr(Glo_dTo,'DD/MM/YYYY'));
+  CurIndex ++;
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex, 1, 'отчетный (налоговый) период');
+  CurIndex ++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+  xlSTWriteToMatrix(CurIndex,2,'Инвентарный номер');
+  xlSTWriteToMatrix(CurIndex,3,'Код амортизационной группы');
+  xlSTWriteToMatrix(CurIndex,4,'Наименование объекта');
+  xlSTWriteToMatrix(CurIndex,5,'Кредит счета бухгалтерского учета');
+  xlSTWriteToMatrix(CurIndex,6,'Сумма затрат (бухучет), руб.');
+  xlSTWriteToMatrix(CurIndex,7,'в т.ч. проценты по кредитам и займам');
+  xlSTWriteToMatrix(CurIndex,8,'сверхнормативные командировочные расходы');
+  xlSTWriteToMatrix(CurIndex,9,'иные неучитываемые расходы');
+  xlSTWriteToMatrix(CurIndex,10,'Расходы, не включаемые в перв. стоимость ОС для целей НУ, но не учтенные при формировании гр. 6,7,8 я');
+  xlSTWriteToMatrix(CurIndex,11,'Первоначальная стоимость (увеличение первоначальной стоимости) для целей налогообложения');
+  xlSTWriteToMatrix(CurIndex,12,'Аморт. льгота (1-2, 8-10 гр.) 10%(справочно)');
+  xlSTWriteToMatrix(CurIndex,13,'Аморт. льгота (3-7 гр.) 30% (справочно)');
+  CurIndex++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+   for(i := 0; i <= numCol; i++)
+    xlSTWriteToMatrix(CurIndex, i, string(i));
+
+  CurIndex++;
+
+  Npp:=1;
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Формирование отчета', 0);
+  // _loop PickBuh where ((cgKau_FpCO == PickBuh.KodTable ))
+  {
+    _loop KatOS  where((15 == katos.tidk )) ordered by katos.isLeaf, katos.innum // and PickBuh.PickRec == katos.cCo(NoIndex))
+    {
+      if not NextVisual
+        break;
+
+      if not boFltBySPO
+        if not iNalFunc.CheckCO(KatOs.cCO)
+          continue;
+
+      dFrom := Glo_dFrom;
+      dTo   := Glo_dTo;
+
+      var OSInCapital : boolean;
+      OSInCapital := GetOSInCapital(KatOS.NRec);
+
+      // Согласно методологии, основополагающая проводка Д 901 Призн.исп.:81
+      GetNStoim(dFrom, dTo, KatOS.Nrec, XX, PostuplFlag);
+      // if (SumNdeEq(XX, 0))
+      if XX <= 0.0001
+        continue;
+
+      //if NStoim = 0  // если стоимость на начало периода равна 0, то затраты нужно брать за весь период с начала времен
+      if PostuplFlag
+        dFrom := date(0,0,0);
+
+      SumGr6 := GetSumGr6(dFrom, dTo, KatOS.Nrec, SchetKredit);
+
+      SumGr7_1 := GetSumGr7_1(dFrom, dTo, KatOS.Nrec);
+      Sum0899ForOS := GetSum0899ForOS(dFrom, dTo, KatOS.Nrec, KatStroyNrec);
+      Sum0899all := GetSum0899all(dTo, KatStroyNrec);
+      Sum0899 := GetSum0899(dTo, KatStroyNrec);
+      if (Sum0899all > 0)
+        SumGr7_2:= round(Sum0899ForOS * Sum0899 / Sum0899all,  2);
+      SumGr7  := SumGr7_1 + SumGr7_2;
+
+      SumGr8 := GetSumGr8(dFrom, dTo, KatOS.Nrec);
+      SumGr9 := GetSumGr9(dFrom, dTo, KatOS.Nrec);
+      SumGr10 := SumGr6 - SumGr7 - SumGr8 - SumGr9 - XX;
+
+      GetSumGr12(dFrom, dTo, KatOS.Nrec, SumGr12, SumGr12New);
+
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,1);
+      xlSTWriteToMatrix(CurIndex,1,Npp);
+      xlSTWriteToMatrix(CurIndex, 2, katos.innum);
+
+      if GetFirst klassos = tsOk
+        xlSTWriteToMatrix(CurIndex, 3, klassos.kod);
+
+      xlSTWriteToMatrix(CurIndex, 4, katos.nameos);
+      xlSTWriteToMatrix(CurIndex, 5, SchetKredit);
+      iNalFunc.WriteSum(CurIndex, 6, SumGr6);//DoubleToStr(SumGr6, '[|-]366 666 666 666,88'));
+
+      if not (PostuplFlag and OSInCapital)
+      {
+        iNalFunc.WriteSum(CurIndex, 7, SumGr7);//DoubleToStr(SumGr7, '[|-]366 666 666 666,88'));
+        iNalFunc.WriteSum(CurIndex, 8, SumGr8);// DoubleToStr(SumGr8, '[|-]366 666 666 666,88'));
+        iNalFunc.WriteSum(CurIndex, 9, SumGr9);// DoubleToStr(SumGr9, '[|-]366 666 666 666,88'));
+        iNalFunc.WriteSum(CurIndex, 10, SumGr10);// DoubleToStr(SumGr10, '[|-]366 666 666 666,88'));
+      }
+      iNalFunc.WriteSum(CurIndex, 11, XX);// DoubleToStr(XX, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 12, SumGr12);//DoubleToStr(gr9, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 13, SumGr12New);//DoubleToStr(gr9new, '[|-]366 666 666 666,88'));
+
+      itogo4 += SumGr6;
+
+      if not (PostuplFlag and OSInCapital)
+      {
+        itogo5 += SumGr7;
+        itogo6 += SumGr8;
+        itogo7 += SumGr9;
+        itogo8a += SumGr10;
+      }
+
+      itogoNalStoim += XX;
+      itogo9 += SumGr12;
+      itogo9new += SumGr12new;
+
+      Npp++;
+      CurIndex++;
+    }
+  }
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlMergeCells(CurIndex,1,CurIndex,2);
+  xlSTWriteToMatrix(CurIndex,1,'ИТОГО:');
+  iNalFunc.WriteSum(CurIndex, 6, itogo4);//DoubleToStr(itogo4, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 7, itogo5);//DoubleToStr(itogo5, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 8, itogo6);//DoubleToStr(itogo6, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 9, itogo7);//DoubleToStr(itogo7, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 10, itogo8a);//DoubleToStr(itogo8a, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 11, itogoNalStoim);//DoubleToStr(itogoNalStoim, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 12, itogo9);//DoubleToStr(itogo9, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 13, itogo9new);//DoubleToStr(itogo9new, '[|-]366 666 666 666,88'));
+
+  xlWrapText(9,1,CurIndex,numCol);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32, 3,0,0,9,1,CurIndex,numCol);
+
+  xlSetColumnWidth(17, 1, 2, CurIndex, 2);
+  xlSetColumnWidth(37, 1, 4, CurIndex, 4);
+  xlSetColumnWidth(16, 1, 6, CurIndex, 13);
+
+  CurIndex:=CurIndex+2;
+  xlMergeCells(CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+  xlMergeCells(CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,numCol);
+  CurIndex:=CurIndex+1;
+  xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+  CurIndex:=CurIndex+1;
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  StopVisual('',0);
+
+}
+procedure Run;
+{
+//  MtClear(#TabVeksl, mfNormal);
+//  FillTable;
+  PrintReport;
+}
+HandleEvent
+cmInit:
+{
+  if getfirst NastrOSNal where ((     15               == NastrOSNal.TiDk
+                                  and 'Налоговый учет' == NastrOSNal.Name )) = tsOk
+  {
+    _cMethodNal := NastrOSNal.NRec;
+  }
+
+  if iNalFunc.RunTuneV2(Glo_dFrom, Glo_dTo)
+  {
+    var dateChanged : boolean;
+    if not ReadMyDsk ( FltBySPO, 'FltBySPO', dateChanged )
+      FltBySPO := 0;
+    boFltBySPO := if(FltBySPO=1, true, false);
+
+    Run;
+  }
+
+}
+end;
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalA_11 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalA_11  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalA_11');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'А 1.1 Затраты по приобретению (строительству) основных средств либо увеличению стоимости';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+    2 : GetGroupName := 'A';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

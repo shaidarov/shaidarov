@@ -1,0 +1,116 @@
+#include KatOS.vih
+
+Alter Interface KatOSS 'И Н В Е Н Т А Р Н А Я   К А Р Т О Т Е К А' escclose, cyan;
+
+  function DiffMonthsDays(Date1 : Date; Date2 : Date; var _Months : longInt; var _Days : longInt) : boolean;
+  {
+    var _tmpMonths, _tmpDays : LongInt;
+    var _SPI : double;
+
+    result := false;
+    _Months  := 0;
+    _Days    := 0;
+
+    if (Date1 > Date2) or longint(Date1) = 0 or longint(Date2) = 0
+      exit;
+
+    _tmpMonths := Months_Between(Date1, Date2);
+    _tmpDays   := CalcDaysBetweenDates(Add_Months(Date1, _tmpMonths), Date2, false);
+
+    if (_tmpDays < 0)
+    {
+      if (_tmpDays < -2)
+      {
+        _tmpMonths := _tmpMonths - 1;
+        _tmpDays   := CalcDaysBetweenDates(Add_Months(Date1, _tmpMonths), Date2, false);
+      }
+      else
+      {
+        _tmpDays   := 0; // -1 вообще не бывает, -2 значит что например ровно через месяц, но на один день меньше, т.е. ровно месяц
+      }
+    }
+
+    _Months := _tmpMonths;
+    _Days   := _tmpDays;
+    _SPI    := _tmpMonths + _tmpDays/100;
+    result := true;
+
+    /*
+    // проверочка
+    // в алгоритме амортизации потом расшифровывается так
+    // _DAYS
+    var _P_DAY    : double;
+    var _DATE_END : date;
+    var _ALL      : double;
+
+    _DAYS     := trunc(round((round(_SPI,3) - trunc(round(_SPI,3)))*100,1));
+    _P_DAY    := round((round(_SPI,3) - trunc(round(_SPI,3)))*100,1)-_DAYS;
+    _DATE_END := ADD_DAY(Sub_Day( ADD_MONTHS (Date1, _SPI), 1), _DAYS);
+    _ALL      := (CalcDaysBetweenDates(Date1, _DATE_END, false)) + round(_P_DAY,1);
+    */
+  }
+
+  Function SetSPI : boolean;
+  {
+    result := false;
+
+    if KatOS.TiDk = 16
+    {
+      if      longint(KatOS.DatGar) > 0
+          and longint(KatOS.DatEk) > 0
+          and KatOS.DatGar >= KatOS.DatEk
+      {
+        var _Months, _Days : longint;
+        if DiffMonthsDays (KatOS.DatEk, KatOS.DatGar, _Months, _Days)
+        {
+          if message('Рассчитан срок полезного использования исходя из Даты окончания и Даты ввода:' + Chr(13)
+                      + 'СПИ: ' + _Months + ' месяцев и ' + _Days + ' дней' + Chr(13)
+                      + Chr(13)
+                      + 'Установить значение СПИ в карточке?', YesNo) = cmYes
+          {
+            set SpKatOS.SrokIsp := _Months + _Days/100;
+            RedrawPanel(tnSpKatOS);
+            result := true;
+          }
+        }
+        else
+        {
+          message('Срок полезного использования не удалось рассчитать!');
+        }
+      }
+    }
+  } //  Function SetSPI : boolean;
+
+//------------------------------------------------------------------------------
+  Window wiDopInfoOs;  // окно Дополнительной информации
+    panel DopInfoOs;
+      HandleEvent
+        cmCheckField:
+        {
+          Case CurField of
+            #KatOS.DatGar:
+              {
+                SetSPI;
+              }
+            #KatOS.DatEk:
+              {
+                SetSPI;
+              }
+          end;
+
+          //  а теперь стандартный обработчик
+          inherited::handleEvent (cmCheckField);
+        }
+      End; // HandleEvent
+    end; // Panel
+  end;  // Window
+end.
+
+/*
+                    _Days   := CalcDaysBetweenDates(Add_Months(KatOS.DatEk, _Months), KatOS.DatGar, false);
+                    if _Days < -1
+                    {
+                      _Months := _Months - 1;
+                      _Days   := CalcDaysBetweenDates(Add_Months(KatOS.DatEk, _Months), KatOS.DatGar, false);
+                    }
+*/

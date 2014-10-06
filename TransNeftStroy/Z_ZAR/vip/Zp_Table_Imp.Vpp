@@ -1,0 +1,239 @@
+
+Procedure ReadParam;
+{ If Not ReadMyDsk(nmdir,'IMP_T13_nmdir',false) then nmdir:='c:\1\Zar\Import'
+
+}
+Procedure SaveParam;
+{ SaveMydsk(nmdir,'IMP_T13_nmdir') 
+}
+
+//=============================
+//procedure MyLog(const ww:string);
+//{ logstrtofile(logfilenm,ww);
+//}
+//=============================
+Function MyDouble1(const ww:string):double;
+{ if pos(':',ww)>0
+  {  MyDouble1:=double(trim(substr(ww,1,pos(':',ww)-1)))+double(trim(substr(ww,pos(':',ww)+1,100)))/60
+  
+  }
+  else
+    MyDouble1:=double(trim(replace(ww,',','.')))
+    
+}
+
+
+
+//=============================================
+// Chk_ErrFiled - спозиционироваться на справочники
+//=============================================
+Procedure Find_Spr;
+{ case tmp_err.typ of
+  coLschet:
+  { wc_lschet:=tmp_err.val_comp;
+    if getfirst lschet_w =0 {}
+  }
+  coKatPodr:
+  { wc_KatPodr:=tmp_err.val_comp;
+    if getfirst KatPodr_w =0 {}
+  }
+  coSpKau:
+  { wc_SpKau:=tmp_err.val_comp;
+    if getfirst SpKau_w =0 {}
+    
+  }
+	  end;
+}  //Find_Spr;
+
+
+//=============================================
+// проверить и записать ошибку или ссылку на справочник
+//=============================================
+Function Chk_ErrFiled(const ww_typ:word;const ww_kod:string; const ww_kod2:string=''):boolean;
+var w_kluch:boolean;
+    ww_str,ww_str1:string;
+    ii :word;
+{ Chk_ErrFiled:=false;
+  if ww_kod=0 then exit;
+  // сначала проверим - а может уже была
+  w_kluch:=true;
+  if getfirst fastfirstrow tmp_err where (( ww_typ == tmp_err.typ 
+     and ww_kod  == tmp_err.kod 
+     and ww_kod2 == tmp_err.kod2 
+     ))=0 
+  { if tmp_err.pa=0 then
+    {  Find_Spr;
+      Chk_ErrFiled:=true;
+    }
+    exit
+  }
+  // не нашли пишем
+  insert into tmp_err set tmp_err.typ:=ww_typ,tmp_err.kod:=ww_kod,tmp_err.kod2:=ww_kod2;
+  case ww_typ of
+  5: // просто ошибки
+  { update current tmp_err set tmp_err.pa:=1,tmp_err.name:=ww_kod+' '+ww_kod2;
+  }
+  coLschet:
+  { w_tabn:=0;w_tabnstr:='';
+    if Tabn_Format=0
+    { w_tabn:=longint(ww_kod)
+      w_tabnstr:=''
+    }
+    else  
+    { w_tabn:=0
+      w_tabnstr:=ww_kod
+      if length(ww_kod)<PRIKAZ_TABN_L
+        w_tabnstr:=replace(lpad(w_tabnstr,PRIKAZ_TABN_L),' ','0')
+    }
+    if getfirst lschet<>0
+    { update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  Таб.номер='+ww_kod+', Не найден лицевой счет!' ; 
+    
+    }
+    else
+    { update current tmp_err set tmp_err.val_comp:=lschet.nrec;
+      if getnext lschet=0
+      { //update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  Таб.номер='+ww_kod+', не уникален лицевой счет!';  
+        ii:=0;
+        _loop lschet
+        { 
+          if getfirst persons=0 
+          { if upcase(persons.fio)=upcase(ww_kod2)
+            { ii++
+              update current tmp_err set tmp_err.val_comp:=lschet.nrec;
+            }
+          }  
+        } // _loop lschet
+        if ii>1 or ii=0
+        { update current tmp_err set tmp_err.pa:=1
+           ,tmp_err.name:='  Таб.номер='+ww_kod+', '+ww_kod2+' не уникален лицевой счет! '+string(ii);  
+        }
+      }
+    }
+  } //coLschet:
+  coKatpodr:
+  { if getfirst katpodr where (( ww_kod == katpodr.kod ))<>0
+    { if getfirst katpodr where (( ww_kod <<=katpodr.name and  ww_kod+'ЯЯЯ' >>=katpodr.name ))=0
+      { update current tmp_err set tmp_err.val_comp:=katpodr.nrec;
+        if getnext katpodr where (( ww_kod <<=katpodr.name and  ww_kod+'ЯЯЯ' >>=katpodr.name ))=0
+        { update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  начало наименования подразделения='+ww_kod+', не уникально !';
+        }
+      }
+      else
+      { update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  Код подразделения='+ww_kod+', не найден в справочнике !';  
+      }
+    }
+    else
+    { update current tmp_err set tmp_err.val_comp:=katpodr.nrec;
+      if getnext katpodr where (( ww_kod == katpodr.kod )) =0
+      { update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  Код подразделения='+ww_kod+', не уникален !';  
+      }
+    }
+    
+  } //coKatpodr:
+  coSpKau:
+  { if getfirst SpKau where (( word(ww_kod) == SpKau.KodGrKau and ww_kod2 == SpKau.Code ))=0
+    { update current tmp_err set tmp_err.val_comp:=SpKau.nrec;
+      if getnext SpKau where (( word(ww_kod) == SpKau.KodGrKau and ww_kod2 == SpKau.Code ))=0
+      { update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  Для аналитики '+ww_kod+' код '+ww_kod2+' не уникален !';  
+      }
+    }
+    else
+    { if getfirst SpKau where (( word(ww_kod) == SpKau.KodGrKau and ww_kod2 == SpKau.Name ))=0
+      { update current tmp_err set tmp_err.val_comp:=SpKau.nrec;
+        if getnext SpKau where (( word(ww_kod) == SpKau.KodGrKau and ww_kod2 == SpKau.Name ))=0
+        { update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  Для аналитики '+ww_kod+' код '+ww_kod2+' не уникален !';  
+        }
+      }
+      else
+      { update current tmp_err set tmp_err.pa:=1,tmp_err.name:='  Для аналитики '+ww_kod+' нет кода '+ww_kod2+' !';  
+      }
+    }
+  }
+  end;
+  if tmp_err.pa<>0
+  { w_kluch:=false;
+    MyLog(tmp_err.name)
+  }
+  if w_kluch Find_Spr;
+  Chk_ErrFiled:=w_kluch;
+} //Function Chk_ErrFiled(const ww_typ:word;const ww_kod:string):boolean;
+
+//=============================
+// Скопировать аттрибуты из лиц.счета
+//=============================
+Procedure LSTAB_Lschet;    
+{   LSTAB.CEX:=lschet_w.cex
+    LSTAB.CEXOZ :=katpodr_w.nrec
+    LSTAB.cex:= katpodr_w.nrec
+    LSTAB.TABN:=lschet_w.tabn
+    LSTAB.STRTABN:=lschet_w.strtabn
+    LSTAB.TPERSON:=lschet_w.tperson
+    LSTAB.clschet :=lschet_w.nrec
+    LSTAB.SISOPL :=lschet_w.sisopl
+    LSTAB.TARIF  :=lschet_w.tarif
+    LSTAB.CSCHETD:=lschet_w.cschetd
+    LSTAB.CSUBSCHD:=lschet_W.CSUBSCHD
+    LSTAB.CKAUD[1]:=lschet_w.CKAUD[1]
+    LSTAB.CKAUD[2]:=lschet_w.CKAUD[2]
+    LSTAB.CKAUD[3]:=lschet_w.CKAUD[3]
+    LSTAB.CKAUD[4]:=lschet_w.CKAUD[4]
+    LSTAB.CKAUD[5]:=lschet_w.CKAUD[5]
+    LSTAB.CKAUD[6]:=lschet_w.CKAUD[6]
+    LSTAB.TBLD[1] :=lschet_w.TBLD[1]
+    LSTAB.TBLD[2] :=lschet_w.TBLD[2]
+    LSTAB.TBLD[3] :=lschet_w.TBLD[3]
+    LSTAB.TBLD[4] :=lschet_w.TBLD[4]
+    LSTAB.TBLD[5] :=lschet_w.TBLD[5]
+    LSTAB.TBLD[6] :=lschet_w.TBLD[6]
+    LSTAB.PARAM :=lschet_w.PARAM
+   // LSTAB.KTY:=if(lschet_w.summa34=0,1,lschet_w.summa34) ;
+} //Procedure LSTAB_Lschet;    
+
+
+//==================================================
+//
+//==================================================
+Function ReplStr(const ww:string) :string;
+{ Result:=Replace(Replace(ww,chr(10),';'),chr(13),'')
+}//Function ReplStr(const ww:string) :string;
+
+
+//==================================================
+// Заполнить справочники
+//==================================================
+Function Fill_TMP_SPR :boolean;
+{ Result:=False;
+  delete all tmp_analitic;
+  delete all tmp_katstroy;
+  if not ReadDataFromExcel(0,wnmfile,'Объекты строительства')
+  {  MYLOG('==! Файл '+wnmfile+' не содержит листа "Объекты строительства"')
+     displ('Read Excel 2')
+     Exit
+  }
+  v_imp._loop tmp_excel  
+  { if v_imp.tmp_excel.dmcell[1]='' then continue;
+    tmp_katstroy.kod  :=v_imp.tmp_excel.dmcell[1];
+    tmp_katstroy.name :=v_imp.tmp_excel.dmcell[2];
+    insert current tmp_katstroy;
+  }  
+  
+  if not ReadDataFromExcel(0,wnmfile,'Аналитика')
+  { MYLOG('==! Файл '+wnmfile+' не содержит листа "Аналитика"')
+    displ('Read Excel 3')
+    exit;
+  }
+  v_imp._loop tmp_excel  
+  { if v_imp.tmp_excel.dmcell[3]='' then continue;
+    tmp_analitic.podr_kod   :=v_imp.tmp_excel.dmcell[ 1]//Код подразделения
+    tmp_analitic.podr_name  :=v_imp.tmp_excel.dmcell[ 2]//Подразделение
+        tmp_analitic.vidd_name  :=v_imp.tmp_excel.dmcell[ 3]//Вид деятельности
+        tmp_analitic.schet      :=v_imp.tmp_excel.dmcell[ 4]//Счет
+        tmp_analitic.subsch     :=v_imp.tmp_excel.dmcell[ 5]//Субсчет	
+        tmp_analitic.stzatr_kod :=v_imp.tmp_excel.dmcell[ 6]//код затрат (кау3)
+        tmp_analitic.stzatr_name:=v_imp.tmp_excel.dmcell[ 7]//наименование затрат
+        tmp_analitic.vpru_kod   :=v_imp.tmp_excel.dmcell[ 8]//код ВПРУ (кау4)
+        tmp_analitic.vpru_name  :=v_imp.tmp_excel.dmcell[ 9]//наименование ВПРУ
+        insert current tmp_analitic;
+  }
+  Result:=True;
+} //Function Fill_TMP_SPR :boolean;

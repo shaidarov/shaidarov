@@ -1,0 +1,152 @@
+
+#include ExtAttr.Vih
+
+Interface SFOattrPersCard 'SFOattrPersCard' EscClose DoAccept;
+
+create view
+var
+  Handle
+            : longint;
+  sDBFname
+, _KodCardSFO
+, _Schet
+, _ValSchet
+, _ValStrSFO
+            : string;
+  piExAttr
+            : iExtAttr;
+;
+
+HandleEvent
+
+cmInit:{
+
+  sDBFname    := '\\gal01-tns\GalSrv\TopSoft\shaidarov\TomskCardSFO.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выполнение интерфейса', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+        _KodCardSFO := string( DBFGetFieldValue(Handle,'CardSFO')    );
+        _Schet      := string( DBFGetFieldValue(Handle,'Schet')      );
+
+        if (GetFirst PersCard where (( _KodCardSFO == PersCard.CardNom
+                                    )) <> tsOK ) {
+          LogStrToFile('C:\SFOschetError.txt', _KodCardSFO);
+          continue;
+          }
+
+     case _Schet of
+       '25' : {
+            _ValSchet    := 0064000000000082h;
+            _ValStrSFO   := 'T25. Общепроизводственные расходы';
+         };
+       '26' : {
+            _ValSchet    := 0064000000000083h;
+            _ValStrSFO   := 'T26. Общехозяйственные расходы';
+         };
+       '29' : {
+            _ValSchet    := 0064000000000086h;
+            _ValStrSFO   := 'T29.01 Учет прямых затрат по местам возникновения в обслуживающих производствах и хозяйствах';
+         };
+       '2001' : {
+            _ValSchet    := 006400000000007Dh;
+            _ValStrSFO   := 'T20.01 Учет затрат основного производства по местам возникновения';
+         };
+       '2301' : {
+            _ValSchet    := 0064000000000080h;
+            _ValStrSFO   := 'T23.01 Учет затрат вспомогательного производства по местам возникновения';
+         };
+       '2901' : {
+            _ValSchet    := 0064000000000086h;
+            _ValStrSFO   := 'T29.01 Учет прямых затрат по местам возникновения в обслуживающих производствах и хозяйствах';
+         };
+     else {
+LogStrToFile('_errSFO.log', _KodCardSFO + '~' + _Schet);
+       }
+
+     ;
+     end;
+
+     piExAttr.coSetAttr(coPersCard, PersCard.nRec, 'Счет отнесения затрат', _ValSchet, _ValStrSFO);
+
+
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+}
+
+
+end;
+
+end.
+
+.Form 'Закачка SFOattrPersCard'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('SFOattrPersCard');
+end.
+.endform
+
+
+!#include ExtAttr.Vih
+
+Interface UpDate_SFO_UKS 'UpDate_SFO_UKS' EscClose DoAccept;
+
+create view
+var
+  piExAttr
+            : iExtAttr;
+;
+
+HandleEvent
+
+cmInit:{
+
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Выполнение интерфейса', 1);
+
+    _Loop PersCard where (( '4' <<= PERSCARD.CARDNOM
+                        and '5' >>  PERSCARD.CARDNOM
+                         )) {
+
+         case  piExAttr.coGetAttr(coPersCard, PersCard.nRec, 'Объекты строительства') of
+            89509042593989941 : {             // 001707, Строительство МНПП УЗН (29,5 км) на участке ЛПДС "Черкасы" - ЛПДС "Языково"
+               piExAttr.coSetAttr(coPersCard, PersCard.nRec, 'Объекты строительства', 89509042593990154, 'МН Рязань-Москва, Ду530. Замена участка 0-137 км,001756');
+              }
+            89509042593990179 : {             // 001741, МН "Анжеро-Судженск-Кросноярск", Ду 1000. Тех.перевооружение. НПС. ЛПДС
+               piExAttr.coSetAttr(coPersCard, PersCard.nRec, 'Объекты строительства', 89509042593990028, 'МН "Анжеро-Судженск-Красноярск", Ду 1000. Участок Кемчуг-Вознесенка, 373,0 км - 380,53 км. Красноярское РНУ. Кемчугская НПС,001769');
+              }
+         end;
+
+    }
+  StopVisual('',0);
+
+}
+
+
+end;
+
+end.
+
+.Form 'UpDate_SFO_UKS'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('UpDate_SFO_UKS');
+end.
+.endform

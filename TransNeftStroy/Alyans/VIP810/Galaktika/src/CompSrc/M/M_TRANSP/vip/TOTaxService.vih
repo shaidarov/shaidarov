@@ -1,0 +1,98 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2011 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Управление транспортом                                    ║
+ ║ Версия        : 8.1                                                       ║
+ ║ Назначение    : Сервисные функции для налоговых операций в транспорте     ║
+ ║ Ответственный : Жилко Дмитрий Витальевич (HATTER)                         ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+#ifndef _TOTaxService_
+#define _TOTaxService_
+
+#ifdef ComponentVersion
+#component "M_Transp"
+#endif
+
+table struct tmTOTransp
+(
+  nRec     : comp,
+  cTransp  : comp,
+  cTCType  : comp,
+  NameSort : string,
+  DateE    : date, // ввод в эксплуатацию
+  DateP    : date, // постановка на учет
+  DateS    : date, // снятие с учета
+  DateV    : date  // вывод из эксплуатации
+)
+with index
+(
+  tmTOTransp_01 = nRec(Unique, AutoInc),
+  tmTOTransp_02 = NameSort
+);
+
+table struct tmTOCompon
+(
+  nRec        : comp,
+  cTransp     : comp,
+  cTCType     : comp,
+  cTaxTransp  : comp,
+  cCompon     : comp,
+  cComponMain : comp,
+  TaxBase     : double,
+  TaxRate     : double,
+  TaxSum      : double,
+  TaxKoff     : double,
+  DateBeg     : date,
+  DateEnd     : date,
+  DateE       : date,
+  DateV       : date,
+  DateP       : date,
+  DateS       : date,
+  Last        : word
+)
+with index
+(
+  tmTOCompon_01 = nRec(Unique, AutoInc),
+  tmTOCompon_02 = cTransp + DateBeg + DateEnd,
+  tmTOCompon_03 = cTransp + DateEnd + DateBeg,
+  tmTOCompon_04 = cTransp + cComponMain + DateEnd
+);
+
+ObjInterface objTOTaxService;
+
+// проинициализовать список ТС через маркер
+Function FillTranspByMarker (asMarker: string):  boolean;
+
+// проинициализовать список ТС через pick
+Function FillTranspByPick (arwList: word):  boolean;
+
+// проинициализовать список всеми ТС
+Function FillTranspAll: boolean;
+
+// инициализация интерфейса
+Function InitInter (arwFlag: word; ardBeg: date; ardEnd: date): boolean;
+
+// запуск интерфейса
+Procedure RunInter (arwFlag: word);
+/*
+// очистить список ТС
+Function TranspClear: boolean;
+
+// добавить ТС в список для расчета
+Function TranspInsert (arcTransp: comp):  boolean;
+
+// спозиционироваться на первую запись в комплектующих
+Function ComponGetFirst: boolean;
+*/
+
+End; // ObjInterface objTOTaxService
+
+VipInterface TOTaxService implements objTOTaxService
+#ifdef ATL51
+  licensed (FREE)
+#end
+;
+
+#end

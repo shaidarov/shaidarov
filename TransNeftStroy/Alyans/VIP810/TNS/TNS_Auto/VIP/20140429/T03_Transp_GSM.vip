@@ -1,0 +1,624 @@
+#DEFINE Transp_GSM_AZS
+#DEFINE Transp_GSM_FILTR
+#DEFINE Transp_MOL_VIB
+#DECLARE Transp_Group 
+  'Код топлива / Номер'
+  ,'Код топлива / Номер + Путевой лист'
+#END
+#include alter\Gsm_CalcNorm.Vih
+#include ExtAttr.vih
+
+Interface Transp_GSM_03 '03 Отчет по ГСМ (итоговая)' EscClose ;
+var
+#include transp_var.vpp
+#include ExtAttr.var
+
+create view 
+//select from
+#include transp_table.vpp
+//where ((
+//#include transp_link.vpp
+//))
+;
+
+#include excel_fun.vpp
+#include transp_fun.vpp
+#include transp_putlst.vpp
+//==================================
+// сохранение параметров
+//==================================
+Procedure SaveParam ;
+{ SaveMyDsk(dtb,'T03_GSM_03_dtb')
+  SaveMyDsk(dte,'T03_GSM_03_dte')
+  SaveMyDsk(tp_period,'T03_GSM_03_tp_period')
+  SaveMyDsk(filtr_tp,'T03_GSM_03_filtr')
+  SaveMyDsk(logfilekl,'T03_GSM_03_logfilekl')
+  SaveMyDsk(group_type,'T03_GSM_03_group_type')
+#IFDEF Transp_MOL_VIB
+  SaveMyDsk(Filtr_mol,'T03_GSM_03_Filtr_mol')
+#ENDIF
+
+} //Procedure SaveParam ;
+//==================================
+// чтение параметров
+//==================================
+Procedure ReadParam ;
+var wwkl :boolean ;
+{ if Not ReadMyDsk(dtb,'T03_GSM_03_dtb',wwkl) dtb:=date(1,month(cur_date),year(cur_date))
+  if Not ReadMyDsk(dte,'T03_GSM_03_dte',wwkl) dte:=date(last_day(cur_date),month(cur_date),year(cur_date))
+  if Not ReadMyDsk(tp_period,'T03_GSM_03_tp_period',wwkl) tp_period:=0 ;
+  if Not ReadMyDsk(filtr_tp,'T03_GSM_03_filtr',wwkl) filtr_tp:=0 ;
+  if Not ReadMyDsk(logfilekl,'T03_GSM_03_logfilekl',wwkl) logfilekl:=false ;
+  if Not ReadMyDsk(group_type,'T03_GSM_03_group_type',wwkl) group_type:=0 ;
+#IFDEF Transp_MOL_VIB
+  if Not ReadMyDsk(Filtr_mol,'T03_GSM_03_Filtr_mol',wwkl) Filtr_mol:='';
+#ENDIF
+} //Procedure ReadParam ;
+// а накопим сразу при выводе
+Function _MyPutExcelNumber(const ww:double ;//var wrow:longint ;var wcol:longint ;
+  const razr:word ;const  fontsize:byte ;const fontstyle :byte ;const fontcolor:longint ;const wbackcolor :longint ):word ;
+{ dmsu[wexcol]    :=dmsu[wexcol]+ww;
+  dmsu[wexcol+100]:=dmsu[wexcol+100]+ww;
+  if wexcol=27
+  { //mylogwrite(false,My_WorkTable_Group.Putlst_Nomer+', '+string(dmsu[wexcol])+'/'+string(dmsu[wexcol+100] ))
+  }
+  _MyPutExcelNumber:=MyPutExcelNumber(ww,razr, fontsize,fontstyle,fontcolor,wbackcolor)
+}
+//==================================
+Procedure PrintItog(ww_tp:word);
+{ wexrow:=wexrow+1;wexcol:=1
+  MyPutExcel(  if(ww_tp=0,'Итого '+w_vidgsm,'Всего'),10,0,-1,-1); 
+  while wexcol<50
+  { case wexcol of
+    23,24,25,26:
+    { MyPutExcel('',10,0,-1,-1); 
+    }
+    else
+    {  MyPutExcelNumber(dmsu[wexcol+ww_tp*100],2,10,0,-1,-1); 
+    }
+    end;  
+     
+  } //while wexcol<50
+  xlSetFontStyle(1, wexrow, 1, wexrow,50)
+  xlSetbackcolor(if(ww_tp=0,0C0C0C0h,0C0F0C0h), wexrow, 1,  wexrow, 49)
+} //Procedure PrintItog(ww_tp:word);
+//==========================
+#Declare Print_Norm
+        if My_Toplivo.NORMA<>0
+          MyPutExcelNumber(round(My_Toplivo.NORMA,2),2,10,0,-1,-1);  //	та-н 
+        else
+          MyPutExcel('',10,0,-1,-1);  //	та-н 
+  
+        //MyPutExcel(My_Toplivo.TOPLIVO_KOD,10,0,-1,-1);
+        MyPutExcel(substr(My_Toplivo.TOPLIVO_NAME//+' '+string(My_Toplivo.Column)
+           ,4,100),10,0,-1,-1);
+        if My_Toplivo.Column=0 // на пробег
+        { if My_WorkTable_Group.KatOs_InNum=ww_nomer 
+          { if abs(w_speedometr-My_WorkTable_Group.PUTLST_SPEEDEXI)>0.005
+            {   xlSetbackcolor(0FFFF00h, wexrow, wexcol,  wexrow, wexcol)
+            }
+            w_speedometr:=My_WorkTable_Group.PUTLST_SPEEDRET;   
+          }
+          w_km:=My_WorkTable_Group.Putlst_Probegall;
+          MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDEXI,2,10,0,-1,-1);
+          MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDRET,2,10,0,-1,-1);
+          if abs((My_WorkTable_Group.PUTLST_SPEEDRET-My_WorkTable_Group.PUTLST_SPEEDEXI)-My_WorkTable_Group.Putlst_Probegall)>0.05
+          {   xlSetbackcolor(0FFF000h, wexrow, wexcol,  wexrow, wexcol)
+          }
+          _MyPutExcelNumber(My_WorkTable_Group.Putlst_Probegall,2,10,0,-1,-1);
+          kl_print_speedomert:=True;
+        }
+        else
+        if My_Toplivo.Column=500 // на работу
+        { w_ch:=My_WorkTable_Group.Putlst_Timespec
+          MyPutExcelNumber(My_WorkTable_Group.PUTLST_NPVIRVAL,2,10,0,-1,-1);
+          MyPutExcelNumber(My_WorkTable_Group.PUTLST_FKVIRVAL,2,10,0,-1,-1);
+          MyPutExcelNumber(My_WorkTable_Group.Putlst_Timespec,2,10,0,-1,-1);
+          kl_print_motochas:=True;
+        }
+        else
+        { if (not kl_print_speedomert) and ( My_WorkTable_Group.PUTLST_SPEEDEXI<>0 or My_WorkTable_Group.PUTLST_SPEEDRET<>0)
+             and  (My_WorkTable_Group.Putgsm_OwPr and 1)>0
+          { 
+            MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDEXI,2,10,0,-1,-1);
+            MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDRET,2,10,0,-1,-1);
+          }
+          else
+          if (not kl_print_motochas) and ( My_WorkTable_Group.PUTLST_NPVIRVAL<>0 or My_WorkTable_Group.PUTLST_FKVIRVAL<>0) 
+             and (My_WorkTable_Group.Putgsm_OwPr and 1)>0
+          { 
+            MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDEXI,2,10,0,-1,-1);
+            MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDRET,2,10,0,-1,-1);
+            kl_print_motochas:=True;
+          }
+          else
+          { MyPutExcel('',10,0,-1,-1);
+            MyPutExcel('',10,0,-1,-1);
+          }  
+          kl_print_speedomert:=True;
+          if My_Toplivo.Column<500 w_km:=w_km-My_Toplivo.Vid;
+          else if My_Toplivo.Column<900 w_ch:=w_ch-My_Toplivo.Vid;
+          
+          MyPutExcelNumber(My_Toplivo.Vid,2,10,0,-1,-1);
+        }
+#END
+//==================================
+// печать
+//==================================
+Function PrintDoc : boolean ;
+var werr:word ;
+    wstr,wpodr:string ; 
+    wnpp :longint ;
+    wkol :double;
+    w_vidgsm_2 :string;
+    w_Faktt0,w_Faktt1,w_Faktt2,w_Faktt3:double;
+    wwexrow : longint;
+    kl_print_speedomert : boolean;
+    kl_print_motochas : boolean;
+    kl_first_nom: boolean;
+    ww_nomer :string;
+    ww_Transp_Nrec:comp;
+    ww_oste_prev :double;
+    W_SPEEDOMETR:double;
+    w_km, w_ch : double
+{ PrintDoc:=false ;
+  if getfirst My_transp_spis<>0
+  { message('не нашли подходящих транспортных средств')
+    exit ;
+  }
+  if not inextvisual('Идет печать') then exit;
+  vorg.wc_org:=cogettune('myorg')
+  if vorg.getfirst katorg=0 {}
+  for(i:=1;i<=200;i:=i+1) dmsu[i]:=0 ;
+  wexrow:=1; wexcol:=2;
+  MyPutExcel('Отчет о расходе топлива '+GetTpPeriod+' (приложение к актам на списание)',0,0,-1,-1)
+  //вывод данных
+  HeaderStrCount :=8 ;
+  wexrow:=HeaderStrCount ;
+  MyXlCreaMatrix(10000,100)
+  wexrow:=HeaderStrCount-1 ;
+  wnpp:=0;
+  w_vidgsm:='?????'
+  for (i:=1;i<=200;i:=i+1) dmsu[i]:=0
+  var wrow_beg: longint;
+  var w_nomer:string;
+  kl_first_nom:=true;
+  ww_nomer:='???????'
+   _Loop My_WorkTable_Group where (( 6+group_type == My_WorkTable_Group.pa )) 
+     ordered by My_WorkTable_Group.pa,My_WorkTable_Group.PutLst_Nomer
+  { w_vidgsm_2:=trim(substr(My_WorkTable_Group.PutLst_Nomer,1,20))
+    if substr(w_vidgsm_2,1,2)='ДТ' then w_vidgsm_2:='ДТ'
+    //if substr(w_vidgsm_2,1,2)<>'ДТ' and substr(w_vidgsm_2,1,2)='АИ' tnen continue;
+    if w_vidgsm<>w_vidgsm_2
+    { if w_vidgsm<>'?????' PrintItog(0)
+      w_vidgsm:=w_vidgsm_2;
+      for (i:=1;i<=100;i:=i+1) dmsu[i]:=0
+      ww_Transp_Nrec:=0;
+      ww_oste_prev :=0;
+   }
+//    NakItog; - а да сразу накопим в _MyPutExcelNumber
+    if group_type=0
+    {  kl_first_nom:=true;
+    }
+    else
+    {
+    }
+    wexrow:=wexrow+1;wexcol:=1;
+    // дублируем на всякий случай
+//20100616    w_nomer:=trim(substr(My_WorkTable_Group.Putlst_Nomer,71,30))
+    //w_nomer:=trim(substr(My_WorkTable_Group.Putlst_Nomer,21,30))
+    w_nomer:=trim(My_WorkTable_Group.KatOs_InNum)+if(group_type=1,' '+My_WorkTable_Group.putlst_npl,'');
+    MyPutExcel(My_WorkTable_Group.Transp_Marka+chr(10)+w_nomer,10,0,-1,-1);  //Марка ТС	
+    wrow_beg:=wexrow;i:=0;
+    // проверим нужно ли выводить расшифровку норм здесь
+    _loop My_Toplivo where ((  My_WorkTable_Group.Putlst_Nomer == My_Toplivo.PUTLST_NOMER
+     and My_WorkTable_Group.TRANSP_MARKA == My_Toplivo.TRANSP_MARKA
+     //and My_WorkTable_Group.Toplivo_Name == My_Toplivo.Toplivo_Name
+      )) 
+    { i:=i+1;
+    }
+    w_km:=0;w_ch:=0;
+    kl_print_speedomert:=false;
+    kl_print_motochas :=false;
+    if i>1 // нужно все таки
+    { _loop My_Toplivo where ((  My_WorkTable_Group.Putlst_Nomer == My_Toplivo.PUTLST_NOMER
+       and My_WorkTable_Group.TRANSP_MARKA == My_Toplivo.TRANSP_MARKA
+       //and My_WorkTable_Group.Toplivo_Name == My_Toplivo.Toplivo_Name
+      ))  ordered by index My_Toplivo_Index1
+      { wexcol:=23;
+        #Print_Norm
+        MyPutExcelNumber(My_Toplivo.Rasx,2,10,0,-1,-1);  //	та-н 
+        wexrow:=wexrow+1; 
+      }
+      for(i:=1;i<=49;i:=i+1)
+      { case i of 
+        1: { xlMergeCells(wrow_beg,i,wexrow,i) };
+        23,24,25,26,27,28: {}
+//20100616        else { xlMergeCells(wrow_beg,i,wexrow-1,i) };
+        else { xlMergeCells(wrow_beg,i,wexrow,i) };
+        end;
+      }
+    } //if i>1 // нужно все таки
+    wexcol:=1; 
+    wwexrow:=wexrow
+    wexrow:=wrow_beg
+    if abs(w_km)>0.5 // подсветим что сумма по видам пробега не равна спидометру
+    { xlSetbackcolor(000FFFFh, wexrow, 27,  wexrow, 27)
+    }
+    MyPutExcel(My_WorkTable_Group.Transp_Marka+chr(10)+w_nomer,10,0,-1,-1);  //Марка ТС	
+//Марка а/м  
+//=========Остаток   на  01 число   
+   wostb:= My_WorkTable_Group.Putgsm_Ow +My_WorkTable_Group.Putgsm_Ow1
+                    + My_WorkTable_Group.Putgsm_Ow2+My_WorkTable_Group.Putgsm_Ow3
+   woste:= My_WorkTable_Group.Putgsm_Owv +My_WorkTable_Group.Putgsm_Owv1
+                    + My_WorkTable_Group.Putgsm_Owv2+My_WorkTable_Group.Putgsm_Owv3
+   if group_type=1 and abs(wostb-ww_oste_prev)>0.01 and ww_Transp_Nrec=My_WorkTable_Group.Transp_Nrec
+   { xlSetbackcolor(0FFFF00h, wexrow, wexcol,  wexrow, wexcol)
+   }
+   ww_Transp_Nrec:=My_WorkTable_Group.Transp_Nrec;
+      
+
+   if group_type=0 //   kl_first_nom                 
+   { _MyPutExcelNumber(0,0,10,0,-1,-1);  //	та-н 
+     _MyPutExcelNumber(wostb,2,10,0,-1,-1);  //АЗС
+     _MyPutExcelNumber(wostb,2,10,0,-1,-1);//итого
+   }  
+   else
+   { MyPutExcelNumber(0,0,10,0,-1,-1);  //	та-н 
+     MyPutExcelNumber(wostb,2,10,0,-1,-1);  //АЗС
+     MyPutExcelNumber(wostb,2,10,0,-1,-1);//итого
+   }  
+   kl_first_nom:=False;
+//==============Заправка 
+//   Аи-95 
+ if w_vidgsm ='АИ-95' or w_vidgsm ='АИ-98'
+ { _MyPutExcelNumber(My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3,2,10,0,-1,-1);  //талон. + карта
+   _MyPutExcelNumber(My_WorkTable_Group.AZS1,2,10,0,-1,-1);  //АЗС 
+   _MyPutExcelNumber(My_WorkTable_Group.AZS4,2,10,0,-1,-1);  // нал
+ }
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+//Аи-92
+ if w_vidgsm ='АИ-92'
+ { _MyPutExcelNumber(My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3,2,10,0,-1,-1);  //талон. + карта
+   _MyPutExcelNumber(My_WorkTable_Group.AZS1,2,10,0,-1,-1);  //АЗС 
+   _MyPutExcelNumber(My_WorkTable_Group.AZS4,2,10,0,-1,-1);  // нал
+ }  
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+//Аи-76
+ if w_vidgsm ='А-76' or w_vidgsm ='Б-70' or w_vidgsm ='Другие виды бензина'
+ { _MyPutExcelNumber(My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3,2,10,0,-1,-1);  //талон. + карта
+   _MyPutExcelNumber(My_WorkTable_Group.AZS1,2,10,0,-1,-1);  //АЗС 
+   _MyPutExcelNumber(My_WorkTable_Group.AZS4,2,10,0,-1,-1);  // нал
+ }  
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+//Д/Т
+ if substr(w_vidgsm,1,2) ='ДТ' //'Дизельное топливо' 
+ { _MyPutExcelNumber(My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3,2,10,0,-1,-1);  //талон. + карта
+   if w_nomer<>'на нужды НБ'
+   { _MyPutExcelNumber(My_WorkTable_Group.AZS1,2,10,0,-1,-1);  //АЗС 
+     _MyPutExcelNumber(0,2,10,0,-1,-1);  //на нужды      НБ  
+   }
+   else
+   { _MyPutExcelNumber(0,2,10,0,-1,-1);  //АЗС 
+     _MyPutExcelNumber(My_WorkTable_Group.AZS1,2,10,0,-1,-1);  //на нужды      НБ  
+   }
+   _MyPutExcelNumber(My_WorkTable_Group.AZS4,2,10,0,-1,-1);  // нал
+   
+ }  
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+// итого
+ if True
+ { _MyPutExcelNumber(My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3,2,10,0,-1,-1);  //талон. + карта
+   if w_nomer<>'на нужды НБ'
+   { _MyPutExcelNumber(My_WorkTable_Group.AZS1,2,10,0,-1,-1);  //АЗС 
+     _MyPutExcelNumber(0,2,10,0,-1,-1);  //на нужды      НБ  
+   }
+   else
+   { _MyPutExcelNumber(0,2,10,0,-1,-1);  //АЗС 
+     _MyPutExcelNumber(My_WorkTable_Group.AZS1,2,10,0,-1,-1);  //на нужды      НБ  
+   }
+   _MyPutExcelNumber(My_WorkTable_Group.AZS4,2,10,0,-1,-1);  // нал
+   
+ }  
+//всего
+   _MyPutExcelNumber(My_WorkTable_Group.AZS1+My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3+My_WorkTable_Group.AZS4,2,10,0,-1,-1);  
+ 
+////Норма (зима) л 
+// Вид расхода 
+//Пробег   01 число 31 число за месяц
+//Расход по норме
+  wexrow:=wwexrow
+  if wrow_beg=wexrow
+  { if getfirst My_Toplivo where ((  My_WorkTable_Group.Putlst_Nomer == My_Toplivo.PUTLST_NOMER
+     and My_WorkTable_Group.TRANSP_MARKA == My_Toplivo.TRANSP_MARKA
+    // and My_WorkTable_Group.Toplivo_Name == My_Toplivo.Toplivo_Name
+    )) = 0
+    { #Print_Norm;
+    }
+    else
+    { //wexcol:=28
+        MyPutExcel('',10,0,-1,-1);  //	та-н 
+         xlSetbackcolor(000FF00h, wexrow, wexcol,  wexrow, wexcol)
+        MyPutExcel('Нет расхода ГСМ',10,0,-1,-1);
+        if My_WorkTable_Group.KatOs_InNum=ww_nomer 
+        { if w_speedometr<>My_WorkTable_Group.PUTLST_SPEEDEXI
+             xlSetbackcolor(0FFFF00h, wexrow, wexcol,  wexrow, wexcol)
+        }
+        w_km:=My_WorkTable_Group.Putlst_Probegall;
+        if ( My_WorkTable_Group.PUTLST_SPEEDEXI<>0 or My_WorkTable_Group.PUTLST_SPEEDRET<>0)
+        and (My_WorkTable_Group.Putgsm_OwPr and 1)>0
+        { MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDEXI,2,10,0,-1,-1);
+          MyPutExcelNumber(My_WorkTable_Group.PUTLST_SPEEDRET,2,10,0,-1,-1);
+        }  
+        else
+        if ( My_WorkTable_Group.PUTLST_NPVIRVAL<>0 or My_WorkTable_Group.PUTLST_FKVIRVAL<>0) 
+        and (My_WorkTable_Group.Putgsm_OwPr and 1)>0
+        { MyPutExcelNumber(My_WorkTable_Group.PUTLST_NPVIRVAL,2,10,0,-1,-1);
+          MyPutExcelNumber(My_WorkTable_Group.PUTLST_FKVIRVAL,2,10,0,-1,-1);
+        }
+        else
+        { MyPutExcel('',10,0,-1,-1);
+          MyPutExcel('',10,0,-1,-1);
+        }    
+        if My_WorkTable_Group.PUTLST_SPEEDRET-My_WorkTable_Group.PUTLST_SPEEDEXI<>My_WorkTable_Group.Putlst_Probegall
+        {   xlSetbackcolor(0FFFF00h, wexrow, wexcol,  wexrow, wexcol)
+        }
+        _MyPutExcelNumber(My_WorkTable_Group.Putlst_Probegall,2,10,0,-1,-1); 
+    }
+  }
+  else
+  { wexcol:=28
+    xlMergeCells(wexrow,23,wexrow,27)
+  } 
+  ww_nomer:=My_WorkTable_Group.KatOs_InNum;
+  w_speedometr:=My_WorkTable_Group.PUTLST_SPEEDRET;
+
+  _MyPutExcelNumber(My_WorkTable_Group.PutGsm_normt+My_WorkTable_Group.PutGsm_normt1
+     +My_WorkTable_Group.PutGsm_normt2+My_WorkTable_Group.PutGsm_normt3,2,10,0,-1,-1);  //	та-н 
+//Расход факт
+    wwexrow:=wexrow
+    wexrow:=wrow_beg
+
+  w_Faktt0:=My_WorkTable_Group.Putgsm_Faktt+My_WorkTable_Group.PutGsm_Faktt1
+     +My_WorkTable_Group.PutGsm_Faktt2+My_WorkTable_Group.PutGsm_Faktt3;
+  w_Faktt1:=0;w_Faktt2:=0;w_Faktt3:=0
+  if w_Faktt0>My_WorkTable_Group.AZS4
+  { w_Faktt3:=My_WorkTable_Group.AZS4;w_Faktt0:=w_Faktt0-My_WorkTable_Group.AZS4
+  }
+  else
+  { w_Faktt3:=w_Faktt0;w_Faktt0:=0
+  }
+  if w_Faktt0>My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3
+  { w_Faktt1:=My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3;w_Faktt0:=w_Faktt0-(My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3)
+  }
+  else
+  { w_Faktt1:=w_Faktt0;w_Faktt0:=0
+  }
+  w_Faktt2:=w_Faktt0
+  
+//Аи-95   
+  
+ if w_vidgsm ='АИ-95' or w_vidgsm ='АИ-98'
+ { _MyPutExcelNumber(w_Faktt1,0,10,0,-1,-1);  //	та-н 
+   _MyPutExcelNumber(w_Faktt2,2,10,0,-1,-1);  //АЗС
+   _MyPutExcelNumber(w_Faktt3,2,10,0,-1,-1);  //нал
+
+ }
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+ 
+ if w_vidgsm ='АИ-92'
+ { _MyPutExcelNumber(w_Faktt1,0,10,0,-1,-1);  //	та-н 
+   _MyPutExcelNumber(w_Faktt2,2,10,0,-1,-1);  //АЗС
+   _MyPutExcelNumber(w_Faktt3,2,10,0,-1,-1);  //нал
+
+ }
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+//Аи-76   
+// if w_vidgsm ='АИ-76' or w_vidgsm ='АИ-80' or w_vidgsm ='Другие виды бензина'
+ if w_vidgsm ='А-76' or w_vidgsm ='Б-70' or w_vidgsm ='Другие виды бензина'
+ { _MyPutExcelNumber(w_Faktt1,0,10,0,-1,-1);  //	та-н 
+   _MyPutExcelNumber(w_Faktt2,2,10,0,-1,-1);  //АЗС
+   _MyPutExcelNumber(w_Faktt3,2,10,0,-1,-1);  //нал
+
+ }
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+//Д/Т      
+ if substr(w_vidgsm,1,2) ='ДТ' //Дизельное топливо' 
+ { _MyPutExcelNumber(w_Faktt1,0,10,0,-1,-1);  //	та-н 
+   _MyPutExcelNumber(w_Faktt2,2,10,0,-1,-1);  //АЗС
+   _MyPutExcelNumber(0,2,10,0,-1,-1);  //на нужды      НБ
+   _MyPutExcelNumber(w_Faktt3,2,10,0,-1,-1);  //нал
+
+ }
+ else
+ { MyPutExcel('',10,0,-1,-1);  //талон. + карта
+   MyPutExcel('',10,0,-1,-1);  //АЗС 
+   MyPutExcel('',10,0,-1,-1);  //на нужды      НБ 
+   MyPutExcel('',10,0,-1,-1);  // нал
+ }  
+//итого факт
+   _MyPutExcelNumber(w_Faktt1,0,10,0,-1,-1);  //	та-н 
+   _MyPutExcelNumber(w_Faktt2,2,10,0,-1,-1);  //АЗС
+   _MyPutExcelNumber(0,2,10,0,-1,-1);  //нал
+   _MyPutExcelNumber(w_Faktt3,2,10,0,-1,-1);  //нал
+   _MyPutExcelNumber(My_WorkTable_Group.Putgsm_Faktt+My_WorkTable_Group.PutGsm_Faktt1
+     +My_WorkTable_Group.PutGsm_Faktt2+My_WorkTable_Group.PutGsm_Faktt3,2,10,0,-1,-1);  //нал
+   
+//Остаток на 31 число   
+//  та-н АЗС итого
+  ww_oste_prev :=woste;
+
+  if group_type=0
+  { _MyPutExcelNumber(0,0,10,0,-1,-1);  //	та-н 
+    _MyPutExcelNumber(woste,2,10,0,-1,-1);  //АЗС
+    _MyPutExcelNumber(woste,2,10,0,-1,-1);//итого
+  }
+  else 
+  { MyPutExcelNumber(0,0,10,0,-1,-1);  //	та-н 
+    MyPutExcelNumber(woste,2,10,0,-1,-1);  //АЗС
+    MyPutExcelNumber(woste,2,10,0,-1,-1);//итого
+  }
+   if abs((wostb+ My_WorkTable_Group.AZS1+My_WorkTable_Group.AZS2+My_WorkTable_Group.AZS3+My_WorkTable_Group.AZS4)
+   -  (woste+My_WorkTable_Group.Putgsm_Faktt+My_WorkTable_Group.PutGsm_Faktt1
+     +My_WorkTable_Group.PutGsm_Faktt2+My_WorkTable_Group.PutGsm_Faktt3) )>0.01
+   { xlSetbackcolor(0FFFF00h, wexrow, 49,  wexrow, 49)
+   }  
+   wexrow:=wwexrow
+  
+  }  //_Loop My_WorkTable_Group where (( 6 == My_WorkTable_Group.pa ))  
+  
+  PrintItog(0);
+  PrintItog(1);
+  if matrixkl
+  { MyxlWriteMatrix(wexrow);
+    xlFreeMatrix;
+    matrixkl:=False;
+  }
+   MyxlFrameCells(63, 2, 1, 1,HeaderStrCount,1,wexrow,49); 
+  xlWrapText(headerstrcount,1,wexrow,50)
+  wexrow:=wexrow+2
+  /*не хотят wexrow:=XL_Print_commission(wexrow,1,10,20,30)
+  if filtr_mol<>''
+  { wexcol:=20; wexrow:=wexrow-2
+    MyPutExcel('_________________ '+filtr_mol,10,0,-1,-1)
+    wexrow:=wexrow+2
+  }
+  */
+  wexcol:=2
+  MyPutExcel('Материально-ответственное лицо:     Начальник цеха    __________________________   /' + iPodrFilterDef.MyGetInitial(filtr_mol,false)+'/',10,0,-1,-1)
+   
+  // вывод итогов
+
+  PrintDoc:=true ;
+
+} //Function PrintDoc : boolean ;
+
+//==================================
+// отбор данных
+//==================================
+Function FormDoc : boolean ;
+var werr :word;
+{ FormDoc:=false ;
+  SaveParam ;
+  nmtemplate:='Avto_GSM_ALL.xls';
+  log_excel:=True;
+  werr:=ExcelInit(nmtemplate,true,year(dtb))
+  if werr>0
+  { message('Ошибка инициализации Excel по шаблону '+nmtemplate) ;
+    exit ;
+  }
+  if not xlSetActiveSheetByName('Ошибки')  //установка активного листа по имени
+  { message('Нет листа "Ошибки" в '+nmtemplate)
+    log_excel:=false;
+  }
+  else
+  { HeaderStrCount:=3;
+    wexrow:=HeaderStrCount ;
+    MyXlCreaMatrix(10000,100)
+    wexrow:=HeaderStrCount-1 ;
+    
+  }
+  iGsm_CalcNorm.SetLogfilenm('')  
+  if logfilekl
+  { if message('Включить расшифровку расчета норм?',YesNo)=cmYes
+      iGsm_CalcNorm.SetLogfilenm(if(logfilekl,logfilenm,''))
+  }
+  TakeNormPutLst:= FALSE
+//  if message('Использовать расшифровку норм из путевых листов?',YesNo)=cmYes
+  if tp_calcnorm=2 then TakeNormPutLst:= TRUE
+  GetTranspSpis ;
+  kl_neednorma:=true;
+  Need_Norm_RasShifrovka:=True;
+  if TranspSpis_chk then 
+  { 
+    if GetPutLstData 
+    { if GroupByPutLst(6+group_type) 
+      { if log_excel
+        { if matrixkl
+          { MyxlWriteMatrix(wexrow);
+            xlFreeMatrix;
+            matrixkl:=False;
+           }
+        }
+        if not xlSetActiveSheetByName('Отчет')  //установка активного листа по имени
+        { message('Нет листа "Отчет" в '+nmtemplate)
+        }
+        else
+        { FormDoc:=PrintDoc ;
+        }
+        MyXlEnd ;
+      }
+      
+    } 
+  }      
+  XlKillExcel;
+} //Function FormDoc : boolean ;
+//==================================
+// экранная форма задания параметров
+//==================================
+#include transp_scr1.vpp
+//==================================
+// дополнит.функция инициализации
+//==================================
+Function Dop_Init :boolean ;
+{  Dop_Init:=true ;
+   nmtemplate:='Avto_GSM_ALL.xls' ;
+   ReadParam ;
+}
+//==================================
+// дополнит.функция выбора
+//==================================
+Function Dop_Pick :boolean ;
+{  Dop_Pick:=true ;
+}
+//==================================
+// дополнит.функция завершения
+//==================================
+Function Dop_Done :boolean ;
+{  Dop_Done :=true ;
+   SaveParam ;
+}
+//==================================
+// дополнит.функция отработки enter
+//==================================
+Function Dop_Default :boolean ;
+{  Dop_Default:=true ;
+}
+//==================================
+// обработчик событий
+//==================================
+#include transp_handle.vpp
+end.
+#UNDEF Transp_GSM_AZS
+#UNDEF Transp_GSM_FLT
+#UNDEF Transp_MOL_VIB
+#UNDEF Transp_Group

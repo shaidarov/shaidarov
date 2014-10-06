@@ -1,0 +1,60 @@
+Interface CreateTabs AlwaysReturn;
+var
+  dFrom
+, dTo
+     :date;
+
+create view
+from
+    nalregdc, nalregsp, attrnam, attrval, katos, katos katos1, spmoveos, tabrash
+where
+        ((     1050==nalregdc.TIDK
+   and word(2200)         == attrnam.wtable
+   and 'Основные средства'== attrnam.name
+   and word(2200)         == attrval.wtable
+   and NalRegDc.NRec      == attrval.crec
+   and attrnam.nrec       == attrval.cattrnam
+   and attrval.vcomp      == katos.nrec
+   and nalregdc.csoprdoc  == spmoveos.nrec
+   and spmoveos.ckatos    == katos1.nrec
+   and nalregdc.nrec      == nalregsp.cnalregdc
+   and dFrom              <<= nalregsp.datob
+   and dTo                >>= nalregsp.datob
+        ))
+
+;
+
+parameters
+  dFrom,dTo;
+
+  HandleEvent
+    cmInit:{
+      delete all from tabrash;
+
+      _loop nalregdc{
+        insert Tabrash;
+        Tabrash._Nrec:= nalregdc.nrec;
+        if getfirst katos = tsOk
+        {
+         Tabrash._inv:= ''''+katos.innum;
+         Tabrash._nameos:= katos.nameos;
+        };
+        if getfirst katos1 = tsOk
+        {
+         Tabrash._inv:= ''''+katos1.innum;
+         Tabrash._nameos:= katos1.nameos;
+        };
+        Tabrash._ubyt:= if (nalregdc.SumRs1-nalregdc.SumRs2+nalregdc.SumRs3-nalregdc.SumRs4=0,nalregdc.SUMPR,nalregdc.SumRs1-nalregdc.SumRs2+nalregdc.SumRs3-nalregdc.SumRs4)
+        Tabrash._dNach:= if(NALREGDC.RASPRVAL=1,Add_months(Date(1,month(NALREGDC.DOPDAT2),year(NALREGDC.DOPDAT2)),1),Date(1,month(NALREGDC.DOPDAT2),year(NALREGDC.DOPDAT2)))
+        Tabrash._kolmes:= String(NALREGDC.kol)+ ' ' + if(NALREGDC.RASPRMODE=0, 'мес','');
+        _loop nalregsp
+        {
+         Tabrash._sum:=Tabrash._sum+nalregsp.SUMPR;
+        }
+        update current Tabrash;
+      }
+      mtChangeRefCount(#Tabrash,1);
+      abort;
+    }
+  end;
+end.

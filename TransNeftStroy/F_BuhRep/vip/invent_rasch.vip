@@ -1,0 +1,870 @@
+//(c)Marchanka
+.LinkForm 'ANUCH_SH_01tns_sprqweqwe' Prototype is 'ANUCH_SH'
+.Group 'Аналитика по операциям'
+.NameInList 'Справка инвентаризации расчетов (ТНС)'
+.var
+nrec_kont : comp;
+nrec_dog  : comp;
+nrec_pers : comp;
+date_z,n_dog,p_dog,name_kont    : string;
+pos_x,xx, n_pp, k:Integer
+FBasName,Fmacros:String
+sum_d,sum_k:double;
+name_docd :String
+nomer_docd  :String
+name_dock :String
+nomer_dock  :String
+date_zd   :String
+date_zk   :String
+.endvar
+
+.Create view t1
+as select
+katorg.nrec,
+dogovor.nrec
+from
+     katorg,
+     dogovor
+where ((
+                nrec_dog  == dogovor.nrec
+        and  dogovor.nrec == ATTRDOG.CDOGOVOR
+        and  nrec_kont == katorg.nrec
+        and  cSoprHoz == soprhoz.nrec
+        and  soprhoz.TIDKGAL == katdoc.TIDKGAL
+        and  nrec_pers == persons.nrec
+      ))
+;
+
+
+.fields
+.endfields
+
+.begin
+FBasName :=GetStringParameter('Files','TmpFilesDirectory',0)+'invent_rasch.xls';
+fmacros := GetStringParameter('Files','TmpFilesDirectory',0)+'macros.bas';
+DeleteFile(FBasName);
+xlCreateExcel(FBasName,true);
+xlSetActiveWorkBookByName('invent_rasch');
+   xlGetSheetsCount(xx);
+   while xx > 1
+    do
+     {
+       xlSetActiveSheet(xx);
+       xlDeleteSheet(xx);
+       xlGetSheetsCount(xx);
+     }
+   xlSetSheetName(1,'Справка инвентаризации расчетов');
+   xlSetActiveSheet(1);
+   pos_x:=1;
+
+   xlSetCellStringValue(CommonFormHeader , pos_x, 1, pos_x, 1);
+   xlSetFontSize(8, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue(sgettune('MYORG') , pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 1);
+   xlMergeCells( pos_x, 1, pos_x, 2);
+   xlFrameCells(8,2,7,0,pos_x, 1, pos_x, 2);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('СПРАВКА', pos_x, 1, pos_x, 1);
+   xlSetFontSize(12, pos_x, 1, pos_x, 9);
+   xlMergeCells( pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 9);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 9);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('к акту №_____________ от "'+datetostr(strtodate(c0p3,'DD/MM/YYYY'),'DD')+'" '+locase(datetostr(strtodate(c0p3,'DD/MM/YYYY'),'Mon'))+' '+datetostr(strtodate(c0p3,'DD/MM/YYYY'),'YYYY')+'г.' , pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 9);
+   xlMergeCells( pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 9);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('инвентаризации с покупателями, поставщиками и прочими дебиторам и кредиторами' , pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 9);
+   xlMergeCells( pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 9);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('по состоянию на "'+datetostr(strtodate(c0p3,'DD/MM/YYYY'),'DD')+'" '+locase(datetostr(strtodate(c0p3,'DD/MM/YYYY'),'Mon'))+' '+datetostr(strtodate(c0p3,'DD/MM/YYYY'),'YYYY')+'г.' , pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 9);
+   xlMergeCells( pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 9);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('счет '+c0p1+' - '+c0p1n , pos_x, 1, pos_x, 1);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 9);
+   xlSetFontSize(10, pos_x, 1, pos_x, 9);
+   xlMergeCells( pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 9);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('Номер по порядку'                                          , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Наименование, адрес и номер телефона дебитора, кредитора'  , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Числится задолженность'                                    , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('Сумма задолженности, руб.коп.'                             , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue('Документ подтверждающий задолженность'                     , pos_x, 7, pos_x, 7);
+
+   xlSetFontSize (10, pos_x, 1, pos_x, 9);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 9);
+   xlSetRowHeight(30, pos_x, 1, pos_x, 8);
+
+   xlMergeCells( pos_x, 3, pos_x, 4);
+   xlMergeCells( pos_x, 5, pos_x, 6);
+   xlMergeCells( pos_x, 7, pos_x, 9);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x+1, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x+2, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 9);
+   xlWrapText(pos_x, 1, pos_x, 9);
+
+   pos_x:=pos_x+1;
+
+   xlSetCellStringValue('за что'        , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('дата начала'   , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue('дебиторская'   , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue('кредиторская'  , pos_x, 6, pos_x, 6);
+   xlSetCellStringValue('наименование'  , pos_x, 7, pos_x, 7);
+   xlSetCellStringValue('номер'         , pos_x, 8, pos_x, 8);
+   xlSetCellStringValue('дата'          , pos_x, 9, pos_x, 9);
+
+   xlMergeCells( pos_x-1, 1, pos_x, 1);
+   xlMergeCells( pos_x-1, 2, pos_x, 2);
+
+   xlSetFontSize (10, pos_x, 1, pos_x, 9);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 9);
+
+
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   xlSetColumnWidth( 8,  pos_x, 1, pos_x, 1);
+   xlSetColumnWidth(30,  pos_x, 2, pos_x, 2);
+   xlSetColumnWidth(20,  pos_x, 3, pos_x, 3);
+   xlSetColumnWidth(10,  pos_x, 4, pos_x, 4);
+   xlSetColumnWidth(12,  pos_x, 5, pos_x, 5);
+   xlSetColumnWidth(12,  pos_x, 6, pos_x, 6);
+   xlSetColumnWidth(12,  pos_x, 7, pos_x, 7);
+   xlSetColumnWidth(10,  pos_x, 8, pos_x, 8);
+   xlSetColumnWidth(10,  pos_x, 9, pos_x, 9);
+
+
+   pos_x:=pos_x+1;
+
+   xlSetCellStringValue(chr(39)+'1'  , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+'2'  , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+'3'  , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue(chr(39)+'4'  , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue(chr(39)+'5'  , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue(chr(39)+'6'  , pos_x, 6, pos_x, 6);
+   xlSetCellStringValue(chr(39)+'7'  , pos_x, 7, pos_x, 7);
+   xlSetCellStringValue(chr(39)+'8'  , pos_x, 8, pos_x, 8);
+   xlSetCellStringValue(chr(39)+'9'  , pos_x, 9, pos_x, 9);
+
+   xlSetFontSize (10, pos_x, 1, pos_x, 9);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 9);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 9);
+
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   pos_x:=pos_x+1;
+
+end.
+.if OKFILANS
+Применен фильтр...
+.{
+.{
+.}
+.}
+.else
+.end
+.{
+.begin
+nrec_kont := 0;
+nrec_dog  := 0;
+nrec_pers := 0;
+k:=0;
+p_dog:='';
+n_dog:='';
+name_kont:='';
+end.
+.if OKANRSUB
+.else
+.end
+.{
+.if OKANRPODR
+.else
+.end
+.{
+.if OKANRKAU1
+.begin
+k:=1;
+if Kau1KodTable = word (1)
+{
+ nrec_kont := Kau1Nrec;
+if t1.getfirst katorg = tsok
+ {
+  name_kont := t1.katorg.tiporg+' '+t1.katorg.name+', '+t1.katorg.addr;
+ }
+}
+if Kau1KodTable = word (14)
+ {
+ nrec_dog  := Kau1Nrec;
+if t1.getfirst dogovor = tsok
+ {
+  p_dog := 'договор №'+t1.dogovor.NODOC_EXT+' от '+t1.dogovor.DDOC;
+ if t1.getfirst ATTRDOG = tsok
+  {
+   p_dog:=p_dog+', '+t1.ATTRDOG.SUBJECT1;
+  }
+ }
+ }
+if Kau1KodTable = word (3)
+{
+ nrec_pers := Kau1Nrec;
+if t1.getfirst persons = tsok
+ {
+  name_kont := t1.persons.fio;
+ }
+ p_dog:='Подотчетные суммы';
+}
+end.
+.else
+.end
+.{
+.if OKANRKAU2
+.begin
+   k:=2;
+if Kau2KodTable = word (1)
+ {
+   nrec_kont := Kau2Nrec;
+if t1.getfirst katorg = tsok
+ {
+  name_kont := t1.katorg.tiporg+' '+t1.katorg.name+', '+t1.katorg.addr;
+ }
+ }
+if Kau2KodTable = word (14)
+ {
+   nrec_dog  := Kau2Nrec;
+if t1.getfirst dogovor = tsok
+ {
+  p_dog := 'договор №'+t1.dogovor.NODOC_EXT+' от '+t1.dogovor.DDOC;
+ if t1.getfirst ATTRDOG = tsok
+  {
+   p_dog:=p_dog+', '+t1.ATTRDOG.SUBJECT1;
+  }
+ }
+ }
+if Kau2KodTable = word (3)
+{
+ nrec_pers := Kau2Nrec;
+if t1.getfirst persons = tsok
+ {
+  name_kont := t1.persons.fio;
+ }
+ p_dog:='Подотчетные суммы';
+}
+
+end.
+.else
+.end
+.{
+.if OKANRKAU3
+.begin
+ k:=3;
+if Kau3KodTable = word (1)
+ {
+  nrec_kont := Kau3Nrec;
+if t1.getfirst katorg = tsok
+ {
+  name_kont := t1.katorg.tiporg+' '+t1.katorg.name+', '+t1.katorg.addr;
+ }
+ }
+if Kau3KodTable = word (14)
+{
+  nrec_dog  := Kau3Nrec;
+if t1.getfirst dogovor = tsok
+ {
+  p_dog := 'договор №'+t1.dogovor.NODOC_EXT+' от '+t1.dogovor.DDOC;
+ if t1.getfirst ATTRDOG = tsok
+  {
+   p_dog:=p_dog+', '+t1.ATTRDOG.SUBJECT1;
+  }
+ }
+}
+if Kau3KodTable = word (3)
+{
+ nrec_pers := Kau3Nrec;
+if t1.getfirst persons = tsok
+ {
+  name_kont := t1.persons.fio;
+ }
+ p_dog:='Подотчетные суммы';
+}
+
+end.
+.else
+.end
+.{
+.if OKANRKAU4
+.begin
+ k:=4;
+if Kau4KodTable = word (1)
+ {
+  nrec_kont := Kau4Nrec;
+if t1.getfirst katorg = tsok
+ {
+  name_kont := t1.katorg.tiporg+' '+t1.katorg.name+', '+t1.katorg.addr;
+ }
+ }
+if Kau4KodTable = word (14)
+ {
+   nrec_dog  := Kau4Nrec;
+if t1.getfirst dogovor = tsok
+ {
+  p_dog := 'договор №'+t1.dogovor.NODOC_EXT+' от '+t1.dogovor.DDOC;
+ if t1.getfirst ATTRDOG = tsok
+  {
+   p_dog:=p_dog+', '+t1.ATTRDOG.SUBJECT1;
+  }
+ }
+ }
+if Kau4KodTable = word (3)
+{
+ nrec_pers := Kau4Nrec;
+if t1.getfirst persons = tsok
+ {
+  name_kont := t1.persons.fio;
+ }
+ p_dog:='Подотчетные суммы';
+}
+
+end.
+.else
+.end
+.{
+.if OKANRKAU5
+.begin
+  k:=5;
+if Kau5KodTable = word (1)
+{
+  nrec_kont := Kau5Nrec;
+if t1.getfirst katorg = tsok
+ {
+  name_kont := t1.katorg.tiporg+' '+t1.katorg.name+', '+t1.katorg.addr;
+ }
+}
+
+if Kau5KodTable = word (14)
+{
+  nrec_dog  := Kau5Nrec;
+if t1.getfirst dogovor = tsok
+ {
+  p_dog := 'договор №'+t1.dogovor.NODOC_EXT+' от '+t1.dogovor.DDOC;
+ if t1.getfirst ATTRDOG = tsok
+  {
+   p_dog:=p_dog+', '+t1.ATTRDOG.SUBJECT1;
+  }
+ }
+ }
+
+if Kau5KodTable = word (3)
+{
+ nrec_pers := Kau5Nrec;
+if t1.getfirst persons = tsok
+ {
+  name_kont := t1.persons.fio;
+ }
+ p_dog:='Подотчетные суммы';
+}
+end.
+.else
+.end
+.{
+.if OKANRKAU6
+.begin
+   k:=6;
+if Kau6KodTable = word (1)
+ {
+   nrec_kont := Kau6Nrec;
+if t1.getfirst katorg = tsok
+ {
+  name_kont := t1.katorg.tiporg+' '+t1.katorg.name+', '+t1.katorg.addr;
+ }
+ }
+if Kau6KodTable = word (14)
+{
+  nrec_dog  := Kau6Nrec;
+if t1.getfirst dogovor = tsok
+ {
+  p_dog := 'договор №'+t1.dogovor.NODOC_EXT+' от '+t1.dogovor.DDOC;
+ if t1.getfirst ATTRDOG = tsok
+  {
+   p_dog:=p_dog+', '+t1.ATTRDOG.SUBJECT1;
+  }
+ }
+ }
+if Kau6KodTable = word (3)
+{
+ nrec_pers := Kau6Nrec;
+if t1.getfirst persons = tsok
+ {
+  name_kont := t1.persons.fio;
+ }
+ p_dog:='Подотчетные суммы';
+}
+
+end.
+.else
+.end
+.{
+.{
+.begin
+if t1.getfirst soprhoz = tsok
+ {
+ if c7p10>0
+  {
+   name_docd := t1.katdoc.name;
+   nomer_docd  := t1.soprhoz.nodoc;
+   date_zd   := c7p1;
+  }
+  if c7p11>0
+   {
+    name_dock := t1.katdoc.name;
+    nomer_dock  := t1.soprhoz.nodoc;
+    date_zk   := c7p1;
+   }
+ }
+
+end.
+.}
+.}
+.if OKANRSUMKAU6
+.begin
+if (k=6 and (round(double(c6_p5),2)<>0 or round(double(c6_p6),2)<>0))
+ {
+   n_pp:=n_pp+1
+
+   xlSetCellStringValue(chr(39)+n_pp                        , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+name_kont                   , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+p_dog , pos_x, 3, pos_x, 3);
+   if round(double(c6_p5),2)<>0
+    {
+      xlSetCellStringValue(round(double(c6_p5),2) , pos_x, 5, pos_x, 5);
+      sum_d:=sum_d+round(double(c6_p5),2);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 4, pos_x, 4);
+      xlSetCellStringValue(chr(39)+name_docd            , pos_x, 7, pos_x, 7);
+      xlSetCellStringValue(chr(39)+nomer_docd           , pos_x, 8, pos_x, 8);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 9, pos_x, 9);
+    }
+   if round(double(c6_p6),2)<>0
+    {
+     xlSetCellStringValue(round(double(c6_p6),2) , pos_x, 6, pos_x, 6);
+     sum_k:=sum_k+round(double(c6_p6),2);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 4, pos_x, 4);
+     xlSetCellStringValue(chr(39)+name_dock            , pos_x, 7, pos_x, 7);
+     xlSetCellStringValue(chr(39)+nomer_dock           , pos_x, 8, pos_x, 8);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 9, pos_x, 9);
+    }
+
+   xlWrapText(pos_x, 1, pos_x, 9);
+   xlShrinkCells(pos_x, 1, pos_x, 9);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 9);
+
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+   xlAlignCellsEx( 3, 2, pos_x, 3, pos_x, 4);
+   xlAlignCellsEx( 4, 2, pos_x, 5, pos_x, 6);
+   xlAlignCellsEx( 3, 2, pos_x, 7, pos_x, 9);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   pos_x:=pos_x+1;
+ }
+end.
+.else
+.end
+.}
+.if OKANRSUMKAU5
+.begin
+if (k=5 and (round(double(c10_p5),2)<>0 or round(double(c10_p6),2)<>0))
+ {
+   n_pp:=n_pp+1
+
+   xlSetCellStringValue(chr(39)+n_pp                        , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+name_kont                   , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+p_dog , pos_x, 3, pos_x, 3);
+   if round(double(c10_p5),2)<>0
+    {
+      xlSetCellStringValue(round(double(c10_p5),2) , pos_x, 5, pos_x, 5);
+      sum_d:=sum_d+round(double(c10_p5),2);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 4, pos_x, 4);
+      xlSetCellStringValue(chr(39)+name_docd            , pos_x, 7, pos_x, 7);
+      xlSetCellStringValue(chr(39)+nomer_docd           , pos_x, 8, pos_x, 8);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 9, pos_x, 9);
+    }
+   if round(double(c10_p6),2)<>0
+    {
+     xlSetCellStringValue(round(double(c10_p6),2) , pos_x, 6, pos_x, 6);
+     sum_k:=sum_k+round(double(c10_p6),2);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 4, pos_x, 4);
+     xlSetCellStringValue(chr(39)+name_dock            , pos_x, 7, pos_x, 7);
+     xlSetCellStringValue(chr(39)+nomer_dock           , pos_x, 8, pos_x, 8);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 9, pos_x, 9);
+    }
+
+   xlWrapText(pos_x, 1, pos_x, 9);
+   xlShrinkCells(pos_x, 1, pos_x, 9);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 9);
+
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+   xlAlignCellsEx( 3, 2, pos_x, 3, pos_x, 4);
+   xlAlignCellsEx( 4, 2, pos_x, 5, pos_x, 6);
+   xlAlignCellsEx( 3, 2, pos_x, 7, pos_x, 9);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   pos_x:=pos_x+1;
+ }
+end.
+.else
+.end
+.}
+.if OKANRSUMKAU4
+.begin
+if (k=4 and (round(double(c9_p5),2)<>0 or round(double(c9_p6),2)<>0))
+ {
+   n_pp:=n_pp+1
+
+   xlSetCellStringValue(chr(39)+n_pp                        , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+name_kont                   , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+p_dog , pos_x, 3, pos_x, 3);
+   if round(double(c9_p5),2)<>0
+    {
+      xlSetCellStringValue(round(double(c9_p5),2) , pos_x, 5, pos_x, 5);
+      sum_d:=sum_d+round(double(c9_p5),2);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 4, pos_x, 4);
+      xlSetCellStringValue(chr(39)+name_docd            , pos_x, 7, pos_x, 7);
+      xlSetCellStringValue(chr(39)+nomer_docd           , pos_x, 8, pos_x, 8);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 9, pos_x, 9);
+    }
+   if round(double(c9_p6),2)<>0
+    {
+     xlSetCellStringValue(round(double(c9_p6),2) , pos_x, 6, pos_x, 6);
+     sum_k:=sum_k+round(double(c9_p6),2);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 4, pos_x, 4);
+     xlSetCellStringValue(chr(39)+name_dock            , pos_x, 7, pos_x, 7);
+     xlSetCellStringValue(chr(39)+nomer_dock           , pos_x, 8, pos_x, 8);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 9, pos_x, 9);
+    }
+
+   xlWrapText(pos_x, 1, pos_x, 9);
+   xlShrinkCells(pos_x, 1, pos_x, 9);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 9);
+
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+   xlAlignCellsEx( 3, 2, pos_x, 3, pos_x, 4);
+   xlAlignCellsEx( 4, 2, pos_x, 5, pos_x, 6);
+   xlAlignCellsEx( 3, 2, pos_x, 7, pos_x, 9);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   pos_x:=pos_x+1;
+ }
+end.
+.else
+.end
+.}
+.if OKANRSUMKAU3
+.begin
+if (k=3 and (round(double(c8_p5),2)<>0 or round(double(c8_p6),2)<>0))
+ {
+   n_pp:=n_pp+1
+
+   xlSetCellStringValue(chr(39)+n_pp                        , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+name_kont                   , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+p_dog , pos_x, 3, pos_x, 3);
+   if round(double(c8_p5),2)<>0
+    {
+      xlSetCellStringValue(round(double(c8_p5),2) , pos_x, 5, pos_x, 5);
+      sum_d:=sum_d+round(double(c8_p5),2);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 4, pos_x, 4);
+      xlSetCellStringValue(chr(39)+name_docd            , pos_x, 7, pos_x, 7);
+      xlSetCellStringValue(chr(39)+nomer_docd           , pos_x, 8, pos_x, 8);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 9, pos_x, 9);
+    }
+   if round(double(c8_p6),2)<>0
+    {
+     xlSetCellStringValue(round(double(c8_p6),2) , pos_x, 6, pos_x, 6);
+     sum_k:=sum_k+round(double(c8_p6),2);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 4, pos_x, 4);
+     xlSetCellStringValue(chr(39)+name_dock            , pos_x, 7, pos_x, 7);
+     xlSetCellStringValue(chr(39)+nomer_dock           , pos_x, 8, pos_x, 8);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 9, pos_x, 9);
+    }
+
+   xlWrapText(pos_x, 1, pos_x, 9);
+   xlShrinkCells(pos_x, 1, pos_x, 9);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 9);
+
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+   xlAlignCellsEx( 3, 2, pos_x, 3, pos_x, 4);
+   xlAlignCellsEx( 4, 2, pos_x, 5, pos_x, 6);
+   xlAlignCellsEx( 3, 2, pos_x, 7, pos_x, 9);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   pos_x:=pos_x+1;
+ }
+end.
+.else
+.end
+.}
+.if OKANRSUMKAU2
+.begin
+if (k=2 and (round(double(c5_p5),2)<>0 or round(double(c5_p6),2)<>0))
+ {
+   n_pp:=n_pp+1
+
+   xlSetCellStringValue(chr(39)+n_pp                        , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+name_kont                   , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+p_dog , pos_x, 3, pos_x, 3);
+   if round(double(c5_p5),2)<>0
+    {
+      xlSetCellStringValue(round(double(c5_p5),2) , pos_x, 5, pos_x, 5);
+      sum_d:=sum_d+round(double(c5_p5),2);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 4, pos_x, 4);
+      xlSetCellStringValue(chr(39)+name_docd            , pos_x, 7, pos_x, 7);
+      xlSetCellStringValue(chr(39)+nomer_docd           , pos_x, 8, pos_x, 8);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 9, pos_x, 9);
+    }
+   if round(double(c5_p6),2)<>0
+    {
+     xlSetCellStringValue(round(double(c5_p6),2) , pos_x, 6, pos_x, 6);
+     sum_k:=sum_k+round(double(c5_p6),2);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 4, pos_x, 4);
+     xlSetCellStringValue(chr(39)+name_dock            , pos_x, 7, pos_x, 7);
+     xlSetCellStringValue(chr(39)+nomer_dock           , pos_x, 8, pos_x, 8);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 9, pos_x, 9);
+    }
+
+   xlWrapText(pos_x, 1, pos_x, 9);
+   xlShrinkCells(pos_x, 1, pos_x, 9);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 9);
+
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+   xlAlignCellsEx( 3, 2, pos_x, 3, pos_x, 4);
+   xlAlignCellsEx( 4, 2, pos_x, 5, pos_x, 6);
+   xlAlignCellsEx( 3, 2, pos_x, 7, pos_x, 9);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   pos_x:=pos_x+1;
+ }
+end.
+.else
+.end
+.}
+.if OKANRSUMKAU1
+.begin
+if (k=1 and (round(double(c4_p5),2)<>0 or round(double(c4_p6),2)<>0))
+ {
+   n_pp:=n_pp+1
+
+   xlSetCellStringValue(chr(39)+n_pp                        , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+name_kont                   , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+p_dog , pos_x, 3, pos_x, 3);
+   if round(double(c4_p5),2)<>0
+    {
+      xlSetCellStringValue(round(double(c4_p5),2) , pos_x, 5, pos_x, 5);
+      sum_d:=sum_d+round(double(c4_p5),2);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 4, pos_x, 4);
+      xlSetCellStringValue(chr(39)+name_docd            , pos_x, 7, pos_x, 7);
+      xlSetCellStringValue(chr(39)+nomer_docd           , pos_x, 8, pos_x, 8);
+      xlSetCellStringValue(chr(39)+date_zd              , pos_x, 9, pos_x, 9);
+    }
+   if round(double(c4_p6),2)<>0
+    {
+     xlSetCellStringValue(round(double(c4_p6),2) , pos_x, 6, pos_x, 6);
+     sum_k:=sum_k+round(double(c4_p6),2);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 4, pos_x, 4);
+     xlSetCellStringValue(chr(39)+name_dock            , pos_x, 7, pos_x, 7);
+     xlSetCellStringValue(chr(39)+nomer_dock           , pos_x, 8, pos_x, 8);
+     xlSetCellStringValue(chr(39)+date_zk              , pos_x, 9, pos_x, 9);
+    }
+
+   xlWrapText(pos_x, 1, pos_x, 9);
+   xlShrinkCells(pos_x, 1, pos_x, 9);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 9);
+
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+   xlAlignCellsEx( 3, 2, pos_x, 3, pos_x, 4);
+   xlAlignCellsEx( 4, 2, pos_x, 5, pos_x, 6);
+   xlAlignCellsEx( 3, 2, pos_x, 7, pos_x, 9);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+
+   pos_x:=pos_x+1;
+ }
+end.
+.else
+.end
+.}
+.if OKANRSUMPODR
+.else
+.end
+.}
+.if OKANRSUMSUB
+.if OKROLLSUBANUCH
+.else
+.end
+.else
+.end
+.}
+.begin
+   xlSetCellStringValue('ИТОГО'       , pos_x, 1, pos_x, 1);
+   if sum_d<>0
+    {
+     xlSetCellStringValue(sum_d                 , pos_x, 5, pos_x, 5);
+    }
+   if sum_k<>0
+    {
+     xlSetCellStringValue(sum_k                   , pos_x, 6, pos_x, 6);
+    }
+
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 9);
+
+   xlMergeCells( pos_x, 1, pos_x, 4);
+   xlMergeCells( pos_x, 7, pos_x, 9);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 9);
+   xlShrinkCells(pos_x, 1, pos_x, 9);
+
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 4, 2, pos_x, 5, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 9);
+
+   pos_x:=pos_x+3;
+end.
+.if OKROLLSCHANUCH
+.else
+.end
+.begin
+xlSetCellStringValue('Главный бухгалтер'   , pos_x, 1, pos_x, 1);
+xlSetCellStringValue(sgettune('MAINBUH')   , pos_x, 5, pos_x, 5);
+xlFrameCells(8,2,7,0,pos_x, 3, pos_x, 3);
+xlMergeCells( pos_x, 1, pos_x, 2);
+xlMergeCells( pos_x, 4, pos_x, 7);
+pos_x:=pos_x+3;
+xlSetCellStringValue('Ответственный исполнитель'       , pos_x, 1, pos_x, 1);
+xlSetCellStringValue(sgettune('USER.FIO')   , pos_x, 5, pos_x, 5);
+xlFrameCells(8,2,7,0,pos_x, 3, pos_x, 3);
+xlMergeCells( pos_x, 1, pos_x, 2);
+xlMergeCells( pos_x, 4, pos_x, 7);
+
+DeleteFile(Fmacros);
+if not LogStrToFile(Fmacros, 'Sub macros()') message('Ошибка записи файла макроса '+fmacros);
+LogStrToFile(Fmacros, '    With ActiveSheet.PageSetup                                        ');
+LogStrToFile(Fmacros, '       .PrintTitleRows = "$9:$9"                                     ');
+LogStrToFile(Fmacros, '       .Orientation = xlLandscape                                    ');
+LogStrToFile(Fmacros, '       .LeftMargin = Application.InchesToPoints(0.72)                ');   // левое поле
+LogStrToFile(Fmacros, '       .RightMargin = Application.InchesToPoints(0.1)                ');   // правое поле
+LogStrToFile(Fmacros, '       .TopMargin = Application.InchesToPoints(0.2)                  ');   // верхнее поле
+LogStrToFile(Fmacros, '       .BottomMargin = Application.InchesToPoints(0.2)               ');   // нижнее поле
+LogStrToFile(Fmacros, '       .HeaderMargin = Application.InchesToPoints(0.32)              ');   // верхний колонтитул
+LogStrToFile(Fmacros, '       .FooterMargin = Application.InchesToPoints(0.32)              ');   // нижний колонтитул
+LogStrToFile(Fmacros, '    End With                                                          ');
+LogStrToFile(Fmacros, '    Columns("G:H").Select                                             ');
+LogStrToFile(Fmacros, '    Selection.NumberFormat = "#,##0.00"                               ');
+LogStrToFile(Fmacros, 'End Sub                                                               ');
+if not xlImportModule(Fmacros) message ('Ошибка загрузки макроса');
+
+xlGetSheetsCount(xx);
+   while xx > 0
+    do
+     {
+       xlSetActiveSheet(xx);
+       if not xlRunMacro('macros') message('Ошибка запуска макроса');
+       DeleteFile(Fmacros);
+       xx:=xx-1;
+     }
+
+xlKillExcel;
+ANUCH_SH.fexit;
+end.
+.endform

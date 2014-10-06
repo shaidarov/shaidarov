@@ -1,0 +1,60 @@
+#include CyberFleet.vih
+
+#ifdef ComponentVersion
+#component "M_TRANSP"
+#end
+
+interface CyberFleet;
+  create view Dummy
+    var GarNom: string;
+  from transp
+  ;
+
+  function CyberFleet_TripListInfo(
+    ObjectGarNum: string; //гаражный номер
+    StartDateTime: datetime; //период с
+    EndDateTime: datetime; //период по
+    var TotalConsumption: double; //расход топлива, л
+    var TotalRunInKm: double; //общий пробег, км
+    var Per100kmConsumption: double //расход топлива л/100 км
+  ): integer;
+  var wSYear, wSMonth, wSDay, wSHour, wSMinute, wSSecond: word;
+  var wEYear, wEMonth, wEDay, wEHour, wEMinute, wESecond: word;
+  var ResultString, StringValue: string;
+  {
+    wSYear:=_GetYear(StartDateTime);
+    wSMonth:=_GetMonth(StartDateTime);
+    wSDay:=_GetDay(StartDateTime);
+    wSHour:=_GetHour(StartDateTime);
+    wSMinute:=_GetMinute(StartDateTime);
+    wSSecond:=_GetSecond(StartDateTime);
+    wEYear:=_GetYear(EndDateTime);
+    wEMonth:=_GetMonth(EndDateTime);
+    wEDay:=_GetDay(EndDateTime);
+    wEHour:=_GetHour(EndDateTime);
+    wEMinute:=_GetMinute(EndDateTime);
+    wESecond:=_GetSecond(EndDateTime);
+    ResultString := GalFleet_TripListInfoString(ObjectGarNum,
+                                                     wSYear, wSMonth, wSDay,
+                                                     wSHour, wSMinute, wSSecond,
+                                                      wEYear, wEMonth, wEDay,
+                                                      wEHour, wEMinute, wESecond);
+    if Instr('?', ResultString) = 0
+    {
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+      TotalConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+      TotalRunInKm := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+      Per100kmConsumption := Double(StringValue);
+      CyberFleet_TripListInfo := 0;
+    }
+    else
+    {
+      CyberFleet_TripListInfo := Integer(Replace(ResultString,'?',''));
+    }
+  }
+
+end.

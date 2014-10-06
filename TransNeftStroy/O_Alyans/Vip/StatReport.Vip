@@ -1,0 +1,333 @@
+//======================================
+// Статистика выполнения документов
+//======================================
+#component "F_USERREPORT"
+
+//===================================
+#define SetMenuUserR B_FINANS
+//===================================
+#define UserMenuGroup 'Отчеты'
+//===================================
+#define UserNameWnd 'Статистика выполнения документов'
+#define UserNameFace StatReport
+//#make "RS_UsrReports.vip"
+#include RS_UsrReports.vip
+#undef UserNameWnd
+#undef UserNameFace
+//===================================
+#undef UserMenuGroup
+#undef SetMenuUserR
+//===================================
+#undef UserNameFaceModal
+
+
+
+//===================================
+VipInterface StatReport licensed (FREE) ;
+//======================================
+Interface StatReport 'Задайте параметры формирования';
+//======================================
+table struct tmp_row
+(  tp  :word // тип отчета
+  ,kod :string[20] // код
+  ,row :word       // row
+  ,su  :array[1..20] of double
+)
+with index
+(  tmp_row01 = tp+kod
+ , tmp_row02 = kod
+);      
+
+table struct tmp_ob
+( su  : longint
+ ,su1 : double
+ ,key : string
+ ,key2: string
+)
+with index 
+(  tmPob01 = key
+);
+
+table struct tmp_protokol
+( tidk: word
+ ,row : string [50]
+ ,col : word
+ ,nodok :string[50]
+ ,kol   :longint
+)
+with index 
+(  tmp_protokol01 = row + tidk + nodok
+);
+
+  
+//======================================
+var
+  #include Excel_var.vpp
+//======================================
+create view vStatReport
+var 
+  wdt :date;
+  tp_option :word;
+  type_report :word;
+  dm_dt01 ,dm_dt02, dm_dt03, dm_dt04, dm_dt05, dm_dt06 :date
+  dm_dt07 ,dm_dt08, dm_dt09, dm_dt10, dm_dt11, dm_dt12 :date
+  wkl_Attrnam:boolean;
+as select AttrNam.nrec , tmp_ob.*, tmp_row.* 
+from AttrNam, tmp_row, tmp_ob , tmp_protokol (tmp_protokol01)
+, tmp_row tmp_row_m
+where (( 
+      coStatLog == AttrNam.wTable
+  and 'Дата установки статуса' == AttrNam.Name
+))
+;
+var wdm_dt :array [1..12] of date;
+
+#include excel_fun.vpp
+#include sql_func.Vpp
+
+//====================================================
+// сохранить параметры
+//====================================================
+Procedure SaveParam;
+var kk :word;
+   ww_dt:date
+{ for(kk:=1;kk<=12;inc(kk))
+  {  case kk of
+     01: ww_dt:=dm_dt01;
+     02: ww_dt:=dm_dt02;
+     03: ww_dt:=dm_dt03;
+     04: ww_dt:=dm_dt04;
+     05: ww_dt:=dm_dt05;
+     06: ww_dt:=dm_dt06;
+     07: ww_dt:=dm_dt07;
+     08: ww_dt:=dm_dt08;
+     09: ww_dt:=dm_dt09;
+     10: ww_dt:=dm_dt10;
+     11: ww_dt:=dm_dt11;
+     12: ww_dt:=dm_dt12;
+     end;
+  
+     wdm_dt[kk]:=ww_dt; 
+     SaveMyDsk(ww_dt,'StatRep_dt'+string(kk))
+  }
+  SaveMyDsk(tp_option  ,'StatRep_tp_option')
+  SaveMyDsk(type_report,'StatRep_type_report')
+}
+
+
+//====================================================
+// сохранить параметры
+//====================================================
+Procedure ReadParam;
+var kk :word;
+    ww_dt:date
+{ 
+   for(kk:=1;kk<=12;inc(kk))
+   { if not  ReadMyDsk(ww_dt,'StatRep_dt'+string(kk),false)
+     { case kk of 
+       1: dm_dt01:=date(30,09,2012);
+       2: dm_dt02:=date(05,10,2012);
+       3: dm_dt03:=date(15,10,2012);
+
+       4: dm_dt04:=date(31,10,2012);
+       5: dm_dt05:=date(05,11,2012);
+       6: dm_dt06:=date(15,11,2012);
+
+       7: dm_dt07:=date(30,11,2012);
+       8: dm_dt08:=date(05,12,2012);
+       9: dm_dt09:=date(15,12,2012);
+
+       10: dm_dt10:=date(31,12,2012);
+       11: dm_dt11:=date(10,01,2013);
+       12: dm_dt12:=date(20,01,2013);
+       end;
+     }
+     else
+     {  case kk of 
+       1: dm_dt01:=ww_dt;
+       2: dm_dt02:=ww_dt;
+       3: dm_dt03:=ww_dt;
+
+       4: dm_dt04:=ww_dt;
+       5: dm_dt05:=ww_dt;
+       6: dm_dt06:=ww_dt;
+
+       7: dm_dt07:=ww_dt;
+       8: dm_dt08:=ww_dt;
+       9: dm_dt09:=ww_dt;
+
+       10: dm_dt10:=ww_dt;
+       11: dm_dt11:=ww_dt;
+       12: dm_dt12:=ww_dt;
+       end;
+     }   
+  } //for(kk:=1;kk<=12;inc(kk))    
+  if not ReadMyDsk(tp_option  ,'StatRep_tp_option'  ,false)  tp_option:=0;
+  if not ReadMyDsk(type_report,'StatRep_type_report',false) type_report:=3
+}
+
+//==============
+// Вставка строки
+//==============
+Procedure Ins_tmp_row(ww_tp:word; ww_kod:string; ww_row:word);
+{  if getfirst tmp_row where ((
+        ww_tp == tmp_row.tp 
+   and ww_kod == tmp_row.kod
+   and ww_row == tmp_row.row(noindex)
+   ))=0                                
+   then exit;
+ 
+   clearbuffer(#tmp_row)
+   tmp_row.tp :=ww_tp;
+   tmp_row.kod:=ww_kod;
+   tmp_row.row:=ww_row;
+   insert current tmp_row;
+
+}
+
+#include StatReport.Vpp
+
+//==============
+// формирование данных
+//==============
+Function FormDoc:boolean;
+var wkl:boolean;
+{ FormDoc:=false;
+  wkl:=true
+  delete all tmp_row;
+  delete all tmp_protokol;
+  
+  wkl_Attrnam:=(getfirst AttrNam=0)
+  logfilenm:=GetStringParameter('Files','OutputFilesDirectory',0)
+           +'\!AvanDox.log'
+  if ExcelInit('StatReport.xls',true,2009)<>0
+  { message('Ошибка инициализации шаблона TNS_StatReport.xls')
+    exit ;
+  }
+  sql_log:='';
+  if (type_report and 1)>0 wkl:=SborData01
+  if not wkl then exit
+  if (type_report and 2)>0 wkl:=SborData02
+  if not wkl then exit
+  if (type_report and 1)>0 wkl:=PrintData01
+  if not wkl then exit
+  if (type_report and 2)>0 wkl:=PrintData02
+  
+  if((tp_option and 16)>0)
+  { xlSetActiveSheetByName('Протокол')
+    HeaderStrCount:=2
+    wexrow:=HeaderStrCount;
+    MyXlCreaMatrix(100,11)
+    wexrow:=wexrow-1;
+    _loop tmp_protokol
+    { if not nextvisual then exit;
+      wexrow:=wexrow+1; wexcol:=1 ;
+      if wexrow>32000
+      {  MyPutExcel('Много строк' ,0,0,-1,-1) 
+         break
+      }
+      MyPutExcel(chr(39)+string(tmp_protokol.tidk) ,0,0,-1,-1) 
+      MyPutExcel(chr(39)+string(tmp_protokol.nodok) ,0,0,-1,-1) 
+      MyPutExcel(chr(39)+string(tmp_protokol.row) ,0,0,-1,-1) 
+      MyPutExcel(chr(39)+string(tmp_protokol.col) ,0,0,-1,-1) 
+      MyPutExcel(chr(39)+string(tmp_protokol.kol) ,0,0,-1,-1) 
+    } // _loop tmp_protokol
+    wexrow:=wexrow+1; wexcol:=1 ;
+    MyxlWriteMatrix(wexrow);
+    xlFreeMatrix;
+    matrixkl:=False;
+  }  // if((tp_option and 16)>0)
+  FormDoc:=true;
+  
+}
+
+
+
+//===== окно ввода параметров
+panel PnMain
+tabbedsheet top tabsMain;
+ screen scrmain 'Параметры' ;
+ table Attrnam;
+ fields
+  type_report :noprotect;
+  dm_dt01 :noprotect;
+  dm_dt02 :noprotect;
+  dm_dt03 :noprotect;
+
+  dm_dt04 :noprotect;
+  dm_dt05 :noprotect;
+  dm_dt06 :noprotect;
+
+  dm_dt07 :noprotect;
+  dm_dt08 :noprotect;
+  dm_dt09 :noprotect;
+
+  dm_dt10 :noprotect;
+  dm_dt11 :noprotect;
+  dm_dt12 :noprotect;
+
+  tp_option :noprotect;
+//1   [.] Упрощенный вариант(без анализа закр.периода)` 
+//2   [.] Не обрабатывать накладные ` 
+//4   [.] Не обрабатывать акты `
+//8   [.] Учесть бухсправки со статусом "специальный"` 
+//16  [.] Формировать протокол(медленно) `
+
+  logfilekl:noprotect;
+      buttons
+        cmOk,,,'Печать отчёта', hcStaffRepBuild, scStaffForButton;
+        cmCancel,,,'Отмена', hcStaffRepBuild, scStaffForButton;
+<<
+  `Формировать отчет`   [.] А `
+                        [.] B ` 
+   `Даты формирования отчета(для отмены формирования оставте пустыми)`   
+   `окончания периода`  `закрытие периода`  `дата сопоставления`
+   1. .@@@@@@@@@@         .@@@@@@@@@@         .@@@@@@@@@@  
+   2. .@@@@@@@@@@         .@@@@@@@@@@         .@@@@@@@@@@ 
+   3. .@@@@@@@@@@         .@@@@@@@@@@         .@@@@@@@@@@ 
+   4. .@@@@@@@@@@         .@@@@@@@@@@         .@@@@@@@@@@ 
+   Опции
+   [.] Упрощенный вариант(без анализа закр.периода)` 
+   [.] Не обрабатывать накладные ` 
+   [.] Не обрабатывать акты `
+   [.] Учесть бухсправки со статусом "специальный"` 
+   [.] Формировать протокол(медленно) `
+
+    <. Сформировать .>      <.    Отмена    .>  [.] отладка`
+>>
+
+  end; // screen scrMain
+ screen scr_info 'Информация';  
+ table Attrnam;
+<<
+>>    
+end;//screen scr_txo 'Настройка ТХО";
+end;//tabbedsheet top tabsMain;
+end;//panel pnMain
+//===== end окно ввода параметров
+
+
+
+
+
+HandleEvent
+cmInit:
+{ ReadParam;
+ rescanpanel(#Attrnam)
+
+}
+cmOk:
+{ SaveParam;
+  StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Идет формирование отчета...', vfTimer+vfBreak);
+  //========================
+  FormDoc
+  //========================
+  if VisualizationActive
+      StopVisual('',0);
+  xlKillExcel;
+}
+cmDone:
+{ SaveParam;
+}
+end;
+end.

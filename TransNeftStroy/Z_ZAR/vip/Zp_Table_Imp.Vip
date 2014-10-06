@@ -1,0 +1,1008 @@
+//=================================================
+//
+//=================================================
+#include macrosch.vpp // макроопределения для обработки счетов, субсчетов и КАУ
+#include CHANGEHELPER.VIH
+//#include WTREFORMER.VIH
+#include PickCat.VIH
+//#include TSFUNCS.VIH
+#include EXTATTR.VIH
+#include Contexts.vih  // Контексты
+
+
+//=================================================
+Interface Zp_Table_Imp 'Параметры импорта табеля';
+//*************************************************
+table struct tmp_err
+( typ :word
+, kod :string[100]
+, kod2 :string[100]
+, name :string
+, val_comp :comp
+, val_S :string
+, pa :word
+) 
+with index
+( tmp_err01 = typ + kod + kod2
+);
+
+//===================================                     
+table struct tmp_katstroy
+( kod :string[50]
+ ,name:string[100]
+ ,nrec:comp
+)
+with index
+( tmp_katstroy01 = kod
+);
+
+
+//===================================                     
+table struct tmp_analitic
+(
+    podr_kod   : string[ 20]//Код подразделения
+  , podr_name  : string[100]//Подразделение
+  , podr_nrec  : comp
+  , vidd_name  : string[100]//Вид деятельности
+  , schet      : string[ 20]//Счет
+  , subsch     : string[ 20]//Субсчет	
+  , stzatr_kod : string[ 20]//код затрат (кау3)
+  , stzatr_name: string[100]//наименование затрат
+  , stzatr_nrec: comp 
+  , stzatr_tbl : longint 
+  , vpru_kod   : string[ 20]//код ВПРУ (кау4)
+  , vpru_name  : string[100]//наименование ВПРУ
+  , vpru_nrec  : comp
+  , vpru_tbl   : longint
+  , stroy_lev  : word
+)
+with index
+(   tmp_analitic01 = vidd_name
+  , tmp_analitic02 = podr_kod + vidd_name
+);
+//===================================                     
+table struct tmp_podr_kod
+( cex :comp
+ ,kod: string[20]
+)
+with index 
+( tmp_podr01 = kod
+ ,tmp_podr02 = cex
+);
+//===================================                     
+table struct tmp_perexod
+(  clsch   :comp
+ , pa      :word
+ , cPerexod: comp
+ , DatIzm : date
+ , DatOk  : date
+ , ZP_IN  : word 
+ , Mask_Day: array [1..70] of boolean
+) with index
+( tmp_perexod01 =Pa+cLsch +DatIzm
+);
+
+//===================================                     
+var
+  w_nmList:string;
+  CH                  : ChangeHelper;
+  StoredRecord: type$PEREXOD;
+#include ExtAttr.Var
+ 
+//===================================                     
+create view vZar_NaryadImp
+var 
+  w_tabn:longint;
+  w_tabnstr:string;
+  w_rejim:longint;
+  w_Auto :word;
+  W_TYPE:word;
+  w_dt:date;
+  w_nrec:comp;
+  logfilenm :string;
+  wnmfile :string;
+  nmdir: string;
+  log_type:word;
+  LOGFILEKL:boolean;
+  Tabn_Format :word; //тип табельных номеров
+  // ссвлки на справочники
+  wc_lschet,wc_katpodr,wc_rasoper :comp;
+  wc_BRIGAD:comp;
+  w_choice:word;//1 - бригадный, 2 - индв.
+  w_yearras, w_mesras :word
+  kl_attr_kod:boolean;// ключ поиска кода подразделений по внешнему атрибуту
+  alg_no :word;
+  PRIKAZ_TABN_L: word;//"Настройки Галактики \ Управление персоналом \ Настройки Почты \ Управление персоналом \ Длина строчного табельного номера"
+  DTB,DTE:date;
+  // даты начала и окончания перехода
+  w_p_beg:date;
+  w_p_end:date;
+  wstr:string;
+  wc_SpKau   :comp;
+  wc_PlansSch:comp;
+  wSch,wSubSch :string;
+  
+as select lschet.nrec
+from lschet
+ ,persons
+//,klrejim 
+, KATPODR
+, lschet lschet_w
+, persons persons_w
+, katpodr katpodr_w
+, tmp_err
+//, TMP_PODR_KOD
+, LsTab
+, LsTabMsk
+, UOWRKTABEL
+, VARIANCE
+, tmp_analitic
+, tmp_katstroy
+, Perexod
+, Perexod Perexod_chk
+, SpKau, Spkau SpKau_w
+, tmp_perexod
+where 
+((    w_tabn == lschet.tabn and w_tabnstr == lschet.strtabn 
+  and (Lschet.datuv=0 or lschet.datuv>=DTB)
+  and lschet.tperson == persons.nrec
+  and wc_lschet == lschet_w.nrec
+  and wc_katpodr== katpodr_w.nrec
+  and lschet_w.tperson == persons_w.nrec
+  and lschet_w.nrec == LsTab.cLschet
+  and w_yearras == LsTab.yearn
+  and w_mesras  == LsTab.MesN
+  and LsTab.Nrec == LsTabMsk.cLsTab
+  and LSTAB.NREC == VARIANCE.cLsTab
+  
+  //  
+  and Lschet_w.Nrec== Perexod.cLsch
+  and w_p_beg    >>= Perexod.DatIzm 
+  and w_p_end   <<= Perexod.Datok(noindex) 
+  
+  and Lschet_w.Nrec== Perexod_Chk.cLsch
+  and if(w_p_end=0,DTE,w_p_end) >>=Perexod_Chk.DatIzm
+  //and DTB <<= Perexod_Chk.DatIzm
+  and (Perexod_Chk.DatOk>=Perexod.DatIzm and Perexod_Chk.Nrec<>Perexod.nrec )
+  
+  and Perexod.OldcLsch == OtpDop.Nrec
+  
+  and tmp_katstroy.kod == katstroy.code
+  // бухинформация
+  and wc_PlansSch == PlansSch.nrec
+  and PlansSch.kod + wSch == BuhSchet.Schet
+  and wSubSch             == BuhSchet.SubSch
+  and wc_SpKau == SpKau_w.Nrec
+  and 1  == KATKAU.sysnum   
+  and 0  == KATKAU.ISACTIVE
+  and 'Профессия/Вид деятельности' == KatKau.Name
+
+));
+parameters w_Auto,nmdir, w_type
+
+//== функции по работе с dbf - vip810\all
+#include Dbf_Function.Vpp
+#include Excel_imp.vpp
+
+create view vvv
+var
+  wexrow_find :longint;
+
+as select tmp_excel_find.*
+from tmp_excel tmp_excel_find
+where ((
+    w_nmList == tmp_excel_find.list
+and  wexrow_find == tmp_excel_find.numrow
+
+)) 
+;
+
+#include Zp_Table_Imp.Vpp
+
+
+//==================================================
+//
+//==================================================
+Function FormDoc : boolean;
+var wkl_err,wkl_err_all:boolean;
+    w_row_tabn:word;
+    ww_fio :string;
+    ww_sdvig:word;
+    ww_ch:double;
+    WEXROW_ :longint;
+    jj,ii,ll,j,k :word;
+    ww_str:string;
+    ww_nrec:comp;
+    dm_abs_kod : array [1..31] of string[10];
+    dm_abs_chas: array [1..31] of double;
+    dm_abs_type: array [1..31] of word;
+    ww_dtb,ww_dte,ww_dt:date;
+{ Result:=False;  
+  DTB:=dGetTune('UP.DATOTCH')
+  //displ('Read Excel 1')
+  MYLOG('==  Файл '+wnmfile+'=============')
+  //  displ('Read Excel 3')
+  w_nmList :='???'
+  var ww_tabn:string;
+  var dm_su: array[1..10] of string;  
+
+  delete all tmp_perexod;
+  Fill_TMP_SPR;
+
+  for(jj:=1;jj<=2;jj++) // 1 прогон - ищем ошибки, 2 пишем
+  { 
+  
+  
+    if not ReadDataFromExcel(0,wnmfile,'Табель Т-13')
+    { //message('Ошибка импорта из'+chr(13)+wnmfile)
+      MYLOG('==! Файл '+wnmfile+' не содержит листа "Табель Т-13"')
+      exit ;
+      //if not ReadDataFromExcel(0,wnmfile,'',True) then exit
+      displ('Read Excel 2')
+    }
+    wkl_err_all:=True;
+    wexrow_:=0
+    wkl_err:=false;
+    w_row_tabn:=0;
+    v_imp._loop tmp_excel  
+    { if not nextvisual then exit;
+      if w_nmList<>v_Imp.tmp_excel.List
+      { wexrow_:=0;
+        w_nmList:=v_Imp.tmp_excel.List
+      }
+      wexrow_++;
+        // прерывание импорта
+      /*  
+      MyLog('Данные 1='+string(wexrow_)+' '+w_nmList+' '+v_imp.tmp_excel.dmcell[1]
+        +'/'+v_imp.tmp_excel.dmcell[02]        +'/'+v_imp.tmp_excel.dmcell[03]
+        +'/'+v_imp.tmp_excel.dmcell[04]        +'/'+v_imp.tmp_excel.dmcell[05]
+        +'/'+v_imp.tmp_excel.dmcell[06]        +'/'+v_imp.tmp_excel.dmcell[07]
+        +'/'+v_imp.tmp_excel.dmcell[08]        +'/'+v_imp.tmp_excel.dmcell[09]
+        +'/'+v_imp.tmp_excel.dmcell[10]        +'/'+v_imp.tmp_excel.dmcell[11]
+        +'/'+v_imp.tmp_excel.dmcell[12]        +'/'+v_imp.tmp_excel.dmcell[13]
+        +'/'+v_imp.tmp_excel.dmcell[14]        +'/'+v_imp.tmp_excel.dmcell[15]
+        +'/'+v_imp.tmp_excel.dmcell[16]        +'/'+v_imp.tmp_excel.dmcell[17]
+        +'/'+v_imp.tmp_excel.dmcell[18]        +'/'+v_imp.tmp_excel.dmcell[19]
+        +'/'+v_imp.tmp_excel.dmcell[20]        +'/'+v_imp.tmp_excel.dmcell[21]
+        +'/'+v_imp.tmp_excel.dmcell[22]        +'/'+v_imp.tmp_excel.dmcell[23]
+        +'/'+v_imp.tmp_excel.dmcell[24]        +'/'+v_imp.tmp_excel.dmcell[25]
+        +'/'+v_imp.tmp_excel.dmcell[26]        +'/'+v_imp.tmp_excel.dmcell[27]
+        +'/'+v_imp.tmp_excel.dmcell[28])
+      */  
+      if w_nmList='Табель Т-13'
+      {  if wexrow_=15
+        { w_dt:=StrToDate(trim(ReplStr(v_imp.tmp_excel.dmcell[28])),'DD/MM/YYYY')
+          if w_dt<dGetTune('UP.DATOTCH')
+          {  MYLOG('==! Табель за период '+ v_imp.tmp_excel.dmcell[28]+' за прощедший период - не обрабатываем ')
+             
+             exit;
+          }
+          w_mesras:=month(w_dt)
+          w_yearras:=year(w_dt) 
+          DTB:=date( 1,w_mesras,w_yearras)
+          DTE:=date(last_day(DTB),w_mesras,w_yearras)
+          ww_dtb:=DTB
+          ww_dte:=DTE
+          
+        }
+        if wexrow_>25 
+        { if pos('Ответственное лицо',v_imp.tmp_excel.dmcell[2])>0
+          { break;
+          } 
+          if v_imp.tmp_excel.dmcell[1]<>''
+          { if substr(trim(v_imp.tmp_excel.dmcell[1]),1,1) <='9' and substr(trim(v_imp.tmp_excel.dmcell[1]),1,1)>='0'
+            { w_row_tabn:=1;
+              ww_tabn:=v_imp.tmp_excel.dmcell[3]
+              ww_fio:=trim(v_imp.tmp_excel.dmcell[2])
+              if pos(chr(10),ww_fio)>0
+                ww_fio:=substr(ww_fio,1,pos(chr(10),ww_fio)-1)
+              wkl_err:=Chk_ErrFiled(coLschet,ww_tabn,ww_fio)
+              if wkl_err
+              { ReFormWorkingTable(Lschet_w.nrec, w_mesras, w_yearras)
+                if getfirst lstab<>0
+                { wkl_err:=False;
+                  MyLog('Для '+ww_tabn+', '+ww_fio+' не сформирован табель')
+                  wkl_err_all:=False
+                }
+                if getfirst LsTabMsk=0 {}
+              }
+              else
+              { wkl_err_all:=False
+              }
+              if getfirst persons_w<>0
+              { MyLog('Для '+ww_tabn+', '+ww_fio+' не найдена карточка, '+string(lschet_w.tabn))
+                wkl_err_all:=False
+              }
+              else
+              { if upcase(persons_w.fio)<>upcase(ww_fio)
+                { MyLog('Для '+ww_tabn+', '+ww_fio+' ФИО в лиц.счете '+persons_w.fio)
+                  wkl_err_all:=False
+                }
+            
+              }
+            }
+          }  
+          else
+          { w_row_tabn++;
+            if w_row_tabn>10
+            { break;
+            }
+          }
+          case w_row_tabn of
+          1,3:
+          { ww_sdvig:=if(w_row_tabn=1,0,15)
+            if wkl_err
+            { vvv.wexrow_find:=wexrow_+1
+              if vvv.getfirst tmp_excel_find=0 {}
+              LoadWorkingTable(Lschet_w.nrec, w_mesras, w_yearras);
+              // загрузим неявки для контроля
+              if w_row_tabn=1
+              { if jj=1
+                {  MyLog('==== Табель '+ww_tabn+', '+ww_fio)
+
+                }
+                for(j:=1;j<=31;j++)
+                { dm_abs_kod [j]:=''
+                  dm_abs_chas[j]:=0
+                  dm_abs_type[j]:=0
+                }
+                if WT_LoadMonthlyAbsences = 0
+                { for(j := 0; j < WT_GetAbsenceCount(atMonthly); Inc(j))
+                  { var wNotation: comp;
+                    if not WT_GetAbsenceAttribute(atMonthly, j, aaNotation, wNotation)
+                      or (wNotation = 0) then  continue;
+                    var wHours:double;
+                    var wDays:byte;
+                    var wKind:word;
+                    wHours:=0;wDays:=0;wKind:=0;
+                    WT_GetAbsenceAttribute(atMonthly, j,aaKind , wKind);
+                    var Beginning: date; // начало неявки в периоде
+                    if not WT_GetMonthlyAbsenceAttribute(j, aaBeginning, Beginning)  continue;
+                    var Ending: date; // конец неявки в периоде
+                    if not WT_GetMonthlyAbsenceAttribute(j, aaEnding, Ending)        continue;
+                    WT_GetAbsenceAttribute(atMonthly, j, aaHours, wHours);
+                    WT_GetAbsenceAttribute(atMonthly, j, aaDays, wDays);
+                    if getfirst UOWRKTABEL where (( wNotation == UOWRKTABEL.nrec ))=0 {}
+                     
+                  //------------------------------------------------------------------------------
+                  // [a]bsence [k]ind
+                  //------------------------------------------------------------------------------
+                  // akNone              = 0;
+                  // ручная корректировка (маска или безусловное отклонение)
+                  // akHandCorrection    = 4;
+                  // командировка
+                  // akBusinessTrip      = 32;
+                  // отзыв из отпуска (системная неявка)
+                  // akVacationRecall    = 64;
+                  // выполнение гособязанностей
+                  // akDuty              = 128;
+                  // больничный (системная неявка)
+                  // akSickList          = 256;
+                  // отпуск (системная неявка)
+                  // akVacation          = 512;
+                  // выходной день (на самом деле - буква "В" в табеле, даже не настоящий выходной)
+                  // akWeekendMark       = 768;
+                  // прочая неявка (получается из отклонений от табеля учета рабочего времени)
+                  // akTableAbsence      = 1024;
+                  // нарушение режима
+                  // akIrregularity      = 2048;
+                  // уточнение (не влияет на количество отработанного времени)
+                  // akRefinement        = 4096;
+                  // приказ по кадрам на работу сверхурочно
+                  // akOvertimeWorkOrder = 8192;
+                  MyLog('Отклонение '+UOWRKTABEL.NUM+' период '
+                      +DateToStr(Beginning,'DD/MM/YYYY - ')+DateToStr(Ending,'DD/MM/YYYY')
+                      +', тип='+string(wkind)
+                   )   
+                  if UOWRKTABEL.NUM<>'В'
+                    for(k:=day(Beginning); k<=day(Ending);k++)
+                    { dm_abs_kod [k]:=dm_abs_kod [k]+UOWRKTABEL.NUM+';'
+                      dm_abs_chas[k]:=wHours
+                      dm_abs_type[k]:=wKind
+                    } 
+                    //if wc_Notation_V=wNotation 
+                  } 
+                } // if WT_LoadMonthlyAbsences = 0
+              } //if w_row_tabn=1 
+              for(ii:=1;ii<=if(w_row_tabn=1,15,16); ii++)
+              { var kl_yavka :boolean;
+                kl_yavka:=False;
+                ww_fio:=trim(Replace(Replace(ReplStr(v_imp.tmp_excel.dmcell[3+ii]),'  ',' '),' ',';'))
+                if ww_fio='X' or ww_fio='Х' or ww_fio='-' Then
+                { dm_abs_kod[ii+ww_sdvig]:='';
+                  continue;
+                }
+                //MyLog('Строка '+string(wexrow_)+'/'+string(ii)+'/'+string(ww_sdvig)+'/'+string(w_row_tabn)+'/'+ww_fio)
+                ll:=0;
+                do {
+                  ll++ ;
+                  ww_str:=ExtractDelimitedWord(ww_fio,ll,';')
+                  if ww_str='' then break;
+                  //MyLog('"'+ww_str+'"'+','+string(ll) )
+                  ww_ch :=MyDouble1(ExtractDelimitedWord(
+                    Replace(Replace(ReplStr(vvv.tmp_excel_find.dmcell[3+ii]),'  ',' '),' ',';'),ll,';') )
+                    // если пересекается с системной неявкой, то отклонение не добавляем
+                    if ( dm_abs_type[ii+ww_sdvig]=akBusinessTrip //     = 32;
+                      or dm_abs_type[ii+ww_sdvig]=akDuty         //     = 128;
+                      or dm_abs_type[ii+ww_sdvig]=akSickList     //     = 256;
+                      or dm_abs_type[ii+ww_sdvig]=akVacation     //     = 512;
+                      
+                    ) and ww_str<>'В'  // выходные не будем контролировать
+                    { if jj=1
+                        MyLog('Для таб.ном.'+ww_tabn+', день '+string(ii+ww_sdvig)+' - системная неявка '+dm_abs_kod[ii+ww_sdvig]) 
+                      if pos(ww_str+';',dm_abs_kod[ii+ww_sdvig])>0 
+                      { //dm_abs_kod[ii+ww_sdvig]:=''
+                        dm_abs_kod[ii+ww_sdvig]:=replace(dm_abs_kod[ii+ww_sdvig],ww_str+';','');
+                        kl_yavka:=true;
+                        continue
+                      }
+                      else
+                      { if jj=1
+                          MyLog('   в имп.табеле код '+ww_str)
+                      }  
+                    }
+
+                  if ww_str='В' 
+                  {  if jj=2 and LsTab.DAYS[ii+ww_sdvig]<>'В'  
+                     { LsTab.DAYS  [ii+ww_sdvig]:='В'
+                       LsTab.DAYCHF[ii+ww_sdvig]:=0
+                       LsTabMsk.DAILYMARKS  [ii+ww_sdvig]:='В'
+                       LsTabMsk.WORKINGHOURS[ii+ww_sdvig]:=0
+                       LsTabMsk.USED[ii+ww_sdvig]:=1;
+                     }
+                  }
+                  else
+                  if ww_str='Я' 
+                  { kl_yavka:=True;
+                    if jj=2
+                    { LsTab.DAYS[ii+ww_sdvig]:=string(ww_ch,0,2)
+                      LsTab.DAYCHF [ii+ww_sdvig]:=ww_ch
+                      LsTabMsk.DAILYMARKS  [ii+ww_sdvig]:=LsTab.DAYS[ii+ww_sdvig]
+                      LsTabMsk.WORKINGHOURS[ii+ww_sdvig]:=LsTab.DAYCHF [ii+ww_sdvig]
+                      LsTabMsk.USED[ii+ww_sdvig]:=1 // признак оорректировки
+                                           or 16  // работа не в выходной
+                                           or 32  // не сверхурочно
+                    }                       
+                  } //if ww_str='Я'
+                  else
+                  { 
+                    
+                 
+                    if Getfirst UOWRKTABEL WHERE (( ww_str == UOWRKTABEL.NUM ))<>0
+                    { if jj=1
+                        MyLog('Для таб.ном.'+ww_tabn+', день '+string(ii+ww_sdvig)+' не найдена неявка ' 
+                              +'"'+ww_str+'"')
+                      wkl_err_all:=False;
+                      continue;
+                    }
+                    dm_abs_kod[ii+ww_sdvig]:=replace(dm_abs_kod[ii+ww_sdvig],ww_str+';','');
+                    //здесь бы еще проверку на отпуска и командировки
+                    if jj=2 
+                    { if getfirst VARIANCE where ((LSTAB.NREC == VARIANCE.cLsTab 
+                              and UOWRKTABEL.NREC == VARIANCE.CUO
+                              and ii+ww_sdvig == VARIANCE.BEGINNING(noindex) ))<>0
+                      { insert into VARIANCE set
+                           VARIANCE.CLSCHET :=Lschet_w.Nrec
+                           ,VARIANCE.CLSTAB :=LsTab.Nrec
+                           ,VARIANCE.CUO    :=UOWRKTABEL.NREC
+                           ,VARIANCE.KIND   :=1 //0 - замена, 1 уменьшение, 2 -увеличение, 3- нарушение, 4 уточнение
+                           ,VARIANCE.BEGINNING:= ii+ww_sdvig
+                           ,VARIANCE.ENDING   := ii+ww_sdvig
+                           ,VARIANCE.WORKINGHOURS:=ww_ch
+                           //NIGHTHOURS
+                         ;
+                      }
+                      else 
+                      { update  current VARIANCE set VARIANCE.WORKINGHOURS:=ww_ch;
+                      }       
+                       if VARIANCE.WORKINGHOURS=0 and trim(vvv.tmp_excel_find.dmcell[3+ii])=''
+                       { update current VARIANCE 
+                          set VARIANCE.WORKINGHOURS:=WT_GetHoursInDay(ii+ww_sdvig,hkWorking, stPlanned)
+                       }
+                    }
+                  } //else if ww_str='Я'
+                }  while ww_str<>''
+                // если нет явки, то обнулим день
+                if not kl_yavka and jj=2 and LsTab.DAYS[ii+ww_sdvig]<>'В'  
+                { LsTab.DAYS  [ii+ww_sdvig]:='В'
+                       LsTab.DAYCHF[ii+ww_sdvig]:=0
+                       LsTabMsk.DAILYMARKS  [ii+ww_sdvig]:='В'
+                       LsTabMsk.WORKINGHOURS[ii+ww_sdvig]:=0
+                       LsTabMsk.USED[ii+ww_sdvig]:=1;
+                }
+                if dm_abs_kod[ii+ww_sdvig]<>''  and jj=1 // только на этапе проверки
+                { MyLog('Для таб.ном.'+ww_tabn+', день '+string(ii+ww_sdvig)+' в табеле есть неявка '+dm_abs_kod[ii+ww_sdvig] 
+                              +' которой нет в обр.файле')
+                      
+                }
+              }  //for(i:=1;i<=if(w_row_tabn=1,15,16); i++)
+
+              if w_row_tabn=3 and jj=2
+              { update current lstab;
+                update current lstabmsk;
+                ReFormWorkingTable(Lschet_w.nrec, w_mesras, w_yearras)
+              
+              }
+            }  //if wkl_err
+          }
+          end // case w_row_tabn of
+          
+        }  
+        else
+        {
+        }
+      }//if w_nmList='Табель Т-13'
+    } //v_imp._loop tmp_excel  
+  
+    //======== Переходы ================
+    if not ReadDataFromExcel(1,wnmfile,'Переходы')
+    { MYLOG('==! Файл '+wnmfile+' не содержит листа "Переходы"')
+      displ('Read Excel 4')
+    }
+    //== переходы обработка
+    v_imp._loop tmp_excel  
+    { if v_imp.tmp_excel.dmcell[1]='' then continue;
+      //ФИО
+      //Таб №
+      ww_tabn:=v_imp.tmp_excel.dmcell[2]
+      ww_fio:=trim(v_imp.tmp_excel.dmcell[1])
+      wkl_err:=Chk_ErrFiled(coLschet,ww_tabn,ww_fio)
+      if wkl_err
+      {
+      }
+      else
+      { wkl_err_all:=False
+      }
+      if getfirst persons_w<>0
+      { MyLog('Для таб.ном. '+ww_tabn+', '+ww_fio+' не найдена карточка, '+string(lschet_w.tabn))
+        wkl_err_all:=False
+        continue
+      }
+      else
+      { if upcase(persons_w.fio)<>upcase(ww_fio)
+        { MyLog('ERR Для '+ww_tabn+', '+ww_fio+' ФИО в лиц.счете '+persons_w.fio)
+          wkl_err_all:=False
+          continue
+        }
+      }
+      //Дата начала
+      w_p_beg:=StrToDate(Replace(v_imp.tmp_excel.dmcell[3],'.','/'),'DD/MM/YYYY')
+      mylog('=== '+string(lschet_w.tabn)+' '+v_imp.tmp_excel.dmcell[3]+' '+v_imp.tmp_excel.dmcell[4])
+      //DateToStr(w_p_beg,' DD/MM/YYYY') )
+      if month(w_p_beg)<>w_mesras or year(w_p_beg)<>w_yearras
+      { MyLog('ERR Для таб.ном.'+ww_tabn+', '+ww_fio+' переход вне периода! Начало '+v_imp.tmp_excel.dmcell[3])
+        wkl_err_all:=False
+        continue
+      }
+      //Дата окончания
+      w_p_end:=StrToDate(Replace(v_imp.tmp_excel.dmcell[4],'.','/'),'DD/MM/YYYY')
+      if month(w_p_end)<>w_mesras or year(w_p_end)<>w_yearras
+      { MyLog('ERR Для таб.ном.'+ww_tabn+', '+ww_fio+' переход вне периода! Завершение '+v_imp.tmp_excel.dmcell[4])
+        wkl_err_all:=False
+        continue
+        
+      }
+      var ww_vp :word;
+      ww_vp:=if(w_p_end=0,ctPermanent,ctTemporary)
+      w_p_end:=if(w_p_end=0,date(Last_day(w_p_beg),w_mesras,w_yearras) ,w_p_end)
+      
+      if w_p_end<w_p_beg
+      { myLog('ERR Для перехода '
+                   +DateToStr(w_p_beg,'DD/MM/YYYY') 
+                   +DateToStr(w_p_end,' - DD/MM/YYYY')
+                   +' дата окончания меньше даты начала '
+                   )
+        wkl_err_all:=False
+        continue
+      } //if w_p_end<w_p_beg
+      if jj=1
+      { if getfirst tmp_perexod where (( 0 == tmp_perexod.pa  and lschet_w.nrec == tmp_perexod.cLsch ))<>0
+        { var ww_clsch:comp;
+          ww_clsch:=Lschet_w.nrec;
+          insert into tmp_perexod (clsch, pa, cPerexod, DatIzm, DatOk,ZP_IN)
+           select perexod.CLSCH,0,  perexod.nrec, perexod.datizm, perexod.datok,1
+           from perexod where (( ww_clsch == perexod.clsch 
+           and ww_dtb<<=perexod.datizm
+           and ww_dte>>=perexod.datizm
+           ));
+        }
+        // проверим наложение
+        if  getfirst tmp_perexod where 
+          (( 0 == tmp_perexod.pa  
+          and lschet_w.nrec == tmp_perexod.cLsch 
+          and w_p_beg   <<= tmp_Perexod.Datok(noindex) 
+          and w_p_end   >> tmp_Perexod.Datok(noindex) 
+          )) =0
+        { myLog('ERR Для перехода '
+                   +DateToStr(w_p_beg,'DD/MM/YYYY') 
+                   +DateToStr(w_p_end,' - DD/MM/YYYY')
+                   +' есть пересечение с переходом в системе '
+                   +DateToStr(tmp_Perexod.DatIzm,'DD/MM/YYYY') +DateToStr(tmp_Perexod.DatOk,' - DD/MM/YYYY')
+                   )
+          wkl_err_all:=False
+            
+        }  
+        if  getfirst tmp_perexod where 
+          (( 0 == tmp_perexod.pa  
+          and lschet_w.nrec == tmp_perexod.cLsch 
+          and w_p_beg   << tmp_Perexod.DatIzm(noindex) 
+          and w_p_end   >>= tmp_Perexod.DatIzm(noindex) 
+          )) =0
+        { myLog('ERR Для перехода '
+                   +DateToStr(w_p_beg,'DD/MM/YYYY') 
+                   +DateToStr(w_p_end,' - DD/MM/YYYY')
+                   +' есть пересечение с перходом в системе '
+                   +DateToStr(tmp_Perexod.DatIzm,'DD/MM/YYYY') +DateToStr(tmp_Perexod.DatOk,' - DD/MM/YYYY')
+                   )
+          wkl_err_all:=False
+            
+        }  
+        // найдем переход в который вкладывается
+        if getfirst tmp_perexod where 
+          (( 0 == tmp_perexod.pa  
+          and lschet_w.nrec == tmp_perexod.cLsch 
+          and w_p_beg    >>= tmp_Perexod.DatIzm 
+          and w_p_end   <<= tmp_Perexod.Datok(noindex) 
+
+          )) <>0
+         { insert into tmp_perexod set 
+                tmp_perexod.pa:=0
+               ,tmp_perexod.cLsch := Lschet_w.Nrec
+               ,tmp_perexod.datizm:=w_p_beg 
+               ,tmp_Perexod.Datok :=w_p_end
+         } 
+         ww_dt:=w_p_beg
+         ii:=1+day(ww_dt)-day(tmp_Perexod.DatIzm )
+         do {
+           if tmp_perexod.Mask_Day[ii]
+           { myLog('ERR Для перехода '
+                   +DateToStr(w_p_beg,'DD/MM/YYYY') 
+                   +DateToStr(w_p_end,' - DD/MM/YYYY')
+                   +' в День '+day(ww_dt)+' уже есть переход! ')
+             wkl_err_all:=False
+             break;
+           }
+           tmp_perexod.Mask_Day[ii]:=True;
+           //MyLog(ii+' '+DateToStr(ww_dt,'DD/MM/YYYY')  )
+           ww_dt:=add_day(ww_dt,1)
+           //if ww_dt>w_p_end then break;
+           ii++
+         } while ww_dt<=w_p_end
+         update current tmp_perexod;
+      } else //if jj=1
+      { if getfirst perexod<>0
+        { ClearBuffer(#Perexod);
+          Perexod.NRec := 0; // Т.к. поле участвует в подцепке, ClearBuffer его не берёт.
+
+          //SetPerexodClsch;          if
+          Perexod.cLSch := lschet_w.NRec;
+          Perexod.Tabn    := Lschet_w.Tabn;
+          Perexod.Strtabn := Lschet_w.StrTabn;
+          Perexod.TPerson := Lschet_w.TPerson;
+          Perexod.Flags2  := pchTranslucent;
+          Perexod.LastDate:= w_p_end
+          Perexod.DatIzm  := w_p_beg;
+          Perexod.DatOk   := w_p_end;
+          Perexod.VP      := ww_vp
+          insert current Perexod;
+          CH.SetDefaultSimple(PEREXOD.BUFFER, w_p_beg);
+          MyLog('Добавлен переход 1 '+DateToStr(Perexod.DatIzm,'DD/MM/YYYY') +DateToStr(Perexod.DatOk,' - DD/MM/YYYY') )
+
+          //ReReadRecord(#Perexod);
+          // Добавили новый переход. Переформируем список переходов:
+         //FillAvailablePerexods;
+        }
+        else
+        { ww_dt:=Perexod.DatOk 
+          if Perexod.datIzm<w_p_beg 
+          { w_nrec:=0;
+            if getfirst OtpDOp<>0
+            { ClearBuffer(#OtpDop);
+              OtpDop.Nrec:=0;
+              Insert Current OtpDop;
+              w_nrec:=OtpDop.Nrec;
+            }
+            Perexod.Nrec:=0;
+            Perexod.DatOk   := sub_day(w_p_beg,1)
+            Perexod.oldcLsch:=w_nrec
+            insert current Perexod;
+            MyLog('Сократили переход 1 '+DateToStr(Perexod.DatIzm,'DD/MM/YYYY') +DateToStr(Perexod.DatOk,' - DD/MM/YYYY') )
+            if getfirst perexod=0 {}
+          }
+          if ww_dt>w_p_end
+          { w_nrec:=0;
+            if getfirst OtpDOp<>0
+            { ClearBuffer(#OtpDop);
+              OtpDop.Nrec:=0;
+              Insert Current OtpDop;
+              w_nrec:=OtpDop.Nrec;
+            }
+            Perexod.nrec:=0;
+            Perexod.DatIzm:=add_day(w_p_end,1)
+            Perexod.DatOk :=ww_dt;
+            Perexod.oldcLsch:=w_nrec
+            insert current Perexod;
+            
+            MyLog('Сократили переход 2 '+DateToStr(Perexod.DatIzm,'DD/MM/YYYY') +DateToStr(Perexod.DatOk,' - DD/MM/YYYY') )
+            if getfirst perexod=0 {}
+          }
+          // допаналитика будет ниже
+          Perexod.DatIzm:=w_p_beg;
+          Perexod.DatOk :=w_p_end;
+          Perexod.VP      := ww_vp
+          UPDATE current Perexod;
+          MyLog('Добавлен переход 2 '+DateToStr(Perexod.DatIzm,'DD/MM/YYYY') +DateToStr(Perexod.DatOk,' - DD/MM/YYYY') )
+          
+        }
+        //место хранения допаналитики
+        if getfirst OtpDOp<>0
+        {  ClearBuffer(#OtpDop);
+           OtpDop.VidOpl := coPEREXOD; 
+           insert current OtpDop;
+           w_nrec:=OtpDop.Nrec;
+           Perexod.oldcLsch :=w_nrec;
+           Perexod.Flags2 := Perexod.Flags2 or pchExtrAnalitik; //update current Perexod;
+        }
+      } //if jj=2
+      
+    /*
+      pchBrigade       = 4; // бригада
+      pchCategory      = 8; // категория
+      pchRejim         = 16; // режим
+      pchPosition      = 32; // должность
+      pchSysPay        = 64; // Система оплаты
+      pchCorrectCoeff  = 128; // Корректирующий коэффициент для тарифа
+      pchTarif         = 256; // Тарифная ставка или оклад
+      pchCurrency      = 512; // Валюта
+      pchTarStav       = 1024; // Код и наименование тарифной сетки
+      pchRazr          = 2048; // Разряд
+      pchKTY           = 4096; // Коэффициент трудового участия
+      pchOsnOpl        = 8192; // Автоматическое форм. Основного Вида Оплаты при предварит.разноске
+      pchRegionPercent = 16384; // Процент районной надбавки
+      pchNorthCategory = 32768; // Код и наименование категории для выплаты северных надбавок
+      pchSHPZ          = 65536;  // ШПЗ
+      pchTXO           = 131072; // Хозяйственная операция
+      pchParameter     = 262144; // Параметр выбора
+      pchExtrAnalitik  = 524288;  // Дополнительные аналитики
+      pchTerrUsl       = 1048576; // Территориальные условия
+      pchPodr          = 2097152; // подразделение (2^21)
+      pchIF            = 4194304; // Разбивка по источникам финансирования
+      // битовая маска, описывающая все возможные изменения в переходе
+      pchAllChanges    = 8388604; // (2^23 - 4)
+      // если переходы были некорректно конвертированы
+      pchError         = 1610612736;//(2^30 + 2^29)
+      // признак "полупрозрачного перехода"
+      pchTranslucent   = 1073741824; // 2^30
+     */
+      if jj=2
+      { Perexod.Flags2 := Perexod.Flags2 or pchPodr or  pchExtrAnalitik or pchSHPZ 
+        //Код подразделения 5
+        //Подразделение     6
+        if trim(v_imp.tmp_excel.dmcell[5])<>''
+        { wkl_err:=Chk_ErrFiled(coKatPodr,trim(v_imp.tmp_excel.dmcell[5]))
+          if wkl_err
+            Perexod.CexP :=KatPodr_w.Nrec;
+        }    
+      }
+      //Вид деятельности  7
+      wstr:=trim(v_imp.tmp_excel.dmcell[7])
+      wSch:='';wSubSch:='';
+        if getfirst tmp_analitic where (( wstr == tmp_analitic.vidd_name ))<>0
+        { Chk_ErrFiled(5,'Не найден вид деятельности "'+wstr+'" на листе "Аналитика" ')
+        }
+        else 
+        { wSch:=tmp_analitic.schet;
+        wSubSch:=tmp_analitic.subsch;
+        if getfirst BuhSchet<>0
+        { Chk_ErrFiled(5,'Не найден счет '+wSch+'/'+wSubSch+' в плане счетов '+planssch.Name)
+          wSch:='';wSubSch:='';
+          wkl_err_all:=False
+        }
+        else
+        { if jj=2
+          { Perexod.CSCHETD :=tmp_analitic.schet;
+            Perexod.CSUBSCHD:=tmp_analitic.subsch;
+          }  
+        }
+        // Пропишем вид деятельности в допаналитику
+        if isvalid(#KatKau)
+        { wkl_err:=Chk_ErrFiled(coSpKau,KatKau.KodGroup,wstr)
+          if wkl_err and jj=2
+          { if OtpDop.tbld[6]=0 or OtpDop.tbld[6]=KatKau.KodGroup
+            { OtpDop.tbld[6]:=KatKau.KodGroup
+              OtpDop.cKaud[6]:=SpKau_w.Nrec
+              update current OtpDop;
+            }
+          }
+        } //if isvalid(#KatKau)
+      } //else if getfirst tmp_analitic where (( wstr == tmp_analitic.vidd_name ))<>0
+      
+      if wSch<>'' and tmp_analitic.stzatr_tbl=0 
+      { 
+        if (  BuhSchet.KodTable[3]>=10000 or 
+            ( BuhSchet.KodTable[3]>99 and BuhSchet.KodTable[3]<5000)
+           )  
+        { wkl_err:=Chk_ErrFiled(coSpKau,string(BuhSchet.KodTable[3]),tmp_analitic.stzatr_kod)
+          tmp_analitic.stzatr_tbl:=BuhSchet.KodTable[3]
+          if wkl_err
+            tmp_analitic.stzatr_nrec:=SpKau_w.Nrec
+        }    
+        if (  BuhSchet.KodTable[4]>=10000 or 
+            ( BuhSchet.KodTable[4]>99 and BuhSchet.KodTable[4]<5000)
+           )  
+        { wkl_err:=Chk_ErrFiled(coSpKau,string(BuhSchet.KodTable[4]),tmp_analitic.vpru_kod)
+          tmp_analitic.vpru_tbl:=BuhSchet.KodTable[4]
+
+          if wkl_err
+            tmp_analitic.vpru_nrec:=SpKau_w.Nrec
+           
+        }    
+      
+        for(ii:=1;ii<=6;ii++)
+        { if BuhSchet.KodTable[ii]=40
+          { tmp_analitic.stroy_lev:=ii
+            break;
+          }
+        } //  for(ii:=1;ii<=6;ii++)
+        update current tmp_analitic;  
+      } //if wSch<>'' and tmp_analitic.stzatr_nrec=0 
+     
+      if jj=2
+      { if tmp_analitic.stzatr_tbl>0
+        { Perexod.tbld [3]:=tmp_analitic.stzatr_tbl;
+          Perexod.cKauD[3]:=tmp_analitic.stzatr_nrec;
+        }
+        if tmp_analitic.vpru_tbl>0
+        { Perexod.tbld [4]:=tmp_analitic.vpru_tbl;
+          Perexod.cKauD[4]:=tmp_analitic.vpru_nrec;
+        }
+      }  
+      //Код объекта стр-ва 8
+      wstr:=trim(v_imp.tmp_excel.dmcell[8])
+      if wstr<>''
+      { if getfirst tmp_katstroy where (( wstr == tmp_katstroy.kod ))<>0
+        { Chk_ErrFiled(5,'Не найден код "'+wstr+'" объекта строительства на листе "объекты строительства" ')
+          clearbuffer(#tmp_katstroy)
+          tmp_katstroy.kod :=trim(v_imp.tmp_excel.dmcell[8]);
+          tmp_katstroy.name:=trim(v_imp.tmp_excel.dmcell[9]);
+          insert current tmp_katstroy;
+        }
+        if tmp_katstroy.nrec=0
+        { if getfirst katstroy=0
+             update current tmp_katstroy set tmp_katstroy.nrec:=katstroy.nrec
+        }
+        if tmp_analitic.stroy_lev>0 and tmp_katstroy.nrec>0 and jj=2
+        { Perexod.tbld [tmp_analitic.stroy_lev]:=40;
+          Perexod.cKauD[tmp_analitic.stroy_lev]:=tmp_katstroy.nrec;
+          ww_nrec:=piExtAttr.coGetAttr(coKatStroy,tmp_katstroy.nrec,'Подразделение(местоположение)')
+          if ww_nrec>0
+            if OtpDop.tbld[1]=0 or OtpDop.tbld[1]=2
+            { OtpDop.tbld[1] :=2
+              OtpDop.cKaud[1]:=ww_nrec
+              update current OtpDop;
+            }                                   
+        }
+      }  
+      if jj=2
+      { Update Current Perexod;
+        //Наименование объекта 9
+        if getFirst Perexod_Chk=0
+        { myLog('Для таб.ном.'+ww_tabn+', '+ww_fio+' переход от '+DateToStr(Perexod.DatIzm,'DD/MM/YYYY')
+           +' есть пересечение с переходом от '+DateToStr(Perexod_Chk.DatIzm,'DD/MM/YYYY')
+          )
+        }
+      }
+    } //v_imp._loop tmp_excel  
+    
+  //======== End Переходы ================
+    if not wkl_err_all then
+    { mylog('== КСТЬ ОШИБКИ ! Импорт не ПРОИЗВЕДЕН!==')
+      Exit
+    }
+  } //for(jj:=1;jj<=2;jj++) // 1 прогон - ищем ошибки, 2 пишем  
+  
+  FormDoc:=True;
+} // FormDoc
+
+
+//=========================================================
+Function ScanFile :boolean;
+//=========================================================
+{ InitWorkingTable;
+  if substr(nmdir,length(nmdir),1)<>'\' nmdir:=nmdir+'\'
+  logfilenm:=nmdir+'Log\'
+           +'\T13_Imp_'+DateToStr(cur_date,'YYYY_MM_DD_')
+                 +TimeToStr(cur_time,'HH_MM_SS')   +'.log'
+
+  wnmfile:=GetFirstFile(nmdir,'T13*.xls');
+  
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak, 'Импорт данных', 50); 
+  while wnmfile <> strDataIsEmpty do
+    { if not inextvisual('Идет импорт '+wnmfile) then break;
+       if FormDoc
+       {  CopyMoveFile(wnmfile,nmdir+'Arhiv'+Substr(wnmfile,Length(nmdir),Length(wnmfile)+1),true,ecmfClientFrom+ecmfClientTo )
+          displ('=='+nmdir+'Arhiv'+Substr(wnmfile,Length(nmdir),Length(wnmfile)+1))
+       }
+       
+       wnmfile := GetNextFile;
+    } // while wnmfile <> strDataIsEmpty do  
+  if VisualizationActive then  StopVisual('',0)
+  DoneWorkingTable;
+  Result:=True;
+} //Function ScanFile :boolean;
+
+
+//=========================================================
+screen scrGetParam01 ;
+//=========================================================
+table  tmp_err;
+fields
+  planssch.Name : protect,skip;
+  nmdir : protect,pickbutton;
+buttons
+cmOk,,,'Заливка', hcStaffRepBuild, scStaffForButton;
+cmCancel,,,'Отмена', hcStaffRepBuild, scStaffForButton;
+<<
+  `План счетов` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ "Настройки Галактики\Бухгалтерский контур\Консолидация\Текущий план счетов"
+
+  `Директория`
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  Внимание! Для загрузки доступен текущий и будущий месяцы.
+  Подразделние в доп.аналитике ставиться из
+  ВА к объектам строительства "Подразделение(местоположение)"
+  
+     <. Загрузка .>      <. Выход .> 
+>>  
+end;
+
+
+
+//=========================================================
+
+//=========================================================
+HandleEvent
+//=========================================================
+cmInit:
+{ if w_auto>0 and nmdir<>''
+  {  ScanFile;
+     CloseInterFace(cmDefault)
+  }
+  wc_Planssch:=coGetTune('KONSOLID.CPLANSSCH')
+  if getfirst PlansSch<>0
+  {  message('Установите настройку'
+       +chr(13)+'"Настройки Галактики \ Бухгалтерский контур \ Консолидация \ Текущий план счетов"'
+      )
+     exit; 
+  }
+  if getfirst KatKau<>0
+  {  message('Добавьте аналитику "Профессия/Вид деятельности"')
+  }
+  ReadParam;
+  ReScanPanel(#tmp_err)
+    
+}
+cmPick:
+{ case curfield of
+  #nmdir:
+  { nmdir:=GetDirName('Задайте каталог для импорта')
+  }
+  end;
+  rescanpanel(#tmp_err);
+}
+
+cmOk:
+{ SaveParam;
+  ScanFile
+  ShowErrors;
+    if fileExist(logfilenm)
+    {
+         ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+              logfilenm+'  Протокол ошибок');
+    
+    }
+  closeinterface(cmDone)  
+}
+end;
+end.
+

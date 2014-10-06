@@ -1,0 +1,62 @@
+const
+#include fldcolor.inc
+end;
+#define Sumformat '\2p[|-]3666`666`667.88'
+
+#include ExtAttr.vih
+
+Interface MyNdfl 'Заполнение аналитики на 68/04';
+Show at (,,100,25);
+var
+ c1        : comp;
+ piExtAttr : iExtAttr;
+
+create view
+
+  as select *  //uder.tabn, uder.sumud, uder.ckauk[4],uder.ckauk[5],spkau.name,katorg.name
+	from
+  uder
+, katpodr
+, sterr
+, addressn
+, kaureff
+, katorg
+, spkau
+       	where ((   182                  == uder.vidud
+               and c1                   == katpodr.cGrPodr   (noindex)
+               and uder.cexoz           == katpodr.nrec
+               and katpodr.cuser       /== addressn.nrec
+               and addressn.csterr      == sterr.nrec
+               ))
+                ;
+
+HandleEvent
+cmInit : {
+	c1:=0001000000000010h;
+	Runinterface(Z_KATPODR::GetGrPodr,c1);
+        Case c1 of
+	     0001000000000010h : {
+               update uder where ((
+              182              == uder.vidud
+          and c1               == katpodr.cGrPodr   (noindex)
+          and uder.cexoz       == katpodr.nrec
+       		and katpodr.cuser   /== addressn.nrec
+       		and addressn.csterr  == sterr.nrec
+                ))
+
+               set Uder.ckauk[3] := Sterr.nRec,  Uder.tblk[3] :=72    // ОКАТО
+                 , Uder.ckauk[2] := piExtAttr.coGetAttrID(coSterr, Sterr.nRec, comp(89509042593988814)), Uder.tblk[2] :=1;    // Организация, 89509042593988814 - nRec атрибута "Организации" к Каталогу территориального деления
+	Message ('аналитика 68/04 заполнена');}
+
+
+//	     0001000000000007h : {
+       0001000000000015h : {
+        message('Для Москвы данная функция не запускается на выполнение');
+        Abort;
+        Exit;
+        CloseInterface(cmCancel);
+      }
+	end;
+	}
+end;
+end.

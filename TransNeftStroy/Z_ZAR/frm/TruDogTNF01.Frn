@@ -1,0 +1,108 @@
+.var
+Date_Dog,App_Date,Date_End: string
+Kateg, Razryad, Klassn, Oklad,Reason : String
+Podr3_1, Podr3_2,Podr3_3 : String
+Ind, adr, gorod, Educat : String
+PaspSer, PaspNum, PaspDate, Vydan,VydanPodr,Nom_sogl,Date_Sogl,Usl_Truda,Pr_Usl : String
+Tip_Dog,Ispyt, Instr_Kv: string
+PrikNum, PrikDate : string
+Pol : Char
+Tarif: double
+.endvar
+#TrudogTNFLinkVar
+#include MyGetInitial.frn
+#include Odecl.frn
+.Create view L1
+from Persons, Passports,education,catalogs catEd
+where ((Comp(NrecPsn)== Persons.nRec and Persons.PasspRus==Passports.nRec 
+        and Persons.Passpaddr==Addressn.nRec and Addressn.Csterr==Sterr.nRec
+        and Comp(NrecPsn)==education.person and education.level==catEd.nrec )) ;
+.Create view L2
+from Appointments, Klkatego,catalogs,catalogs catalogs1,catalogs catalogs2,klrejim
+where ((Comp(NrecApp)== Appointments.nRec 
+        and Appointments.CADDNREC1==catalogs.nrec
+        and Appointments.Empcategory== Klkatego.nRec
+        and appointments.typemove == catalogs1.nrec
+        and appointments.WORKCOND == catalogs2.nrec
+	and Appointments.nrec == apphist.cappoint
+  	 and apphist.ccontdoc == contdoc.nrec
+     and appointments.WORKREGIME == klrejim.nrec))
+order by apphist.drec;
+.Create view L3
+from Persons, Katpodr
+where ((Comp(NRecPsn)==Persons.nRec and Persons.Galdep==Katpodr.nRec)) ;
+#TrudogTNFViews
+
+.begin
+Date_Dog:= chr(34)+'_____'+chr(34)+'______________ 201__ года';
+App_Date:= chr(34)+'_____'+chr(34)+'______________ 201__ года';
+Date_End:= chr(34)+'_____'+chr(34)+'______________ 201__ года';
+If Date_Doc<> '' 
+{ Date_Dog:= DateToStr(StrToDate(Date_Doc,'DD/MM/YYYY')
+                     , chr(34)+'DD'+chr(34)+' mon YYYY года'); 
+}
+If AppointDate<> '' 
+{ App_Date:= DateToStr(StrToDate(AppointDate,'DD/MM/YYYY')
+                     , chr(34)+'DD'+chr(34)+' mon YYYY года'); 
+}
+If DateEnd<> '' 
+{ Date_End:= DateToStr(StrToDate(DateEnd,'DD/MM/YYYY')
+                     , chr(34)+'DD'+chr(34)+' mon YYYY года'); 
+}
+Tip_Dog:=If(Year(StrToDate(DateEnd, 'DD/MM/YYYY'))=0, 'бессрочный' , 'срочный');
+Ispyt:=if(TestPeriodMes>0, 'устанавливается', 'не устанавливается');
+Oklad := Substr(dat1_3, 1, Instr('.', dat1_3)-1);
+If (L1.Getfirst Persons = tsOk)
+{ 
+  If (L1.Getfirst Passports = tsOk)
+  {
+    PaspSer :=    L1.Passports.Ser;
+    PaspNum :=  L1.Passports.NMB;
+    PaspDate :=  datetostr(L1.Passports.GivenDate,chr(34)+'DD'+chr(34)+' mon YYYY года');
+ //   Vydan :=      L1.Passports.GivenBy;
+   Vydan :=L1.Passports.GivenBy+' '+PaspDate
+   VydanPodr:=L1.Passports.GIVENPODR;
+   Pol := l1.persons.sex;
+  }
+  If (L1.Getfirst Addressn = tsOk)
+  {
+    ind := L1.Addressn.Spostind;
+    adr := L1.Addressn.Saddress1;
+    If (L1.Getfirst Sterr = tsOk)
+    { gorod := L1.Sterr.Sname; }
+  }
+}
+If (l1.getfirst education=tsOk and l1.getfirst catEd=tsOk)
+{ Educat:=l1.catEd.name; }
+PrikNum:='';Prikdate:= chr(34)+'_____'+chr(34)+'______________ 201__ года';
+If (L2.Getlast Appointments = tsOk)
+{ 
+  
+  If (l2.getfirst catalogs = tsOk)
+  { Klassn:= L2.catalogs.name; }
+//  If (l2.getfirst klkatego = tsOk)
+  Razryad:= L2.appointments.category;
+  Kateg:= L2.klkatego.naikat;
+  Reason:= L2.catalogs1.name
+  Usl_Truda:= L2.catalogs2.name
+  if (L2.getfirst klrejim = tsOk)
+  {if (pos('Вахта',l2.klrejim.nrejim)>0)
+  Pr_Usl:='вахтовый метод организации работ, суммированный учет рабочего времени'
+  }
+  else
+  {Pr_Usl:=''}
+  If (l2.getlast apphist = tsOk)
+  {
+    Nom_sogl:= L2. APPhist.docNMB;
+    Date_Sogl:= datetostr(L2.APPhist.drec, chr(34)+'DD'+chr(34)+' mon YYYY года');
+    priknum:= L2.appointments.ordernmb;
+    Prikdate:=DateToStr(L2.appointments.orderDATE, chr(34)+'DD'+chr(34)+' mon YYYY года');
+    Tarif:=double(L2. Appointments.PAYMODEL);
+   }
+}
+End.
+#TruDogTNFWork
+.begin
+
+
+End.

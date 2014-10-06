@@ -1,0 +1,35 @@
+SumAmort :=0;
+if AmortPrem.GetFirst KatOs = tsOk
+{
+  if StrToDate(ДатаС,'DD/MM/YYYY') <= AmortPrem.KatOs.DatV
+       and StrToDate(ДатаПО,'DD/MM/YYYY') >= AmortPrem.KatOs.DatV
+  {
+    AmortPrem._Loop SaldMoun
+    {
+      if AmortPrem.GetFirst SpKau where(( SaldMoun.KAUOS[6] == SPKau.Nrec)) =tsOk
+        if InStr('Амортизационная премия',AmortPrem.SPKAU.NAME) > 0
+        {
+          SumAmort :=SumAmort  + AmortPrem.SaldMoun.sums;
+          SumAmortItog := SumAmortItog + AmortPrem.SaldMoun.sums;
+        }
+    }
+
+    AmortPrem._Loop oborot
+    {
+     if AmortPrem.GetFirst SpKau where((Oborot.KAUOS[6] == SPKau.Nrec)) =tsOk
+       if InStr('Амортизационная премия',AmortPrem.SPKAU.NAME) > 0
+       {
+         if AmortPrem.Oborot.SCHETO = 'N920' or AmortPrem.Oborot.SCHETO = 'N923' or AmortPrem.Oborot.SCHETO = 'N925'
+          or AmortPrem.Oborot.SCHETO = 'N926'
+          or (AmortPrem.Oborot.SCHETO = 'N929' and AmortPrem.Oborot.SUBOSSCH = '01')
+          or (AmortPrem.Oborot.SCHETO = 'N929' and AmortPrem.Oborot.SUBOSSCH = '02')
+          or AmortPrem.Oborot.SCHETO = 'N944'
+          or AmortPrem.Oborot.SCHETO = 'N991'
+          {
+            SumAmort :=SumAmort  + AmortPrem.Oborot.SUMOB;
+            SumAmortItog := SumAmortItog + AmortPrem.Oborot.SUMOB;
+          }
+       }
+    }
+  }
+}

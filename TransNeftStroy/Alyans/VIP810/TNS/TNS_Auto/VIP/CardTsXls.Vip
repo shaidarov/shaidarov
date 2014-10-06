@@ -1,0 +1,376 @@
+//------------------------------------------------------------------------------
+//                                                      (c) DedMustDie
+// Печать карточки учета ТС
+//------------------------------------------------------------------------------
+
+#include CardTsXls.Vih
+#include Getkau.vih
+
+Interface CardTsXls 'Карточка учета ТС' EscClose, cyan;
+  show at (1,1,60,7);
+
+Var
+  iGetKAU: GetKAU;  // сервис выбора значений системных аналитик
+
+Create view
+Var
+  dBeg,dEnd : Date;     // Период формирования
+  wparamScr : Word;
+
+  wRowMax
+, wRow
+, wCol
+, num_kol
+, lMarker
+, lMarkerPick
+, wIncRow     : LongInt;
+
+
+ boInitRep : Boolean;
+
+ ActiveSheet :LongInt;
+
+As Select
+  ' Выбрано '+GetMarkerCount(lMarkerPick)
+ (FieldName=sTsName)
+, *
+From
+  Transp
+, PutLst
+;
+
+Parameters
+  dBeg
+, dEnd
+, lMarker;
+
+form fLog('errr.out','errr') with novisual;
+
+// Копирует данные из маркера fromMarker в маркер toMarker тип данных Comp
+Procedure MyCopyMarkers(fromMarker : LongInt ; toMarker : LongInt) ;
+var
+  i        : LongInt ;
+  Item     : Comp ;
+  MrkCount : LongInt ;
+{
+  ClearMarker(toMarker) ;
+  MrkCount := GetMarkerCount(fromMarker);
+  for (i := 0; i < MrkCount; i := i + 1)
+    if (GetMarker(fromMarker, i, Item))
+    {
+       InsertMarker(toMarker, Item) ;
+    }
+}
+
+//------------------------------------------------------------------------------
+// Пополняем матрицу
+//------------------------------------------------------------------------------
+Function WriteToMatrix: boolean;
+Var ii : word;
+{
+  wRow++;
+   if(wRow = 1000)
+    {
+     xlWriteMatrixToExcel(wRowMax,1);
+     xlClearMatrix;
+     wRowMax := wRowMax + wRow-1;
+     wRow := 1;
+    }// if(wRow = 1000)
+  WriteToMatrix:=True;
+}
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Procedure dLog(sMes:string);
+{
+  LogStrToFile('CardTsXls.txt',sMes);
+} // procedure dLog
+
+//------------------------------------------------------------------------------
+// перенести данные из маркера в маркер
+//------------------------------------------------------------------------------
+Procedure MarkCopyMarkers(fromMarker : LongInt ; toMarker : LongInt) ;
+var
+i        : LongInt ;
+Item     : LongInt ;
+MrkCount : LongInt ;
+{
+ ClearMarker(toMarker) ;
+ MrkCount := GetMarkerCount(fromMarker) - 1 ;
+ for(i := 0; i <= MrkCount; i := i + 1)
+  if(GetMarker(fromMarker, i, Item))
+      InsertMarker(toMarker, Item) ;
+} // procedure CopyMarkers
+
+//------------------------------------------------------------------------------
+// перенести данные из заданного маркера в маркер по имени
+//------------------------------------------------------------------------------
+procedure MarkCopyMyToCat(fromMarker :longint;nmmarker :string) ;
+var CatalogsMarker : LongInt ;
+{
+  CatalogsMarker := InitMarker(nmmarker, 8, 200, 10) ;
+  MarkCopyMarkers(fromMarker, CatalogsMarker) ;
+  DoneMarker(CatalogsMarker, nmmarker) ;
+} // procedure MarkCopyMyToCat
+
+//------------------------------------------------------------------------------
+// перенести данные в заданный маркер из маркера по имени
+//------------------------------------------------------------------------------
+procedure MarkCopyCatToMy(fromMarker :longint;nmmarker :string) ;
+var  CatalogsMarker : LongInt ;
+{
+  CatalogsMarker := InitMarker(nmmarker, 8, 200, 10) ;
+  MarkCopyMarkers(CatalogsMarker, fromMarker) ;
+  DoneMarker(CatalogsMarker, nmmarker) ;
+} // procedure MarkCopyDeptToCat
+
+//------------------------------------------------------------------------------
+// сохранить настройки
+//------------------------------------------------------------------------------
+Procedure SaveParam;
+{
+ SaveMyDsk(dBeg,  'CardTsXls_dBeg');
+ SaveMyDsk(dEnd,  'CardTsXls_dEnd');
+! SaveMyDsk(DatOtch, 'CardTsXls_dBeg');
+! SaveMyDsk(wparamScr, 'CardTsXls_wparamScr');
+}
+
+//------------------------------------------------------------------------------
+// востановить параметры отчета
+//------------------------------------------------------------------------------
+Procedure ReadParam;
+var boRet :boolean ;
+{
+ if Not ReadMyDsk(dBeg,  'CardTsXls_DatBeg',boRet) dBeg:=Cur_date;
+ if Not ReadMyDsk(dEnd,  'CardTsXls_DatEnd', boRet) dEnd:= Cur_Date;
+! if Not ReadMyDsk(DatOtch, 'CardTsXls_dBeg',boRet) DatOtch:=Cur_date;
+! if Not ReadMyDsk(wparamScr, 'CardTsXls_wparamScr',boRet) wparamScr:=0;
+}
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Window wWin1 'Параметры' doAccept, EscClose;
+  show at (1,1,60,7);
+Screen scrMain;
+Fields
+  dBeg           : ['MM/YYYY'], NoProtect ;
+buttons
+  cmOk,default,,'Сформировать', hcOplTrudhlp, sci1Esc;
+  cmCancel,,,'Выход', hcOplTrudhlp, sci1Esc;
+<<
+
+  Отчетный период     :  .@@@@@@@@
+
+     <. ~С~формировать .>        <. ~О~тмена .>
+
+>>
+end; // screen
+
+// HEWin
+HandleEvent
+ cmInit :
+ {
+
+ }
+ cmOk :
+  {
+    CloseWindow(wWin1);
+  }
+
+end;
+end;
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Window wWin2 'Параметры' doAccept, EscClose;
+  show at (1,1,60,8);
+Screen scrMain;
+Fields
+  dBeg           : ['MM/YYYY'], NoProtect ;
+  sTsName        : Protect, PickButton;
+buttons
+  cmOk,default,,'Сформировать', hcOplTrudhlp, sci1Esc;
+  cmCancel,,,'Выход', hcOplTrudhlp, sci1Esc;
+<<
+
+  Отчетный период :  .@@@@@@@@
+  Список ТС :.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     <. ~С~формировать .>        <. ~О~тмена .>
+
+>>
+end; // screen
+
+// HEWin
+HandleEvent
+ cmPick :
+ {
+  Case CurField of
+   #sTsName :
+   {
+     var _cRec : comp;
+     var Markers : Longint;
+     if (iGetKau.GetCodeKau(cgiPickMult or cgiPickKau, cgKau_Transp, _cRec) <> 0)
+     { Markers := InitMarker(iGetKAU.GetMarkerName(cgKau_Transp), 8, 100, 10);
+       MyCopyMarkers(Markers,lMarkerPick);
+       DoneMarker(Markers, iGetKAU.GetMarkerName(cgKau_Transp));
+     }
+   }
+  End; //case
+  ReReadRecord;
+ }
+
+ cmDelOnProtect :
+ {
+  Case CurField of
+   #sTsName :
+   {
+     ClearMarker(lMarkerPick);
+   }
+  End; //case
+ }
+
+ cmInit :
+ {
+
+ }
+ cmOk :
+ {
+    CloseWindow(wWin2);
+ }
+end;
+end;
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+function GetWinParam : boolean;
+{
+  Result := false;
+  ReadParam;
+   RunWindowModal(wWin1);
+  SaveParam;
+}
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Function OpenXlsForm(sNameFile : String): boolean;
+var boXlCreate: Boolean;
+    sName:String;
+{
+   OpenXLSForm :=False;
+   sName:=TranslatePath('%ClientStartPath%XLS_ED\'+ sNameFile );
+   if Fileexist(sName)
+   {
+     boXlCreate:=xlCreateExcelWithTemplate(sName,True) ;
+     OpenXLSForm :=True;
+   }
+   else Message('Ошибка открытия файла с шаблоном '+''#13#3 +sName) ;
+}
+
+
+#include CardTsXls.Vpp
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+HandleEvent
+cmPick :
+ {
+//   #lMarkerPick
+ }
+//------------------------------------------------------------------------------
+cmDelOnProtect :
+ {
+
+ }
+//------------------------------------------------------------------------------
+cmOk:
+ {
+   dBeg := Date(01,Month(dBeg ),Year(dBeg));
+   RepRun;
+ }
+//------------------------------------------------------------------------------
+cmOnVipLoad :
+ {
+  boInitRep := true;
+  RepRun;
+ }
+
+//------------------------------------------------------------------------------
+cmInit :
+ {
+  boInitRep := false;
+  ReadParam;
+  lMarkerPick := InitMarker('CardTsXls_Transp',8,100,10);
+  RunWindowModal(wWin2);
+  //If(RunWindowModal(wWin2)!=cmCancel)
+  {
+   InitRep;
+   Var ii: LongInt;
+   For(ii:=0;ii<GetMarkerCount(lMarkerPick);ii++)
+   {
+     var _cRec:Comp;
+     GetMarker(lMarkerPick,ii,_cRec);
+     PrintOneTS(_cRec);
+   }
+!  dbeg:=Date(01,03,2014);
+!  PrintOneTS(89509042593990249);
+!  PrintOneTS(89509042593990240);
+!  PrintOneTS(89509042593990218);
+!  PrintOneTS(89509042593990241);
+!  PrintOneTS(89509042593990211);
+   DoneRep;
+  }
+  DoneMarker(lMarkerPick       , 'CardTsXls_Transp');
+  SaveParam;
+  abort;
+  exit;
+}
+//------------------------------------------------------------------------------
+cmDone :
+ {
+   SaveParam;
+ }
+
+//------------------------------------------------------------------------------
+cmOnVipUnLoad :
+ {
+   SaveParam;
+ }
+
+end;
+end.
+
+
+#include UserReport.vih
+VipInterface UserReport_CardTsXls Implements IUserReport Licensed(Free);
+Interface UserReport_CardTsXls;
+Create View;
+Procedure Run;
+{
+  RunInterfaceNoModal('CardTsXls');
+}
+
+Function GetReportName: String;
+{
+  GetReportName := 'Карточка учета ТС';
+}
+
+Function GetPriority : Integer;
+{
+  GetPriority := 0;
+}
+Function GetGroupName (Level : Word) : String;
+{
+  Result := ICase(Level; '', ''; '');
+}
+
+Function VisibleInModule(Ind : Byte) : String;
+{
+  Result := ICase(Ind; '', '*'; '');
+}
+
+end. // interface

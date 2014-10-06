@@ -1,0 +1,100 @@
+#include UserReport.vih
+
+VipInterface UserReport_GsmReport Implements IUserReport;
+
+Interface UserReport_GsmReport 'Карточка учета расхода топлива (МНЦС)' show at (1,1,52,12);
+
+create view
+var
+  dateFrom    	: date;
+  dateTo      	: date;
+  typeGSMselect	: byte;
+  typeReport	: byte;
+  podrazdelenie	: string;
+  cpodrazd	: comp;
+as select * from putlst;
+
+procedure Run;
+begin
+  runInterface(UserReport_GsmReport);
+end;
+
+screen CreateBuh 'Карточка учета расхода топлива';
+  fields
+    dateFrom('Начало периода'  ,,sci13Esc ): pickButton;
+    dateTo('Конец периода'   ,,sci13Esc ): pickButton;
+    podrazdelenie ('Подразделение',,sci13Esc ): pickButton, noprotect;
+    typeGSMselect:noprotect;
+    typeReport:noprotect;
+  buttons
+    cmOk,,,'Сформировать отчет',,sci178Esc;
+    cmCancel,,,'Отмена',,sci178Esc;
+<<'Карточка учета расхода топлива'
+
+ За период   с .@@@@@@@@@@@@@    по .@@@@@@@@@@@@@
+ Подразделение .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ Тип топлива                Вид отчета
+ (.) Бензин А-80`           [.] Полный отчет`
+ (.) Бензин А-92`
+ (.) Дизельное топливо`
+
+  <.  Сформировать отчет  .>     <.   Отмена   .>
+>>
+
+  end;
+
+  handleEvent
+   cmPick:
+   {
+     case CurField of
+       #podrazdelenie:
+       {
+         RunInterface('GetOneKau',cgKau_KatPodr,cpodrazd);
+         if tsOk = GetFirst KATPODR where ((cpodrazd == KATPODR.NREC)) podrazdelenie := KATPODR.NAME;
+       }
+     end;
+   }
+   cmDel:
+   {
+     case CurField of
+       #podrazdelenie: { set podrazdelenie := ''; cpodrazd := 0; }
+     end;
+   }
+   cmOk :
+   {
+     runInterface('GsmRep', dateFrom, dateTo, typeGSMselect, typeReport, cpodrazd);
+   }
+   cmInit :
+   {
+     dateFrom := Add_Day(Cur_Date,1 - Day(Cur_Date));
+     dateTo   := Add_Day(Cur_Date,Last_Day(Cur_Date) - Day(Cur_Date));
+   }
+  end;
+
+function GetReportName: String;
+{
+  GetReportName := 'Карточка учета расхода топлива';
+}
+
+function GetGroupName (Level : Word) : String;
+{
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Отчеты по ГСМ';
+  end;
+}
+
+function GetPriority : Integer;
+{
+  GetPriority := 0;
+}
+
+function VisibleInModule(Ind : Byte) : String;
+{
+  VisibleInModule := '';
+  case Ind of
+   1 : VisibleInModule := 'MENUAVT';
+  end;
+}
+end.

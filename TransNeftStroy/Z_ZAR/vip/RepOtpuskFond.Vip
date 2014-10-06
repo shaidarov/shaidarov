@@ -1,0 +1,561 @@
+//******************************************************************************
+//                                                   (c) Комплаксные технологии
+// Галактика 8.1 - Управление персоналом
+// отчеты - отчеты пользователя - отчеты =Отчет о не использованых отпусках
+//******************************************************************************
+#include InitPrTmp.VIH // для расчета компенсации
+//в проекте #include StrFunc.vih         // Функции работы со строками
+#include ComFiltr.VIH
+#include userAcs.vih
+#include DepartmentsLimiter.vih  //Интерфейс разграничения прав доступа к подразделениям
+
+Interface RepOtpFond 'Отчет о не использованых отпусках', EscClose;
+table struct tmp_pers
+( nrec : comp
+ ,nmpodr:string[80]
+ ,fio  :string [50]
+)
+with index 
+( tmp_pers01= nrec
+ ,tmp_pers02 = fio
+) ;
+var VInter     : CommonFiltr; // Для встраивания фильтра по подразделениям / сотрудникам
+var VuserAcs  : oUserAcs;     // Разграничение доступа по подразделениям
+var vUserAcsI:UserDepartmentsIterator;//итератор по правам доступа
+var iStrFunc   : StringFunctions;     // Переменная типа интерфейс StringFunctions
+var viGetDeptCount: longint;
+var viGetPsnCount: longint;
+var StandAccess:boolean;
+var FormatClockNumber:word;
+// здесь почему то криво var VCFTP: VColFuncTmpPers; // расчет компенсации
+create view vRepBank_Svyaz
+var
+  dMakeRep   : date;    // состояние на дату dMakeRep
+  CDEPSELECT      : comp;    //
+  wc_addr :comp ;
+  w_org_name_lat:string;
+  filtr_type :word;
+  filtr_dt_p_b ,filtr_dt_p_e: date;//по дате приема
+  Strax_Proc :double;
+  AlgNum : word;
+  wc_otpnrec  : comp;
+#include excel_var.vpp
+as select persons.tabnmb,persons.APPDATE,persons.nrec
+from persons , tmp_pers(tmp_pers02)
+  ,   Synonym Persons Persons1
+  , Appointments , Appointments Appointments1
+  , lschet
+  , SUMVIDOP(SUMVIDOP18)
+  , Bwpcard
+  , Otpusk
+  , ArOtpusk     , ArOtpusk ArOtpusk1
+where 
+(( tmp_pers.nrec == persons1.nrec
+and 'С'  == Persons.IsEmployee
+and Persons.nrec == Appointments.person
+and  dMakeRep >>=Appointments.AppointDate
+and ( 0 = Appointments.lprizn )
+and tmp_pers.nrec == Appointments1.person
+and  dMakeRep >>=Appointments1.AppointDate
+and (( 0 = Appointments1.lprizn or Appointments1.lprizn=3)
+and Appointments1.dismissdate=date(0,0,0) or Appointments1.dismissdate>dMakeRep)
+and Appointments1.caddnrec2 == lschet.nrec
+and Appointments1.caddnrec2 == sumvidop.clsch
+and (106 = sumvidop.vidopl )
+and appointments1.caddnrec2 == Bwpcard.clschet
+and wc_otpnrec  == Otpusk.nrec
+and Otpusk.Nrec == ArOtpusk.cOtpusk
+and 0 == ArOtpusk.KODFOND(noindex) 
+and ArOtpusk.Nrec == ArOtpusk1.cOtpusk
+and 10 == ArOtpusk1.KODFOND(noindex) 
+))
+    bounds AllPersByDep         as  'С'  == Persons.IsEmployee  and
+                              cDepSelect == Persons.Department
+                              Ordered by Persons.FIO
+    bounds PersInArchiveByDep   as  'У'  == Persons.IsEmployee  and
+                              cDepSelect == Persons.Department
+                              Ordered by Persons.FIO
+    bounds PersIsEmployeeByDep  as  'С'  == Persons.IsEmployee  and
+                              cDepSelect == Persons.Department  and
+                              0 == Persons.DisDate(noindex)
+                               Ordered by Persons.FIO
+    bounds PersAllByDep  as  'С'  <<= Persons.IsEmployee  and
+                             'У' >>= Persons.IsEmployee  and
+                              cDepSelect == Persons.Department(noindex)
+    bounds AllPers         as  'С'  == Persons.IsEmployee Ordered By Persons.FIO
+    bounds PersInArchive   as  'У'  == Persons.IsEmployee Ordered By Persons.FIO
+    bounds PersIsEmployee  as  'С'  == Persons.IsEmployee  and
+                                0 == Persons.DisDate Ordered By Persons.FIO
+    //condition PersIsEmployeeAndArchive = ('С' = Persons.IsEmployee or 'У' = Persons.IsEmployee)
+    bounds PersIsEmployeeAndArchive = 'С' <<= Persons.IsEmployee and 'У' >> Persons.IsEmployee
+
+;
+
+//===============================
+
+#include excel_fun.vpp
+//===============================  
+Procedure SaveParam;
+{ SaveMyDsk(filtr_type,'RepOtpF_filtr_type')
+  SaveMyDsk(filtr_dt_p_b,'RepOtpF_filtr_dt_p_b') 
+  SaveMyDsk(filtr_dt_p_e,'RepOtpF_filtr_dt_p_e')
+  SaveMyDsk(Strax_Proc,'RepOtpF_Strax_Proc')
+
+}
+//===============================  
+Procedure ReadParam;
+{ if not ReadMyDsk(filtr_type,'RepOtpF_filtr_type',false) filtr_type:=1 ;
+  if not ReadMyDsk(filtr_dt_p_b,'RepOtpF_filtr_dt_p_b',false) filtr_dt_p_b:=cur_date; 
+  if not ReadMyDsk(filtr_dt_p_e,'RepOtpF_filtr_dt_p_e',false) filtr_dt_p_e:=cur_date;
+  if not ReadMyDsk(Strax_Proc,'RepOtpF_Strax_Proc',false) Strax_Proc:=30.2
+
+}
+//===============================
+Function SetupBoundsMy:boolean;
+{ SetupBoundsMy:=true
+  PushBounds(#persons)
+  //PushCondition(tcPersIsEmployeeAndArchive);
+  PushBounds(tbPersIsEmployeeAndArchive)
+
+  if viGetDeptCount>0 or StandAccess 
+  { case VInter.GetPersonsState of
+    0: PushBounds(tbPersIsEmployeeByDep);
+    1: PushBounds(tbAllPersByDep);
+    2: PushBounds(tbPersInArchiveByDep);
+    else PushBounds(tbPersAllByDep);
+    end;
+  }
+  else
+  {  case VInter.GetPersonsState of
+      0:
+        {
+//          PopBounds (tbPersInArchive);
+//          PopBounds (tbAllPers);
+          PushBounds(tbPersIsEmployee);
+        }
+      1:
+        {
+//          PopBounds (tbPersInArchive);
+          PopBounds (tbPersIsEmployee);
+          PushBounds(tbAllPers);
+        }
+      2:
+        {
+//          PopBounds (tbPersIsEmployee);
+//          PopBounds (tbAllPers);
+          PushBounds(tbPersInArchive);
+        }
+      //else     ResetBounds(#Persons);
+    end; //case
+  }  
+} // procedure SetupBoundsMy
+//=======================================
+//   расчет компенсации
+//=======================================
+
+Function CalcDays_Comp:double;
+{
+  // почистим компенсацию без планирования, если она есть
+  //if Delete PickRep <> tsOk {};
+  var NeedDays: integer;
+  NeedDays := 0;
+  var UseDays: integer;
+  UseDays := 0;
+  var VCFTP: VColFuncTmpPers; // расчет компенсации
+  // расчет компенсации
+  if appointments1.lprizn=0
+  { CalcDays_Comp := VCFTP.Number_Days_For_Compensation(Persons1.Nrec,
+                                                                dMakeRep,
+                                                                Persons1.AppDate,
+                                                                NeedDays,
+                                                                UseDays);
+  }
+  else                                                              
+  { CalcDays_Comp:=VCFTP.Number_Days_For_APPCompensation(Appointments1.Nrec,
+                                                                dMakeRep,
+                                                                Appointments1.AppointDate,
+                                                                NeedDays,
+                                                                UseDays);
+
+ }                                                               
+} //Function CalcDays_Comp:double;
+//===============================  
+
+Function SborDataPers :boolean;
+var
+    FoundUpp:boolean;
+{ SborDataPers:=false
+  _loop fullcache Persons
+  { if not nextvisual then exit;
+    if (filtr_type and 1)>0
+    { if persons.APPDATE<filtr_dt_p_b or
+         persons.APPDATE>filtr_dt_p_e
+      then continue   
+    }
+    if (getlast Appointments = tsOk)
+            FoundUpp:= true
+          else FoundUpp:= false;
+
+//------------------------------------------------------------------------------
+     //Разграничение доступа
+     //Нет доступа к подразделению
+     if (VuserAcs.GetUserRightByRef(if(FoundUpp,Appointments.Department,Persons.Department), UserName) <> 1)
+       continue;
+     // Проверим фильтр
+     if (viGetDeptCount > 0)
+        if (not foundMarker(VInter.GetDepartmentsMarker, Appointments.Department))
+          continue;
+
+      // Если сотрудник попадает под действие фильтра
+      if (viGetPsnCount > 0)
+        if (not foundMarker(VInter.GetPersonsMarker, Persons.Nrec))
+           continue;
+     insert into tmp_pers set tmp_pers.nrec:=persons.nrec,  tmp_pers.fio:=persons.fio ;
+  } //_loop Persons
+
+  SborDataPers:=true;
+}
+//===============================
+Function FormDoc :boolean;
+var npp :longint;
+    wstr,wstr1,wstr2:string ;
+    FoundUpp:boolean;
+    i :longint;
+    it4,it5,it6,it7:double;
+    su_sredn: double;
+    su4,su5,su6,su7:double;
+    ResDn :double;
+    Tp_Sredn:word; 
+{ FormDoc:=false;
+  if ExcelInit('UFPS_RepOtpuskFond.xls',true,2009)<>0
+  { message('Ошибка инициализации шаблона')
+    exit ;
+  
+  }
+    wSetTune('UP.ZAR.Algorith',AlgNum);
+        if (logfilekl) //включаем оталдку
+          SetTune('UP.ZAR.ZU.FLAG7',true)
+        else SetTune('UP.ZAR.ZU.FLAG7',false);
+    SaveMyDsk(AlgNum, 'SredDial_AlgNum')
+
+
+    //SaveMyDsk(Add_day(sub_months(dMakeRep,12),1), 'SredDial_vDatan');
+    SaveMyDsk(dMakeRep, 'SredDial_vDatan');
+    SaveMyDsk(dMakeRep, 'SredDial_vDatOk');
+    //     rundialog('selectOT', ODOtlFlag, ODCaseByte, ODKalendFlag, FlagArme, FlagOpl,
+    // ODSredDay, ODKoef12, ODNormDay, ODPeriod, ODKoefP, ODFlag12, ODClaster,
+    // ODDatanko, ODDatakko,  ODDatank2, ODDatakk2, BDClaster1, BDA_K_O, SaveNdfl);
+    /*
+    if (ODOtlFlag = 1)
+    SetTune('UP.ZAR.ZU.FLAG7',true)
+    else SetTune('UP.ZAR.ZU.FLAG7',false);
+    case ODClaster of
+     1 : SetTune('UP.ZAR.ZU.flag14',1);
+     2 : SetTune('UP.ZAR.ZU.flag14',2);
+     3 : SetTune('UP.ZAR.ZU.flag14',3);
+     4 : SetTune('UP.ZAR.ZU.flag14',4);
+     else SetTune('UP.ZAR.ZU.flag14',0);
+    end;
+    Zar_User.date4 := ODDataNko;
+    Zar_User.date5 := ODDataKko;
+    Zar_User.date6 := ODDatank2;
+    Zar_User.date7 := ODDatakk2;
+    SaveMyDsk(ODKalendFlag, 'OtpDial_ODKalendFlag');
+    SaveMyDsk(ODOtlFlagF, 'OtpDial_ODOtlFlagF');
+    SaveMyDsk(FlagArme, 'OtpDial_FlagArme');
+    SaveMyDsk(FlagOpl, 'OtpDial_FlagOpl');
+    SaveMyDsk(ODSredDay, 'OtpDial_ODSredDay');
+    Zar_User.Need_19 := ODNormDay;
+    SetTune('UP.ZAR.ZU.ODPeriod',ODPeriod); // Учетный период
+    Zar_User.Rval_1  := ODKoefP; //Коэффициент приведения
+    SaveMyDsk(ODCaseByte, 'OtpDial_ODCaseByte');
+    SaveMyDsk(word(1), 'RaschetOtpB_ZarOtp');
+    if (BDClaster1 = 1)
+    SetTune('UP.ZAR.ZU.FLAG6',true) //Автоматический учет премий
+    else SetTune('UP.ZAR.ZU.FLAG6',false);
+    SetTune('UP.ZAR.ZU.Rval_9',BDA_K_O); //Автоматический учет премий
+    if ODKoef12 = 1
+      SetTune('UP.ZAR.ZU.FLAG27',true)
+    else
+      SetTune('UP.ZAR.ZU.FLAG27',false);
+    if ODFlag12 = 1
+      SetTune('UP.ZAR.ZU.DATE8',true)
+    else
+      SetTune('UP.ZAR.ZU.DATE8',false);
+    if update current zar_user <> tsOk {};
+    updatetable;
+    SaveMyDsk(true, 'OtpDial_NonStop')  //расчет не был прерван
+    SetTune('UP.ZAR.SaveNdfl',SaveNdfl); //Признак необходимости cохранения сумм НДФЛ при наличии реестра на перечисление
+    */
+
+    SaveMyDsk(0, 'OtpDial_ODKalendFlag');
+    SaveMyDsk(1, 'OtpDial_ODOtlFlagF');
+    SaveMyDsk(0, 'OtpDial_FlagArme');
+    SaveMyDsk(0, 'OtpDial_FlagOpl');
+    SaveMyDsk(29.4, 'OtpDial_ODSredDay');
+    SaveMyDsk(1, 'OtpDial_ODCaseByte');
+    SaveMyDsk(1, 'OtpDial_ODCaseByte');
+    
+    //"Настройки Галактики \ Управление персоналом \ Общие настройки \ Больничные, отпуска, расчеты по среднему \ Учет вознаграждений \ Премии учитывать автоматически"
+    SaveMyDsk(if(boGetTune('UP.ZAR.ZU.FLAG6'),1,0), 'SredDial_Claster1');  //Автоматический учет квартальных и полугодовых премий
+    // "Настройки Галактики \ Управление персоналом \ Общие настройки \ Больничные, отпуска, расчеты по среднему \ Учет вознаграждений \ Алгоритм учета квартальных(б/листы) и полугодовых премий"
+    SaveMyDsk(wGetTune('UP.ZAR.ZU.RVAL_9'), 'SredDial_A_K_O'); // алгоритм учета премий
+    SaveMyDsk(0, 'SredDial_DnCh'); // тип
+    SaveMyDsk('Расчет неисп.отпуска', 'SredDial_Purpose');
+    SaveMyDsk(69, 'SredDial_AlgNum');
+    SaveMyDsk(dMakeRep, 'SredDial_DatForm');
+   
+  delete all tmp_pers ;
+  viGetDeptCount := VInter.GetDeptCount;
+  viGetPsnCount := VInter.GetPsnCount;
+  // значение настройки по разграничению прав доступа к подразделениям
+  StandAccess := boGetTune('UP.STAFF.LOCK');
+  FormatClockNumber:=wGetTune('FormatClockNumber')  //0- числовые
+  SetupBoundsMy;
+  if viGetDeptCount>0
+  { for(i:=0;i<viGetDeptCount;i:=i+1)
+    { if GetMarker(VInter.GetDepartmentsMarker, i, cDepSelect)
+      { if not SborDataPers then exit;
+      }
+    }
+  }
+  else     
+  { if StandAccess
+    { cDepSelect:=VuserAcsI.First
+      while cDepSelect>0
+      { if not SborDataPers then exit 
+        cDepSelect:=VuserAcsI.Next;
+      }
+    }  
+    else  
+    { if not SborDataPers then exit
+    }
+  }
+  Restartvisual('Идет печать ...',0) 
+  wexrow:=4;
+  wexcol:=1;
+  MyPutExcel('по состоянию на '+datetostr(dMakeRep,'DD/MM/YYYY'),0,0,-1,-1)
+  wexrow:=5;
+  wexcol:=1;
+  wstr:=sgettune('MYORG')
+  MyPutExcel(wstr,0,0,-1,-1)
+  HeaderStrCount:=11
+  
+  wexrow:=HeaderStrCount;
+  MyXlCreaMatrix(10000,70)
+  wexrow:=wexrow-1;
+  npp:=0
+  it4:=0;it5:=0;it6:=0;it7:=0;
+  _loop tmp_pers
+  { if not nextvisual then exit;
+    if getfirst fastfirstrow Persons1=0 {}
+    _loop appointments1
+    { npp:=npp+1;
+      wexrow:=wexrow+1; wexcol:=1 ;
+      MyPutExcelNumber(npp,0,0,0,-1,-1) //    №п/п
+      wstr:=persons1.fio+if(appointments1.lprizn=3,' (совм)','') ;
+      MyPutExcel(wstr,0,0,-1,-1)//Фамилия//
+      su_sredn:=0
+      ResDn:=0;
+      Tp_Sredn:=0
+      if False
+       if getlast sumvidop=0
+       { su_sredn:=sumvidop.summa/sumvidop.koldn //CalcDaysBetweenDates(sumvidop.datan,sumvidop.datok)
+        Tp_Sredn:=1
+       }
+      if su_sredn=0
+      { if true
+        { Insert into Otpusk
+            set Otpusk.clsch:=Lschet.nrec
+              , Otpusk.tabn :=Lschet.tabn
+              , Otpusk.strtabn:=Lschet.tabn
+              , Otpusk.kotpus:=1
+              , Otpusk.datan:=dMakeRep
+              , Otpusk.datok:=dMakeRep
+              , Otpusk.KOLDN:=1
+              , Otpusk.cex :=lschet.nrec
+              , Otpusk.KOLDNGR:=month(dMakeRep)
+              , Otpusk.choice:=5
+            ;  
+              
+          wc_otpnrec:=Otpusk.nrec;    
+          OtpShiftF5(Otpusk.nrec)
+          ReReadRecord(#Otpusk)
+          if getfirst fastfirstrow Otpusk=0
+          { su_sredn:=OTPUSK.SUMMA
+          }
+          _Loop AROTPUSK where (( 0 == ArOtpusk.KODFOND(noindex) and wc_otpnrec == AROTPUSK.cOtpusk ))
+          { delete AROTPUSK1 where (( 10 == ArOtpusk1.KODFOND(noindex) and AROTPUSK.Nrec == AROTPUSK1.cOtpusk ));
+          }
+          delete AROTPUSK where (( 0 == ArOtpusk.KODFOND(noindex) and wc_otpnrec == AROTPUSK.cOtpusk ));
+          delete Otpusk where (( wc_otpnrec  == Otpusk.nrec ));
+        }
+        else //Пересче средних
+        {
+         delete Bwpcard where (( appointments1.caddnrec2 == Bwpcard.clschet )) ;
+         SrShiftf5(appointments1.caddnrec2,appointments1.apptabnmb); 
+         ReReadReCord(#Bwpcard)
+         if getfirst Bwpcard=0 {}
+         _loop Bwpcard
+         {if Bwpcard.kind = 777  //актуальная запись для отчета - алгоритм больничного пишет свои лишние записи
+          {
+           /*
+           isInLoop := true;
+           
+           writeOneMes (Bwpcard.mesn,Bwpcard.yearn,
+           Bwpcard.payment[1],  //Время GetSredchasf()
+           Bwpcard.payment[2],  //заработок без учета коефф.GetMinSumma()
+           Bwpcard.payment[6],  //заработок c учетом коефф. GetSredSumma()
+           Bwpcard.payment[4],  //GetSredSumma()/GetSredKoef()+GetSredPremi()
+           Bwpcard.payment[3],  //коэффициент GetSredKoef()
+           Bwpcard.payment[5]); //вознаграждения GetSredPremi()
+           ResDn := ResDn + Bwpcard.payment[1];
+           Sum   := Sum   + Bwpcard.payment[2];
+           SumD := SumD + Bwpcard.payment[4];
+          SumV := SumV + Bwpcard.payment[5];
+           Sumkoef := Sumkoef + Bwpcard.payment[6]+Bwpcard.payment[4]*Bwpcard.payment[3]+
+                   Bwpcard.payment[5];
+           */
+           ResDn :=ResDn+Bwpcard.payment[1];
+           su_sredn:=su_sredn+Bwpcard.payment[6]+Bwpcard.payment[4]*Bwpcard.payment[3]+
+                   Bwpcard.payment[5];
+           Tp_Sredn:=2                
+         } //if Bwpcard.kind = 777 
+        }   //_loop Bwpcard
+        su_sredn:=su_sredn/ResDn
+       } ////Пересче средних
+      } //if su_sredn=0
+      su4:=CalcDays_Comp;
+      su5:=su4*su_sredn;
+      su6:=su5*Strax_Proc/100;
+      su7:=su5+su6;
+      it4:=it4+su4;
+      it5:=it5+su5;
+      it6:=it6+su6;
+      it7:=it7+su7;
+      MyPutExcelNumber(su_sredn,2,0,0,-1,-1) //  
+      MyPutExcelNumber(su4,2,0,0,-1,-1) //  
+      MyPutExcelNumber(su5,2,0,0,-1,-1) //  
+      MyPutExcelNumber(su6,2,0,0,-1,-1) //  
+      MyPutExcelNumber(su7,2,0,0,-1,-1) //  
+      if logfilekl
+      { MyPutExcelNumber(Tp_Sredn,0,0,0,-1,-1) //  
+        MyPutExcelNumber(ResDn,0,0,0,-1,-1) //  
+      }  
+    } // appointments1  
+  } //_loop tmp_pers
+  wexrow:=wexrow+1; wexcol:=1 ;
+  MyxlWriteMatrix(wexrow);
+  xlFreeMatrix;
+  matrixkl:=false
+  MyxlFrameCells(1+2+4+8+16+32,2,0,0,headerstrcount,1,wexrow,7)
+  xlWrapText(HeaderStrCount,1,wexrow,7);
+  wexrow:=wexrow+2
+  wexcol:=1
+  MyPutExcel('наименование должности',10,0,-1,-1)//Фамилия//
+  wexrow:=wexrow+1
+  wexcol:=1
+  MyPutExcel('"___" ________________20__ г',10,0,-1,-1)//Фамилия//
+  wexrow:=wexrow+2
+  wexcol:=1
+  MyPutExcel('наименование должности',0,0,-1,-1)//Фамилия//
+  wexrow:=wexrow+1
+  wexcol:=1
+  MyPutExcel('"___" ________________20__ г',10,0,-1,-1)//Фамилия//
+  
+  wexrow:=HeaderStrCount-1; wexcol:=4
+  MyPutExcelNumber(it4,2,0,0,-1,-1) //  
+  MyPutExcelNumber(it5,2,0,0,-1,-1) //  
+  MyPutExcelNumber(it6,2,0,0,-1,-1) //  
+  MyPutExcelNumber(it7,2,0,0,-1,-1) //  
+  
+  matrixkl:=False;
+  
+  FormDoc:=true;
+} //Function FormDoc :boolean;
+//===============================
+panel PnMain
+ Screen scRepMedStrax;
+  show at (,,,6);
+    table persons ;
+    Fields
+     dMakeRep ('Дата формирования',,sci13Esc):NoProtect, NoPickButton;
+     AlgNum:noprotect;
+     logfilekl:noprotect;
+     filtr_type : noprotect ;
+     filtr_dt_p_b: noprotect ;
+     filtr_dt_p_e: noprotect ;
+     Strax_Proc : [10.2], noprotect ;
+<<
+ `Формировать на дату:` .@@@@@@@@@@ Алгоритм(69) .@@@@
+ `Фильтр`                        [.] Отладка`
+ [.] По дате приема` .@@@@@@@@@@ - .@@@@@@@@@@
+ `Процент страховых взносов`   .@@@@@@@@@@
+>>
+end; // screen
+    embedded ComFiltrEmbedded interface VInter;
+      show (,7,,13);
+    end
+   screen scrButtons
+      show (,14,,);
+      buttons
+        cmOk,,,'Печать отчёта', hcStaffRepBuild, scStaffForButton;
+        cmCancel,,,'Отмена', hcStaffRepBuild, scStaffForButton;
+    <<
+    <. Сформировать .>                                <.    Отмена    .>
+
+    >>
+    end; // screen scrButtons
+
+end; //panel pnMain
+
+
+HandleEvent
+cmInit:
+{ if not GetVipRef(VuserAcs, 'UserAcs')
+  { Message('Не найден интерфейс разграничения прав доступа UserAcs.', Information);
+    abort;
+     exit;
+  }
+  if ExistTune('UP.ZAR.Algorith')
+     set AlgNum := wGetTune('UP.ZAR.Algorith');
+  if AlgNum=0 then AlgNum:=69
+     
+  dMakeRep:=Cur_date;
+  ReadParam;
+  w_org_name_lat:='FGUP POCHTA ROSSII'
+  if (not intinit)
+  {
+    abort;
+    exit ;
+  }
+  else
+    if not(prVidInit(25,1)) //открываем таблицы для расчета
+    {
+      ExitProc;
+      abort;
+      exit;
+    }
+
+}
+cmDone:
+{  DoneVx(25);  // Done для prVidInit
+   exitproc;
+   SaveMyDsk(word(0), 'SredDial_AlgNum');
+
+}
+cmOk:
+{ SaveParam;
+  LockLogFile;
+  InitServTxo(0)
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak, 'Выгрузка данных для отчета...', 50); 
+  FormDoc;
+  if VisualizationActive then  StopVisual('',0)
+  XlKillExcel;
+  DoneServTxo;
+  UnLockLogFile;
+  ShowErrors;
+
+}
+end;
+end.

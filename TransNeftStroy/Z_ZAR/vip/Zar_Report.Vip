@@ -1,0 +1,1527 @@
+//by ABSOLUTO
+/*
+    
+
+*/
+#include CLSFUNCS.VIH // ф-ии пересканирования текущих л/с
+//#include PMNTENTS.VIH
+//#include Contexts.vih  // Контексты
+//#include AbsenceCoding.vih
+//#include TotalOrganizationAttributes.vih // работа с атрибутами организации
+//#include Marks.vih
+#include GtKauTbl.vih
+#include GetKau.Vih
+#include PodrFilterDef.vih // vip810/all
+#include ZarNachislUder.vih
+#include ExtAttr.Vih
+#include STAFSTRU.VIH
+#include AdrFunc.vih
+
+//==================================
+#include Zar_Report.Vih
+//=====================================================================================================
+Interface Zar_Report 'Сводные отчеты по заработной плате' , EscClose,DoAccept,Cyan;
+//=====================================================================================================
+#include ExtAttr.Var
+#include AdrFunc.var
+
+var  CLSF: CurLSFunctions;
+var  iGetKau   : GetKau;
+var  iPodrFilterDef:PodrFilterDef;
+var DA: IDepartmentAvailability(CurLSFunctions);
+var wsch,wsubsch:string[20];
+var kol_vixod :integer;
+var iStafStru  : StaffStruct; //Переменная типа интерфейс StaffStruct
+//=====================
+// колонки из состава заработной платы
+//=====================
+var Alg:iZarNachislUder;
+//=====================
+var  _PodrMArkerPointer        : Longint; // сам маркер
+var  MarkerPodr,MarkerKateg , MarkerPost,MarkerVidPer,MarkerVidopl,MarkerVidud   : LongInt ;
+var Chet : longint;
+var kol_nalog :word;
+var dm_nalog: array [1..10] of word;
+var dm_nalog1: array [1..100] of word;
+var type_period :word;
+// для сбора строки с запросом
+var sql_fields1,sql_fields1d,sql_fields2,sql_fields2d,sql_fields3:string;
+var sql_fields1k,sql_fields2k,sql_fields3k:string;
+var sql_from_add:string;
+var sql_where1,sql_where1d,sql_where2,sql_where2d,sql_where3:string;
+var sql_groupby1,sql_groupby1d,sql_groupby2,sql_groupby2d,sql_groupby3:string;
+var c1,c2,c3,c4:longint; // для подсчета маркеров
+var need_deb,need_kred,need_cex,need_person,need_sisopl,need_kateg
+ ,need_post,need_vidopl,need_chozoper, need_param,need_mes ,need_nrec
+ :boolean;
+var need_kaud1, need_kaud2, need_kaud3, need_kaud4, need_kaud5, need_kaud6:boolean;
+var need_kauk1, need_kauk2, need_kauk3, need_kauk4, need_kauk5, need_kauk6:boolean;
+var need_dop_an :boolean;
+var kod_StZatrat: word;
+var kod_bdr :word;
+//===============================
+Function GetNameSpr(ww_tp:word;ww_tbl:word;ww_crec:comp;ww_crec1:comp=0):string;forward;
+// подсчитть неявки
+Function Calc_Neyavki:double;forward;
+// подсчитть явки
+Function Calc_yavki:double;forward;
+// печать данныъ
+Function PrintDoc_00(ww_type:word) : boolean;forward;
+Function PrintDoc_01(ww_type:word) : boolean;forward;
+Function PrintDoc_02(ww_type:word) : boolean;forward;
+Function PrintDoc_03(ww_type:word) : boolean;forward;
+Function PrintDoc_04(ww_type:word) : boolean;forward;
+Function PrintDoc_05(ww_type:word) : boolean;forward;
+Function PrintDoc_06(ww_type:word) : boolean;forward;
+Function PrintDoc_07(ww_type:word) : boolean;forward;
+Function GetPODRNrecByCexDopAn(ww_cex:comp; ww_dop:comp) :comp;forward;
+Function GetKategKod(ww_nrec:comp):word;forward;
+Function InsTmpKatalog(wCurCode:word;wkod_gr:word;ww_name:string):comp;forward;
+Function GetKategSovmName(ww_kateg:word;ww_sovm:word) :string;forward;
+Function GetRegionNameByCexDopAn(ww_cex:comp; ww_dop:comp) :string;forward;
+Function GetOKVEDNameByCexDopAn(ww_cex:comp; ww_dop:comp) :string;forward;
+Procedure Tobot_Ins;forward;
+
+
+
+
+//========================================
+table struct Tobot3 = Tobot;
+table struct TMPKATALOG3 = TMPKATALOG;
+
+  table struct tmp_persons
+  ( nrec :comp
+   ,fio :string[50]
+   ,sex:char
+   ,borndate:date
+  )
+  with index
+  ( tmp_persons01 = nrec
+  );
+//========================================
+  table struct tmp_uo
+  (  nrec :comp
+    ,num  :string[10]
+    ,column_dn :double
+    ,column_ch :word
+  )
+  with index 
+  ( tmp_uo01 = nrec
+   ,tmp_uo02 = num
+  );
+//========================================
+  table struct tmp_spr
+  ( tp :word
+   ,tbl:word
+   ,crec :comp
+   ,crec1:comp
+   ,name:string[150]
+   ,code:string[30]
+  )
+  with index
+  ( tmp_spr01 = tp+tbl+crec + crec1
+  );
+//========================================
+  table struct tmp_klperopl
+  ( vidopl:word
+   ,vidper:word 
+  )
+  with index
+  ( tmp_klperopl01 = vidopl + vidper
+  );
+//========================================
+  table struct tmp_sbsql
+  ( cappoint :comp
+   ,cschetd :string[20]
+   ,csubschd:string[20]
+   ,tbld    :array [1..6] of word
+   ,ckaud   :array [1..6] of comp
+   ,cschetk :string[20]
+   ,csubschk:string[20]
+   ,tblk    :array [1..6] of word
+   ,ckauk   :array [1..6] of comp
+   ,vidopl  :word
+   ,sisopl  :word
+   ,summa   :double
+   ,koldn   :double
+   ,chasf   :double
+   ,clsch :comp
+   ,tperson :comp
+   ,cexoz   :comp
+   ,kateg   :word
+   ,chozoper:comp
+   ,param   :string[20]
+   ,vidper  :word
+   ,nrec    :comp
+   ,mesn :word
+   ,mes  :word
+   ,OLDCLSCH:comp
+   ,wTable   :word
+  )
+  with index
+  ( tmp_sbsql01 = vidopl
+  );
+var
+ an_stru_spkau:word;
+
+//=====================================  
+create view
+var
+  kl_init: boolean; // для блокировки повторного запуска
+  Nreport :word; //7900
+  //fFltPodr,fFltKateg :string;
+  wNumPick:word;
+  dtb,dte,dt_ras: Date;
+  day_b, day_e:word;
+  w_YearRas , w_MesRas :word;
+  YearCur , MesCur :word;
+  Lev1, Grp_Count: word;
+  w_vidopl_97 :word;
+  CurCode
+ , CurFormatTree
+ , Len1
+ , Len2
+ , Len3
+                 : word;
+//--------------------------------------------------------------------------------
+
+  cRep
+, MainTree
+, TotalCol :longint;
+  CurGroup:comp;
+  wc_cut1,wc_cut2,wc_cut3,wc_cut4,wc_cut5,wc_cut6 : comp; // для встаки записи
+//============
+  type_report :word;  
+//====================
+ wc_podr, wcc_podr :comp; 
+ w_kateg :word;
+ w_vidopl , w_vidud , w_sisopl : word;
+ w_vidper,w_vidper1 :word; 
+ wc_lev:comp; // ссылка на уровень
+ wc_spkau:comp; 
+//============== для табеля
+ wc_Notation_V, wc_Notation_SP:comp; // ссылка на выходные
+ w_lschet,w_person :comp;
+#include excel_var.vpp
+as select 
+  UserDeskRep.nRep
+  ,   if (UserDeskRep.ResComp[1]<>0,KatPodr.Name,
+     if (UserDeskRep.ResWord[21]<>0,'множественный выбор '+    '('+string(UserDeskRep.ResWord[21])+')','не установлен')) (fieldname=fFltPodr)
+  ,   if (UserDeskRep.ResComp[2]<>0,KlKatego.NAIKAT,
+     if (UserDeskRep.ResWord[22]<>0,'множественный выбор '+    '('+string(UserDeskRep.ResWord[22])+')','не установлен')) (fieldname=fFltKatego)
+  ,   if (UserDeskRep.ResComp[3]<>0,CatPost.Name,
+     if (UserDeskRep.ResWord[23]<>0,'множественный выбор '+    '('+string(UserDeskRep.ResWord[23])+')','не установлен')) (fieldname=fFltPost)
+  ,   if (UserDeskRep.ResComp[8]<>0,string(klvidopl.vidoplp)+'/'+Klvidopl.NVIDOPL,
+     if (UserDeskRep.ResWord[28]<>0,'множественный выбор '+    '('+string(UserDeskRep.ResWord[28])+')','не установлен')) (fieldname=fFltVidopl)
+  ,   if (UserDeskRep.ResComp[9]<>0,string(klvidud.vidudp)+'/'+Klvidud.NVIDUD,
+     if (UserDeskRep.ResWord[29]<>0,'множественный выбор '    +'('+string(UserDeskRep.ResWord[29])+')','не установлен')) (fieldname=fFltVidud)
+  ,   if (UserDeskRep.ResComp[10]<>0,string(PERECH.VIDPER)+'/'+PERECH.NAMEPER,
+     if (UserDeskRep.ResWord[30]<>0,'множественный выбор '+    '('+string(UserDeskRep.ResWord[30])+')'   ,'не установлен')) (fieldname=fFltPerech)
+from 
+  UserDeskRep(USERDESKREP04),KatPodr,KlKatego , lstab , perexod
+, lschet
+//, persons  
+, tmp_persons
+, tmp_spr
+, tmp_sbsql // Для прямых запросов
+, Tobot
+//, Tobot Tobot2
+, Tobot3  
+, TempDescr
+, TempDescr TempDescr2
+, TempDescr TempDescr3
+, TempIer 
+, TMPKATALOG  ,TMPKATALOG TMPKATALOG1
+, spkau ,katstroy
+//======================
+, katpodr katpodr1 , klkatego klkatego1
+, katorg katorg_podr
+, PICKREP , Pick  , KATORGDESCR
+, catalogs, catalogs catpost
+, KLVIDOPL, klvidopl klvidopl1, klvidud, klvidud klvidud1
+, perech,perech perech1(PERECH01)
+, sumvidop
+, sumvidud
+, uder
+, nachisl
+, perevod
+, perevodtek
+, klsisopl
+, klrejim
+, KATKAU
+, hozoper
+, klsovm
+, sumulsoc
+, AttrNam AttrNam_Sh
+, AttrNam AttrNam_Vo
+where ((  
+  NReport           == UserDeskRep.nRep
+and USERNAME == UserDeskRep.OwnName (noindex)         
+and UserDeskRep.ResComp[1] == KatPodr.nrec
+and UserDeskRep.ResComp[2] == KlKatego.nrec
+and UserDeskRep.ResComp[8] == klvidopl.vidopl
+and UserDeskRep.ResComp[9] == klvidud.vidud
+and UserDeskRep.ResComp[10] == perech.vidper
+and UserDeskRep.ResComp[20] == AttrNam_Sh.Nrec
+and UserDeskRep.ResComp[21] == AttrNam_Vo.Nrec
+and wcc_podr == katpodr1.nrec
+and katpodr1.corg == katorg_podr.nrec
+and w_kateg == klkatego1.kod
+and wc_spkau == spkau.nrec
+// табель
+and w_YearRas == lstab.yearn
+and w_MesRas == LsTab.mesn
+and lstab.rejim == klrejim.rejim
+// размер налогово после расчета - summa[2] - льгота
+and w_YearRas == sumulsoc.year
+and 2 == sumulsoc.vidper // берем страховой
+and w_lschet == sumulsoc.clsch
+
+//and lstab.clschet == perexod.clsch
+//and dte>>=perexod.DATIZM
+//and sub_months(dtb,3)<<perexod.DATIZM
+    // зацепим нужные переходы за выбранный период
+    and lstab.cLSchet == PEREXOD.CLSCH
+    // учитываем все переходы вплоть до даты окончания просматриваемого периода
+    // (переход мог начаться раньше расматриваемого периода)
+    and dtb <<= PEREXOD.DATIZM
+    and dte >>= PEREXOD.DATIZM
+    // только имеющих продолжение в данном отрезке периода
+    and ((dtb <= PEREXOD.DATOK) or (longint(PEREXOD.DATOK) = 0))
+
+and w_lschet == lschet.nrec
+and w_person ==  tmp_persons.nrec 
+// временные таблицы
+//and CurCode                 == Tobot.Code
+and CurCode                 == TempDescr.Code
+and CurGroup                == TempDescr.cGroup
+
+//and TempDescr.nRec          == TempIer.cGroup
+//and TempDescr.cRecKat       == Tobot3.nRec
+and 0 == Pick.wlist
+and UserName == PickRep.OwnName
+and w_YearRas == sumvidop.yearn
+and w_MesRas  == sumvidop.mesn
+and w_YearRas == sumvidud.yearn
+and w_MesRas  == sumvidud.mesn
+and w_YearRas == nenach.yearn
+and w_MesRas  == nenach.mesn
+and w_YearRas == nachisl.yearv(noindex)
+and w_MesRas  == nachisl.mesv (noindex)
+and w_YearRas == uder.yearv(noindex)
+and w_MesRas  == uder.mesv (noindex)
+and w_YearRas == perevod.yearn
+and w_MesRas  == perevod.mesn
+and w_YearRas == perevodtek.yearn(noindex)
+and w_MesRas  == perevodtek.mesn (noindex)
+and w_vidper == perech1.vidper
+and w_sisopl == klsisopl.sisopl
+and w_vidopl == klvidopl1.vidopl
+and w_vidopl == tmp_klperopl.vidopl // для входимости в соцналоги
+and w_vidud  == klvidud1.vidud
+and w_vidper == catalogs.nrec
+and w_vidper == hozoper.nrec
+))
+//==========
+bounds byLschet_Lstab w_lschet == lstab.clschet
+  and w_YearRas == lstab.yearn
+  and w_MesRas == LsTab.mesn
+
+//==========================
+bounds byZSumvidop w_YearRas == sumvidop.yeark
+                and w_MesRas  == sumvidop.mes
+bounds byZSumvidud w_YearRas == sumvidud.yeark
+				and w_MesRas  == sumvidud.mes
+bounds byZNenach w_YearRas == nenach.yeark(noindex)
+              and w_MesRas  == nenach.mes (noindex)
+bounds byZNachisl w_YearRas == nachisl.yeark(noindex)
+              and w_MesRas  == nachisl.mes    (noindex)
+bounds byZUder w_MesRas  == uder.mes    (noindex)
+bounds byZPerevod w_YearRas == perevod.yeark
+                   and w_MesRas  == perevod.mes
+bounds byZPerevodTek w_YearRas == perevodtek.yeark(noindex)
+                 and w_MesRas  == perevodtek.mes  (noindex)
+//=======================                 
+bounds byZCSumvidop wc_podr == sumvidop.cexoz and w_YearRas == sumvidop.yeark
+                and w_MesRas  == sumvidop.mes
+bounds byZCSumvidud wc_podr == sumvidud.cexoz and w_YearRas == sumvidud.yeark
+				and w_MesRas  == sumvidud.mes
+bounds byZCNenach wc_podr == nenach.cexoz and w_YearRas == nenach.yeark
+              and w_MesRas  == nenach.mes
+bounds byZCNachisl wc_podr == nachisl.cexoz and  w_YearRas == nachisl.yeark(noindex)
+              and w_MesRas  == nachisl.mes    (noindex)
+bounds byZCUder wc_podr == uder.cexoz //and w_YearRas  == uder.yeark(noindex)
+              and w_MesRas  == uder.mes    (noindex)
+bounds byZCPerevod wc_podr == perevod.cexoz and w_YearRas == perevod.yeark
+                   and w_MesRas  == perevod.mes
+bounds byZCPerevodTek wc_podr == perevodtek.cexoz and  w_YearRas == perevodtek.yeark(noindex)
+                 and w_MesRas  == perevodtek.mes (noindex)
+//=======================                 
+bounds byZCVSumvidop wc_podr == sumvidop.cexoz and w_YearRas == sumvidop.yeark
+                and w_MesRas  == sumvidop.mes and w_vidopl == sumvidop.vidopl
+bounds byZCVSumvidud wc_podr == sumvidud.cexoz and w_YearRas == sumvidud.yeark
+				and w_MesRas  == sumvidud.mes  and w_vidud == sumvidud.vidud
+bounds byZCVNenach wc_podr == nenach.cexoz and w_YearRas == nenach.yeark
+              and w_MesRas  == nenach.mes and w_vidopl == nenach.vidopls(noindex)
+bounds byZCVNachisl wc_podr == nachisl.cexoz and  w_YearRas == nachisl.yeark(noindex)
+              and w_MesRas  == nachisl.mes (noindex) and w_vidopl == nachisl.vidopls(noindex)
+bounds byZCVUder wc_podr == uder.cexoz //and w_YearRas  == uder.yeark(noindex)
+              and w_MesRas  == uder.mes(noindex) and w_vidud == uder.viduds(noindex)
+bounds byZCVPerevod wc_podr == perevod.cexoz and w_YearRas == perevod.yeark
+                   and w_MesRas  == perevod.mes and w_vidopl == perevod.vidopl(noindex)
+bounds byZCVPerevodTek wc_podr == perevodtek.cexoz and  w_YearRas == perevodtek.yeark(noindex)
+                 and w_MesRas  == perevodtek.mes(noindex) and w_vidopl == perevodtek.vidopl(noindex)
+//=======================                 
+bounds byZVSumvidop w_YearRas == sumvidop.yeark
+                and w_MesRas  == sumvidop.mes and w_vidopl == sumvidop.vidopl
+bounds byZVSumvidud w_YearRas == sumvidud.yeark
+				and w_MesRas  == sumvidud.mes  and w_vidud == sumvidud.vidud
+bounds byZVNenach  w_YearRas == nenach.yeark(noindex)
+              and w_MesRas  == nenach.mes(noindex) and w_vidopl == nenach.vidopls(noindex)
+bounds byZVNachisl  w_YearRas == nachisl.yeark(noindex)
+              and w_MesRas  == nachisl.mes (noindex) and w_vidopl == nachisl.vidopls(noindex)
+bounds byZVUder   w_MesRas  == uder.mes(noindex) and w_vidud == uder.viduds //w_YearRas  == uder.yeark(noindex)   and
+bounds byZVPerevod  w_YearRas == perevod.yeark(noindex)
+                   and w_MesRas  == perevod.mes(noindex) and w_vidopl == perevod.vidopl(noindex)
+bounds byZVPerevodTek  w_YearRas == perevodtek.yeark(noindex)
+                 and w_MesRas  == perevodtek.mes(noindex) and w_vidopl == perevodtek.vidopl(noindex)
+//=======================                 
+bounds byCSumvidop wc_podr == sumvidop.cexoz and w_YearRas == sumvidop.yearn
+                and w_MesRas  == sumvidop.mesn
+bounds byCSumvidud wc_podr == sumvidud.cexoz and w_YearRas == sumvidud.yearn
+				and w_MesRas  == sumvidud.mesn
+bounds byCNenach wc_podr == nenach.cexoz and w_YearRas == nenach.yearn
+              and w_MesRas  == nenach.mesn
+bounds byCNachisl wc_podr == nachisl.cexoz and  w_YearRas == nachisl.yearn(noindex)
+              and w_MesRas  == nachisl.mesn    (noindex)
+bounds byCUder wc_podr == uder.cexoz and w_YearRas  == uder.yearv(noindex)
+              and w_MesRas  == uder.mesv    (noindex)
+bounds byCPerevod wc_podr == perevod.cexoz and w_YearRas == perevod.yearn
+                   and w_MesRas  == perevod.mesn
+bounds byCPerevodTek wc_podr == perevodtek.cexoz and  w_YearRas == perevodtek.yearn
+                 and w_MesRas  == perevodtek.mesn
+
+//=======================                 
+bounds byCVSumvidop wc_podr == sumvidop.cexoz and w_YearRas == sumvidop.yearn
+                and w_MesRas  == sumvidop.mesn and w_vidopl == sumvidop.vidopl
+bounds byCVSumvidud wc_podr == sumvidud.cexoz and w_YearRas == sumvidud.yearn
+				and w_MesRas  == sumvidud.mesn and w_vidud == sumvidud.vidud
+bounds byCVNenach wc_podr == nenach.cexoz and w_YearRas == nenach.yearn
+              and w_MesRas  == nenach.mesn and w_vidopl == nenach.vidopls(noindex)
+bounds byCVNachisl wc_podr == nachisl.cexoz and  w_YearRas == nachisl.yearn(noindex)
+              and w_MesRas  == nachisl.mesn(noindex) and w_vidopl == nachisl.vidopls(noindex)
+bounds byCVUder wc_podr == uder.cexoz and w_YearRas  == uder.yearv(noindex)
+              and w_MesRas  == uder.mesv    (noindex) and w_vidud == uder.viduds(noindex)
+bounds byCVPerevod wc_podr == perevod.cexoz and w_YearRas == perevod.yearn
+                   and w_MesRas  == perevod.mesn and w_vidopl == perevod.vidopl(noindex)
+bounds byCVPerevodTek wc_podr == perevodtek.cexoz and  w_YearRas == perevodtek.yearn
+                 and w_MesRas  == perevodtek.mesn and w_vidopl == perevodtek.vidopl(noindex)
+//===========================
+bounds byVSumvidop  w_YearRas == sumvidop.yearn
+                and w_MesRas  == sumvidop.mesn and w_vidopl == sumvidop.vidopl(noindex)
+bounds byVSumvidud  w_YearRas == sumvidud.yearn
+				and w_MesRas  == sumvidud.mesn and w_vidud == sumvidud.vidud(noindex)
+bounds byVNenach  w_YearRas == nenach.yearn
+              and w_MesRas  == nenach.mesn and w_vidopl == nenach.vidopls(noindex)
+bounds byVNachisl  w_YearRas == nachisl.yearn(noindex)
+              and w_MesRas  == nachisl.mesn(noindex) and w_vidopl == nachisl.vidopls(noindex)
+bounds byVUder  w_YearRas  == uder.yearv(noindex)
+              and w_MesRas  == uder.mesv    (noindex) and w_vidud == uder.viduds(noindex)
+bounds byVPerevod  w_YearRas == perevod.yearn
+                   and w_MesRas  == perevod.mesn and w_vidopl == perevod.vidopl(noindex)
+bounds byVPerevodTek  w_YearRas == perevodtek.yearn(noindex)
+                 and w_MesRas  == perevodtek.mesn(noindex) and w_vidopl == perevodtek.vidopl(noindex)
+//===========================
+bounds byVidper  w_vidper == perevod.vidper(noindex)
+bounds byVidperT w_vidper == perevodtek.vidper(noindex)
+              
+;
+
+//==========
+  create view v1 as select UOWRKTABEL.NUM
+  from UOWRKTABEL ,katkau ,tmp_uo
+//  where (( 'В' == UOWRKTABEL.NUM ))
+  ;
+//=============
+//==========
+  create view vOtpDop 
+  var 
+   ww_otpdop:comp;
+  as select OtpDop.Nrec
+  from OtpDop
+  where (( ww_otpdop == OTPDOP.NREC 
+  ))
+  ;
+//=============
+Var
+  //'Группировки в отчете
+    mLevel
+  , mTable
+  , mGrupSort
+  , mHierar
+  , mKol 
+  , mVnKau
+  , mIeSvertka 
+  , mGroup: Array [10] of word;
+var
+  mName :Array[10] of string; 
+var wNameGr:string;
+var dm_nrec:array [1..20] of comp;
+var ArrAlg  : array[0..1] of IZarNachislUder;
+var ArrAlgP : array[0..1] of IZarNachislUderParam;
+//=======================
+#include pmarker.vpp //vip_gal/vih
+
+
+#DEFINE EXCEL_0
+#include excel_fun.vpp // all
+#UNDEF EXCEL_0
+
+//vip_gal\vih -F_Veks\VIP\ClRepTbl.vpp очистка временных таблиц
+#include ClRepTbl.vpp
+//=============================
+Procedure Zaglushka;
+{ exit;
+  //pmarker.vpp
+  DelPickRep(0);
+  CountPickRep(0)
+  //Marker2PickRep(mrkName : string; wList : word; var cRescomp : comp; var wNumPick : word);
+  Marker2PickRep('',0, wc_podr,  wNumPick );
+  Marker2PickRepEx('',0, wNumPick);
+  PickRep2Marker ('',0,0)
+  Pick2PickRepBody(false,0,0,wc_podr,wNumPick )
+  Pick2PickRep(0,0,wc_podr,wNumPick)
+  Pick2PickRepEx(0,0,wc_podr,wNumPick) 
+  PickRep2Pick(0,0,wc_podr)
+  DelPick(0);
+  SetKatOrgDescrMarker
+  CopyPickInMarker(0,'')
+  CopyMarkerInPick('',0,0) 
+} 
+
+//=============================  
+#include Zar_reportSHR.Vpp  
+#include Zar_RepDecret.Vpp  
+#include Zar_report.Vpp  
+#include Zar_report_01.Vpp  
+#include Zar_report_02.Vpp  
+#include Zar_report_03.Vpp  
+#include Zar_report_04.Vpp  
+#include Zar_report_05.Vpp  
+#include Zar_report_06.Vpp  
+#include Zar_report_07.Vpp  
+//=============================  
+//================================
+Window wnMess ;
+screen scrmess ;
+Buttons
+ cmCancel,,,'Выход',,;
+<<
+  Интерфейс уже запущен!
+  
+   <. Закрыть .>
+>>
+end;
+HandleEvent
+cmCancel:
+{ closewindow(wnMess)
+}
+cmIdle:
+{ //closewindow(wnMess)
+}
+end;
+end; //Window wnMess ;
+
+//==============================
+Window winParam 'Параметры отчета по балансу рабочего времени' (,, sci1Esc) EscClose, doAccept, Gray;
+ Show at (,,,);
+#declare _list_group 
+                          [List 0 'Нет'
+                                ,'По подразделению' //1
+                                ,'По категории'     //2
+                                ,'По фикс.аналитикe(зависит от счета)' //3
+                                ,'По сотруднику'   //4
+                                ,'ВА к штатному/должности' //5
+                                ,'Категория в иерархии' //6
+                                ,'Месяц'  //7
+                                ,'По счету/субсчету' //8
+                                ,'Категория/вид работы' //9
+                                ,'Регион(c уч.доп.аналитики)' //10
+                                ,'ОКВЭД (c уч.доп.аналитики)'  //11
+                                ,'Подразделение+доп/аналитика' //12
+                                ,'Должность' //13     
+                                ,'Объект Капстоительства' //14
+                                ], Protect;
+
+#end
+
+#declare _list_group1 
+                          [List 0 'Нет'
+                                ,'По подразделению'  //1
+                                ,'По категории'      //2
+                                ,'По фикс.аналитикe(зависит от счета)' //3
+                                ,'По сотруднику'                       //4
+                                ,'По должности'                        //5
+                                ,'По виду оплат/удержаний'             //6
+                                ,'По типу начисления/ненач.доход/удержания/страх.налоги' //7
+                                ,'По счету/субсчету'                   //8
+                                ,'По аналитике 1 уровня'               //9
+                                ,'По аналитике 2 уровня'               //10
+                                ,'По аналитике 3 уровня'               //11
+                                ,'По аналитике 4 уровня'               //12
+                                ,'По аналитике 5 уровня'               //13
+                                ,'По аналитике 6 уровня'               //14
+                                ,'По полу'                             //15
+                                ,'По режиму'                           //16
+                                ,'По системе оплат'                    //17
+                                ,'По кор.счету/субсчету'               //18
+                                ,'По кор.аналитике 1 уровня'           //19
+                                ,'По кор.аналитике 2 уровня'           //20
+                                ,'По кор.аналитике 3 уровня'           //21
+                                ,'По кор.аналитике 4 уровня'           //22
+                                ,'По кор.аналитике 5 уровня'           //23
+                                ,'По кор.аналитике 6 уровня'           //24
+                                ,'По хозоперации' // 25
+                                ,'По параметру выбора' //26 
+                                ,'По месяцу начисления' //27
+                                ,'По месяцу за который' //28
+                                ,'Статьи БДР' //29
+                                ,'ЕСОТ'       //30
+                                ,'Статьи затрат'       //31
+                                ,'По виду работы' //32
+                                ,'По наличию льготы' //33
+                                ,'По возрастной группе' //34
+                                ,'Табельный номер' //35
+                                ,'ВА к штатному/должности' //36
+                                ,'Категория в иерархии' //37
+                                ,'Нахождение в декретном отпуске'//38
+                                ,'Категория/вид работы' //39
+                                ,'Регион(c уч.доп.аналитики)' //40
+                                ,'ОКВЭД (c уч.доп.аналитики)'  //41
+                                ,'Подразделение+доп/аналитика' //42
+                                ,'Объект Капстоительства' //43
+                                ], Protect;
+
+#end
+#declare  common_fields
+   UserDeskRep.RepName    ('Наименование отчета',,) : NoProtect;
+//   UserDeskRep.dRep       ('Дата отчета',,) : [,'DD/MM/YYYY'],NoProtect;
+   UserDeskRep.ResDate[1] ('Дата начала отчетного периода',,) : [,'DD/MM/YYYY'],NoProtect;
+   UserDeskRep.ResDate[2] ('Дата окончания отчетного периода',,) : [,'DD/MM/YYYY'],NoProtect;
+   UserDeskRep.ResWord[39]('Вид отчета',,sci1378Esc) :
+                          [List 0 'Баланс отработанного времени'
+                               ,'Сводный отчет о начисленной заработной плате'
+                               ,'Отчет по авансу'
+                               ,'Смета расходов на оплату труда(120.4)'
+                               ,'Смета расходов на оплату труда(120.2.1)'
+                               ,'Сведения о численности и зараб.плате'
+                               ,'Сведения о численности и зараб.плате 02'
+                               ,'Численность персонала в разрезе объектов строительства'
+                               ], Protect;
+   nmtemplate ('Наименование шаблона(Gal810\exe\XLS_ED)'):protect;                       
+   UserDeskRep.ResWord[59] ('сохранять или нет отчет',,sci178Esc) : [list 0 'Не сохранять','Сохранять','По запросу'];
+
+   // Фильтры
+   UserDeskRep.ResWord[1] ('Установите фильтры',,) : NoProtect;
+   fFltPodr   ('Установите фильтр по подразделениям',,sci1378Esc) :  Protect;
+   fFltKatego ('Установите фильтр по категориям',,sci1378Esc) : Protect;
+   fFltPost   ('Установите фильтр по категориям',,sci1378Esc) : Protect;
+#end
+#declare  common_fields_scr
+ `Наименование`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ 
+ `За период: с`.@@@@@@@@@@@ `по`.@@@@@@@@@@@
+ `Вид отчета`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Шаблон`      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Сохранять отчет` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Фильтры
+ [.] по подразделению ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ [.] по категории     ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ [.] по должности     ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+#end
+//=============================
+// отчет по табелю
+//=============================
+Screen scrParam (,,sci178Esc);
+ Show at (,,,);
+  Table UserDeskRep;
+  Fields
+#common_fields
+   // Группировки
+   UserDeskRep.ResWord[11] ('Группировка 1',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[12] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[31] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[13] ('Группировка 2',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[14] ('Иерархия 2',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[32] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[15] ('Группировка 3',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[16] ('Иерархия 3',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[33] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[17] ('Группировка 4',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[18] ('Иерархия 4',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[34] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[19] ('Группировка 5',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[20] ('Иерархия 5',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[35] ('Иерархия 5',,sci178Esc) : noprotect;
+
+   UserDeskRep.ResWord[40] ('Выводить параметры в шапке отчета',,sci178Esc) : NoProtect;
+   UserDeskRep.ResWord[41] ('Номер групировки для дополнительной ветки',,sci178Esc) : noprotect;
+   AttrNam_Sh.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+
+//buttons
+//  cmvalue14;
+
+<<
+
+#common_fields_scr
+                                                    Вывести на уровне
+ `Группировки`                `Развернуть по иерархии(0 - нет)`  VVV
+ Уровень 1 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 2 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 3 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 4 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 5 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+
+ Дополнительные параметры
+ [.] вывод параметров в шапку отчета`
+ [.] объекты строит. разворачивать как кау`
+ [.] Отладочный протокол`
+ [.] Печатать детали(сотрудников)`
+ [.] Сформировать итоги к уровню ` .@@@@
+ Атрибут к штатному/должности .@@@@@@@@@@@@@@@@@@@@@@
+ Номер колонки определяется по ВА "Баланс раб.времени, Дни" 
+ к классификатору условных обозначений
+ >>
+End;
+Screen scrParam01 (,,sci178Esc);
+ Show at (,,,);
+  Table UserDeskRep;
+  Fields
+#common_fields
+   UserDeskRep.ResWord[40] ('Доролнительные опции',,sci178Esc) : NoProtect;
+   // Группировки
+   UserDeskRep.ResWord[11] ('Группировка 1',,sci1378Esc) : #_list_group1
+   UserDeskRep.ResWord[12] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[31] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[13] ('Группировка 2',,sci1378Esc) : #_list_group1
+   UserDeskRep.ResWord[14] ('Иерархия 2',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[32] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[15] ('Группировка 3',,sci1378Esc) : #_list_group1
+   UserDeskRep.ResWord[16] ('Иерархия 3',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[33] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[17] ('Группировка 4',,sci1378Esc) : #_list_group1
+   UserDeskRep.ResWord[18] ('Иерархия 4',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[34] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[19] ('Группировка 5',,sci1378Esc) : #_list_group1
+   UserDeskRep.ResWord[20] ('Иерархия 5',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[35] ('Иерархия 5',,sci178Esc) : noprotect;
+
+   UserDeskRep.ResWord[38] ('Собирать',,sci178Esc) : NoProtect;
+   fFltVidopl    ('Фильтр по видам оплат',,sci1378Esc) : protect,pickbutton;
+   fFltVidud     ('Фильтр по видам удержания',,sci1378Esc) : protect,pickbutton;
+   fFltPerech    ('Фильтр по налогам',,sci1378Esc) : protect,pickbutton;
+   AttrNam_Sh.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+//buttons
+//  cmvalue14;
+
+<<
+#common_fields_scr
+                                    `Вывести на уровне` `Дополнительные параметры`
+ `Группировки`  `Развернуть по иерархии(0 - нет)` `VVV` [.] вывод параметров в шапку отчета`
+ Уровень 1 .@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@   .@@@    [.] объекты строит. разворачивать как кау`
+ Уровень 2 .@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@   .@@@    [.] Отладочный протокол`
+ Уровень 3 .@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@   .@@@    [.] Использовать прямые запросы(быстро)`
+ Уровень 4 .@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@   .@@@    [.] Формировать по месяцу за который`
+ Уровень 5 .@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@   .@@@    [.] Выводить страх.взносы рядом с начислениями`
+ Вывести                                                [.] Не выводить "Имущественный вычет"`
+ [.] Начисления` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@          [.] Использовать group by в прямых запросах`
+ [.] Удержания ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@          [.] Не выводить виды оплат, не уч.в проводках`
+ [.] Стр.взносы` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@          [.] Вывести базу`
+ Атрибут к штатному/должности .@@@@@@@@@@@@@@@@@@@@@@   [.] Использовать "Структура наименов.КАУ"`
+ >>
+/*
+1   [.] вывод параметров в шапку отчета`
+2   [.] объекты строит. разворачивать как кау`
+4   [.] Отладочный протокол`
+8   [.] Использовать прямые запросы(быстро)`
+16  [.] Формировать по месяцу за который`
+32  [.] Выводить страх.взносы рядом с начислениями`
+64  [.] Не выводить "Имущественный вычет"`
+128 [.] Использовать group by в прямых запросах`
+256 [.] Не выводить виды оплат, не уч.в проводках`
+512 [.] Вывести базу`
+*/ 
+End;
+//=============================
+// Сметы затрат
+//=============================
+Screen scrParam03 (,,sci178Esc);
+ Show at (,,,);
+  Table UserDeskRep;
+  Fields
+#common_fields
+
+   UserDeskRep.ResWord[40] ('Выводить параметры в шапке отчета',,sci178Esc) : NoProtect;
+   AttrNam_Sh.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+   AttrNam_Vo.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+
+//buttons
+//  cmvalue14;
+
+<<
+
+#common_fields_scr
+
+ Дополнительные параметры
+ [.] Отладочный протокол`
+ Атрибут "Виды деятельности" к штатному/должности 
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Атрибут "Смета расходов" к клас.видов оплат   
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ >>
+End;
+
+//=============================
+// Сведения о численности и зараб.плате
+//=============================
+Screen scrParam05 (,,sci178Esc);
+ Show at (,,,);
+  Table UserDeskRep;
+  Fields
+#common_fields
+
+   UserDeskRep.ResWord[40] ('Выводить параметры в шапке отчета',,sci178Esc) : NoProtect;
+   AttrNam_Sh.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+   AttrNam_Vo.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+
+//buttons
+//  cmvalue14;
+
+<<
+
+#common_fields_scr
+
+ Дополнительные параметры
+ [.] Отладочный протокол`
+ Атрибут "Виды деятельности" к штатному/должности 
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Атрибут "Смета расходов" к клас.видов оплат   
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ >>
+End;
+
+//=============================
+// Сведения о численности и зараб.плате
+//=============================
+Screen scrParam06 (,,sci178Esc);
+ Show at (,,,);
+  Table UserDeskRep;
+  Fields
+#common_fields
+
+   UserDeskRep.ResWord[40] ('Выводить параметры в шапке отчета',,sci178Esc) : NoProtect;
+   AttrNam_Sh.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+   AttrNam_Vo.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+
+//buttons
+//  cmvalue14;
+
+<<
+
+#common_fields_scr
+
+ Дополнительные параметры
+ [.] Отладочный протокол`
+ Атрибут "ОКВЭД" к штатному/должности 
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Атрибут "Смета расходов" к клас.видов оплат   
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ >>
+End;
+
+//=======================================
+//  Численность персонала в разрезе объектов строительства
+//======================================
+Screen scrParam07 (,,sci178Esc);
+ Show at (,,,);
+  Table UserDeskRep;
+  Fields
+#common_fields
+   // Группировки
+   UserDeskRep.ResWord[11] ('Группировка 1',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[12] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[31] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[13] ('Группировка 2',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[14] ('Иерархия 2',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[32] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[15] ('Группировка 3',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[16] ('Иерархия 3',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[33] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[17] ('Группировка 4',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[18] ('Иерархия 4',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[34] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[19] ('Группировка 5',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[20] ('Иерархия 5',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[35] ('Иерархия 5',,sci178Esc) : noprotect;
+
+   UserDeskRep.ResWord[40] ('Выводить параметры в шапке отчета',,sci178Esc) : NoProtect;
+   UserDeskRep.ResWord[41] ('Номер групировки для дополнительной ветки',,sci178Esc) : noprotect;
+   AttrNam_Sh.Name  ('Внешний атрибут к ставке в штатном расписании или к должности',,sci1378Esc) : protect,pickbutton;
+
+//buttons
+//  cmvalue14;
+
+<<
+
+#common_fields_scr
+                                                    Вывести на уровне
+ `Группировки`                `Развернуть по иерархии(0 - нет)`  VVV
+ Уровень 1 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 2 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 3 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 4 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Столбцы   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+
+ Дополнительные параметры
+ [.] вывод параметров в шапку отчета`
+ [.] объекты строит. разворачивать как кау`
+ [.] Отладочный протокол`
+ [.] Печатать детали(сотрудников)`
+ [.] Сформировать итоги к уровню ` .@@@@
+ Атрибут к штатному/должности .@@@@@@@@@@@@@@@@@@@@@@
+ Номер колонки определяется по ВА "Численность в разрезе Объектов строительства" 
+ к классификатору условных обозначений
+ 001 - Дни в пути
+
+
+
+ >>
+End;
+
+
+#undef _list_group
+#undef _list_group1
+#undef common_fields
+#undef common_fields_scr
+//===============================
+Procedure MyCheckField;
+{ 
+  SetFieldState(#UserDeskRep.ResDate[1],sfVisible)
+  case UserDeskRep.ResWord[39] of
+  0: // отчет о табеле
+  { nmtemplate:='TNS_Zar_TabelBalans.xls';
+    setformat(scrparam);
+  }
+  1: // отчет о зарплате
+  { nmtemplate:='UFPS_Zar_Svod.xls';
+    setformat(scrparam01);
+
+  }
+  2: // отчет о авансе
+  { nmtemplate:='TNS_Zar_Avans.xls';
+    setformat(scrparam);
+
+  }
+  3: // смета расходов  120.4
+  { nmtemplate:='TNS_Zar_SmetaFot.xls';
+    setformat(scrparam03);
+
+  } 
+  4: // смета расходов 120.2.1
+  { nmtemplate:='TNS_Zar_Smeta_120_2.xls';
+    setformat(scrparam03);
+
+  } 
+  5: //Сведения о численности и зараб.плате
+  { nmtemplate:='TNS_Zar_ChislZP.xls';
+    // будет задаваться в автомате
+    ClearFieldState(#UserDeskRep.ResDate[1],sfVisible)
+    setformat(scrparam05);
+  } 
+  6:
+  { nmtemplate:='TNS_Zar_ChislZP02.xls'
+    //ClearFieldState(#UserDeskRep.ResDate[1],sfVisible)
+    setformat(scrparam06);
+  }
+  7:
+  { nmtemplate:='TNS_Zar_ChislZP07.xls'
+    //ClearFieldState(#UserDeskRep.ResDate[1],sfVisible)
+    setformat(scrparam07);
+  }
+  end;
+  Rescanpanel(#UserDeskRep)
+}//Procedure MyCheckField;
+
+
+HandleEvent // window
+cmInit:
+{
+  MyCheckField;
+}
+
+cmvalue14: // настройка печати
+{
+}
+
+cmDone :
+{
+
+ if ((IsNew) and (not IsModified))
+  {
+   SetModified(True);
+   UpDateTable;
+  };
+}
+
+End;  // HandleEvent
+End;  // window
+
+//========
+Panel pParamOtch;
+ Table UserDeskRep;
+HandleEvent  // panel
+ cmSetDefault:
+  {
+    ClearBuffer(tnUserDeskRep);
+    UserDeskRep.dRep    := Cur_Date;
+
+    UserDeskRep.ResDate[1] := date(1,month(cur_date),year(cur_date));
+    UserDeskRep.ResDate[2] := date(Last_Day(cur_date),month(cur_date),year(cur_date));
+
+    UserDeskRep.ResWord[1] := 0;
+    set UserDeskRep.RepName := ' Новый отчет';
+  }
+
+ cmInsertRecord :
+   Insert Current UserDeskRep;
+
+ cmDeleteRecord :
+   if (Message(''#3'Удалить текущую запись?',YesNo) <> cmYes)
+    Abort
+   else
+     Delete Current UserDeskRep;
+
+ cmUpdateRecord :
+   Update Current UserDeskRep;
+cmCheckfield:
+{  UpdateTable;
+}   
+cmPick:
+{  UpdateTable;
+/*
+
+        PickRep2Marker('MKatNazna', NReport*10+5, UserDeskRep.ResComp[5]);
+        if (RunInterface('GetSomKatNazna', Boolean(True), Comp(0)) <> cmCancel)
+         {
+          DelPickRep(NReport*10+5);
+          Marker2PickRep('MKatNazna', NReport*10+5, UserDeskRep.ResComp[5], wNumPick);
+          if (wNumPick > 1)
+           {
+             set UserDeskRep.ResWord[15] := NReport*10+5;
+             set UserDeskRep.ResWord[25] := wNumPick;
+           }
+          else
+           set UserDeskRep.ResWord[15] := 0;
+          RescanPanel(#UserDeskRep);
+*/
+    case curfield of
+    #fFltPodr:
+    {  PickRep2Marker('Z_KatPodr1', 1, UserDeskRep.ResComp[1]);
+        
+       _PodrMArkerPointer := CLSF.LoadFullCurrentDepartmentList;
+       iPodrFilterDef.MarkCopyCatToMy(_PodrMArkerPointer,'Z_KatPodr1')
+       if RunInterface('GetPodaLN',11, 0, 1)=cmDefault
+       { _PodrMArkerPointer := CLSF.LoadFullCurrentDepartmentList;
+         ///message('отобрали '+string(GetMarkerCount(_PodrMArkerPointer)))
+         iPodrFilterDef.MarkCopyMyToCat(_PodrMArkerPointer,'Z_KatPodr1')
+         //MarkerPodr :=InitMarker('Z_KatPodr', 8, 10, 10);
+         //message('отобрали '+string(GetMarkerCount(MarkerPodr)))
+         //DoneMarker(MarkerPodr,'Z_KatPodr')
+         DelPickRep(1)
+         Marker2PickRep('Z_KatPodr1',1, UserDeskRep.ResComp[1], wNumPick);
+         /*  _LOOP PickRep where (( UserName         == PickRep.OwnName      and
+                         UserDeskRep.nRec == PickRep.cUserDeskRep and
+                         1       == PickRep.wList ))
+            {  message('1 '+PickRep.wlist)
+            
+            }             
+         */
+         if (wNumPick > 1)
+           {
+             set UserDeskRep.ResWord[21] := wNumPick;
+           } 
+       }  
+    } //fFltPodr
+    #fFltKatego:
+    { PickRep2Marker('mkatego', 2, UserDeskRep.ResComp[2]);
+      Runinterface('GetKatego')//=cmDefault  - не возвращает
+      DelPickRep(2);
+      Marker2PickRep('mKatego', 2, UserDeskRep.ResComp[2], wNumPick);
+      /*
+         MarkerKateg :=InitMarker('mKatego', 8, 10, 10);
+         message('отобрали '+string(GetMarkerCount(MarkerKateg)))
+         DoneMarker(MarkerKateg,'mKatego')
+           _LOOP PickRep where (( UserName         == PickRep.OwnName      and
+                         UserDeskRep.nRec == PickRep.cUserDeskRep and
+                         2       == PickRep.wList ))
+            {  message('1 '+PickRep.crec)
+            
+            }             
+         
+        */               
+         if (wNumPick > 1)
+           {
+             set UserDeskRep.ResWord[22] := wNumPick;
+           } 
+            
+    } //fFltKateg
+    #fFltPost: // по должности
+    { PickRep2Marker('CatalogsMarker', 3, UserDeskRep.ResComp[3]);
+      if RunInterface(Z_STAFFCAT::PICKCATALOG2, -22,
+                      UserDeskRep.ResComp[3], Comp(100)) = cmDefault
+      { DelPickRep(3);
+        Marker2PickRep('CatalogsMarker', 3, UserDeskRep.ResComp[3], wNumPick);
+        if (wNumPick > 1)
+           {
+             set UserDeskRep.ResWord[23] := wNumPick;
+           }
+      }                
+    } //#fFltPost:
+    #fFltVidopl: // по видам оплат
+    { PickRep2MarkerVidopl('VedNach_Marker_New1', 8, UserDeskRep.ResComp[8],4,200,7);
+      var tmp_marker :longint;
+      
+      //PickRep2Marker('VedNach_Marker_New1', 8, UserDeskRep.ResComp[8]);
+      if RunInterface(z_zar::marknach,0) = cmDefault
+      { DelPickRep(8);
+        Marker2PickRepVidopl('VedNach_Marker_New1', 8, UserDeskRep.ResComp[8], wNumPick,4,200,7);
+        //Marker2PickRep('VedNach_Marker_New1', 8, UserDeskRep.ResComp[8], wNumPick);
+        if (wNumPick > 1)
+          { set UserDeskRep.ResWord[28] := wNumPick;
+          }
+      }                
+    } //#fFltPost:
+    #fFltVidUd: // по видам оплат
+    { PickRep2MarkerVidopl('VedUd_Marker_New', 9, UserDeskRep.ResComp[9],2,200,7);
+      //PickRep2Marker('VedUd_Marker_New', 9, UserDeskRep.ResComp[9]);
+      if RunInterface(z_zar::markuder) = cmDefault
+      { DelPickRep(9);
+        Marker2PickRepVidopl('VedUd_Marker_New', 9, UserDeskRep.ResComp[9], wNumPick,2,200,7);
+        //Marker2PickRep('VedUd_Marker_New', 9, UserDeskRep.ResComp[9], wNumPick);
+        if (wNumPick > 1)
+          { set UserDeskRep.ResWord[29] := wNumPick;
+          }
+      }                
+    } //#fFltPost:
+    #fFltPerech: // по страховым налогам
+    { PickRep2Marker('Perech_Mark', 10, UserDeskRep.ResComp[10]);
+      if RunInterface(markperech) = cmDefault
+      { DelPickRep(10);
+        Marker2PickRep('Perech_Mark', 10, UserDeskRep.ResComp[10], wNumPick);
+        if (wNumPick > 1)
+          { set UserDeskRep.ResWord[30] := wNumPick;
+          }
+      }                
+    } //#fFltPost:
+    #Attrnam_Sh.Name:
+    { if runinterface(C_EXTCLASS::PICKATTRNAM,UserDeskRep.ResComp[20] ,coStaffStruct)=cmDefault
+         if getfirst fastfirstrow Attrnam_Sh=0 {}
+    }
+    #Attrnam_VO.Name:
+    { if runinterface(C_EXTCLASS::PICKATTRNAM,UserDeskRep.ResComp[21] ,coKlVidopl)=cmDefault
+         if getfirst fastfirstrow Attrnam_VO=0 {}
+    }
+    end; //case curfield of
+    update current UserDeskRep;
+    RescanPanel(#UserDeskRep);
+    
+ }
+ cmDelOnProtect:
+ { UpdateTable;
+   case curfield of
+   #fFltPodr:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 1);
+                Set UserDeskRep.ResWord[21] := 0;
+                Set UserDeskRep.ResComp[1]  := 0;
+              }
+   }
+   #fFltKatego:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 2);
+                Set UserDeskRep.ResWord[22] := 0;
+                Set UserDeskRep.ResComp[2]  := 0;
+              }
+   }
+   #fFltPost:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 3);
+                Set UserDeskRep.ResWord[23] := 0;
+                Set UserDeskRep.ResComp[3]  := 0;
+              }
+   }
+   #fFltVidopl:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 8);
+                Set UserDeskRep.ResWord[28] := 0;
+                Set UserDeskRep.ResComp[8]  := 0;
+              }
+   }
+   #fFltVidud:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 9);
+                Set UserDeskRep.ResWord[29] := 0;
+                Set UserDeskRep.ResComp[9]  := 0;
+              }
+   }
+   #fFltPerech:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 10);
+                Set UserDeskRep.ResWord[30] := 0;
+                Set UserDeskRep.ResComp[10]  := 0;
+              }
+   }
+   end;
+   ReScanPanel(#UserDeskRep)
+ } //cmDelOnProtect
+ cmCheckField:
+ { case curfield of
+   #UserDeskRep.ResWord[39] :    MyCheckField;
+   end;
+ }         
+ cmPositionChanged:
+ { MyCheckField;
+ }
+ end;
+end;//Panel pParamOtch;
+ //--------------------------------------------------------------------------------
+
+Panel p1;
+  Table TempDescr;
+
+HandleEvent  // Panel p1
+
+cmTreeTop         : CurGroup := 0;
+
+cmTreeUp          : CurGroup := TempDescr.cGroup;
+
+cmTreeDown        : CurGroup := TempDescr.nRec;
+
+cmTreeNodeType    : if ( TempDescr.isLeaf = 1 )
+                      TreeSetNodeType(MainTree, 2);
+
+end;  // he Panel p1
+end;  // Panel p1
+
+
+//=======================================================================
+// Список настроек
+//=======================================================================
+Panel pOtchIspIski;
+ Table UserDeskRep;
+Browse brOtchIspIski('Enter - сформировать отчет',, sci1478EnEsc);
+ Show  at (,,,16);
+ Table UserDeskRep;
+ Fields
+  UserDeskRep.RepName    #3'Наименование отчета' :[45], Protect;
+  UserDeskRep.dRep       #3'Дата'  :[10,'DD/MM/YYYY'], Protect, Centered;
+  UserDeskRep.ResDate[1] #3'c'     :[10,'DD/MM/YYYY'], Protect, Centered;
+  UserDeskRep.ResDate[2] #3'по'    :[10,'DD/MM/YYYY'], Protect, Centered;
+  if(UserDeskRep.ResWord[60]=0,'','V')  :[3], Protect, Centered;
+ end; // browse
+
+Screen ButOtch;
+ Show  at (,17,,);
+Buttons
+//  cmValue1, Default, , 'Сформировать отчет', , sci1Esc;
+  cmValue1, , , 'Сформировать отчет', , sci1Esc;
+  cmValue2, , , 'Посмотреть последний сформированный отчет', , sci1Esc;
+  cmEdit,   , , 'Установка параметров отчета', , sci1Esc;
+  cmCancel, , , 'Отмена', , sci1Esc;
+
+<<
+
+ <.Сформировать.>  <.Просмотр.>   <.  Настройка .>       <.   Отмена   .>
+>>
+
+end; // screen
+
+ HandleEvent  // for panel
+  cmSetDefault:
+   {
+     SelectPanel(#UserDeskRep);
+     PutCommand(cmEdit);
+   }
+  cmDelOnProtect: abort;
+ end; // HandleEvent for panel
+End; // Panel
+//================================================
+Procedure Init_ZarNachUder(ww_num:word;InterfaceName:string);
+{  var P:integer;
+   if ( InterfaceName <> '' )
+   {
+    if LoadVipRef(ArrAlgP[ww_num],'Z_ZAR::ZARNACHISLUDERPARAM_' +InterfaceName)
+    { 
+    }
+  }  
+} //Procedure Init_ZarNachUder(ww_num:word;InterfaceName:string);
+//=========================================================================
+// Обработчик интерфейса
+//=========================================================================
+HandleEvent  // interface
+cmNotify_SVOD: //блокируем повторный запуск
+{ if kl_init 
+  {  RunWindowModal(wnMess); 
+     SelectPanel(#UserDeskRep)
+     Stop(); 
+  }
+} 
+cmEdit: // Редактирование настройки
+ {
+   RunWindowModal(winParam);
+   UpdateTable;
+   RescanPanel(#UserDeskRep);
+ }
+
+cmInit :
+ { Zaglushka;
+   kl_init:=false 
+   if (Notify(cmNotify_SVOD,0 ) <> 0) 
+   {  message('Интерфейс уже запущен!'+chr(13)
+              +'Переключитесь по Alt+0')
+      Abort(); 
+   } 
+   logfilenm:=GetStringParameter('Files','OutputFilesDirectory',0)  +'!wt_balans.log'
+   if fileexist(logfilenm) deletefile(logfilenm) 
+   var ww_nrec:comp;
+   if not ReadMyDsk(ww_Nrec,'USER_ZAR_REPORT_NREC',false) ww_nrec:=0;
+   if ww_nrec<>0
+     if getfirst UserDeskRep where (( ww_nrec == UserDeskRep.Nrec ))=0 {}
+
+   kl_init:=true;
+   NReport := 7900;
+   CurCode := 7950;
+   ReScanPanel(#UserDeskRep);
+   SelectPanel(#UserDeskRep);
+   SelectField(#UserDeskRep.RepName);
+   CLSF.ReScan;
+   InitServTxo(0);
+   MainTree:=trTmpTree;
+   
+   if fileexist('TreeRep.log') deletefile('TreeRep.log')
+   YearCur:=year(dgettune('UP.DATOTCH'))  
+   MesCur:=month(dgettune('UP.DATOTCH'))
+ }
+cmValue1:
+  if (UpdateTable)
+  { PushPos(#UserDeskRep)
+    _loop fullcache UserDeskRep where (( NReport           == UserDeskRep.nRep
+     and USERNAME == UserDeskRep.OwnName          
+    )) and UserDeskRep.ResWord[60]=1
+    { update current UserDeskRep set UserDeskRep.ResWord[60]:=0;
+    }
+    an_stru_spkau:=wGetTune('FIN.ANAL.USERKAU');
+    PopPos(#UserDeskRep)
+    rescanpanel(#UserDeskRep)
+    resetbounds(#tmp_persons)
+    delete all tmp_persons;
+    TmpKatalog_Delete;
+    delete all tmp_sbsql;
+
+    kod_StZatrat:=0;
+    if getfirst fastfirstrow klvidopl where (( 7 == klvidopl.vidopl ))=0 kod_StZatrat:=klvidopl.tbld[1];
+    setbounds(#tmp_persons)
+    insert tmp_persons select persons.nrec,persons.fio,persons.sex,persons.borndate from persons;
+    if fileexist(logfilenm) deletefile(logfilenm)
+    delete all tmp_spr;
+    case UserDeskRep.ResWord[39] of
+    1:   MainTree:=trTmpTree01;
+    2:   MainTree:=trTmpTree02;
+    //3:   MainTree:=trTmpTree03;
+    else MainTree:=trTmpTree;
+    end;
+    //==========
+    PickRep2Marker('Z_KatPodr', 1, UserDeskRep.ResComp[1]);
+    PickRep2Marker('mkatego',   2, UserDeskRep.ResComp[2]);
+    PickRep2Marker('CATPOST',   3, UserDeskRep.ResComp[2]);
+    MarkerPodr :=InitMarker('Z_KatPodr', 8, 10, 10);
+    MarkerKateg:=InitMarker('mkatego', 8, 10, 10);
+    MarkerPost :=InitMarker('CATPOST', 8, 10, 10);
+    if UserDeskRep.ResWord[39]=1
+    { PickRep2Marker('ZR_VIDOPL', 8, UserDeskRep.ResComp[8]);
+      PickRep2Marker('ZR_VIDUD',  9, UserDeskRep.ResComp[9]);
+      PickRep2Marker('ZR_VIPER',  10, UserDeskRep.ResComp[10]);
+      MarkerVidopl :=InitMarker('ZR_VIDOPL', 8, 10, 10);
+      MarkerVidud  :=InitMarker('ZR_VIDUD', 8, 10, 10);
+      MarkerVidper :=InitMarker('ZR_VIPER', 8, 10, 10);
+    }  
+    //==========
+    StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Обработка...', vfTimer+vfBreak);
+    // дополнительные группировки из отчета по составу
+    case UserDeskRep.ResWord[39] of
+    0:
+    {}
+    else
+    { Init_ZarNachUder(0,'ValBDR')
+      ArrAlgP[0].SetParameter(0,1,'')
+      Init_ZarNachUder(1,'ValESOT')
+      if v1.getfirst katkau where (( 'Статьи БДР' == katkau.name(noindex) ))=0 kod_bdr:= v1.katkau.KODGROUP;
+    }
+    end;
+    vStaff.DTB:= UserDeskRep.ResDate[1]
+    vStaff.DTE:= UserDeskRep.ResDate[2]
+    delete all Tobot;
+    delete all Tobot3;
+    ClearTable(CurCode)
+    ClearTable(CurCode+1)
+    ClearTable(CurCode+2)
+    ClearTable(CurCode+3)
+
+    delete all Tobot3;
+    
+    // дополнительные группировки из отчета по составу
+    case UserDeskRep.ResWord[39] of
+    0:  CreateReport;
+    1:  CreateReport01;
+    2:  CreateReport02;
+    3:  CreateReport03;
+    4:  CreateReport04;
+    5:  CreateReport05;
+    6:  CreateReport06;
+    7:  CreateReport07;
+    end;
+    //сохранять или нет
+   Var bSaveReport: Boolean;
+
+   Case UserDeskRep.Resword[59] of
+  // ----------------
+    0: bSaveReport := False;
+  // ----------------
+    1: bSaveReport := True;
+  // ----------------
+    2:
+    {
+      if (Message('Сохранять данные для отчета ?', YesNo + Confirmation) = cmYes)
+        bSaveReport := True
+      else
+        bSaveReport := False;
+    }
+  // ----------------
+    else
+     bSaveReport := False;
+  // ----------------
+    End;
+
+    if (not bSaveReport)
+    {
+      ClearTempTables(CurCode);
+      ClearTempTables(CurCode+1);
+      ClearTempTables(CurCode+2);
+      ClearTempTables(CurCode+3);
+      TmpKatalog_Delete;
+      RereadRecord(tnTobot);
+      RereadRecord(tnTempDescr);
+      RereadRecord(tnTempIer);
+      Set UserDeskRep.ResWord[60] := 0;
+    }
+    else
+    {
+      Set UserDeskRep.ResWord[60] := 1;
+    }
+
+    Update current UserDeskRep;
+   //========================= 
+    if VisualizationActive
+      StopVisual('',0);
+    xlKillExcel;
+    //========
+    DoneMarker(MarkerPodr,'')
+    DoneMarker(MarkerKateg,'')
+    DoneMarker(MarkerPOST,'')
+    if UserDeskRep.ResWord[39]=1
+    { DoneMarker(MarkerVidopl,'')
+      DoneMarker(MarkerVidud,'')
+      DoneMarker(MarkerVidper,'')
+    
+    }
+    // дополнительные группировки из отчета по составу
+    case UserDeskRep.ResWord[39] of
+    0:
+    {}
+    else
+    { var kk:word
+      for(kk:=0;kk<count(ArrAlgP);kk:= kk+1)
+      {
+        FreeVipInterface(ArrAlgP[kk]);
+      }
+    }
+    end;
+    if logfilekl and fileExist(logfilenm)
+    AND UserDeskRep.ResWord[39] <>7
+    {
+         ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+              logfilenm+'  Протокол ошибок !!!');
+    
+    }
+    // дополнительные группировки из отчета по составу
+    rescanpanel(#UserDeskRep)
+  }
+//cmValue1:
+cmValue2:
+{ if ( getfirst UserDeskRep where (( NReport           == UserDeskRep.nRep
+     and USERNAME == UserDeskRep.OwnName          
+    )) and UserDeskRep.ResWord[60]=1) =0
+  { RescanPanel(#UserDeskRep);
+
+    case UserDeskRep.ResWord[39] of
+    1:   MainTree:=trTmpTree01;
+    2:   MainTree:=trTmpTree02;
+    // сразу будет отчет 3:   MainTree:=trTmpTree03;
+    else MainTree:=trTmpTree;
+    end;
+    TreeGetFirstEx(MainTree );
+    case UserDeskRep.ResWord[39] of
+    0:  RunWindowModal(wnReport);
+    1: {
+      MakeNameColumnFot;
+      RunWindowModal(wnReport01);
+    }  
+    2:  RunWindowModal(wnReport02);
+    //3:  RunWindowModal(wnReport03);
+    else 
+    { //RunWindowModal(wnReport);
+      message('Просмотр сохраненых отчетов не предксмотренно')
+    }
+    end;
+  }
+  else
+  { message('Нет сформированных отчетов!')
+    if Getlast UserDeskRep=0 {};
+    RescanPanel(#UserDeskRep);
+  }  
+} //cmValue2:
+cmDefault:  // Enter
+  PutCommand(cmValue1);
+cmDone:
+{ DoneServTxo
+  SaveMyDsk(UserDeskRep.Nrec,'USER_ZAR_REPORT_NREC')
+
+
+}
+
+End; // he interface
+End. // interface
+
+mnFZ21_Print Menu
+{
+- 'Печать документа',cmPrintDoc,'Печать документа',hcctxSoprPrintDoc,'Ctrl+P',kbCtrlP,sci1Esc;
+- 'Печать текущей ветки',cmPlansNo,'Печать документа  только текущей ветки',hcctxSoprPrintDoc,'Alt+P',kbAltP,sci1Esc;
+- 'Печать по развороту',cmValue2,'Печать документа только развернутых веток',hcctxSoprPrintDoc,'Alt+P',kbAltP,sci1Esc;
+-----------;
+}

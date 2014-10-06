@@ -1,0 +1,769 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2011 корпорация ГАЛАКТИКА                    ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+function GetBackColor(FieldNum: integer): integer;
+{
+  GetBackColor := 0;
+  case FieldNum of
+    #bound_DateBeg : GetBackColor := if (longint(bound_DateBeg) = 0, ColorNeed, 0);
+    #bound_DateEnd : GetBackColor := if (longint(bound_DateEnd) = 0, ColorNeed, 0);
+    #v_StSchet  : GetBackColor := if (SchetCount = 0,ColorNeed, 0);
+    #vMacrosName: GetBackColor := if (vMacrosName = '',ColorNeed, 0);
+  end; // case
+}
+
+function CheckParameters: boolean;
+{
+var errordescr: string;
+
+    errordescr := '';
+    if (v_StSchet = '')
+    {
+      errordescr := 'Выберите счет!';
+    }
+    else if bound_DateBeg = date(0,0,0) or bound_DateEnd = date(0,0,0)
+    {
+    errordescr := 'Укажите период формирования отчета!';
+    }
+    else if (bound_DateBeg > bound_DateEnd)
+    {
+    errordescr := 'Начальная дата интервала не может быть больше конечной!';
+    }
+    else
+    {
+     if getfirst AttrNamDog = tsOk
+      if (AttrNamDog.attrtype <> 0)
+      {
+         errordescr := 'Атрибут с номером договора должен быть текстовым!';
+      }
+     if getfirst AttrNam = tsOk
+      if (AttrNam.attrtype <> 1)
+      {
+         errordescr := 'Атрибут со сроком погашения задолженности должен быть числовым!';
+      }
+    }
+    if errordescr = '' CheckParameters := True;
+      else
+      {
+        Message (errordescr);
+        CheckParameters :=  False;
+      }
+}
+
+Procedure _DelPickRep(var cUserDeskRep: comp; wListSour : word);
+{
+  delete PickRep where (( UserName     == PickRep.OwnName  and
+                          cUserDeskRep == PickRep.cUserDeskRep and
+                          wListSour    == PickRep.wList ));
+}
+
+//копирование PickRep
+procedure PickRep2PickRep (cUserDeskRepSource, cUserDeskRepDest: comp; wListSource, wListDest: word);
+{
+//очищаем целевой PickRep
+  _DelPickRep (cUserDeskRepDest, wListDest);
+  _loop PickRepSource where ((  UserName           == PickRepSource.OwnName  and
+                                cUserDeskRepSource == PickRepSource.cUserDeskRep and
+                                wListSource        == PickRepSource.wList ))
+  {
+     ClearBuffer(#PickRepDest);
+     CopyTableFields(#PickRepSource, #PickRepDest);
+     PickRepDest.wlist := wListDest;
+     PickRepDest.cUserDeskRep := cUserDeskRepDest;
+     insert current PickRepDest;
+  }
+
+}
+
+function isPickRepChanged (wListSource, wListDest: word): boolean;
+{
+  isPickRepChanged := False;
+  if (v_orgFilterWord <> UserDeskRep.ResWord[8] or v_orgFilterComp <> UserDeskRep.ResComp[8])
+       isPickRepChanged := true;
+  else
+  {
+    _loop PickRepSource where ((  UserName         == PickRepSource.OwnName  and
+                                  UserDeskRep.nrec == PickRepSource.cUserDeskRep and
+                                  wListSource      == PickRepSource.wList ))
+    {
+       if getfirst PickRepDest where ((  UserName           == PickRepDest.OwnName  and
+                                         UserDeskRep.nrec   == PickRepDest.cUserDeskRep and
+                                         wListDest          == PickRepDest.wList and
+                                         PickRepSource.crec == PickRepDest.crec )) <> tsOk
+       {
+          isPickRepChanged := true;
+          break;
+       }
+
+    }
+  }
+}
+
+procedure SetDefOSch (SetSch,SetSub : boolean);
+{
+
+  if (SetSch) {
+    while getfirst PickBuh where (( cgPick_Schet  == PickBuh.KodTable)) = tsOk
+           do delete current PickBuh;
+
+    while getfirst PickBuhSub where ((cgPick_SubSch   == PickBuhSub.KodTable )) = tsOk
+            do delete current PickBuhSub;
+    v_Schet       := cgDefSch;
+    set v_StSchet := cgDefSch;
+    isMultiSch    := False;
+    isMultiSub    := False;
+    SchetCount    := 0;
+    SubSchetCount := 0;
+
+  }
+
+  if (SetSub)
+  {
+    while getfirst PickBuhSub where ((cgPick_SubSch   == PickBuhSub.KodTable )) = tsOk
+            do delete current PickBuhSub;
+    v_SubSchet       := cgDefSub;
+    set v_StSubSchet := cgDefSub;
+    isMultiSub       := False;
+    SubSchetCount := 0;
+  }
+
+}
+
+
+procedure RestoreSchetMarker;
+var
+  MarkerName: string;
+{
+  MarkerName := 'gt' + string(cgPick_Schet) + 'buhschet';
+  Marker := InitMarker('', 8, 200, 100, false);
+
+  _loop PickBuh where ((cgPick_Schet == PickBuh.KodTable ))
+    InsertMarker(Marker, PickBuh.PickRec);
+
+  _loop PickBuhSub where ((cgPick_SubSch == PickBuhSub.KodTable ))
+    InsertMarker(Marker, PickBuhSub.PickRec);
+
+  DoneMarker(Marker, MarkerName);
+}
+
+function isPickBuhChanged: boolean;
+{
+  isPickBuhChanged := False;
+  if SchetCount <> countPickRep (wListSchet) or SubSchetCount <> countPickRep (wListSubSchet)
+    isPickBuhChanged := True;
+  else
+  { //проверяем выбранные счета
+    _loop PickBuh where ((cgPick_Schet  == PickBuh.KodTable))
+    {
+      if getfirst PickRep where (( UserName            == PickRep.OwnName  and
+                                   UserDeskRep.nrec    == PickRep.cUserDeskRep and
+                                   wListSchet          == PickRep.wList and
+                                   PickBuh.PickRec     == PickRep.crec )) <> tsOk
+      {
+        isPickBuhChanged := True;
+        break;
+      }
+    }
+    //проверяем выбранные субсчета
+    _loop PickBuhSub where ((cgPick_SubSch == PickBuhSub.KodTable))
+    {
+      if PickBuhSub.PickRec = 0  //субсчет не определен
+      {
+         if getfirst BuhSchet where (( PickBuhSub.Schet == BuhSchet.Schet and
+                                       cgDefSub         == BuhSchet.SubSch
+                                     )) = tsOk
+         {
+            if getfirst PickRep where ((UserName            == PickRep.OwnName  and
+                                        UserDeskRep.nrec    == PickRep.cUserDeskRep and
+                                        wListSubSchet       == PickRep.wList and
+                                        BuhSchet.nrec       == PickRep.crec and
+                                        1                   == PickRep.pickkol (noindex))) <> tsOk
+             {
+                isPickBuhChanged := True;
+                break;
+             }
+         }
+         else
+         {
+            isPickBuhChanged := True;
+            break;
+         }
+      }
+
+      else if getfirst PickRep where (( UserName            == PickRep.OwnName  and
+                                        UserDeskRep.nrec    == PickRep.cUserDeskRep and
+                                        wListSubSchet       == PickRep.wList and
+                                        PickBuhSub.PickRec  == PickRep.crec )) <> tsOk
+      {
+        isPickBuhChanged := True;
+        break;
+      }
+    }
+  }
+}
+
+procedure PickBuh2PickRep(var cUserDeskRep: comp);
+{
+    //очищаем PickRep
+    _DelPickRep (cUserDeskRep, wListSchet);
+    _DelPickRep (cUserDeskRep, wListSubSchet);
+    //сохраняем выбранные счета
+    _loop PickBuh where (( cgPick_Schet  == PickBuh.KodTable))
+    {
+       ClearBuffer(#PickRep);
+       PickRep.ownname := UserName;
+       PickRep.cuserdeskrep := cUserDeskRep;
+       PickRep.crec := PickBuh.PickRec;
+       PickRep.PickNum := PickBuh.Pick;
+       PickRep.wlist := wListSchet;
+       insert current PickRep;
+    }
+    //сохраняем выбранные субсчета
+     _loop PickBuhSub where (( cgPick_SubSch == PickBuhSub.KodTable))
+     {
+       ClearBuffer(#PickRep);
+       PickRep.ownname := UserName;
+       PickRep.cuserdeskrep := cUserDeskRep;
+       if PickBuhSub.PickRec = 0 //субсчет не определен
+       {
+         if getfirst BuhSchet where (( PickBuhSub.Schet == BuhSchet.Schet and
+                                       cgDefSub == BuhSchet.SubSch
+                                     )) = tsOk
+         {
+           PickRep.crec := BuhSchet.nrec;
+           PickRep.PickKol := 1; //помечаем, что эта запись - субсчет не определен
+         }
+       }
+       else PickRep.crec := PickBuhSub.PickRec;
+       PickRep.PickNum := PickBuhSub.Pick;
+       PickRep.wlist := wListSubSchet;
+       insert current PickRep;
+     }
+}
+
+Procedure PickRep2PickBuh (var cUserDeskRep: comp);
+{
+    // очищаем PickBuh
+    SetDefOSch (true, true);
+    //читаем выбранные счета
+   _loop PickRep where (( UserName     == PickRep.OwnName      and
+                          cUserDeskRep == PickRep.cUserDeskRep and
+                          wListSchet   == PickRep.wList
+                        ))
+
+    {
+      if getfirst BuhSchet where ((PickRep.crec == BuhSchet.nrec)) = tsOK
+      {
+        ClearBuffer(#PickBuh);
+        PickBuh.Name := BuhSchet.Name;
+        PickBuh.Pick := PickRep.PickNum;
+        PickBuh.PickKod := BuhSchet.LevelCode;
+        PickBuh.PickRec := PickRep.crec;
+        PickBuh.Schet := BuhSchet.Schet;
+        PickBuh.kodTable := cgPick_Schet;
+        insert current PickBuh;
+      }
+    }
+
+   //читаем выбранные субсчета
+    _loop PickRep where    (( UserName     == PickRep.OwnName      and
+                              cUserDeskRep == PickRep.cUserDeskRep and
+                              wListSubSchet== PickRep.wList
+                            ))
+
+    {
+      //субсчет не определен
+      if (PickRep.PickKol = 1)
+      {
+         if getfirst BuhSchet where ((PickRep.crec == BuhSchet.nrec)) = tsOK
+         {
+           ClearBuffer(#PickBuhSub);
+           PickBuhSub.Name := '<субсчет не определен>';
+           PickBuhSub.Pick := PickRep.PickNum;
+           PickBuhSub.PickKod := '--';
+           PickBuhSub.Schet := BuhSchet.Schet;
+           PickBuhSub.kodTable := cgPick_SubSch;
+           insert current PickBuhSub;
+         }
+      }
+        else if getfirst BuhSchet where ((PickRep.crec == BuhSchet.nrec)) = tsOk
+        {
+          ClearBuffer(#PickBuhSub);
+          PickBuhSub.Name := BuhSchet.Name;
+          PickBuhSub.Pick := PickRep.PickNum;
+          PickBuhSub.PickKod := BuhSchet.LevelCode;
+          PickBuhSub.PickRec := PickRep.crec;
+          PickBuhSub.Schet := BuhSchet.Schet;
+          PickBuhSub.SubKAU:= BuhSchet.SubSch;
+          PickBuhSub.kodTable := cgPick_SubSch;
+          insert current PickBuhSub;
+        }
+    }
+ }
+
+Procedure RecalcOrgFilterStr;
+{
+      if v_OrgFilterWord = 0  //нет фильтра по организациям
+      {
+        set v_OrgFilterStr  := '';
+      }
+       else if v_OrgFilterWord = 1  //выбрана 1 организация
+       {
+          if getfirst sPickKatOrg where ((v_OrgFilterComp == sPickKatOrg.nrec)) = tsOk
+          {
+            set v_OrgFilterStr  := #showkau(cgKAU_KatOrg,sPickKatOrg.nrec);
+          }
+          else
+          {
+            v_OrgFilterComp := comp(0);
+            v_OrgFilterWord := word(0);
+          }
+       }
+        else //множественный выбор
+        {
+            set v_OrgFilterStr  := 'Множественный выбор (' + v_OrgFilterWord + ')';
+        }
+
+}
+
+Procedure RecalcOrgHierStr;
+{
+            if getfirst sPickVidOrg where (( v_OrgHierComp1 == sPickVidOrg.Nrec )) = tsOk
+            set v_OrgHierStr1 := sPickVidOrg.Name;
+            else set v_OrgHierStr1 := '';
+
+            if getfirst sPickVidOrg where (( v_OrgHierComp2 == sPickVidOrg.Nrec )) = tsOk
+            set v_OrgHierStr2 := sPickVidOrg.Name;
+            else set v_OrgHierStr2 := '';
+
+            if getfirst sPickVidOrg where (( v_OrgHierComp3 == sPickVidOrg.Nrec )) = tsOk
+            set v_OrgHierStr3 := sPickVidOrg.Name;
+            else set v_OrgHierStr3 := '';
+}
+
+Procedure AnaliseAnalitics;
+{
+    v_Schet     := bound_Schet;
+    v_SubSchet  := cgDefSub;
+
+    IsOrgAnExist := false;
+    OrgAnNum     := 0;
+    IsDOAnExist  := false;
+    DOAnNum      := 0;
+
+    if getfirst SchetO = tsOk
+    {
+      for (i:=1;i<=6;i:=i+1)
+      {
+        if SchetO.KODTABLE[i] = cgKAU_KatOrg
+        {
+         IsOrgAnExist := true;
+         OrgAnNum     := i;
+        }
+        if SchetO.KODTABLE[i] = cgKAU_BaseDoc
+        {
+         IsDOAnExist  := true;
+         DOAnNum      := i;
+        }
+      }
+   }
+
+}
+
+Procedure AnaliseSubAnalitics;
+{
+    v_Schet     := bound_Schet;
+    v_SubSchet  := bound_SubSchet;
+
+    IsOrgAnExist := false;
+    OrgAnNum     := 0;
+    IsDOAnExist  := false;
+    DOAnNum      := 0;
+
+    if getfirst SchetSubO = tsOk
+    {
+      for (i:=1;i<=6;i:=i+1)
+      {
+        if SchetSubO.KODTABLE[i] = cgKAU_KatOrg
+        {
+         IsOrgAnExist := true;
+         OrgAnNum     := i;
+        }
+        if SchetSubO.KODTABLE[i] = cgKAU_BaseDoc
+        {
+         IsDOAnExist  := true;
+         DOAnNum      := i;
+        }
+      }
+    }
+
+}
+
+Procedure DefineAdditionalFieldsOptions;
+{
+var i : byte;
+
+// обрабатываем поля, связанные с аналитикой 1 (Организации)
+
+   if IsOrgAnExistAll
+   {
+       SetFieldOption(#v_OrgHier   ,    ofSelectable );
+       SetFieldOption(#v_OrgFilterStr,     ofSelectable );
+       RecalcOrgFilterStr;
+       SetFieldOption(#v_AttrNamName,   ofSelectable );
+       SetFieldOption(#v_AttrNamDogName,ofSelectable );
+       SetFieldOption(#v_ExClassName,   ofSelectable );
+   }
+   else
+   {
+       v_OrgHier := False;
+       ClearFieldOption(#v_OrgHier   , ofSelectable );
+       ClearFieldOption(#v_OrgFilterStr , ofSelectable );
+       DelPickRep (wListOrgFilter);     //удаляем фильтр по организациям
+       v_OrgFilterComp := comp(0);
+       v_OrgFilterWord := word(0);
+       v_OrgFilterStr  := '';
+       ClearFieldOption(#v_AttrNamName, ofSelectable);
+       ClearFieldOption(#v_AttrNamDogName, ofSelectable);
+       ClearFieldOption(#v_ExClassName, ofSelectable);
+   }
+
+   if v_OrgHier = True and IsOrgAnExistAll
+    {
+        RecalcOrgHierStr;
+        SetFieldState(#v_OrgHierStr1, sfVisible );
+        SetFieldState(#v_OrgHierStr2, sfVisible );
+        SetFieldState(#v_OrgHierStr3, sfVisible );
+    }
+   else
+   {
+       ClearFieldState(#v_OrgHierStr1, sfVisible );
+       ClearFieldState(#v_OrgHierStr2, sfVisible );
+       ClearFieldState(#v_OrgHierStr3, sfVisible );
+   }
+
+
+// обрабатываем поля, связанные с аналитикой 6 (ДО)
+   if IsDoAnExistAll
+   {
+      SetFieldOption(#v_AddOptions, ofSelectable )
+   }
+   else
+   {
+      v_AddOptions := 0;
+      ClearFieldOption(#v_AddOptions, ofSelectable );
+   }
+
+}
+
+Procedure InitVariables;
+{
+    vPrefixOut          := UserPathVip;        // out - директория
+    vDataFilePath       := vPrefixOut;
+    vDataFileName       := 'DATA.dbf';
+    vDataFilePathName   := vDataFilePath + vDataFileName;
+    vTemplateFilePathNameDef:= TranslatePath('%ClientStartPath%')+'xls\ZadolDateVozn.xlt';
+    vMacrosNameDef      := 'Main';
+    wListOrgFilter      := nreport;
+    wListOrgFilterSave  := nreport + 1;
+    wListSchet          := nreport + 2;
+    wListSubSchet       := nreport + 3;
+
+    SumCompare          := doGetTune ('FIN.COMPARE.SUMNDE');
+}
+Function UP (_n : double; _power : double): double;
+{
+    UP := exp(_power * ln(_n));
+}
+
+Procedure RecalcFields;
+{
+
+    isOrgAnExistAll := True;
+    isDOAnExistAll  := True;
+    // подсчитываем количество выбранных счетов и субсчетов
+    SchetCount      := 0;
+    SubSchetCount   := 0;
+
+    _Loop PickBuh where (( cgPick_Schet  == PickBuh.KodTable))          // cgBuhFilter_SchetD
+    {
+            bound_Schet     := PickBuh.Schet;
+            SchetCount := SchetCount + 1;
+
+            if getfirst PickBuhSub where ((cgPick_SubSch   == PickBuhSub.KodTable and  // cgBuhFilter_SubSchD
+                                            bound_Schet   == PickBuhSub.Schet )) <> tsOk
+            {
+             AnaliseAnalitics;
+             if not isOrgAnExist isOrgAnExistAll := False;
+             if not isDOAnExist isDOAnExistAll := False;
+            }
+            _Loop PickBuhSub where ((cgPick_SubSch   == PickBuhSub.KodTable and  // cgBuhFilter_SubSchD
+                                      bound_Schet   == PickBuhSub.Schet ))
+            {
+                bound_SubSchet  := PickBuhSub.SubKAU;
+                SubSchetCount := SubSchetCount + 1;
+                AnaliseSubAnalitics;
+                if not isOrgAnExist isOrgAnExistAll := False;
+                if not isDOAnExist isDOAnExistAll := False;
+            }
+
+    }
+    //если не выбран ни одни счет
+    if (SchetCount + SubSchetCount = 0)
+    {
+      isOrgAnExistAll := False;
+      isDOAnExistAll := False;
+    }
+
+    // присваиваем названия полям
+    Case SchetCount of
+        0: {
+            isMultiSch := False;
+           }
+
+        1: {
+            v_Schet     := PickBuh.Schet;
+            if getfirst SchetO = tsOk
+                set v_StSchet  := #GetDbSch(v_Schet) + ' ' + Scheto.Name
+            else
+                set v_StSchet  := #GetDbSch(v_Schet);
+
+            isMultiSch := False;
+
+           }
+        else
+          { set v_StSchet  := 'Множественный выбор (' + trim(string (SchetCount,10,0)) + ')';
+            isMultiSch := True;
+          }
+    end;
+    Case SubSchetCount of
+            0:
+              { v_SubSchet := '';
+                v_StSubSchet := '';
+                set v_StSubSchet := v_SubSchet
+                isMultiSub := False;
+              }
+
+            1:
+              { v_SubSchet := PickBuhSub.SubKau;
+                if v_SubSchet <> ''
+                {
+                  if getfirst SchetSubO = tsOk
+                      set v_StSubSchet := v_SubSchet + ' ' + SchetSubO.Name
+                  else
+                      set v_StSubSchet:= v_SubSchet;
+                }
+                else v_StSubSchet := '<субсчет не определен>'
+                isMultiSub := False;
+              }
+
+            else
+              { set v_StSubSchet  := 'Множественный выбор (' + trim(string (SubSchetCount,10,0)) + ')';
+                isMultiSub   := True;
+              }
+            end;
+      if getfirst PlansSch = tsOk
+      {
+      MainTitle := 'Аналитический отчет по бухгалтерским данным (' +  PlansSch.Name + ')';
+      SetTitle(MainTitle);
+      }
+
+    if getfirst AttrNam = tsOk v_AttrNamName := AttrNam.name;
+      else v_AttrNamName := '';
+    if getfirst AttrNamDog = tsOk v_AttrNamDogName := AttrNamDog.name;
+      else v_AttrNamDogName := '';
+    if getfirst ExClassName = tsOk v_ExClassName := ExClassName.name;
+      else v_ExClassName := '';
+
+    DefineAdditionalFieldsOptions;
+
+}
+
+Procedure VariablesToUserDeskRep(wMode: word);
+//wMode - режим сохранения
+//updUDR - обновить текущую запись
+//insUDR - добавить новую запись
+{
+     var curUserDeskRep : comp;
+     curUserDeskRep := UserDeskRep.nrec;
+     if wMode = insUDR
+     {
+         ClearBuffer(#UserDeskRep);
+         UserDeskRep.drep        := Cur_date;
+         UserDeskRep.repname     := stName;
+         UserDeskRep.ownname     := UserName;
+         UserDeskRep.nrep        := nreport;
+     }
+     UserDeskRep.ResDate[1]  := bound_DateBeg;                       //начальная дата формирования отчета
+     UserDeskRep.ResDate[2]  := bound_DateEnd;                       //конечная дата формирования отчета
+     UserDeskRep.ResComp[1]  := v_cPlansSch;                         //план счетов
+     UserDeskRep.ResWord[1]  := v_AddOptions;                        //выводить пункт разгрузки по ДО (v_AddOptions)
+     UserDeskRep.ResWord[2]  := v_SpecOptions;                       //выводить аналитику по спецификации первичного документа (v_SpecOptions)
+     UserDeskrep.ResWord[4]  := word(v_OrgHier);                     //флаг выгрузки иерархии организаций (v_OrgHier)
+     UserDeskRep.ResComp[2]  := v_OrgHierComp1;                      //иерархия организаций 1 (v_OrgHierComp1)
+     UserDeskRep.ResComp[3]  := v_OrgHierComp2;                      //иерархия организаций 2 (v_OrgHierComp2)
+     UserDeskRep.ResComp[4]  := v_OrgHierComp3;                      //иерархия организаций 3 (v_OrgHierComp3)
+     UserDeskRep.ResComp[5]  := v_AttrNam;                           //атрибут "Количество дней для оплаты" (v_AttrNam)
+     UserDeskRep.ResComp[6]  := v_AttrNamDog;                        //атрибут "Договор" (v_AttrNamDog)
+     UserDeskRep.ResComp[7]  := v_ExClass;                           //классификатор "Рабочие/календарные дни" (v_ExClass)
+     UserDeskRep.ResName[1]  := substr(vTemplateFilePathName,1,80);  //путь на шаблон Excel (vTemplateFilePathName), разбиваем на 3 части из-за ограничения UserDeskRep.ResName[i]
+     UserDeskRep.ResName[2]  := substr(vTemplateFilePathName,81,80);
+     UserDeskRep.ResName[3]  := substr(vTemplateFilePathName,161,80);
+     UserDeskRep.ResName[4]  := vMacrosName;                         //имя формирующего макроса (vMacrosName)
+     UserDeskRep.ResWord[5]  := vSaldoAnalitics;                     //флаг формирования сальдо в разрезе валюты (vSaldoAnalitics)
+     UserDeskRep.ResWord[6]  := vTechnology;                         //технология формирования отчета (vTechnology)
+     UserDeskRep.ResLngint[1]:= vAgeLimit;                           //ограничение по возрасту задолженности (vAgeLimit)
+     UserDeskRep.ResWord[8]  := v_OrgFilterWord;                     //количество выбранных в фильтре организаций
+     UserDeskRep.ResComp[8]  := v_OrgFilterComp;                     //ссылка на выбранную организацию. Если выбрано несколько,то = comp(0)
+
+     case wMode of
+       insUDR:
+       {
+         insert current UserDeskRep;
+         //фильтр по организациям
+         PickRep2PickRep (curUserDeskRep, UserDeskRep.nrec, wListOrgFilter, wListOrgFilter);
+         PickRep2PickRep (curUserDeskRep, UserDeskRep.nrec, wListOrgFilter, wListOrgFilterSave);
+       }
+       updUDR:
+       {
+         update current UserDeskRep;
+         PickRep2PickRep (UserDeskRep.nrec, UserDeskRep.nrec, wListOrgFilter, wListOrgFilterSave); //фильтр по организациям
+       }
+     end;
+     PickBuh2PickRep (UserDeskRep.nrec);  //выбранные счета, субсчета
+     //сохраним, какую настройку использовали последней
+     SaveMyDSK(UserDeskRep.nrec,'LastUsedNastr_'+nreport);
+}
+
+Procedure UserDeskRepToVariables;
+{
+    bound_DateBeg := UserDeskRep.ResDate[1];                  //начальная дата формирования отчета
+    bound_DateEnd := UserDeskRep.ResDate[2];                  //конечная дата формирования отчета
+    v_cPlansSch   := UserDeskRep.ResComp[1];                  //план счетов
+    v_AddOptions  := UserDeskRep.ResWord[1];                  //выводить пункт разгрузки по ДО (v_AddOptions)
+    v_SpecOptions := UserDeskRep.ResWord[2];                  //выводить аналитику по спецификации первичного документа (v_SpecOptions)
+    v_OrgHier     := boolean (UserDeskrep.ResWord[4]);        //флаг выгрузки иерархии организаций (v_OrgHier)
+    v_OrgHierComp1:= UserDeskRep.ResComp[2];                  //иерархия организаций 1 (v_OrgHierComp1)
+    v_OrgHierComp2:= UserDeskRep.ResComp[3];                  //иерархия организаций 2 (v_OrgHierComp2)
+    v_OrgHierComp3:= UserDeskRep.ResComp[4];                  //иерархия организаций 3 (v_OrgHierComp3)
+    v_AttrNam     := UserDeskRep.ResComp[5];                  //атрибут "Количество дней для оплаты" (v_AttrNam)
+    v_AttrNamDog  := UserDeskRep.ResComp[6];                  //атрибут "Договор" (v_AttrNamDog)
+    v_ExClass     := UserDeskRep.ResComp[7];                  //классификатор "Рабочие/календарные дни" (v_ExClass)
+    vTemplateFilePathName:= UserDeskRep.ResName[1]+           //путь на шаблон Excel (vTemplateFilePathName), разбит на 3 части из-за ограничения UserDeskRep.ResName[i]
+                            UserDeskRep.ResName[2]+
+                            UserDeskRep.ResName[3];
+    vMacrosName   :=  UserDeskRep.ResName[4];                  //имя формирующего макроса (vMacrosName)
+    vSaldoAnalitics:= UserDeskRep.ResWord[5];                  //флаг формирования сальдо в разрезе валюты (vSaldoAnalitics)
+    vTechnology   :=  UserDeskRep.ResWord[6];                  //технология формирования отчета (vTechnology)
+    vAgeLimit     :=  UserDeskRep.ResLngint[1];                //ограничение по возрасту задолженности (vAgeLimit)
+    v_OrgFilterWord:= UserDeskRep.ResWord[8];                  //количество выбранных в фильтре организаций
+    v_OrgFilterComp:= UserDeskRep.ResComp[8];                  //ссылка на выбранную организацию. Если выбрано несколько,то = comp(0)
+    PickRep2PickBuh (UserDeskRep.nrec);                        //выбранные счета, субсчета
+    PickRep2PickRep (UserDeskRep.nrec, UserDeskRep.nrec, wListOrgFilterSave, wListOrgFilter); //фильтр по организациям
+    RecalcFields;
+    //сохраним, какую настройку использовали последней
+    SaveMyDSK(UserDeskRep.nrec,'LastUsedNastr_'+nreport);
+}
+
+Procedure QuerySaveNastr;
+var NeedSave: boolean;
+    NastrWasModified : boolean;
+{
+  NeedSave := False;
+  if (
+          bound_DateBeg <> UserDeskRep.ResDate[1]                  //начальная дата формирования отчета
+      or  bound_DateEnd <> UserDeskRep.ResDate[2]                  //конечная дата формирования отчета
+      or  v_cPlansSch   <> UserDeskRep.ResComp[1]                  //план счетов
+      or  v_AddOptions  <> UserDeskRep.ResWord[1]                  //выводить пункт разгрузки по ДО (v_AddOptions)
+      or  v_SpecOptions <> UserDeskRep.ResWord[2]                  //выводить аналитику по спецификации первичного документа (v_SpecOptions)
+      or  v_OrgHier     <> boolean (UserDeskrep.ResWord[4])        //флаг выгрузки иерархии организаций (v_OrgHier)
+      or  v_OrgHierComp1<> UserDeskRep.ResComp[2]                  //иерархия организаций 1 (v_OrgHierComp1)
+      or  v_OrgHierComp2<> UserDeskRep.ResComp[3]                  //иерархия организаций 2 (v_OrgHierComp2)
+      or  v_OrgHierComp3<> UserDeskRep.ResComp[4]                  //иерархия организаций 3 (v_OrgHierComp3)
+      or  v_AttrNam     <> UserDeskRep.ResComp[5]                  //атрибут "Количество дней для оплаты" (v_AttrNam)
+      or  v_AttrNamDog  <> UserDeskRep.ResComp[6]                  //атрибут "Договор" (v_AttrNamDog)
+      or  v_ExClass     <> UserDeskRep.ResComp[7]                  //классификатор "Рабочие/календарные дни" (v_ExClass)
+      or  vTemplateFilePathName <> (UserDeskRep.ResName[1]+        //путь на шаблон Excel (vTemplateFilePathName), разбит на 3 части из-за ограничения UserDeskRep.ResName[i]
+                                    UserDeskRep.ResName[2]+
+                                    UserDeskRep.ResName[3])
+      or  vMacrosName   <> UserDeskRep.ResName[4]                  //имя формирующего макроса (vMacrosName)
+      or  vSaldoAnalitics<> UserDeskRep.ResWord[5]                 //флаг формирования сальдо в разрезе валюты (vSaldoAnalitics)
+      or  vTechnology   <> UserDeskRep.ResWord[6]                  //технология формирования отчета (vTechnology)
+      or  vAgeLimit     <> UserDeskRep.ResLngint[1]                //ограничение по возрасту задолженности (vAgeLimit)
+      or  isPickRepChanged (wListOrgFilter, wListOrgFilterSave)                    //фильтр по организациям
+      or  isPickBuhChanged)                                        //счет, субсчет
+    NastrWasModified := True;
+      else NastrWasModified := False;
+
+  case wGetTune('FIN.REPORT.AUTOSAVE') of
+  0: {NeedSave := True;}
+  1: {
+       if (NastrWasModified)
+         if (Message('Настройка была изменена.'#13+
+                     'Cохранить параметры?', YesNo) = cmYes)
+           NeedSave := true;
+     }
+  end;
+  if (NeedSave)
+  {
+     VariablesToUserDeskRep(updUDR);
+  }
+}
+
+procedure AddNewUserDeskRep;
+{
+      ClearBuffer (#UserDeskRepBrowse);
+      UserDeskRepBrowse.ownname := UserName;
+      UserDeskRepBrowse.nrep    := nreport;
+      UserDeskRepBrowse.drep    := Cur_Date;
+      UserDeskRepBrowse.ResDate[1] := Date( 1,Month(Cur_Date),Year(Cur_Date));                   //начальная дата формирования отчета
+      UserDeskRepBrowse.ResDate[2] := Date(Last_Day(Cur_Date),Month(Cur_Date),Year(Cur_Date));   //конечная дата формирования отчета
+      UserDeskRepBrowse.ResComp[1] := coGetTune('Fin.User.cPlansSch');                           //план счетов
+      UserDeskRepBrowse.ResName[1] := substr(vTemplateFilePathNameDef,1,80);                     //путь на шаблон Excel (vTemplateFilePathName), разбиваем на 3 части из-за ограничения UserDeskRep.ResName[i]
+      UserDeskRepBrowse.ResName[2] := substr(vTemplateFilePathNameDef,81,80);
+      UserDeskRepBrowse.ResName[3] := substr(vTemplateFilePathNameDef,161,80);
+      UserDeskRepBrowse.ResName[4] := vMacrosNameDef;                                            //имя формирующего макроса (vMacrosName)
+      UserDeskRepBrowse.ResWord[5] := UP (2, 9) - 2;                                             //флаг формирования сальдо в разрезе валюты (vSaldoAnalitics)
+      UserDeskRepBrowse.ResWord[6] := 2;                                                         //технология формирования отчета (vTechnology)
+      UserDeskRepBrowse.ResLngint[1] := vAgeLimitDef;                                            //ограничение по возрасту задолженности
+      insert current UserDeskRepBrowse;
+}
+
+Procedure LoadNastr;
+{
+  var LastUsedNastr: comp;
+  var LoadOk: boolean;
+  if ReadMyDsk(LastUsedNastr,'LastUsedNastr_'+nreport,false) = false LastUsedNastr:= comp(0);
+  LoadOk := False;
+  if LastUsedNastr <> comp(0)
+  {
+    if getfirst UserdeskRep where ((LastUsedNastr == UserDeskRep.nrec)) = tsOk
+    {
+      //проверим, что это настройка нашего отчета и нашего пользователя
+      if UserDeskRep.nrep = nreport and UserDeskRep.ownname = UserName
+           LoadOk := true;
+    }
+  }
+  //если не загрузили последнюю использованную настройку, то загрузим настройку по умолчанию
+  if LoadOk = false
+  {
+    if getfirst UserDeskRep where (( UserName == UserDeskRep.OwnName and
+                                     nreport == UserDeskRep.nrep and
+                                     DefNastrName == UserDeskRep.repname (noindex)
+                                     )) <> tsOk
+    {
+      AddNewUserDeskRep;
+      if getfirst UserDeskRep where ((UserDeskRepBrowse.nrec == UserDeskRep.nrec)) = tsOk
+      {
+        UserDeskRep.repname := defNastrName;
+        update current UserDeskRep;
+      }
+    }
+  }
+
+  UserDeskRepToVariables;
+  RereadRecord;
+}

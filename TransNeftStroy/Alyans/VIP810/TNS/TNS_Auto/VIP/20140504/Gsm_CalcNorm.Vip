@@ -1,0 +1,1033 @@
+/*
+
+
+*/
+#component "M_TRANSP"
+
+#include Gsm_CalcNorm.Vih
+#include put_var.vpp
+Interface Gsm_CalcNorm 'Расчет гсм' ;
+create view vGsm_CalcNorm
+var
+ w_nrec :comp
+ w_attrnam:string;
+ kod_alg : word ;
+ wc_putlst:comp;
+ w_DpPokaz1 :double;
+ w_NormT    :double;
+ logfilenm:string;
+ NrecPos, NRECPOS_USL, NRECPOS_UCH:comp;
+//  MASSA_AVTO, GRUZPOD_AVTO, Massa_Trl, GruzPod_Trl, Massa_Trl_L
+// ,GruzPod_Trl_L , GruzPod_Avto_L , Massa_Avto_L ,PUT_TIMECUS, Put_TimeRad
+//                   :double;
+ //======================
+  p22, p11
+ , SaveGsm , Ptoplivo , main_Gsm , razvl
+ , mySumV , myVal , AvtoNrec , SourceNrec
+                : Comp ;
+
+   Beg_AllStat , End_AllStat , MetodTc , Rabgsm
+ , MainRabgsm , ParFlag , wProvGsm , wProvSpeed
+ , tsflag , tWorkGsm , WhatDt , Winsum
+ , PG_TimeAllView , PG_TimeMoveView , PG_TimeStopView , PG_TimeRepView
+ , PG_TimeLoadView , PG_TimeSpecView , PG_TimeHeatView , PG_TimeEngineView
+ , PG_Pok5CngView , PG_Pok5RbView , PG_TimeInterWayView
+ , TimePrec , MoveToplivo , MoveOst , All_KompGsm
+ , wUpdateOR , wNpp , wRabgsm
+ , DscVisible , Sys_temp97 , Ti , TipDel
+ , WrkTipGsm , WrkDelOld , WrkWriteLog
+ , TarifNTest_beg,  TarifNTest_end
+ , TarifNRasc_beg,  TarifNRasc_end
+
+               : word;
+  TimeSep
+               : char;
+
+   AllGsm_Faktt , AllGsm_Vidtt , AllGsm_Sdant , AllGsm_Begow
+ , AllGsm_Endow , AllGsm_EndowDen , AllGsm_EndowPrice , AllGsm_Normt
+// , AllRazn  , AllRazn_proc
+ , All_TimeMove , All_MotoCh , All_Probeg , All_Gsm
+ , old_toplivo , mySum , myCurVal
+                  : double;
+
+//   StrTrPutgsm    : trPutgsm;
+   NaimZakazGsm
+ , NameSource
+                  : String        ; //
+
+   Descr_Ist
+                  : String[20]   ;
+   DesGr_Ist
+                  : String[4]    ;
+   Nomer_count
+                  : string[16];
+
+   Flag_bol
+ , FlagPunkt
+ , CondActGsm
+ , NeedShow
+ , ErrorInExprField
+ , All_GsmView
+ , Flag_Win
+ , Flag_Modify
+                   : Boolean;
+
+   old_Date
+ , savedatok
+                   : date;
+   old_Time
+ , saveTime
+                   : time;
+   lPLPickCnt
+ , MarkerCnt
+ , MarkerMar
+ , Indexmar
+                  : longint;
+ // все сообщения идут в протокол, по умолчанию - false
+   gbAllToLog
+ // показания расчета идут в протокол(включая переменные), по умолчанию - false
+  ,gbCalcToLog    : boolean;
+
+
+as select putgsm.nrec
+from putgsm,putlst,transp , spkatos, TrlRel , SYSTRAN,NormGSM
+  ,STFUNC, IdnAvt, NORMMSL, GSM_KOF ,KATZAK
+  ,Katpodr  KatpodrAzs
+  ,Persons  Persons_Sdano
+  ,AutoDoc  AutoDoc_Gsm
+  ,WayDoc   WayDoc_Gsm
+  ,Katorg   Katorg_Gsm
+  ,WayItem  WayItem_Gsm
+  ,WayWps   WayWpsGsm
+  ,MarAvt   MarAvt_Gsm
+  ,TipStop  TipStop_Gsm
+  ,WayPath  WayPath_See
+  ,KatState KatState_Gsm
+  ,KatCity  KatCity_Gsm
+  ,Save_drv Save_drv_Gsm
+  ,Compon   Compon_Spec
+  ,KatUsl   KatUsl_gsm
+  ,MarComp  MarComp_Spec
+  ,TipComp  TipComp_spec
+  ,KatEd    KatEdGsm
+  ,Marka    Marka_Gsm
+  ,SpSopr   SpSopr_Gsm
+  ,KatSopr  KatSopr_Gsm
+  ,GsmAlg   MotoAlg
+  ,Transp   Transp_trl
+  ,Transp   Transp_Move
+  ,ShinPut  ShinPutKomp
+  ,ShinPut  ShinPut_Find
+  ,GsmAlg    GsmAlgFind
+  ,KlAlg     KlAlgFind
+where ((
+  w_nrec == putgsm.nrec
+and wc_putlst  == putlst.nrec
+and putlst.ctransp == transp.nrec
+and  putlst.Nrec   == TrlRel.cPutlst
+  And PutGsm.cToplivo       == Toplivo.nrec
+  And Putgsm.DpPokaz6       == KatpodrAzs.nRec
+  And Putgsm.DpPokaz7       == Persons_sdano.nRec
+  And Putgsm.cCityBeg       == AutoDoc_Gsm.nRec
+  And AutoDoc_Gsm.cWaydoc   == WayDoc_Gsm.nRec
+  And Toplivo.cVidGsm       == VidGsm.nrec
+  And PutGsm.cOrg           == Katorg_Gsm.nrec
+  And PutGsm.cWayItem       == WayItem_Gsm.nrec
+  And PutGsm.cWayWps        == WayWpsGsm.nrec
+  And WayWpsGsm.cmaravt     == MarAvt_Gsm.nrec
+  And WayItem_Gsm.cTipStop  == TipStop_Gsm.nrec
+  And PutGsm.cMaravt        == WayPath_See.nrec
+  And PutGsm.cState         == KatState_Gsm.nrec
+  And PutGsm.cCity          == KatCity_Gsm.nrec
+  And PutGsm.cSave_Drv      == Save_drv_Gsm.nrec
+  And PutGsm.cAgregat       == Compon_Spec.nrec
+  And Putgsm.cRashDoc       == KatUsl_gsm.Nrec
+  And Compon_Spec.cMarComp  == MarComp_Spec.nrec
+  And MarComp_spec.cTipComp == TipComp_spec.nRec
+  And Toplivo.cOtped        == KatEdGsm.Nrec
+  And PutGsm.CardRec        == Marka_Gsm.nrec
+  And PutGsm.cSpZakaz       == SpSopr_Gsm.nrec
+  And SpSopr_Gsm.cSopr      == KatSopr_Gsm.nrec
+  And Putgsm.cStateBeg      == LimZapL.nrec
+  And LimZapL.cLimZap       == LimZapH.nRec
+and coGsmAlg == Attrnam.wtable
+and w_attrnam == Attrnam.name
+and kod_alg == gsmalg.KODGSMALG
+and coGsmAlg == Attrval.wtable
+and gsmalg.nrec == Attrval.crec
+and attrnam.nrec == attrval.cattrnam
+and 0 == Systran.WHATIS and  cogettune('MYORG') == SYSTRAN.NRECMYORG(noindex)
+))
+   Condition conPut = ( PutGsm.TipGsm = RabGsm )
+
+;
+Form frmErrTrn('Ras_oc.OUT','ERRR') with novisual;
+Procedure MyLog(w: string);
+{ if logfilenm<>''
+    logstrtofile(logfilenm,w)
+}
+Procedure SetLogfileNm(w: string);
+{ logfilenm:=w
+}
+//==============================
+Procedure One_Smz;
+{
+    if GetFirst PutGsm  where
+    ((
+       word(0)     ==  PutGsm.TipInfo   and
+       PutLst.nrec ==  PutGsm.cPutlst)) = tsok
+    do
+     {
+       if  GetFirst Toplivo = tsok
+         if  GetFirst VidGsm = tsok
+          if  VidGsm.TipRs = 0 then
+          {
+           if Upcase(trim(KatEdGsm.Name)) = 'ЛИТР' then
+            {
+               if wGetTune('TranspPlGsm.CalcSmaz') = 0
+                 {
+                     if Systran.TMPComp2 = 0  // не зависит от бака
+                        All_Gsm  := All_Gsm + PutGsm.Faktt;
+                    else
+                     if Systran.TMPComp2 = 1 and WhatDt = Putgsm.TipGsm
+                       All_Gsm  := All_Gsm + PutGsm.Faktt;
+                 }
+               else
+                 {
+                    if Systran.TMPComp2 = 0  // не зависит от бака
+                       All_Gsm  := All_Gsm + PutGsm.Normt;
+                   else
+                    if Systran.TMPComp2 = 1 and WhatDt = Putgsm.TipGsm
+                       All_Gsm  := All_Gsm + PutGsm.Normt;
+                 }
+            }
+          }
+          else {}  // это какой-то смазочный
+         else
+         { // если не найден вид, то предполагается что это основное ГСМ
+           if Upcase(trim(KatEdGsm.Name)) = 'ЛИТР' then
+            {
+              if wGetTune('TranspPlGsm.CalcSmaz') = 0
+                {
+                  if Systran.TMPComp2 = 0
+                            All_Gsm  := All_Gsm + PutGsm.Faktt;
+                  else
+                  if Systran.TMPComp2 = 1 and WhatDt = Putgsm.TipGsm
+                      All_Gsm  := All_Gsm + PutGsm.Faktt;
+                }
+               else
+                {
+                  if Systran.TMPComp2 = 0
+                            All_Gsm  := All_Gsm + PutGsm.Normt;
+                  else
+                  if Systran.TMPComp2 = 1 and WhatDt = Putgsm.TipGsm
+                      All_Gsm  := All_Gsm + PutGsm.Normt;
+                }
+            }
+         }
+    }
+    while
+    GetNext PutGsm  where
+   ((  word(0)     ==  PutGsm.TipInfo   and
+       PutLst.nrec ==  PutGsm.cPutlst)) = tsok;
+}
+#include find_nrm.vpp
+
+//===================================
+Procedure fw(var s : string);
+{
+  //frmErrTrn.write(s);
+  mylog(s)
+  needshow := true;
+}
+//===================================
+Function Ras_Proc_izn : double;
+  {
+    Ras_Proc_izn := 0;
+    if Transp.ckatos <> comp(0)
+      {
+        if GetFirst SpKatos where ((Transp.CKatos     == SpKatos.ckatos   and
+                                    Systran.TMPComp7  == SpKatos.cNastrOs
+                                   )) = tsok
+        Ras_Proc_Izn := (SpKatos.SumIzn + SpKatos.SIznM)/SpKatos.Stoim*100
+      }
+  }
+//совсем плохо.....
+Function Check_CondActGsm (Numbak : word) : boolean;
+  {
+    Check_CondActGsm := FALSE;
+    if NumBak < 10
+    if  wGetTune('Transp.PlGsmSp' + string(NumBak)) = 0
+     {
+      if ConditionActiveInLeave(tcconPut, #Putgsm)
+       {
+         Check_CondActGsm := TRUE;
+         PopConditionForLeave(tcconPut, #Putgsm);
+       }
+     }
+  }
+
+Procedure Normt_Smz;
+  {
+     If Modifier GetFirst NormMsl
+         Where ((Transp.cMarka == NormMsl.cMarka ))= tsOk
+     {
+       Case VidGsm.TipRs of
+       1 :
+         w_Normt := ((All_Gsm/100)*NormMsl.Norma)*((100+Transp.prMaslo)/100) ;
+       2 :
+         w_Normt := ((All_Gsm/100)*NormMsl.Trans)*((100+Transp.prMaslo)/100) ;
+       3 :
+         w_Normt := ((All_Gsm/100)*NormMsl.Spec)*((100+Transp.prMaslo)/100) ;
+       4 :
+         w_Normt := ((All_Gsm/100)*NormMsl.Plast)*((100+Transp.prMaslo)/100) ;
+       End ;
+       if VidGsm.TipRs = 4 then
+          if Upcase(trim(KatEdGsm.Name)) <> 'КИЛОГРАММ' then
+             w_Normt := w_Normt / Toplivo.plot;
+          else {}
+       else
+          if Upcase(trim(KatEdGsm.Name)) <> 'ЛИТР' then
+             w_Normt := w_Normt * Toplivo.plot;
+          else {}
+     }
+  }
+
+Procedure  Trl_Var;
+{
+  Massa_Avto    :=  Transp.Weight ;
+  GruzPod_Avto  :=  Transp.GruzPod ;
+  Massa_Trl     := 0;
+  GruzPod_Trl   := 0;
+  Massa_Trl_L   := 0;
+  GruzPod_Trl_L := 0;
+  GruzPod_Avto_L  :=  PutLst.GruzPod ;
+  Massa_Avto_L    :=  PutLst.Weight;
+  if GetFirst TrlRel = tsok
+  do
+  {
+    Massa_Trl_L    := Massa_Trl_L   + TrlRel.Weight
+    GruzPod_Trl_L  := GruzPod_Trl_L + TrlRel.GruzPod ;
+    if TrlRel.cMorale_unl = comp(0)
+      {
+        if GetFirst Transp_trl = tsok
+        {
+         Massa_Trl    := Massa_Trl   + Transp_trl.Weight
+         GruzPod_Trl  := GruzPod_Trl + Transp_trl.GruzPod ;
+        }
+      }
+    else
+        if GetFirst Transp_Move = tsok
+        {
+         Massa_Trl    := Massa_Trl   + Transp_Move.Weight
+         GruzPod_Trl  := GruzPod_Trl + Transp_Move.GruzPod ;
+        }
+  }
+  while GetNext TrlRel = tsok
+}
+
+
+
+Procedure PreProceedAlgString (var pAlgString: string; pwAlgTable: word); forward;
+// ВСЕ ЭТО ДОЛЖНО БЫЛО ЖИТЬ В ОТДЕЛЬНОМ ИНТЕРФЕЙСЕ SUMALGCODE.VIP
+// НО ОБЛАСТЬ ДЕЙСТВИЯ ПЕРЕМЕННЫХ ИЗ PUTVAR.VPP - ТЮ-ТЮ
+Procedure PreProceedAlgString (var pAlgString: string; pwAlgTable: word);
+{
+/*
+  case (pwAlgTable) of
+    word(coUchRabPl): PreProceedUslString(pAlgString);
+    word(coKlAlg):    PreProceedOplString(pAlgString);
+  end; // case
+*/
+} // procedure PreProceedAlgString
+#include SumAlgCode.vpp
+
+Procedure InitAllForAlg(pwTypeAlg: word; pbShowErrMess: boolean);
+// pwTypeAlg word(1) - нормы ГСМ
+//           word(2) - моточасы
+{
+ var CondActGsm : boolean;
+ if Putgsm.TipGsm >= 10
+     exit;
+ mylog('== InitAllForAlg ==')
+ if Putgsm.Tipgsm < 3
+// if wGetTune('TranspKartoteka.TCGsm' + string(Putgsm.Tipgsm)) = 1      if not EqualGsm(Putgsm.Tipgsm) exit;
+ If VidGsm.TipRs > 0 Then
+ {
+    mylog('01 InitAllForAlg ==')
+     WhatDt  := Putgsm.TipGsm;
+     All_Gsm := 0 ;
+     PushPos(#Putgsm) ;
+     ReSetBounds(tnPutGsm) ;
+     CondActGsm := Check_CondActGsm(Putgsm.TipGsm);
+     if Systran.TMPComp1 = 1 // то считаем и по группе ранее обработанных путевых
+     {
+       var datechanged : boolean;
+       var BegSmz : date;
+       var EndSmz : date;
+       var Real_transp : comp;
+       if ((not ReadMyDsk(BegSmz,'Put_Smz_1',datechanged)) or (DateChanged))
+          BegSmz := Cur_date;
+       if ((not ReadMyDsk(EndSmz,'Put_Smz_2',datechanged)) or (DateChanged))
+          EndSmz := Cur_date;
+       if Rundialog('GetInterval',BegSmz,EndSmz) <> cmCancel
+       {  //   PutLst05 = Statpl + DatPl,
+         //   PutLst06 = Statpl + ReturnDn,
+        // считаем по ранее обработанным путевым
+        PushPos(#PutLst);
+        Real_transp := PutLst.cTransp;
+        Resetbounds(tnPutLst);
+        if  GetFirst PutLst  where
+           (( 1           ==  PutLst.StatPL    and
+              Real_transp == PutLst.cTransp    and
+              BegSmz  <<= Putlst.Datpl         and
+              EndSmz  >>= Putlst.Datpl    )) = tsok
+        do
+          one_smz;
+        while
+        GetNext PutLst  where
+           (( 1           ==  PutLst.StatPL    and
+              Real_transp == PutLst.cTransp    and
+              BegSmz  <<= Putlst.Datpl         and
+              EndSmz  >>= Putlst.Datpl  )) = tsok
+        Setbounds(tnPutLst);
+        PopPos(#PutLst);
+       }
+       SaveMyDsk(BegSmz,'Put_Smz_1');
+       SaveMyDsk(EndSmz,'Put_Smz_2');
+     }
+     else
+    //расчет по текущему путевому
+       one_smz;
+     SetBounds(tnPutGsm) ;
+     if CondActGsm
+       PushConditionForLeave(tcconPut, #Putgsm);
+     PopPos(#Putgsm) ;
+     Normt_Smz;
+   Exit ;
+ }
+  If DateToStr(SysTran.BegSummer,'DD/MM/YYYY') = 'ДД/ММ/ГГГГ' Or
+      DateToStr(SysTran.BegWinter,'DD/MM/YYYY') = 'ДД/ММ/ГГГГ' Then
+    winSum := 0          //зимние (основные)
+   Else
+   If    PutLst.DatPl >= SysTran.BegSummer And
+         PutLst.DatPl <= SysTran.BegWinter
+    winSum := 0          //зимние (основные)
+   Else
+    winSum := 1 ;
+    Find_Norma_all;
+    p22 := 0 ;
+    mylog('04 InitAllForAlg ==')
+
+    If tsFlag <> tsOk And  SysTran.Temp5 = 0  // по марке
+// поищем - по другой марке ГСМ
+    If GetFirst Gsm_Kof Where ((PutGsm.cToplivo == Gsm_kof.cGsm_work (noindex)))=tsOk
+    {
+     p11 := PutGsm.cToplivo ;
+     p22 := 1 ;
+     PutGsm.cToplivo := Gsm_kof.cGsm_main ;
+     Find_Norma_all;
+     PutGsm.cToplivo := p11 ;
+     mylog('05 InitAllForAlg ==')
+    }
+    If tsFlag <> tsOk
+    {
+     mylog('05 InitAllForAlg ==')
+
+       if (wGetTune('TranspPlGsm.NormaDate') = 0)
+       {
+         if (gbAllToLog) or (gbCalcToLog)
+           fw('Нет данных в справочнике норм ГСМ! ' + 'ПЛ '+ PutLst.Npl + ' Топливо '+ Toplivo.Name);
+         if not (gbAllToLog)
+           mylog ('Нет данных в справочнике норм ГСМ! '+''#13#3'ПЛ '+ PutLst.Npl +
+                    ''#13#3'Топливо '+ Toplivo.Name );
+       }
+       else
+       {
+         if (gbAllToLog) or (gbCalcToLog)
+           fw('Нет данных в справочнике норм ГСМ c учетом интервала действия! ' + 'ПЛ ' + PutLst.Npl +' Топливо '+ Toplivo.Name);
+         if not (gbAllToLog)
+           Message ('Нет данных в справочнике норм ГСМ c учетом интервала действия! ' + ''#13#3'ПЛ '+ PutLst.Npl +
+                    ''#13#3'Топливо '+ Toplivo.Name ,Warning) ;
+       };
+//     Exit ;
+       NormGsm.LinNrm    := 0;
+       NormGsm.KoffNgsm3 := 0
+    }
+    else
+      Putgsm.DpPokaz8 := word(NormGsm.StoimVal)
+//поищем формулу для средства
+     mylog('06 InitAllForAlg =='+string(pwTypeAlg))
+    case pwTypeAlg of
+      word(1):
+      {
+        tsFlag := tsok; // GetFirst GsmAlg where ((PutGsm.cGsmAlg == GsmAlg.nRec));
+//поищем формулу для типа
+        If tsFlag <> tsOk
+        {
+          if (gbAllToLog) or (gbCalcToLog)
+          {
+            fw('Не задана формула для расчета норм ГСМ! ' + 'ПЛ ' + PutLst.Npl + ' Топливо '+ Toplivo.Name);
+          }
+          if not (gbAllToLog)
+          {
+            Message ('Не задана формула для расчета норм ГСМ! '+''#13#3'ПЛ '+ PutLst.Npl +
+                     ''#13#3'Топливо '+ Toplivo.Name, warning);
+          };
+          Exit ;
+        }
+      } // word(1)
+      word(2):
+      {
+        tsFlag := GetFirst MotoAlg where ((PutLst.DpPokaz8 == MotoAlg.nRec));
+//поищем формулу для типа
+        If tsFlag <> tsOk
+        {
+          if (pbShowErrMess)
+          {
+            if (gbAllToLog) or (gbCalcToLog)
+            {
+              fw('Не задана формула для расчета моточасов! ' + 'ПЛ '+ PutLst.Npl + ' Топливо '+ Toplivo.Name);
+            }
+            if not (gbAllToLog)
+            {
+              Message ('Не задана формула для расчета моточасов! '+''#13#3'ПЛ '+ PutLst.Npl +
+                       ''#13#3'Топливо '+ Toplivo.Name, warning);
+            };
+          }; // if (pbShowErrMess)
+          Exit ;
+        }
+      } // word(2)
+    end; // case
+  //сформируем все параметры
+  mylog('07 InitAllForAlg =='+string(pwTypeAlg))
+  Put_TimeCus   := PutGsm.Pok5Cng    ;
+  Put_TimeRad   := Putgsm.Pok5rb     ;
+  Put_TimeAll   := PutGsm.TimeAll    ;
+  Put_TimeMove  := PutGsm.TimeMove   ;
+  Put_TimeStop  := PutGsm.TimeStop   ;
+  Put_TimeRep   := PutGsm.TimeRep    ;
+  Put_TimeLoad  := PutGsm.TimeLoad   ;
+  Put_ProbegAll := PutGsm.ProbegAll  ;
+  Gsm_nrec      := Putgsm.nrec       ;
+  Proc_Izn      := Ras_proc_Izn      ;
+  Temper_Pl     := Putgsm.Temper     ;
+  Put_Pr1       := Putgsm.Pok3Rb    ;
+  Put_Pr2       := Putgsm.Pok4Rb    ;
+  Put_Pr3       := Putgsm.Pok5Ino   ;
+  Put_PrCity    := Putgsm.Pok3Cng   ;
+  Put_PrMoun    := Putgsm.Pok3Ino   ;
+
+  Put_SpTime    := 0;
+  Put_SpProbeg  := 0;
+  Put_SpCycl    := 0;
+  if Putgsm.cAgregat <> 0
+  if GetFirst ShinPutKomp where ((
+     3                 == ShinPutKomp.Shi_akk  and
+     putlst.nrec       == ShinPutKomp.cPutlst  and
+     Putgsm.cAgregat   == ShinPutKomp.cShinaf (noindex))) = tsok
+  {
+     Put_SpTime    := ShinPutKomp.TimeMove;
+     Put_SpProbeg  := ShinPutKomp.ProbegAll;
+     Put_SpCycl    := ShinPutKomp.Koff2;
+  }
+  mylog('08 InitAllForAlg =='+string(pwTypeAlg))
+  Put_TimeIns   := PutGsm.Interway  ;
+  Put_SpeedExi  := PutLst.SpeedExi  ;
+  Put_ProbegGr  := PutGsm.ProbegGr   ;
+  Put_GruzTn    := PutGsm.GruzTn     ;
+  Put_GruzTnKm  := PutGsm.GruzTnKm   ;
+  Put_TrlTn     := PutLst.GruzTnPri  ;
+  Put_TrlTnKm   := PutLst.GruzTnKmPri;
+  Put_TrlVl     := PutLst.Volume1    ;
+  Put_GruzVl    := PutGsm.DpPokaz3  ;
+  if Getfirst WayWpsGsm <> tsok         // маршрут не верен
+    {  /*
+       if Systran.Temp20 = 0
+        if Getlast Waywps = tsok
+         set PutGsm.cWaywps  := Waywps.nrec;
+        else
+         set PutGsm.cWaywps  := 0;
+       else
+        if GetFirst Waywps = tsok
+          set PutGsm.cWaywps  := Waywps.nrec;
+        else
+          set PutGsm.cWaywps  := 0;
+      */
+    }
+// новые
+//  Pl_Viruch     := PutLst.fkVir      ;  //////////////////////
+  Inter_Way       := Systran.temp51 ;
+  Hour_Km         := SysTran.Temp52 ;
+  Put_TimeEngine  := PutGsm.TimeEngine  ;
+  Put_TimeSpec  :=  PutGsm.TimeSpec ;
+  Put_TimeHeat  :=  PutGsm.TimeHeat ;
+  Put_ProbegWrk :=  PutGsm.ProbegWrk ;
+  Put_ProbegNO  :=  PutGsm.ProbegAll - PutGsm.ProbegWrk ;
+  Put_KolVar    :=  PutGsm.VolWrk ;
+  Put_KolOne    :=  PutGsm.Kolez ;
+  Put_ProbegNlp :=  PutGsm.NlProbeg ;
+  D_Koff        :=  PutGsm.Kofn ;
+  Probeg_pri    :=  PutGsm.Probeg1 ; //общий пробег прицепов
+  ProbegGr_pri  :=  PutGsm.Probeg2 ; //пробег прицепов с грузом
+  GruzTn_Pri    :=  PutGsm.GruzTnPri  ;//перевезено грузов на прицепе
+  Gsm_DatEx     :=  0;
+  Gsm_DatRt     :=  0;
+  Gsm_DatPl     :=  0;
+  if PutLst.ExitDn >= SysTran.BegSummer and PutLst.ExitDn <= SysTran.BegWinter
+     Gsm_DatEx     :=  1;
+  if PutLst.ReturnDn >= SysTran.BegSummer and PutLst.ReturnDn <= SysTran.BegWinter
+     Gsm_DatRt     :=  1;
+  if PutLst.DatPl >= SysTran.BegSummer and PutLst.DatPl <= SysTran.BegWinter
+     Gsm_DatPl     :=  1;
+  Rb_Probeg       := PutGsm.DpPokaz4 ;
+  Rb_Gr           := PutGsm.Pok1Rb   ;
+  Rb_Tkm          := PutGsm.Pok2Rb   ;
+
+  Put_ProbegCng   := Putgsm.Timerz   ;
+  Cng_Gr          := PutGsm.Pok1Cng  ;
+  Cng_Tkm         := PutGsm.Pok2Cng  ;
+
+  Put_ProbegExt :=  Putgsm.ProbegTam ;
+  Ino_Gr          := PutGsm.Pok1Ino  ;
+  Ino_tkm         := PutGsm.Pok2Ino  ;
+
+  Put_ProbNoCity := PutgSM.DpPokaz2 ;
+  Put_TnKmNoCity := PutgSM.TimeDef ;
+  Put_GrNoCity    :=PutGsm.DpPokaz5 ;
+  Put_PrMar       :=PutLst.ProbegV  ;
+  Put_DatePl      := Putlst.DatPl   ;
+  Put_ExitDn      := Putlst.ExitDn  ;
+  Put_DatObr      := Putlst.DatObr  ;
+
+  If p22 = 0  Then Gsm_kof.Koff := 1 ;  // поиск дополнительной нормы не осуществлялся
+  If winsum =0
+         Gsm_Baz := Gsm_kof.Koff*NormGsm.LinNrm ;
+  Else
+  {   if NormGsm.KoffNgsm3 = 0
+         Gsm_Baz := Gsm_kof.Koff*NormGsm.LinNrm ;
+      else
+         Gsm_Baz := Gsm_kof.Koff*NormGsm.KoffNgsm3 ;
+  }
+  Gsm_Main   := Gsm_kof.Koff*NormGsm.LinNrm ;
+  Gsm_MainDp := Gsm_kof.Koff*NormGsm.KoffNgsm3 ;
+  Gsm_one    := Gsm_kof.Koff*NormGsm.OneEz ;
+  Gsm_Sp     := Gsm_kof.Koff*NormGsm.SpObr ;
+  Gsm_Dop    := Gsm_kof.Koff*NormGsm.DopMas ;
+  Gsm_SpWrk  := Gsm_kof.Koff*NormGsm.SpWrk ;
+  Gsm_Var    := Gsm_kof.Koff*NormGsm.UnLoad ;
+  Gsm_Drv    := Gsm_kof.Koff*NormGsm.WrkDrv ;
+  Gsm_Wrk    := Gsm_kof.Koff*NormGsm.KoffNgsm2 ;
+  Gsm_Nlp    := Gsm_kof.Koff*Normgsm.Nlprobeg ;
+  Kar_Probeg    :=  Transp.Probegn ;
+  Trl_var;
+  Massa_Avto_L    :=  PutGsm.Weight ;
+  GruzPod_Avto_L  :=  Putgsm.GruzPod ;
+  Massa_Trl_L     :=  PutGsm.Weight0 ;
+  GruzPod_Trl_L   :=  PutGsm.GruzPod0;
+  Kol_zak         :=  0;
+  _Loop Katzak
+     Kol_zak := Kol_zak + 1;
+// расчет
+  var bNormTorFactTNeeded: boolean;
+  mylog('10 InitAllForAlg =='+string(pwTypeAlg))
+  case pwTypeAlg of
+    word(1):
+      bNormTorFactTNeeded := ( InStr('PUT_NORMT',UPCASE(GsmAlg.StrAlg)) != 0
+                            or InStr('PUT_FAKT',UPCASE(GsmAlg.StrAlg)) != 0
+                            or InStr('SUMALGCODE',UPCASE(GsmAlg.StrAlg)) != 0
+                             );
+    word(2):
+      bNormTorFactTNeeded := ( InStr('PUT_NORMT',UPCASE(MotoAlg.StrAlg)) != 0
+                            or InStr('PUT_FAKT',UPCASE(MotoAlg.StrAlg)) != 0
+                            or InStr('SUMALGCODE',UPCASE(MotoAlg.StrAlg)) != 0
+                             );
+  end; // case
+ if (bNormTorFactTNeeded)
+ {
+  PushPos(#PutGsm) ;
+  Resetbounds(tnPutGsm) ;
+  CondActGsm   := Check_CondActGsm(Putgsm.tipGsm);
+  Put_NormT    := 0 ;
+  Put_FakT     := 0 ;
+  Put_NormT1   := 0 ;
+  Put_FakT1    := 0 ;
+  Put_NormT2   := 0 ;
+  Put_FakT2    := 0 ;
+  If modifier GetFirst Putgsm  where((
+                   Word(0)          == Putgsm.TipInfo     and
+                   PutLst.nrec      == Putgsm.cPutLst     and
+                   0                == Putgsm.TipGsm
+                   ))  = tsok
+  {
+  SaveGsm := Toplivo.cOtpEd ;
+  mylog('11 InitAllForAlg =='+string(pwTypeAlg))
+  do
+  begin
+    If  VidGsm.TipRs = 0   //все кроме смазочных
+    {
+      If SaveGsm = Toplivo.cOtpEd
+      {
+       Put_NormT    := Put_NormT  + Putgsm.Normt ;
+       Put_FakT     := Put_FakT   + Putgsm.Faktt ;
+      }
+      Else
+      {
+        if (gbAllToLog) or (gbCalcToLog)
+        {
+          fw('Различные учетные единицы в топливе на движение! ' + 'ПЛ '+ PutLst.Npl + ' Топливо '+ Toplivo.Name);
+        }
+        if not (gbAllToLog)
+        {
+          Message (''#3'Различные учетные единицы в топливе на движение!',Warning) ;
+        };
+      };
+    }
+  End ;
+  While modifier GetNext Putgsm  where((
+                   Word(0)          == Putgsm.TipInfo     and
+                   PutLst.nrec      == Putgsm.cPutLst     and
+                   0                == Putgsm.TipGsm
+                   ))  = tsok
+  }
+  mylog('12 InitAllForAlg =='+string(pwTypeAlg))
+  If modifier GetFirst Putgsm  where((
+                   Word(0)          == Putgsm.TipInfo     and
+                   PutLst.nrec      == Putgsm.cPutLst     and
+                   1                == Putgsm.TipGsm
+                   ))  = tsok
+  {
+   SaveGsm := Toplivo.cOtpEd ;
+   do
+   begin
+    If  VidGsm.TipRs = 0   //все кроме смазочных
+    {
+      If SaveGsm = Toplivo.cOtpEd
+      {
+       Put_NormT1    := Put_NormT1  + Putgsm.Normt ;
+       Put_FakT1     := Put_FakT1   + Putgsm.Faktt ;
+      }
+      Else
+      {
+        if (gbAllToLog) or (gbCalcToLog)
+        {
+          fw('Различные учетные единицы! ' + 'ПЛ '+ PutLst.Npl + ' Топливо '+ Toplivo.Name);
+        }
+        if not (gbAllToLog)
+        {
+          Message (''#3'Различные учетные единицы!',Warning);
+        };
+      };
+    }
+  End ;
+  While modifier GetNext Putgsm  where((
+                   Word(0)          == Putgsm.TipInfo     and
+                   PutLst.nrec      == Putgsm.cPutLst     and
+                   1                == Putgsm.TipGsm
+                   ))  = tsok
+  }
+  If modifier GetFirst Putgsm  where((
+                   Word(0)          == Putgsm.TipInfo     and
+                   PutLst.nrec      == Putgsm.cPutLst     and
+                   2                == Putgsm.TipGsm
+                   ))  = tsok
+  {
+  SaveGsm := Toplivo.cOtpEd ;
+  do
+  begin
+    If  VidGsm.TipRs = 0   //все кроме смазочных
+    {
+      If SaveGsm = Toplivo.cOtpEd
+      {
+       Put_NormT2    := Put_NormT2  + Putgsm.Normt ;
+       Put_FakT2     := Put_FakT2   + Putgsm.Faktt ;
+      }
+      Else
+      {
+        if (gbAllToLog) or (gbCalcToLog)
+        {
+          fw('Различные учетные единицы! ' + 'ПЛ '+ PutLst.Npl + ' Топливо '+ Toplivo.Name);
+        }
+        if not (gbAllToLog)
+        {
+          Message (''#3'Различные учетные единицы!',Warning);
+        };
+      };
+    }
+  End ;
+  While modifier GetNext Putgsm  where((
+                   Word(0)          == Putgsm.TipInfo     and
+                   PutLst.nrec      == Putgsm.cPutLst     and
+                   2                == Putgsm.TipGsm
+                   ))  = tsok
+  }
+  setbounds(tnPutGsm) ;
+  if CondActGsm
+    PushConditionForLeave(tcconPut, #Putgsm);
+  PopPos(#PutGsm) ;
+  mylog('=== END InitAllForAlg ==')
+  // пока без проверки
+  //If SaveGsm <> Toplivo.cOtpEd
+  //     Message (''#3'Различные учетные единицы!',Warning) ;
+}
+//расcчитаем по формуле
+  if PutGsm.EdinRas <= 1
+     Gsm_Ins    := Gsm_kof.Koff*Normgsm.Dop1 ;
+  else // надо найти , а единицы не проверяются .....
+  {  Find_norma;
+     if Tsflag = tsok
+     {
+      if Putgsm.DpPokaz8 = word(NormGsm.StoimVal)
+         Gsm_Ins    := Gsm_kof.Koff*Normgsm.Dop1;
+      else
+      {
+        if (gbAllToLog) or (gbCalcToLog)
+        {
+          fw('Нормы ГСМ заданы в различных величинах (весовом и объемном).' + ' Будет произведен перевод! ' + 'ПЛ '+ PutLst.Npl + ' Топливо '+ Toplivo.Name);
+        }
+        if not (gbAllToLog)
+        {
+          Message (''#3'Нормы ГСМ заданы в различных величинах (весовом и объемном) '+
+                   ''#13#3'Будет произведен перевод!',warning);
+        };
+       case NormGsm.StoimVal of
+       0: //литры
+         Gsm_Ins    := Gsm_kof.Koff*Normgsm.Dop1*putGsm.TimePg;
+       1://кг
+         Gsm_Ins    := Gsm_kof.Koff*Normgsm.Dop1/putGsm.TimePg;
+       end; // case
+      }
+     }
+  }
+} // procedure InitAllForAlg
+
+Procedure Norma_all ;
+{
+  if (PutGsm.cToplivo = 0)
+  {
+     if (gbAllToLog) or (gbCalcToLog)
+     {
+       fw('Марка топлива не определена! ' + 'ПЛ '+ PutLst.Npl);
+     }
+     if not (gbAllToLog)
+     {
+       Message (''#3'Марка топлива не определена!!!',warning);
+     };
+     exit;
+  }
+ mylog('01 Norma_all')
+ if Putgsm.TipGsm >= 10
+     exit;
+ if Putgsm.Tipgsm < 3
+ if wGetTune('TranspKartoteka.TCGsm' + string(Putgsm.Tipgsm)) = 1
+  {
+//      if not EqualGsm(Putgsm.Tipgsm) exit;
+  }
+ mylog('02 Norma_all')
+ If VidGsm.TipRs = 0
+   if wGetTune('TranspPlGsm.NoCalcNorma') = 0
+     IF PutGsm.cGsmAlg = 0
+        exit;
+// if Putgsm.DpPokaz9 = 1    GsmFromPutlst;
+ old_toplivo := PutGsm.FaktT;
+ w_Normt := 0 ;
+ InitAllForAlg(word(1), true);
+ mylog('02 Norma_all '+string(Gsm_Baz)+'/'+string(Put_ProbegAll))
+ If (VidGsm.TipRs = 0)
+ {
+   var AlgStr: string;
+   AlgStr := UPCASE(GsmAlg.StrAlg);
+   mylog('03 Norma_all')
+   var strExpression: string;
+   var strError: string;
+   strError := '';
+   // вместо Expression нужно пользоваться рекурсивным алгоритмом
+   // чтобы иметь возможность использовать 'SUMALGCODE[n]' для длинных формул
+   //RunInterface('CalcAlgValue',word(coGsmAlg),AlgStr,strExpression,strError);
+   SumAlgCode(word(coGsmAlg),AlgStr,gbCalcToLog, strExpression,strError);
+   mylog('03 Norma_all '+algstr+'/'+strExpression+'/'+strError)
+   if Putgsm.DpPokaz8 = 0
+   {
+     //Set PutGsm.Normt := Double(Expression(AlgStr,Soob)) ;
+     Set w_Normt := Double(strExpression) ;
+     Set w_DpPokaz1 := w_Normt*putGsm.TimePg
+     mylog('04 Norma_all '+string(w_Normt))
+   }
+   else
+   {
+     //Set PutGsm.DpPokaz1 := Double(Expression(AlgStr,Soob))/1000;
+     Set w_DpPokaz1 := Double(strExpression)/1000;
+     Set w_Normt := w_DpPokaz1/putGsm.TimePg;
+     mylog('05 Norma_all '+string(w_Normt))
+   }
+   //If Length(Soob)<> 0
+   //  Message (Soob +' нормативного значения ГСМ ',okButton) ;
+   if (Length(strError) != 0)
+    {
+     mylog('06 Norma_all strError='+strError)
+     if (gbAllToLog) or (gbCalcToLog)
+     {
+       mylog(strError +' нормативного значения ГСМ. ' + 'ПЛ '+ PutLst.Npl + 'Топливо '+ Toplivo.Name);
+     }
+     if not (gbAllToLog)
+     {
+       Message (strError +' нормативного значения ГСМ.',okButton);
+     };
+    }
+ }; // If (VidGsm.TipRs = 0)
+ mylog('=== Norma_all ===')
+}
+//====================================
+
+#doc
+#end
+//=====================
+Function Gsm_Calc_Norm(w_alg:word; wc_putgsm:comp) :double ;
+{ Gsm_Calc_Norm:=0
+  w_nrec:=wc_putgsm;
+  if getfirst putgsm=0
+  { wc_putlst:=putgsm.cputlst
+  }
+  if getfirst putlst =0 {}
+  mylog('===Gsm_Calc_Norm=='+putlst.npl+'/'+w_alg)
+  kod_alg:=w_alg;
+  gbAllToLog:=true;
+  gbCalcToLog:=true
+  if getfirst GSMALG=0
+  { Norma_all
+    Gsm_Calc_Norm:=w_Normt;
+  }
+}
+//=====================
+Function GetNameAlg   (w_alg:word):string;
+{ w_attrnam:='Название для формы 03'
+  kod_alg:=w_alg;
+  if getfirst GSMALG=0
+    GetNameAlg:=GSMALG.name
+  if getfirst attrnam=0
+    if getfirst attrval=0
+      GetNameAlg:=attrval.vstring;
+}
+//=====================
+Function GetNameAlg_2   (w_alg:word):string;
+{ kod_alg:=w_alg;
+  if getfirst GSMALG=0
+    GetNameAlg_2:=GSMALG.name
+}
+// Вызывать после Gsm_Calc_Norm
+Function GetPocazatelVal   (w_alg:word):double;
+var ww_str:string;
+{ GetPocazatelVal:=Put_ProbegAll //GSM_BAZ
+  w_attrnam:='Показатель значение'
+  kod_alg:=w_alg;
+  if getfirst GSMALG=0
+  {
+    if getfirst attrnam=0
+      if getfirst attrval=0
+      { var strExpression: string;
+        var strError: string;
+        strExpression:=attrval.vstring;
+        ww_str:=Expression(strExpression,strError)
+        GetPocazatelVal:=double(ww_str)
+      }
+  }
+}
+//=== получить наименование показателя
+Function GetPocazatelName   (w_alg:word):string;
+{ w_attrnam:='Показатель наименование'
+  kod_alg:=w_alg;
+  GetPocazatelName:=''
+  if getfirst GSMALG=0
+  {
+    if getfirst attrnam=0
+      if getfirst attrval=0
+      { GetPocazatelName:=attrval.vstring;
+      }
+  }
+} //Function GetPocazatelName   (w_alg:word):string;
+
+//== получить формулу
+Function GetFormula (w_alg:word):string;
+{ GetFormula:='';
+  kod_alg:=w_alg;
+  if getfirst GSMALG=0
+    GetFormula:=GSMALG.STRALG
+}
+//== получить формулу в числах
+Function GetFormulaNum (w_alg:word; wc_putgsm:comp):string;
+var
+  ww_str,ww_str1,ww_strv,ww_strv1:string;
+  strExpression: string;
+  strError: string;
+  ww_alg:word;
+{ GetFormulaNum:='';
+  if w_nrec<>wc_putgsm
+  { w_nrec:=wc_putgsm
+    if getfirst putgsm=0
+    { wc_putlst:=putgsm.cputlst
+    }
+    Gsm_Calc_Norm(w_alg, wc_putgsm)
+  }// if w_nrec<>wc_putgsm
+  if getfirst putlst =0 {}
+  kod_alg:=w_alg;
+  if getfirst GSMALG=0
+  { ww_str:=upcase(GSMALG.STRALG)
+    if pos('TXOGETEXTATT',ww_str)>0 //такое сразу не будем обрабатывать
+    or pos('TXOGETFIELD',ww_str)>0
+    or pos('DOUBLE',ww_str)>0
+    or pos('PL_VIRUCH',ww_str)>0
+    or pos('ZARALG',ww_str)>0
+    { ww_str:=string(Gsm_Calc_Norm(w_alg, wc_putgsm),0,4);
+    }
+    else //if pos('DOTXOGETEXTATT',ww_str)>0
+    { ww_str:=replace(ww_str,'ROUND'+chr(40),'')
+      ww_str:=replace(ww_str,',2'+chr(41),'')
+      ww_str:=replace(ww_str,',1'+chr(41),'')
+      _loop backward fullcache IDNAVT where (( 1 == TIPFR )) ordered by   IDNAVT.TIPFR,IDNAVT.NAME
+      { if IDNAVT.NAME='' then continue;
+        if pos(upcase(IDNAVT.NAME),ww_str)>0
+        { strExpression:=IDNAVT.NAME;
+          ww_strv:=Expression(strExpression,strError)
+          if strError=''
+          { if pos('.',ww_strv)>0 ww_strv:=substr(ww_strv,1,pos('.',ww_strv)+4)
+          //  if pos('0.000',ww_strv)>0 ww_strv:=substr(ww_strv,1,pos('.',ww_strv)-1)
+            ww_str:=replace(ww_str,upcase(IDNAVT.NAME),ww_strv)
+          }
+        } //if pos(upcase(IDNAVT.NAME),ww_str)>0
+      } //_loop IDNAVT where (( 1 == TIPFR ))
+      while pos('SUMALGCODE',ww_str)>0
+      { ww_strv1:=substr(ww_str,pos('SUMALGCODE',ww_str),100)
+        ww_strv1:=substr(ww_strv1,1,pos(']',ww_strv1))
+        ww_str1:=substr(ww_str,pos('[',ww_str)+1,100)
+        ww_str1:=substr(ww_str1,1,pos(']',ww_str1)-1)
+        ww_alg:=word(ww_str1)
+        //ww_strv:=string(Gsm_Calc_Norm(ww_alg, wc_putgsm),0,4);
+        ww_strv:=GetFormulaNum(ww_alg, wc_putgsm)
+        ww_str:=replace(ww_str,ww_strv1,ww_strv)  
+      } 
+      ww_str:=replace(ww_str,'-0.0000','')
+      ww_str:=replace(ww_str,'+0.0000','')
+      ww_str:=replace(ww_str,chr(40)+'0.0000', chr(40))//'(')
+      ww_str:=replace(ww_str,'()','')
+      ww_str:=replace(ww_str,'.0000','.0')
+      ww_str:=replace(ww_str,'000','0')
+      ww_str:=replace(ww_str,'00'+chr(41),chr(41))
+      ww_str:=replace(ww_str,'.',',')
+    } //else  if pos('DOTXOGETEXTATT',ww_str)>0
+  } //if getfirst GSMALG=0
+  GetFormulaNum:=ww_str;
+}//Function GetFormulaNum (w_alg:word; wc_putgsm:comp):string;
+//=====================
+HandleEvent
+ cmOnVipLoad: // точка входа перед началом расчетов
+  { InitServTxo(0)
+    logfilenm:=''
+    MetodTc:=0;
+    gbAllToLog:=true;
+    gbCalcToLog:=true
+  }//cmOnVipLoad
+ cmOnVipUnload: // точка входа после завершения расчетов
+  { //DoneServTxo
+  }//cmOnVipUnload
+end;//HandleEvent Interface
+end.//Interface

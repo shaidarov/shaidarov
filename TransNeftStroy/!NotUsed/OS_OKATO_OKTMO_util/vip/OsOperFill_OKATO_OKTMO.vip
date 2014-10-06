@@ -1,0 +1,214 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) Корпорация ГАЛАКТИКА                              ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Модуль        : Учет ОС                                                   ║
+ ║ Версия        : 8.10                                                      ║
+ ║ Клиент        : ООО "ТрансНефть-Финанс"                                   ║
+ ║ Назначение    : Проставляет новые значения ОКТМО в операции изменения пар.║
+ ║ Ответственный : Викторович Владимир Анатольевич                           ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include ChgPar.vih
+#include ATDServices.vih
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface OsOperFill_OKATO_OKTMO;
+
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  create view
+
+  var
+    pOsChgPar    : OsChgPar;
+    pATDSerices  : IATDServices;
+
+    pMoveOS      : tNrec;
+    pNastrOsNRec : tNrec;
+    LogFilePath  : string;
+    MsgCount     : longint;
+
+    pcMoveOsNRec : tNrec;
+    pcNastrOsNRec: tNrec;
+    pcKatOsNRec  : tNrec;
+    pwKau        : word;
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  from
+    MoveOS
+  , SpMove
+  , SpMoveOS
+  , KatOS
+  , OsChgPar
+  , KauReff
+  where
+  ((
+        pcMoveOsNRec   == MoveOS.NRec
+
+    and MoveOS.NRec    == SpMove.cMoveOS
+    and pcNastrOsNRec  == SpMove.cNastrOS
+
+    and MoveOS.NRec    == SpMoveOS.cMoveOS
+    and SpMove.cNastrOS== SpMoveOS.cNastrOS
+
+    and SpMoveOS.cKatOS== KatOS.Nrec
+  ))
+  ;
+
+  parameters
+    pMoveOS,
+    pNastrOsNRec;
+
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  procedure Logging(Msg : string);
+  {
+    LogStrToFile(LogFilePath, Msg);
+    MsgCount++;
+  }
+
+  function GetKauReffOldValues(pwKau : word) : comp;
+  {
+      result := 0;
+
+        /*
+        // появится только после проведения операции
+        if getfirst OsChgPar where
+                                (( MoveOs.NRec     == OsChgPar.cMoveOs   and
+                                   cgOsChg_OldVal  == OsChgPar.wType     and
+                                   SpMoveOS.cKatOS == OsChgPar.cKatOs    and
+                                   cgOsChg_KauReff == OsChgPar.ParCode   and
+                                   0               == OsChgPar.cNastrOS and   // SpMoveOS.cNastrOS
+                                   pwKau           == OsChgPar.dValue (NoIndex)
+                                )) = tsOk
+        {
+          result := OsChgPar.cValue;
+        }
+        */
+
+        if getfirst KauReff where
+                                (( coKatOS         == KauReff.coTable   and
+                                   SpMoveOS.cKatOS == KauReff.cRec      and
+                                   pwKau           == KauReff.wKau
+                                )) = tsOk
+        {
+          result := KauReff.cKau;
+        }
+  }
+
+  function SetKauReffNewValues(pwKau : word; pcValue : comp) : boolean;
+  {
+      result := false;
+
+      delete OsChgPar where
+                              (( MoveOs.NRec     == OsChgPar.cMoveOs   and
+                                 cgOsChg_NewVal  == OsChgPar.wType     and
+                                 0               == OsChgPar.cKatOs    and
+                                 cgOsChg_KauReff == OsChgPar.ParCode   and
+                                 // 0               == OsChgPar.cNastrOS and  // на всякий случай удалим и с 0 и со значениями
+                                 pwKau           == OsChgPar.dValue (NoIndex)
+                              ));
+
+      if getfirst OsChgPar where
+                              (( MoveOs.NRec     == OsChgPar.cMoveOs   and
+                                 cgOsChg_NewVal  == OsChgPar.wType     and
+                                 SpMoveOS.cKatOS == OsChgPar.cKatOs    and
+                                 cgOsChg_KauReff == OsChgPar.ParCode   and
+                                 0               == OsChgPar.cNastrOS and  // SpMoveOS.cNastrOS
+                                 pwKau           == OsChgPar.dValue (NoIndex)
+                              )) <> tsOk
+      {
+        ClearBuffer(tnOsChgPar);
+        OsChgPar.cMoveOs   := MoveOs.NRec;
+        OsChgPar.wType     := cgOsChg_NewVal;
+        OsChgPar.cKatOs    := SpMoveOS.cKatOS;  // если создать руками, то тут 0, т.е. новое значение общее для всех
+        OsChgPar.ParCode   := cgOsChg_KauReff;
+        OsChgPar.cNastrOS  := 0; // SpMoveOS.cNastrOS  // методо-независимый параметр
+        OsChgPar.dValue    := pwKau;
+        insert current OsChgPar;
+      }
+
+      OsChgPar.cValue := pcValue;
+      update current OsChgPar;
+
+      result := true;
+  }
+
+  procedure Main;
+  {
+    pcMoveOsNRec   := pMoveOS;
+    pcNastrOsNRec  := pNastrOsNRec;
+
+    if pcNastrOsNRec = coGetTune('OS.OSBUHMETUCHT')
+      pwKau := 72; // АТД
+
+    if pcNastrOsNRec = coGetTune('OS.OSNALMETUCHTRUS')
+      pwKau := 50001; // ОКАТО (налог на прибыль)
+
+    // 'OS.OSNALMETUCHTRUS';
+
+    if getfirst MoveOS = tsOk
+    {
+      if getfirst SpMove = tsOk
+      {
+        if SpMove.Proved = 0
+        {
+          pOsChgPar.SetMoveOsRec(pcMoveOsNRec);
+          pOsChgPar.SetNastrOsRec(pcNastrOsNRec);
+
+          _loop SpMoveOS
+          {
+            pcKatOsNRec := SpMoveOS.cKatOS;
+
+            pOsChgPar.SetKatOsRec(pcKatOsNRec);
+
+            //if pOsChgPar.isPresentKauReff(pwKau)
+            //{
+              var cOKATO : comp;
+              var cOKTMO : comp;
+
+              // cOKATO := pOsChgPar.GetKauReffOldValues(pwKau);
+              cOKATO := GetKauReffOldValues(pwKau);
+              cOKTMO := pATDSerices.GetOKTMOnRecbyOKATOnRec(cOKATO);
+              // cOKTMO := pATDSerices.GetParentnRecbyNrec(cOKATO); // ТЕСТ
+
+              if cOKTMO <> 0
+              {
+                // pOsChgPar.SetKauReffNewValues(pwKau, cOKTMO); // не реализован метод!
+                if SetKauReffNewValues(pwKau, cOKTMO)
+                {};
+              }
+              else
+                Logging(pATDSerices.GetLastError);
+            //}
+            // else
+            //  Logging('Для ОС с инвентарным номером ' + KatOS.innum + ' не задан изменяемый параметр с кодом ' + pwKau);
+          }
+        }
+        else
+          Logging('Операция уже проведена. В проведенной операции нельзя проставлять новое КАУ');
+      }
+      else
+        Logging('Не спозиционировался на SpMove');
+    }
+    else
+      Logging('Не спозиционировался на MoveOS');
+
+  }
+
+  HandleEvent
+    cmInit:
+    {
+      LogFilePath := GetPathParameter('Files', 'OutputFilesDirectory', 0);
+      LogFilePath := LogFilePath + '\OsOperFill_OKATO_OKTMO.out';
+
+      MsgCount := 0;
+      if ExistFile(LogFilePath)
+        DeleteFile(LogFilePath);
+
+      Main;
+
+      if MsgCount > 0
+        ProcessText(LogFilePath, vfRunModal + vfNewTitle, 'Протокол работы интерфейса');
+    }
+  End;
+
+End.

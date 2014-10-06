@@ -1,0 +1,106 @@
+#doc
+
+#end
+Interface OsNMARaznStEdit 'Редактирование постоянных разниц к начислению, из-за переоценок и прочей разницы в первоначальных стоимостях' Doaccept;
+  Show at (2, 2, 80, 10);
+
+  Var
+    _TiDk    : word;
+    _NRec    : comp;
+    _cKatOS  : comp;
+    _Data    : date;
+    _wOsRaznPRSt : word; // раздел записей OsRazn в которых будут сохраняться дополнительные данные по постоянным разницам
+
+  Create view vOsRazn
+  select
+    KatOS.*,
+    OsRaznSt.*,
+    OsRaznSt.NvrNach                                      (FieldName = CurM_PRStRestBeg),
+    OsRaznSt.NvrNachM                                     (FieldName = CurM_PRStNachM),
+    OsRaznSt.PRM                                          (FieldName = CurM_PRStPogM),
+    (OsRaznSt.NvrNach + OsRaznSt.NvrNachM - OsRaznSt.PRM) (FieldName = CurM_PRStRestEnd)
+
+  From
+    KatOS
+  , OSRazn OsRaznSt
+
+  where
+    ((
+      _wOsRaznPRSt          == OsRaznSt.TiDk      and
+      _cKatOS               == OsRaznSt.cDoc      and
+      _Data                 == OsRaznSt.Data      and
+      OsRaznSt.cDoc         == KatOS.NRec
+    ))
+  ;
+
+  Parameters
+      _TiDk
+    , _NRec
+    , _cKatOS
+    , _Data;
+
+Screen sEditOsRaznSt (, hcOSAmortRaznDanRF, sci1Esc);
+  Table OsRaznSt;
+Fields
+  KatOS.Innum        ('Инвентарный номер ОС')                   : [14.2,'\2p[|-]3666`666`666`666`666.88'], protect;
+  OsRaznSt.Data      ('Дата разниц')                            : protect;
+  OsRaznSt.NvrNach   ('ПР к начислению на начало месяца')       : [14.2,'\2p[|-]3666`666`666`666`666.88'], protect;
+  OsRaznSt.NvrNachM  ('ПР к начислению увеличение')             : [14.2,'\2p[|-]3666`666`666`666`666.88'], noprotect;
+  OsRaznSt.PRM       ('ПР к начислению уменьшение')             : [14.2,'\2p[|-]3666`666`666`666`666.88'], noprotect;
+  CurM_PRStRestEnd   ('ПР к начислению на конец месяца')        : [14.2,'\2p[|-]3666`666`666`666`666.88'], protect;
+
+<< 'Редактирование постоянных разниц к начислению, из-за переоценок и прочей разницы в первоначальных стоимостях'
+
+  Инвентарный номер                 .@@@@@@@@@@@@@@@@@@@
+  Дата                              .@@@@@@@@@@@@@@@@@@@
+
+  ПР к начислению на начало месяца  .@@@@@@@@@@@@@@@@@@@
+  ПР к начислению увеличение        .@@@@@@@@@@@@@@@@@@@
+  ПР к начислению уменьшение        .@@@@@@@@@@@@@@@@@@@
+  ПР к начислению на конец месяца   .@@@@@@@@@@@@@@@@@@@
+
+>>
+end;//screen
+
+  TableEvent table OsRaznSt;
+    cmUpdateRecord:
+    {
+      update current OsRaznSt;
+      // inherited::handleEvent(cmUpdateRecord);
+    }
+  end; // TableEvent table OsRaznSt;
+
+HandleEvent
+  cmInit:
+    {
+      _wOsRaznPRSt   := 7700 + _TiDk;
+
+      var ColorProtected : integer;
+      ColorProtected := ColorSysSilver;
+      // ColorProtected := ColorSysCyan;
+
+      SetFontBackgroundColor (-1, #KatOS.Innum,       ColorProtected);
+      SetFontBackgroundColor (-1, #OsRaznSt.Data,     ColorProtected);
+      SetFontBackgroundColor (-1, #OsRaznSt.NvrNach,  ColorProtected);
+      SetFontBackgroundColor (-1, #CurM_PRStRestEnd,  ColorProtected);
+
+      if KatOS.OtchPer <> _Data
+      {
+        // SetFieldOption (#OsRaznSt.NvrNach,  ofProtected);
+        SetFieldOption (#OsRaznSt.NvrNachM, ofProtected);
+        SetFieldOption (#OsRaznSt.PRM,      ofProtected);
+        // SetFieldOption (#CurM_PRStRestEnd,  ofProtected);
+
+        SetFontBackgroundColor (-1, #OsRaznSt.NvrNachM, ColorProtected);
+        SetFontBackgroundColor (-1, #OsRaznSt.PRM,      ColorProtected);
+      }
+
+      if getfirst OsRaznSt <> tsOk
+      {
+        Message('Отсутствует запись о разницах в заданном периоде. Записи создаются только при расчет разниц.');
+        CloseInterface(cmOk);
+        abort;
+      }
+    }
+  end;
+end.

@@ -1,0 +1,179 @@
+Interface Update_nenach 'Дополнительная аналитика в вычетах' (,,), DoAccept;
+create view
+var
+  vNrec_OtpDop: comp;
+  iNrec_nenach: comp;
+  iNrec_Brigade: comp;
+as
+ select * from
+  nenach,
+  OtpDop
+ where
+           ((
+    iNrec_nenach == nenach.NRec and
+    nenach.OLDCLSCH  == OtpDop.Nrec   // Если есть "Дополнительная аналитика"
+           ))
+           ;
+
+Parameters iNrec_nenach,iNrec_Brigade;
+
+Procedure Insert_OtpDop;
+  {
+    ClearBuffer(#OtpDop);
+    OtpDop.ATL_ORIGINOFFICE  := 318;
+    Insert current OtpDop;
+    vNrec_OtpDop:= OtpDop.NREC;     // Nrec OtpDop
+   } // Конец Procedure Insert_OtpDop
+
+Procedure Update_nenach;
+ {
+//---------------UpDate current OtpDop----------------------
+     IF GetFirst OtpDop
+         where
+            ((vNrec_OtpDop == OtpDop.Nrec)) =tsok
+            {
+        OtpDop.ATL_ORIGINOFFICE  := 318;
+        OtpDop.cKaud[1]          := iNrec_Brigade;
+        OtpDop.Tbld[1]           := 2;
+            UpDate current OtpDop;
+            }
+//---------------UpDate current Perexod----------------------
+
+     IF GetFirst nenach
+         where
+            ((iNrec_nenach == nenach.NREC)) =tsok
+            {
+                  nenach.OLDCLSCH := vNrec_OtpDop;
+                  UpDate current nenach;
+            }
+
+ } // Конец Procedure
+
+HandleEvent
+   cmInit:
+    {
+     StartNewVisual(vtNumericVisual, vfTimer, 'Корректировка допаналитики',1);
+     Insert_OtpDop();
+     Update_nenach();
+     StopVisual('',0);
+    }  // cmOk
+  end; // HandleEvent
+end.   // Interface
+
+.Form 'NDFL_UPDATE_NN'
+.ard
+.group 'Корректировка данных З/П ()Филиал ООО "Транснефтьстрой" г.Томск) '
+.NameInList 'Корректировка ДОПОЛНИТЕЛЬНОЙ аналитики в архиве вычетов для обособленных подразделений, где отсутствует'
+.F 'Update.Out'
+.DEFO PortRait
+.var
+  Chek_Podr      :integer;
+  Data_Otch      : date;
+  wYear          : word;
+  wMonth         : word;
+
+  DN              : date;
+  DK              : date;
+
+  Nrec_Persons    : comp;
+  Nrec_Lschet     : comp;
+  Nrec_Podr       : comp;     // Наименование Должности
+  Nrec_nenach   : comp;
+  Nrec_OtpDop     : comp;
+
+!=====================================================================================
+  Tabn_        :LongInt; // Параметр для Interface Update_Korrekt
+  Nrec_Perexod :comp;    // Параметр для Interface Update_Korrekt
+  DatIzm_ : date;
+  DatOk_  : date;
+  FIO_ : string;
+  Name_Katpodr:string;
+  N : Integer;
+  Vidopl_: string;
+  Mesn_:integer;
+!=====================================================================================
+.endvar
+.Create view v_nenach
+as
+ select
+ *
+ from nenach, synonym katpodr brigade, Persons
+       where ((
+       nenach.brigade==brigade.nrec
+       and nenach.tPerson == Persons.nRec
+!      and '100500'==nenach.tabn (noindex)
+       ))
+       and nenach.yearn=wYear
+       and mesn<=wMonth
+       and nenach.oldclsch=0000000000000000h
+       and
+(
+nenach.brigade= 000100000001BE78h or
+nenach.brigade= 000100000001C5B6h or
+nenach.brigade= 000100000001D2E9h or
+nenach.brigade= 013E000000029CF1h or
+nenach.brigade= 013E00000002595Dh
+)
+order by tabn,mesn;
+
+/////////////////////////   Начало отчета!!!!!  //////////////////////////////
+.Begin
+   Data_Otch := dGetTune('up.Datotch');   // Дата отчетного периода в ЗАРПЛАТЕ
+   wYear    := Year(Data_Otch);
+   wMonth   := Month(Data_Otch);
+   DN := Data_Otch;
+   DK := Date(Last_Day(Data_Otch), wMonth, wYear);
+   N := 0;
+end.
+.fields
+   DN
+   DK
+.endfields
+
+                              СПИСОК  СОТРУДНИКОВ
+                 у которых скорректирована допаналитика в Вычетах
+                        с @@@@@@@@@@ г. по @@@@@@@@@@ г.
+┌─────┬───────┬────────────────────────────────────┬─────────────────┬──────────┬──────────┐
+│ №   │ Таб.  │    Фамилия Имя Отчество            │  Подразделение  │   Месяц  │   Сумма  │
+│п/п  │  №    │                                    │                 │          │          │
+├─────┼───────┼────────────────────────────────────┼─────────────────┼──────────┼──────────┤
+.{table 'v_nenach'
+.Begin
+   N := N+1;
+! if N=2 {break;Exit;}
+   Tabn_         := 0;
+   Nrec_Perexod  := 0h;
+   Nrec_Podr     := 0h;
+   Name_Katpodr  := ' ';
+
+   Tabn_         := v_nenach.nenach.Tabn;    // Табельный номер
+   Nrec_nenach := v_nenach.nenach.Nrec;
+   Nrec_Podr     := v_nenach.nenach.Brigade;
+   MesN_         := v_nenach.nenach.Mesn;
+   vidopl_ := v_nenach.nenach.Summa;
+   FIO_ := v_nenach.Persons.FIO;
+
+   IF Nrec_Podr = 000100000001BE78h   {Name_Katpodr:= 'с.Веденка';}
+   IF Nrec_Podr = 000100000001C5B6h   {Name_Katpodr:= 'ст.Губерово';}
+   IF Nrec_Podr = 000100000001D2E9h   {Name_Katpodr:= 'Ноябрьск';}
+   IF Nrec_Podr = 013E000000029CF1h   {Name_Katpodr:= 'с.Лесопильное';}
+   IF Nrec_Podr = 013E00000002595Dh   {Name_Katpodr:= 'п.Ласточка';}
+
+!   RunInterface(Update_nenach,Nrec_nenach,Nrec_Podr);
+End.
+.fields
+  N
+  Tabn_
+  FIO_
+  Name_Katpodr
+  MesN_
+  vidopl_
+.endfields
+│&&&&&│&&&&&&&│@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@│@@@@@@@@@@@@@@@@@│@@@@@@@@@@│@@@@@@@@@@│
+├─────┼───────┼────────────────────────────────────┼─────────────────┼──────────┼──────────┤
+.} // Конец {table 'v_Perexod'
+.Begin
+  message ('Корректировка ДОПОЛНИТЕЛЬНОЙ АНАЛИТИКИ - закончена');
+  Exit;
+End.
+.endform

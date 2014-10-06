@@ -1,0 +1,1 @@
+call vip_loc.bat TNS TNS_Auto  TNS\inc 

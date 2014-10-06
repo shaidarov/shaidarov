@@ -1,0 +1,299 @@
+#DEFINE _EXCEL_MATRIX_
+// загрузка из Excel
+table struct tmp_excel
+( numrow : word ,
+  dmcell : array [1..200] of string  ,
+  level :word 
+)
+with index
+(  tmp_excel01 = numrow
+) ;
+table struct tmp_excel_ls
+( numrow : word ,
+  numcell :word , 
+  dmcell : string  ,
+  numstr :word 
+)
+with index
+(  tmp_excel_ls01 = numrow+numcell+numstr
+) ;
+table struct tmp_listsootv
+(  nmtable :string[20]
+  ,nmfld   :string[20]
+  ,oldval  :string
+  ,newval  :string
+)
+with index
+( tmp_listsootv01 =nmtable+nmfld+oldval
+
+) ;
+create view v_Imp
+as select tmp_excel.* from tmp_excel(tmp_excel01)
+ ,tmp_listsootv(tmp_listsootv01), tmp_excel_ls(tmp_excel_ls01)
+ ; 
+//=========
+Procedure MyLog(w :string ) ;
+{ logstrtofile(logfilenm,w)
+}
+
+
+//==== преобразовать из Excel  в число
+function MyDouble(w:string):double ;
+{ w:=replace(w,',','.')
+  w:=replace(w,' ','')
+  w:=replace(w,chr(39),'')
+  MyDouble:=double(w) ;
+}
+
+//=============================
+Function ReadDataFromExcel(row:longint ; nmfile :string  ) :boolean ;
+//
+var wrow :longint ;
+    KolEmptRow,KolEmptCol: word ;
+    wklempt:boolean ;
+    jj:word ;
+    wstr2:string ;
+    wkluch:boolean ;
+    chet : longint ;
+    maxjj :longint ;
+#IFDEF _EXCEL_MATRIX_    
+    mas_excel : longint ;
+    row_matrix: longint ;
+    
+#ENDIF    
+{ v_Imp.delete all tmp_excel ;
+  ReadDataFromExcel:=false ;
+  logfilekl:=true ;
+  mylog('ReadDataFromExcel == Идет загрузка из '+nmfile );
+  if not fileexist(nmfile) { message('Нет файла '+nmfile) ; exit ;}
+//грузим с указанной строки +1(здесь должна быть шапка), при обработке шапка пропускается
+//то есть если указана 6 строка, то данные должны юыть с 8
+  maxjj:=50 ;// там где много записей надо задать точно, а еще лучше переделать на матрицу.
+ RestartVisual('идет загрузка',0);
+  wrow:=row ;
+  if not inextvisual('Идет загрузка из '+nmfile) then exit ;
+  xlCreateExcelWithTemplate(nmfile,true)
+  wkluch:=true
+  KolEmptRow:=0 ; KolEmptCol:=0 ;
+/*
+   Function CreateMatrixEx(Rows, Cols : longint) : LongInt; 
+    Function FreeMatrixEx(ID : Longint ) : boolean; 
+    Function ClearMatrixEx(ID : Longint ): boolean; 
+    Function WriteToMatrixEx(ID, Row, Col : longint; Value : variant) : boolean; 
+    Function WriteDateToMatrixEx(ID, Row, Col : longint; Year, Month, Day : word) : boolean; 
+    Function ReadFromMatrixEx(ID, Row, Col : longint; var Value : variant) : boolean; 
+    Function WriteMatrixToExcelEx(ID : Longint; RowU : longint = 0; ColL : longint = 0) : boolean; 
+    Function ReadMatrixFromExcelEx(ID : LongInt; RowU : longint = 0; ColL : longint = 0; RowD : longint = 0; ColR : longint = 0) : boolean;
+*/  
+#IFDEF _EXCEL_MATRIX_    
+  mas_excel:=XLCreateMatrixEx(1000,maxjj+1)
+  row_matrix:=0 ;
+  XLReadMatrixFromExcelEx(mas_excel,row+1,1,row+1000, maxjj) ;
+#ENDIF  
+  do 
+  { 
+    wrow:=wrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 
+      if not nextvisual then { wkluch:=false ; break ;}
+#IFDEF _EXCEL_MATRIX_    
+    row_matrix:=row_matrix+1 ;
+    if row_matrix>1000
+    { row_matrix:=1 ;
+      XLClearMatrixEx(mas_excel) ;
+      XLReadMatrixFromExcelEx(mas_excel,wrow,1,wrow+1000-1, maxjj) ;
+    }
+#ENDIF
+    KolEmptCol:=0 ;
+    v_Imp.clearbuffer(v_Imp.tntmp_excel) ;
+    v_Imp.tmp_excel.numrow:=wrow ;
+    wklempt:=true ;
+    for(jj:=1;jj<=maxjj;jj:=jj+1 )
+    { wstr2:='' ;
+    
+#IFDEF _EXCEL_MATRIX_    
+      XLReadFromMatrixEx(mas_excel,row_matrix,jj,wstr2)
+#ELSE
+      xlGetCellValue(wrow,jj,wstr2) ;
+#ENDIF      
+      wstr2:=trim(replace(wstr2,'  ',' ')) ;
+      if wstr2='' then KolEmptCol:=KolEmptCol+1 ;
+      if KolEmptCol>20 then break ;
+      v_Imp.tmp_excel.dmcell[jj]:=wstr2 ;
+      if v_Imp.getfirst tmp_listsootv where (( 
+             'ALL'==tmp_listsootv.nmtable
+         and 'ALL'==tmp_listsootv.nmfld 
+         and tmp_excel.dmcell[jj]== tmp_listsootv.oldval
+           ))=0
+      { v_Imp.tmp_excel.dmcell[jj]:= v_Imp.tmp_listsootv.newval ;  
+      }
+      if wstr2<>'' then { wklempt:=false ; KolEmptRow:=0 ; }
+    } //for(jj:=1;jj<=100;jj:=jj+1 )
+//    if not wklempt or KolEmptRow<10
+    v_Imp.insert current tmp_excel ;
+  mylog(v_Imp.tmp_excel.dmcell[1]+'/'+v_Imp.tmp_excel.dmcell[2]+'/'+v_Imp.tmp_excel.dmcell[3] );
+    if not wklempt then KolEmptRow:=0 ;
+    if wklempt
+    { KolEmptRow:=KolEmptRow+1 ;
+      if KolEmptRow>10 then break ;
+    }
+  } while wrow<65000
+  //v_Imp.delete tmp_excel where (( row-KolEmptRow <<=tmp_excel.numrow)) ;
+  mylog('Забрали для записи '+string(recordsintable(v_Imp.tntmp_excel)) );
+  mylog('===================================' );
+#IFDEF _EXCEL_MATRIX_    
+  XLFreeMatrixEx(mas_excel) ;
+#ENDIF
+  XLGETACTIVEWORKBOOKNAME(wstr2) ;
+  xlCloseWorkBookByName(wstr2) ;
+  xlKillExcel ;
+  ReadDataFromExcel:=wkluch ;
+}
+
+Function Imp_Sootv(nmfile :string ) :boolean ;
+{   v_imp.delete all tmp_listsootv ;
+  Imp_Sootv:=false ;
+  if fileexist(nmfile)
+  { message('Обнаружен лист замен')
+      if not ReadDataFromExcel(1,nmfile) then exit ;
+      v_imp._loop tmp_excel
+      { if v_imp.tmp_excel.dmcell[1]+v_imp.tmp_excel.dmcell[2]+v_imp.tmp_excel.dmcell[3]+v_imp.tmp_excel.dmcell[4]<>''
+        { v_imp.insert into tmp_listsootv set 
+             tmp_listsootv.nmtable:=upcase(tmp_excel.dmcell[1])
+            ,tmp_listsootv.nmfld  :=upcase(tmp_excel.dmcell[2])
+            ,tmp_listsootv.oldval :=tmp_excel.dmcell[3]
+            ,tmp_listsootv.newval :=tmp_excel.dmcell[4] 
+            ;
+        }
+      }
+    Imp_Sootv:=true ;  
+  } //if fileexist(nmfile) 
+} //Function Imp_Sootv(nmfile :string ) :boolean ;
+
+//=============================
+Function ReadDataFromExcelWithLS(row:longint ; nmfile :string  ) :boolean ;
+//
+var wrow :longint ;
+    KolEmptRow,KolEmptCol: word ;
+    wklempt:boolean ;
+    jj:word ;
+    wstr2:string ;
+    wkluch:boolean ;
+    chet : longint ;
+    maxjj :longint ;
+#IFDEF _EXCEL_MATRIX_    
+    mas_excel : longint ;
+    row_matrix: longint ;
+    wsubstr:string;
+    numstr:integer;
+    
+#ENDIF    
+{ v_Imp.delete all tmp_excel ;
+logstrtofile('xls.log', 'Start..')      
+  ReadDataFromExcelWithLS:=false ;
+  logfilekl:=true ;
+  mylog('ReadDataFromExcelLS == Идет загрузка из '+nmfile );
+  if not fileexist(nmfile) { message('Нет файла '+nmfile) ; exit ;}
+//грузим с указанной строки +1(здесь должна быть шапка), при обработке шапка пропускается
+//то есть если указана 6 строка, то данные должны юыть с 8
+  maxjj:=50 ;// там где много записей надо задать точно, а еще лучше переделать на матрицу.
+ RestartVisual('идет загрузка',0);
+  wrow:=row ;
+  if not inextvisual('Идет загрузка из '+nmfile) then exit ;
+  xlCreateExcelWithTemplate(nmfile,true)
+  wkluch:=true
+  KolEmptRow:=0 ; KolEmptCol:=0 ;
+/*
+   Function CreateMatrixEx(Rows, Cols : longint) : LongInt; 
+    Function FreeMatrixEx(ID : Longint ) : boolean; 
+    Function ClearMatrixEx(ID : Longint ): boolean; 
+    Function WriteToMatrixEx(ID, Row, Col : longint; Value : variant) : boolean; 
+    Function WriteDateToMatrixEx(ID, Row, Col : longint; Year, Month, Day : word) : boolean; 
+    Function ReadFromMatrixEx(ID, Row, Col : longint; var Value : variant) : boolean; 
+    Function WriteMatrixToExcelEx(ID : Longint; RowU : longint = 0; ColL : longint = 0) : boolean; 
+    Function ReadMatrixFromExcelEx(ID : LongInt; RowU : longint = 0; ColL : longint = 0; RowD : longint = 0; ColR : longint = 0) : boolean;
+*/  
+#IFDEF _EXCEL_MATRIX_    
+  mas_excel:=XLCreateMatrixEx(1000,maxjj+1)
+  row_matrix:=0 ;
+  XLReadMatrixFromExcelEx(mas_excel,row+1,1,row+1000, maxjj) ;
+#ENDIF  
+  do 
+  { 
+    wrow:=wrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 
+      if not nextvisual then { wkluch:=false ; break ;}
+#IFDEF _EXCEL_MATRIX_    
+    row_matrix:=row_matrix+1 ;
+    if row_matrix>1000
+    { row_matrix:=1 ;
+      XLClearMatrixEx(mas_excel) ;
+      XLReadMatrixFromExcelEx(mas_excel,wrow,1,wrow+1000-1, maxjj) ;
+    }
+#ENDIF
+    KolEmptCol:=0 ;
+    v_Imp.clearbuffer(v_Imp.tntmp_excel) ;
+    v_Imp.tmp_excel.numrow:=wrow ;
+    wklempt:=true ;
+    for(jj:=1;jj<=maxjj;jj:=jj+1 )
+    { wstr2:='' ;
+    
+#IFDEF _EXCEL_MATRIX_    
+      XLReadFromMatrixEx(mas_excel,row_matrix,jj,wstr2)
+#ELSE
+      xlGetCellValue(wrow,jj,wstr2) ;
+#ENDIF      
+      wstr2:=trim(replace(wstr2,'  ',' ')) ;
+      if wstr2='' then KolEmptCol:=KolEmptCol+1 ;
+      if KolEmptCol>20 then break ;
+      v_Imp.tmp_excel.dmcell[jj]:=wstr2 ;
+      if v_Imp.getfirst tmp_listsootv where (( 
+             'ALL'==tmp_listsootv.nmtable
+         and 'ALL'==tmp_listsootv.nmfld 
+         and tmp_excel.dmcell[jj]== tmp_listsootv.oldval
+           ))=0
+      { v_Imp.tmp_excel.dmcell[jj]:= v_Imp.tmp_listsootv.newval ;  
+      }
+      if wstr2<>'' then { wklempt:=false ; KolEmptRow:=0 ; }
+      wsubstr := wstr2
+      numstr := 0
+      while length(wsubstr) = 255
+      {
+        numstr := numstr+1
+        wsubstr := xlGetCellSubstringValue(wrow,jj,(255*numstr)+1, 255)
+        if wsubstr <> ''
+        {
+          ClearBuffer(#v_imp.tmp_excel)
+          v_imp.tmp_excel_ls.numrow := wrow
+          v_imp.tmp_excel_ls.numcell := jj
+          v_imp.tmp_excel_ls.numstr := numstr 
+          v_imp.tmp_excel_ls.dmcell := wsubstr
+          v_Imp.insert current tmp_excel_ls ;
+//logstrtofile('xls.log', v_imp.tmp_excel_ls.numrow+'.'+ v_imp.tmp_excel_ls.numcell+'.'+v_imp.tmp_excel_ls.numstr)          
+//logstrtofile('xls.log', v_imp.tmp_excel_ls.dmcell)          
+        }
+      }
+    } //for(jj:=1;jj<=100;jj:=jj+1 )
+//    if not wklempt or KolEmptRow<10
+    v_Imp.insert current tmp_excel ;
+  mylog(v_Imp.tmp_excel.dmcell[1]+'/'+v_Imp.tmp_excel.dmcell[2]+'/'+v_Imp.tmp_excel.dmcell[3] );
+    if not wklempt then KolEmptRow:=0 ;
+    if wklempt
+    { KolEmptRow:=KolEmptRow+1 ;
+      if KolEmptRow>10 then break ;
+    }
+  } while wrow<65000
+  //v_Imp.delete tmp_excel where (( row-KolEmptRow <<=tmp_excel.numrow)) ;
+  mylog('Забрали для записи '+string(recordsintable(v_Imp.tntmp_excel)) );
+  mylog('===================================' );
+#IFDEF _EXCEL_MATRIX_    
+  XLFreeMatrixEx(mas_excel) ;
+#ENDIF
+  XLGETACTIVEWORKBOOKNAME(wstr2) ;
+  xlCloseWorkBookByName(wstr2) ;
+  xlKillExcel ;
+logstrtofile('xls.log', 'Finish..')      
+  ReadDataFromExcelWithLS:=wkluch ;
+}
+

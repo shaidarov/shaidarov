@@ -1,0 +1,377 @@
+procedure SetVidRab(_KauOS2 : comp);
+{
+  if GetFirst SpKau997 where ((_KauOS2 == SpKau997.Nrec))= tsOk
+  {
+    TabStoimStruct.Vid  := SpKau997.Name;
+    TabStoimStruct.cVid := SpKau997.Nrec;
+  }
+}
+procedure SetPodrazd(_Podr : comp);
+{
+  if (Getfirst KatPodrFin997 where((_Podr == KatPodrFin997.nrec))=tsok)
+  {
+    TabStoimStruct.Podrazd := KatPodrFin997.Name;
+    TabStoimStruct.cPodrazd := KatPodrFin997.Nrec;
+  }
+}
+function GetNalogShet(_shet, _subshet: string) : string;
+{
+  if GetFirst BUHSCHET where (('N9'+_shet == BUHSCHET.SCHET
+                            and _subshet == BUHSCHET.SUBSCH)) = tsOk
+    GetNalogShet:= '9'+_shet+'.'+_subshet
+  else
+    if GetFirst BUHSCHET where (('N9'+_shet == BUHSCHET.SCHET )) = tsOk
+      GetNalogShet:= '9'+_shet
+    else
+      GetNalogShet:='Нет в НУ!';
+}
+#declare InsertStoimStuct(OborotTab, OK)
+  filt1:=true;
+  for (KAUInd:=cFirstKau; KAUInd<cLastKau;KAUInd:=KAUInd+1)
+  {
+    if (#OborotTab.TBL#(OK)S[KAUInd] = 20054)
+      if GetFirst SpKau997 where((#OborotTab.KAU#(OK)S[KAUInd] == SpKau997.Nrec))=tsOk
+        if SpKau997.CODE = '001002'
+        {
+          filt1:=false;
+          break;
+        }
+  }
+
+  SpKau997.Nrec :=0;
+  for (KAUInd:=cFirstKau; KAUInd<cLastKau;KAUInd:=KAUInd+1)
+  {
+    if (#OborotTab.TBL#(OK)S[KAUInd] = 20009)
+      if GetFirst SpKau997 where((#OborotTab.KAU#(OK)S[KAUInd] == SpKau997.Nrec))=tsOk
+        break;
+  }
+
+  filt2:=false;
+  if SubStr(#OborotTab.SCHET#(OK),1,1) <> 'N'
+    Sc := GetNalogShet(SubStr(#OborotTab.SCHET#(OK),2,2),'9999');
+  else
+    Sc := SubStr(#OborotTab.SCHET#(OK),2,2);
+  //  LogStrToFile('C:\Gal810\24X_sc.log','SubStr(#OborotTab.SCHET#(OK)='+ SubStr(#OborotTab.SCHET#(OK),2,cgSchetLength-1) +'Sc='+Sc);
+  if Sc='920'
+   or Sc='923'
+   or Sc='925'
+   or Sc='926'
+   or Sc='991'
+   or Sc='944'
+     filt2:=true;
+   if SubStr(#OborotTab.SCHET#(OK),1,1) <> 'N'
+   {
+     if ('#(OK)' = 'O')
+       if #OborotTab.SUBOSSCH <> ''
+         Sc := GetNalogShet(SubStr(#OborotTab.SCHET#(OK),2,2),#OborotTab.SUBOSSCH);
+
+     if ('#(OK)' = 'K')
+       if #OborotTab.SUBSCHK <> ''
+         Sc := GetNalogShet(SubStr(#OborotTab.SCHET#(OK),2,2),#OborotTab.SUBSCHK);
+ //      SC+'.'+#OborotTab.SUBSCHK;
+   }
+   else
+   {
+     if ('#(OK)' = 'O')
+       Sc:=Sc+'.'+#OborotTab.SUBOSSCH;
+     if ('#(OK)' = 'K')
+       Sc:=Sc+'.'+#OborotTab.SUBSCHK;
+   }
+  if Sc='929.01' or Sc='929.02'
+    filt2:=true;
+ // LogStrToFile('C:\Gal810\24X_sc1.log','#OborotTab.SUBOSSCH='+#OborotTab.SUBOSSCH+'#OborotTab.SUBSCHK='+#OborotTab.SUBSCHK+'Sc='+Sc);
+  if (Filt1 = true) and (Filt2 = true)
+    if GetFirst TabStoimStruct where ((   KatOS.nrec == TabStoimStruct.cTabKatOS
+                                   and           Sc  == TabStoimStruct.Schet
+                                   and SpKau997.Nrec == TabStoimStruct.cVid
+                                   and #OborotTab.KODSP#(OK)   == TabStoimStruct.cPodrazd  )) != tsOK
+    {
+      ClearBuffer(tnTabStoimStruct);
+      TabStoimStruct.Schet := SC;
+      TabStoimStruct.cTabKatOS:=KatOS.nrec;
+      if #OborotTab.TBL#(OK)S[KAUInd] = 20009
+        SetVidRab(#OborotTab.KAU#(OK)S[KAUInd]);
+      else
+        TabStoimStruct.cVid:=0;
+      SetPodrazd(#OborotTab.KodSP#(OK));
+      TabStoimStruct.Percent     := _Percent;
+      TabStoimStruct.SumOplVh    := _SumOplVh;
+      TabStoimStruct.SumNachVh   := _SumNachVh;
+      insert current TabStoimStruct;
+    }
+    else
+    {
+      TabStoimStruct.Percent     := TabStoimStruct.Percent + _Percent;
+      TabStoimStruct.SumOplVh    := TabStoimStruct.SumOplVh + _SumOplVh;
+      TabStoimStruct.SumNachVh   := TabStoimStruct.SumNachVh + _SumNachVh;
+      update current TabStoimStruct;
+    }
+  //  LogStrToFile('C:\Gal810\24X_4.log','KatOS.InNum='+KatOS.InNum+'Sc='+Sc+'_SumOplVh='+_SumOplVh+'_SumNachVh='+_SumNachVh+'_Percent='+_Percent);
+#end
+
+//procedure GetOborot997;
+//{
+//  _Loop Oborot997Vh33
+//  {
+//    _Percent   :=0;
+//    _SumOplVh  :=Oborot997Vh33D.SumOb;
+//    _SumNachVh :=0;
+//    InsertStoimStuct(Oborot997Vh33D,K)
+//  }
+//------------------------------------------------------------------------------------------------------------
+//   _Loop Oborot997Vh33K
+//   {
+//     _Percent := 0;
+//     _SumOplVh := -Oborot997Vh33K.SumOb;
+//     _SumNachVh := 0;
+//     InsertStoimStuct(Oborot997Vh33K,O)
+//   //  if (Filt1 = true) and (Filt2 = true)
+//     {
+//       OsSumOplVh  := OsSumOplVh  + _SumOplVh;
+//       OsSumNachVh := OsSumNachVh + _SumNachVh;
+//     }
+//   }
+//------------------------------------------------------------------------------------------------------------
+//   _Loop Oborot97Vh01K
+//   {
+//     _Percent := 0;
+//     _SumOplVh := 0;
+//     _SumNachVh := Oborot97Vh01K.SumOb;
+//     InsertStoimStuct(Oborot97Vh01K,O)
+//     if (Filt1 = true) and (Filt2 = true)
+//     {
+//       OsSumOplVh  := OsSumOplVh  + _SumOplVh;
+//       OsSumNachVh := OsSumNachVh + _SumNachVh;
+//     }
+//   }
+
+//}
+Procedure GetIzmStoim;
+{
+  sumMove := 0;
+  _Loop spMoveOs
+  {
+    sumMove := sumMove + SpMoveOs.NewSumizn - SpMoveOs.OldSumizn;
+  }
+}
+
+#declare FiltShet(OborotTab)
+  FiltShet := false;
+
+  filt1:=true;
+  if SubStr(#OborotTab.SCHETO,1,1) <> 'N'
+  for (KAUInd:=cFirstKau; KAUInd<cLastKau;KAUInd:=KAUInd+1)
+  {
+    if (#OborotTab.TBLOS[KAUInd] = 20054)
+      if GetFirst SpKau997 where((#OborotTab.KAUOS[KAUInd] == SpKau997.Nrec))=tsOk
+        if SpKau997.CODE = '001002'
+        {
+          filt1:= false;
+          break;
+        }
+
+  }
+  filt2:=false;
+    if SubStr(#OborotTab.SCHETO,1,1) <> 'N'
+      Sc := '9'+SubStr(#OborotTab.SCHETO,2,2);
+  if Sc='920'
+    or Sc='923'
+    or Sc='925'
+    or Sc='926'
+    or Sc='991'
+    or Sc='944'
+      filt2:=true;
+
+  if Sc = '929'
+    if #OborotTab.SUBOSSCH <> ''
+      Sc :=SC+'.'+#OborotTab.SUBOSSCH;
+
+   if Sc='929.01' or Sc='929.02'
+      filt2:=true;
+
+
+  if (Filt1 = true) and (Filt2 = true)
+    FiltShet := true;
+#end
+
+procedure GetSaldo997_34;
+{
+  Saldo997_34 := 0;
+  if (isvalidall(#Oborot97_01_Na_Nach))
+  {
+    _loop Oborot97_01_Na_Nach
+    {
+      #FiltShet(Oborot97_01_Na_Nach)
+      if FiltShet = true
+        Saldo997_34 := Saldo997_34 + Oborot97_01_Na_Nach.sumOb;
+    }
+  }
+}
+
+procedure GetSaldo997_33;
+{
+ Saldo997_33 := 0;
+ if (isvalidall(tnSALDMOUN))
+ _loop SALDMOUN
+ {
+   if SALDMOUN.VIOB = word(1)
+     Saldo997_33 := Saldo997_33 + SALDMOUN.sums;
+   else
+     if SALDMOUN.VIOB = word(2)
+       Saldo997_33 := Saldo997_33 - SALDMOUN.sums;
+ }
+}
+
+Procedure GetOborot97_01;
+{
+  Oborot97_01 :=0;
+  if (isvalidall(tnOborot97))
+  {
+    _Loop Oborot97
+    {
+      #FiltShet(Oborot97)
+      if FiltShet = true
+        Oborot97_01 := Oborot97_01 + Oborot97.SUMOB;
+    }
+  }
+  Oborot76_04 := 0;
+  if (isvalidall(tnOborot76))
+  {
+ //   message('isvalidall(tnOborot76)');
+    _Loop Oborot76
+    {
+//      message('_Loop Oborot76');
+      #FiltShet(Oborot76)
+      if FiltShet = true
+      {
+ //       message('FiltShet = true');
+        Oborot76_04 := Oborot76_04 + Oborot76.SUMOB;
+      }
+    }
+  }
+//  else
+//  {
+//    if (isvalidall(tnOborot997_34))
+//    {
+//      _Loop Oborot997_34
+//      {
+//   //    if FiltShet = true
+//        Oborot97_01 := Oborot97_01+Oborot997_34.SUMOB;
+//      }
+//    }
+//    else
+//    {
+//      _Loop ArcIznos1 where ((     KatOS.Nrec == ArcIznos1.cKatOS
+//                              and NastrOSNrec == ArcIznos1.cNastrOS
+//                              and dFrom       <<=  ArcIznos1.DATA
+//                              and dTo         >>=  ArcIznos1.DATA ))
+//        Oborot97_01 := Oborot97_01 + arciznos1.siznm;
+//      GetIzmStoim;
+//      Oborot97_01 := Oborot97_01 + summove
+//    }
+//  }
+}
+Procedure GetOborot997_33;
+{
+  var OborotK : double;
+
+  Oborot997_33:= 0;
+  OborotK := 0;
+
+  _Loop Oborot997_33K
+  {
+    OborotK := OborotK + Oborot997_33K.SUMOB;
+  }
+
+  if (isvalidall(tnOborot))
+  {
+    _Loop Oborot
+    {
+      Oborot997_33 := Oborot997_33 + oborot.SUMOB;
+    }
+  }
+  Oborot997_33 := Oborot997_33 - OborotK;
+}
+
+procedure FillTabStoim;
+{
+    if ExistFile('C:\Log244.log')
+    DeleteFile ('C:\Log244.log');
+
+  GetOborot97_01;
+  _Percent := 0;
+  if (isvalidall(tnOborot97))
+  {
+    _Loop Oborot97
+    {
+      #FiltShet(Oborot97)
+      if FiltShet = true
+      {
+        LogStrToFile('C:\Log244.log',KatOS.NameOS+' Д'+Oborot97.SCHETO+'.'+Oborot97.SUBOSSCH+' К'+Oborot97.SCHETO+'.'+Oborot97.SUBSCHK +' от '+Oborot97.DatOb+' '+Oborot97.SUMOB);
+        _Percent := Oborot97.SUMOB/Oborot97_01*100;
+        _SumOplVh := 0;
+        _SumNachVh := 0;
+        #InsertStoimStuct(Oborot97,O)
+      }
+    }
+  }
+  if (isvalidall(tnOborot76))
+  {
+    _Percent := 0;
+    _Loop Oborot76
+    {
+      #FiltShet(Oborot76)
+      if FiltShet = true
+      {
+        LogStrToFile('C:\Log244.log',KatOS.NameOS+' Д'+Oborot76.SCHETO+'.'+Oborot76.SUBOSSCH+' К'+Oborot76.SCHETO+'.'+Oborot76.SUBSCHK +' от '+Oborot76.DatOb+' '+Oborot76.SUMOB);
+        _Percent := Oborot76.SUMOB/Oborot76_04*100;
+        _SumOplVh := 0;
+        _SumNachVh := 0;
+        #InsertStoimStuct(Oborot76,O)
+      }
+    }
+  }
+//  else
+//  {
+//    if (isvalidall(tnOborot997_34))
+//    {
+//      _Loop Oborot997_34
+//      {
+//        _Percent := Oborot997_34.SUMOB/Oborot97_01*100;
+//        _SumOplVh := 0;
+//        _SumNachVh := 0;
+//        #InsertStoimStuct(Oborot997_34,O)
+//      }
+//    }
+//    else
+//    {
+//      _loop StoimStruct
+//      {
+//        if (not isValid(#SpKauSch))
+//          {SpKauSch.Name :='';}
+//        if (not isValid(#SpKauVid))
+//          {SpKauVid.Nrec :=0;}
+//        if GetFirst TabStoimStruct where (( KatOS.nrec     == TabStoimStruct.cTabKatOS
+//                                       and SpKauSch.Name   == TabStoimStruct.Schet
+//                                       and SpKauVid.Nrec   == TabStoimStruct.cVid )) != tsOK
+//        {
+//          TabStoimStruct.cTabKatOS:=KatOS.nrec;
+//          if (isValid(#SpKauSch))
+//            TabStoimStruct.Schet :=SpKauSch.Name;
+//          if (isValid(#SpKauVid))
+//          {
+//            TabStoimStruct.Vid := SpKauVid.Name;
+//            TabStoimStruct.cVid := SpKauVid.Nrec;
+//          }
+//          TabStoimStruct.Percent:=StoimStruct.SumRes1;
+//          insert current TabStoimStruct;
+//        }
+//        else
+//        {
+//          TabStoimStruct.Percent := TabStoimStruct.Percent + StoimStruct.SumRes1;
+//          update current TabStoimStruct;
+//        }
+//      }
+//    }
+//  }
+}

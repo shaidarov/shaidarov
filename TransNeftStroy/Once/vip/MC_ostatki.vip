@@ -1,0 +1,286 @@
+#component "L_SoprDoc"
+
+#include MTRFuncs.vih:
+
+Interface MC_ostatki 'MC_ostatki' EscClose DoAccept;
+
+ table struct tOst
+ (
+     Schet      : string   "Счёт"
+   , SubSchet   : string   "Субсчёт"
+   , cObStr     : comp     "ссылка на Объект Строительства"
+   , cMOL       : comp     "ссылка на МОЛа"
+   , cPodr      : comp     "ссылка на Подразделение"
+   , cMC        : comp     "ссылка на МЦ"
+   , cEd        : comp     "ссылка на единицу Измерения МЦ"
+   , Summa      : double   "Сумма"
+   , Kol        : double   "Количество"
+ )
+ with index
+ (
+     tOst01 = cPodr + cMol
+ )
+ ;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, Schet
+, SubSchet
+, ObStrName
+, ObStrKod
+, MOLname
+, MOLkod
+, MCname
+, MCkod
+, PodrName
+, PodrKod
+, Podr_old
+, Podr_cur
+, MOL_old
+, MOL_cur
+               : string;
+  Summa
+, Kol
+               : double;
+  date_Ost
+               : date;
+  _npp
+               : word;
+  ErrImport
+               : boolean;
+  _cMOL
+, _cObStr
+               : comp;
+  oMTRFun      : MTRFuncsV4;
+as select * from
+  tOst
+, KatPodr
+, KatMOL
+, KatMC
+, KatSopr
+, SoprHoz
+, SpSopr
+, KatStroy
+, SpecMTR
+, SpSchem
+, DocsZatr
+, KitKAU
+, KatOtpEd
+;
+
+Procedure WriteError(TypeError : string); {
+  LogStrToFile(LogFileName, TypeError
+       + '*' + Schet
+       + '*' + SubSchet
+       + '*' + ObStrName
+       + '*' + ObStrKod
+       + '*' + MOLname
+       + '*' + MOLkod
+       + '*' + MCname
+       + '*' + MCkod
+       + '*' + PodrName
+       + '*' + PodrKod
+       + '*' + Summa
+       + '*' + Kol
+  );
+
+  ErrImport := true;
+  Continue;
+}
+
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\10.12.196.10\GalSrv\TopSoft\_UnionData\Step_2\OstatkiMC\Tumen\dbf\OstatkiMC.dbf';
+  logFileName := GetStringParameter('Files', 'OutputFilesDirectory', 0) + 'ErrImport_' + Hour(cur_time) + '_' + Minute(cur_time) + '_OstatkiMC.log';
+  date_ost    := date(27, 09, 2011);
+  _npp        := 1;
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     WriteError('Не удалось открыть dbf-файл');
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка остатков Материалов', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+       Schet       := '';
+       SubSchet    := '';
+       ObStrName   := '';
+       ObStrKod    := '';
+       MOLname     := '';
+       MOLkod      := '';
+       MCname      := '';
+       MCkod       := '';
+       PodrName    := '';
+       PodrKod     := '';
+       Summa       := 0;
+       Kol         := 0;
+
+       Schet       := string( DBFGetFieldValue(Handle,'СЧЕТ')    );
+       SubSchet    := string( DBFGetFieldValue(Handle,'СУБСЧЕТ') );
+       ObStrName   := string( DBFGetFieldValue(Handle,'ОБСТРИ')  );
+       ObStrKod    := string( DBFGetFieldValue(Handle,'ОБСТРК')  );
+       MOLname     := string( DBFGetFieldValue(Handle,'МОЛИ')    );
+       MOLkod      := string( DBFGetFieldValue(Handle,'МОЛК')    );
+       MCname      := string( DBFGetFieldValue(Handle,'МЦИ')     );
+       MCkod       := string( DBFGetFieldValue(Handle,'МЦК')     );
+       PodrName    := string( DBFGetFieldValue(Handle,'ПОДРИ')   );
+       PodrKod     := string( DBFGetFieldValue(Handle,'ПОДРК')   );
+
+       Summa       := double( DBFGetFieldValue(Handle,'СУММА')   );
+       Kol         := double( DBFGetFieldValue(Handle,'КОЛ')     );
+
+   if (MOLkod = 'КАУ2' or MOLkod = '#VALUE!') {                                  // реально без МОЛ, а не ошибка Позиционирования
+      _cMOL := 0;
+   } else {
+           if (GetFirst KatMOL where (( MOLkod  == KatMOL.Kod
+                                    and MOLname == KatMOL.Name  (noIndex)
+                                      )) = tsOK ) {
+           _cMOL := KatMOL.nRec;
+           } else {
+           WriteError('Не найден МОЛ');
+           }
+     }
+
+     if (GetFirst KatPodr where (( PodrKod   == KatPodr.Kod
+                               and PodrName  == KatPodr.Name
+                                )) <> tsOK ) {
+     WriteError('Не найдено Подразеление');
+                                }
+
+     if (GetFirst KatMC where (( MCname   == KatMC.Name
+                             and MCkod    == KatMC.BarKod
+                                )) <> tsOK ) {
+     WriteError('Не найден МЦ');
+                                }
+
+   if (ObStrKod = '#ЗНАЧ!' or ObStrKod = '#VALUE!') {                              // реально без Объекта, а не ошибка Позиционирования
+     _cObStr := 0;
+   } else {
+           if (GetFirst KatStroy where (( ObStrName   == KatStroy.Name
+                                      and ObStrKod    == KatStroy.Code  (noIndex)
+                                       )) = tsOK ) {
+               _cObStr := KatStroy.nRec;
+               } else {
+               WriteError('Не найден Объект строительства');
+               }
+
+     }
+
+
+           ClearBuffer(#tOSt);
+           tOst.Schet    := Schet;
+           tOst.SubSchet := SubSchet;
+           tOst.cObStr   := _cObStr;
+           tOst.cMOL     := _cMOL;
+           tOst.cPodr    := KatPodr.nRec;
+           tOst.cMC      := KatMC.nRec;
+    if (GetFirst KatOtpEd where (( 1          == KatOtpEd.PRMC
+                               and KatMC.nRec == KatOtpEd.cMcUsl
+                               and 1          == KatOtpEd.AKT
+                                )) = tsOK ) {
+           tOst.cEd      := KatOtpEd.nRec;
+                                  }
+           tOst.Summa    := Summa;
+           tOst.Kol      := Kol;
+           Insert current tOst;
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+
+  if ErrImport {
+    StopVisual('',0);
+    message('При анализе файла не все соответствия были установлены. Закачка остатков не проведена');
+//    Abort;
+    Exit;
+    }
+
+  Podr_old := '' ;
+  MOL_old  := '' ;
+
+  _Loop tOst {
+    Podr_cur := tOst.cPodr;
+    MOL_cur  := tOst.cMOL;
+
+
+      if (Podr_cur <> Podr_old or MOL_cur <> MOL_old) {
+           ClearBuffer(#KatSopr)                            ;
+           KatSopr.FILIALNO := 2                            ;
+           KatSopr.DESCR    := 'ShaidarovIA'                ;
+           KatSopr.DESGR    := 'ТМН'                        ;
+           KatSopr.VHODNAL  := 1                            ;
+           KatSopr.DPRICE   := date_Ost                     ;
+           KatSopr.CNOTE    := 013E0000000000F4h            ;
+           KatSopr.DSOPR    := date_Ost                     ;
+           KatSopr.YEARSOPR := year(date_Ost)               ;
+           KatSopr.NSOPR    := 'Остатки_ОбъединениеФилиалов';
+           KatSopr.VIDSOPR  := 611                          ;
+           KatSopr.CPODRTO  := Podr_cur                     ;
+           KatSopr.CMOLTO   := MOL_cur                      ;
+           KatSopr.COTVPODR := 013E000000000117h            ;
+           insert current KatSopr                           ;
+
+           ClearBuffer(#SoprHoz)                            ;
+           SoprHoz.FILIALNO := 2                            ;
+           SoprHoz.DATOB    := date_Ost                     ;
+           SoprHoz.cSoprDoc := KatSopr.nRec                 ;
+           SoprHoz.TIPDOC   := 611                          ;
+           SoprHoz.TIDKGAL  := 611                          ;
+           SoprHoz.NODOC    := 'Остатки_ОбъединениеФилиалов';
+           SoprHoz.DESCR    := 'ShaidarovIA'                ;
+           SoprHoz.DESGR    := 'ТМН'                        ;
+           SoprHoz.VHSUMHOZ := '+'                          ;
+           insert current SoprHoz                           ;
+
+           _npp := 1;
+      }
+
+      ClearBuffer(#SpSopr)                    ;
+      SpSopr.NPP     := _npp                  ;
+      SpSopr.PRMC    := 1                     ;
+      SpSopr.CMCUSL  := tOst.cMC              ;
+      SpSopr.COTPED  := tOst.cEd              ;
+      SpSopr.Kol     := tOst.Kol              ;
+      SpSopr.KOLOPL  := tOst.Kol              ;
+      SpSopr.PRICE   := tOst.Summa / tOst.Kol ;
+      SpSopr.CSOPR   := KatSopr.nRec          ;
+      SpSopr.DSOPR   := date_Ost              ;
+      SpSopr.VIDSOPR := 611                   ;
+      SpSopr.KOLFACT := tOst.Kol              ;
+      SpSopr.RPRICE  := tOst.Summa / tOst.Kol ;
+      insert current SpSopr                   ;
+
+
+      oMTRFun.GenSpecMTRForUKS(coSpSopr, SpSopr.nRec, tOst.cObStr, 89509042593988648);  // 89509042593988648 - Статья "Материалы."
+
+    _npp++;
+    Podr_old := Podr_cur;
+    MOL_old  := MOL_cur;
+    }
+
+  StopVisual('',0);
+}
+
+end;
+
+end.
+
+.Form 'Закачка MC_ostatki'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_SoprDoc::MC_ostatki');
+end.
+.endform

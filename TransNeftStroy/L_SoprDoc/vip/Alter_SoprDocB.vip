@@ -1,0 +1,91 @@
+// Накладная на закупку
+
+#component "L_SOPRDOC"
+
+alter interface SOPRDOCB;
+
+Create view
+var
+  _cParty : comp;
+as select * from
+  KatStroy KatStroy_Alt
+, KatParty KatParty_Alt
+// /* Материальный ярлык
+, SpOrder  SpOrder_Alt
+, KatPodr  KatPodr_Alt
+, KatMC    KatMC_Alt
+, KatEd    KatEd_Alt
+where (( SklOrder.nRec     == SpOrder_Alt.cSklOrder
+     and SklOrder.cPodr    == KatPodr_Alt.nRec
+     and SpOrder_Alt.cMc   == KatMC_Alt.nRec
+     and KatMC_Alt.cEd     == KatEd_Alt.nRec
+      ))
+// Материальный ярлык */
+;
+
+  DataStream dsYarlik (
+   [myOrg] sGetTune('MYORG');
+
+   table SpOrder_Alt (
+      SklOrder.dOrd         ;
+      KatPodr_Alt.Name      ;
+      KatMC_Alt.BarKod      ;
+      KatMC_Alt.Name        ;
+      KatEd_Alt.Abbr        ;
+      SpOrder_Alt.Kol       ;
+    );
+  )
+  end;
+
+procedure UpDate_Party; {
+   _loop SpSopr {
+      _cParty := 0;
+
+      if GetFirst SpecMTR where (( word(1110)  == SpecMTR.coTable
+                               and SpSopr.nRec == SpecMTR.cSpec
+                                )) = tsOK
+       {
+        if (GetFirst KatStroy_Alt where (( SpecMTR.cObj == KatStroy_Alt.nRec)) <> tsOK) {Continue;}
+
+           if SpSopr.cParty = 0 {
+                _cParty := piExtAttr.coGetAttr(2101, KatStroy_Alt.nRec, 'Партии МЦ'); // Атрибут "Партии МЦ" к Объектам строительства
+
+                if ( _cParty = 0 ) {
+                       ClearBuffer(#KatParty_Alt);
+                       KatParty_Alt.Kod            := 'ОбС ' + KatStroy_Alt.Code;
+                       KatParty_Alt.Name           := KatStroy_Alt.Code + ' ' + KatStroy_Alt.Name;
+//                       KatParty_Alt.DGODN          := date(31,12,2014);
+                       KatParty_Alt.CreateDateTime := _CurDateTime;
+//                       KatParty_Alt.GoDenDateTime  := _DateTime(date(31,12,2014), cur_time);
+                       if (insert current KatParty_Alt) <> tsOK {Continue;};
+
+        piExtAttr.coSetAttrID( coKatStroy
+                             , KatStroy_Alt.nRec
+                             , piExtAttr.CreateAttrComp(coKatStroy, 'Партии МЦ', cgAttrType_Comp, cgKatKau_Table, word(10) ) //  cgAttrType_Comp = 5;  cgKatKau_Table = 0;      // системные
+                             , KatParty_Alt.nRec
+                             , KatParty_Alt.Name);
+
+                  _cParty := KatParty_Alt.nRec;
+                  }
+
+                SpSopr.cParty := _cParty;
+                UpDate current SpSopr;
+              }
+       }
+   }
+}
+
+  Window  EDITSOPR
+    HandleEvent
+        cmMAKEPRIH: {
+           UpDate_Party;
+           if (inherited::handleEvent (cmMAKEPRIH) = heAbort )
+           Abort;
+        }
+        cmValue31: {            // 'Печать материального ярлыка',,'Alt+Y',kbAltY,sci1Esc;
+           RunFReport(dsYarlik, '', FALSE);
+        }
+    end;
+  end;
+
+end.

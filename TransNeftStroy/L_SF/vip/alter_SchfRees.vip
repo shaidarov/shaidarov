@@ -1,0 +1,94 @@
+#component 'L_SF'
+
+alter interface SchfRees;
+
+create view vSchfRees
+as select *
+from
+specmtr specmtr_mvf,
+dogovor dogovor_mvf,
+dogovor appdog_mvf,
+SpSchf SpSchf_mvf,
+katsopr katsopr_mvf,
+katstroy katstroy_mvf,
+katorg katorg_mvf,
+basefin basefin_mvf,
+plpor plpor_mvf,
+dogovor dogovor_pl_mvf,
+dogovor appdog_pl_mvf,
+soprhoz soprhoz_mvf,
+spsopr spsopr_mvf,
+katusl katusl_mvf
+where
+   ((
+     SpSchf.nrec             == SpSchf_mvf.nrec     and
+     katsopr.nrec            == katsopr_mvf.nrec    and
+     coSpSchf                == specmtr_mvf.COTABLE and
+     SpSchf_mvf.nrec         == specmtr_mvf.CSPEC   and
+     specmtr_mvf.cobj        == katstroy_mvf.nrec   and
+     katsopr_mvf.cdogovor    == dogovor_mvf.nrec    and
+     katsopr_mvf.CAPPDOGOVOR == appdog_mvf.nrec     and
+     cogettune('Myorg')      == katorg_mvf.nrec     and
+     plpor.nrec              == plpor_mvf.nrec      and
+     plpor_mvf.nrec          == basefin_mvf.cplpor  and
+     basefin_mvf.CAPPDOGOVOR == appdog_pl_mvf.nrec  and
+     basefin_mvf.CDOGOVOR    == dogovor_pl_mvf.nrec and
+     schfact.csoprhoz        == soprhoz_mvf.nrec    and
+     spsopr.nrec             == spsopr_mvf.nrec
+    ))
+;
+
+  overload
+    DataStream DTS;
+  end;
+
+  DataStream DTS (
+
+    [nameorg_mvf]  if (katorg_mvf.SHORTNAME='',katorg_mvf.name,
+                       katorg_mvf.SHORTNAME+', '+katorg_mvf.name
+                       );
+
+  Table inherited::FRSPSCHF
+    (
+
+    [soprhoz_tidk_mvf] string(soprhoz_mvf.tidkgal);
+
+    [nomdog_pl_mvf]            if (dogovor_pl_mvf.NODOC_EXT='', '',
+                                  'согласно п.4.1 контракта №'+dogovor_pl_mvf.NODOC_EXT+' от '+datetostr(dogovor_pl_mvf.DDOC,'DD/MM/YY')+'г.'
+                                  );
+    [appdog_pl_mvf]            if (appdog_pl_mvf.NODOC_EXT='', '',
+                                  ', доп. соглашение №'+appdog_pl_mvf.NODOC_EXT+' от '+datetostr(appdog_pl_mvf.DDOC,'DD/MM/YY')+'г.'
+                                  );
+    [nameobj_pl_mvf]        if (iExAttr.sGetAttr(coPlpor,plpor_mvf.nrec,'Объекты строительства') = '', '',
+                                  ' по объекту: '+iExAttr.sGetAttr(coPlpor,plpor_mvf.nrec,'Объекты строительства')
+                                  );
+    [month_pl_mvf]          if (plpor_mvf.datvip = to_date(0,0,0), '',
+                                  ' за '+ locase(datetostr(plpor_mvf.datvip,'Month'))+ ' ' + datetostr(plpor_mvf.datvip,'YYYY')+'г.'
+                                  );
+    [nomdog_mvf]               if (dogovor_mvf.NODOC_EXT='', '',
+                                     'по контракту №'+dogovor_mvf.NODOC_EXT+' от '+datetostr(dogovor_mvf.DDOC,'DD/MM/YY')+'г.'
+                                     );
+    [appdog_mvf]               if (appdog_mvf.NODOC_EXT='', '',
+                                     ', доп. соглашение №'+appdog_mvf.NODOC_EXT+' от '+datetostr(appdog_mvf.DDOC,'DD/MM/YY')+'г.'
+                                     );
+    [nameobj_mvf]           if (katstroy_mvf.name = '', '',
+                                     ' по объекту: '+katstroy_mvf.name
+                                     );
+    [nameobj_dop_mvf]       if (iExAttr.sGetAttr(coSpsopr,spsopr_mvf.nrec,'Объекты строительства') = '', '',
+                                  ', '+iExAttr.sGetAttr(coSpsopr,spsopr_mvf.nrec,'Объекты строительства')
+                                  );
+    [month_mvf]             if (katsopr_mvf.dsopr = to_date(0,0,0), '',
+                                     ' за '+ locase(datetostr(katsopr_mvf.dsopr,'Month'))+ ' ' + datetostr(katsopr_mvf.dsopr,'YYYY')+'г.'
+                                     );
+
+    [day_schfact_mvf]             if (schfact.dfact = to_date(0,0,0), '','"'+datetostr(schfact.dfact,'DD')+'"');
+
+    [month_schfact_mvf]           if (schfact.dfact = to_date(0,0,0), '',
+                                     locase(datetostr(schfact.dfact,'Mon'))+ ' ' + datetostr(schfact.dfact,'YYYY')+'г.'
+                                     );
+    )  ;
+  )
+  end;
+
+
+end.

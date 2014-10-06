@@ -1,0 +1,2323 @@
+//------------------------------------------------------------------------------
+// Система       : ГАЛАКТИКА
+// Версия        : 8.10
+// Назначение    : Автоматическое формирование бухгалтерской справки
+// Ответсвенный  : Никитин Константин Владимирович
+// Изменения     :
+//------------------------------------------------------------------------------
+#include DocSet.vih    // Наборы документов для раздельного учета
+#include SelUsDoc.vih  // Выбор документа из раздела учета. Объектный запуск.
+#include PlPorSimple.vih
+#include ChkSoprHoz.vih
+
+type tKodTable = array[1..6] of word;
+type tKauArray = array[1..6] of comp;
+type tKauNamesArray = array[1..6] of string;
+
+#declare FldKauNum(Array, Num)
+  MyGetKauName(#Array[(#Num)]) : Skip;
+#end
+
+#declare PickKauOld(FldMrk, Fld, index)
+      ##(FldMrk):
+        begin
+          runInterface('GetSomeKau', ParamTbl.Table#(Fld)[#(index)], '#(FldMrk)');
+          set #(FldMrk) := GetKauMarkerName('#(FldMrk)', ParamTbl.Table#(Fld)[#(index)]);
+        end;
+#end
+
+#declare DelOnProtectKauOld(fld)
+       ##(fld):
+       {
+         set #fld := '';
+         ClearOneKauMarker('#fld');
+       }
+#end
+
+#declare PickKauNew(fld, index)
+      #ParamTbl.#(fld)[#(index)]:
+        begin
+          runInterface('GetOneKau',ParamTbl.Table#(fld)[#(index)],ParamTbl.c#(fld)[#(index)]);
+          set ParamTbl.#(fld)[#(index)] := if(GetAnyKau(0,ParamTbl.Table#(fld)[#(index)],ParamTbl.c#(fld)[#(index)]),GivenAnName(1),'');
+        end;
+#end
+
+#declare DelOnProtectKauNew(fld)
+       #ParamTbl.#(fld):
+       {
+         set ParamTbl.#(fld) := '';
+         ParamTbl.c#(fld) := comp(0);
+       }
+#end
+
+#define InterfaceName = AutoStorn
+
+table struct SelSchetOs(
+			NREC 		  : comp,
+			KODTABLE	: tKodTable,
+			CPLANSSCH	: comp,
+			CNODE		  : comp,
+			LEVELCODE	: String,
+			CODE		  : String,
+			NAME		  : String,
+			SCHET		  : String,
+			SubSCH		: String)
+with index (ind1=NREC, ind2 = SCHET+SubSCH);
+
+table struct SelSubSchetOs(
+			NREC 		  : comp,
+			KODTABLE	: tKodTable,
+			CPLANSSCH	: comp,
+			CNODE		  : comp,
+			LEVELCODE	: String,
+			CODE		  : String,
+			NAME		  : String,
+			SCHET		  : String,
+			SubSCH		: String)
+with index (ind1=CNODE, ind2 = SCHET+SubSCH);
+
+table struct SelSchetKs(
+			NREC 		: comp,
+			KODTABLE	: tKodTable,
+			CPLANSSCH	: comp,
+			CNODE		: comp,
+			LEVELCODE	: String,
+			CODE		: String,
+			NAME		: String,
+			SCHET		: String,
+			SubSCH		: String)
+with index (ind1=NREC, ind2 = SCHET+SubSCH);
+
+table struct SelSubSchetKs(
+			NREC 		  : comp,
+			KODTABLE	: tKodTable,
+			CPLANSSCH	: comp,
+			CNODE		  : comp,
+			LEVELCODE	: String,
+			CODE		  : String,
+			NAME		  : String,
+			SCHET		  : String,
+			SubSCH		: String)
+with index (ind1=NREC, ind2 = SCHET+SubSCH);
+
+table struct SelectSchetOs(
+			SCHET		  : String,
+			SubSCH		: String)
+with index (ind = SCHET+SubSCH);
+
+table struct SelectSchetKs(
+			SCHET		  : String,
+			SubSCH		: String)
+with index (ind = SCHET+SubSCH);
+
+table struct SelectSubSchetOs(
+			SCHET		  : String,
+			SubSCH		: String)
+with index (ind = SCHET+SubSCH);
+
+table struct SelectSubSchetKs(
+			SCHET		  : String,
+			SubSCH		: String)
+with index (ind = SCHET+SubSCH);
+
+table struct OborotResult
+(
+			DATOB 		: date,
+			NODOC		  : string,
+
+			SCHETOS		: string,
+			SubSCHETOS: string,
+			SCHETKS		: string,
+			SubSCHETKS: string,
+			DEBET		  : string,
+			KREDIT		: string,
+			PLANSCH		: comp,
+			KODSPOS		: comp,
+			KODSPKS		: comp,
+			CFILKORS	: comp,
+			SUM		    : double,
+      KolOb     : double,
+      cEd       : comp,
+
+			TBLOS 		: tKodTable,
+			CKAUOS		: tKauArray,
+
+			TBLKS     : tKodTable,
+			CKAUKS    : tKauArray
+);
+
+table struct OborotStorn
+(
+			soprdoc		: comp,
+			soprhoz		: comp,
+
+			SCHETOS		: string,
+			SubSCHETOS: string,
+			SCHETKS		: string,
+			SubSCHETKS: string,
+			DEBET		  : string,
+			KREDIT		: string,
+			PLANSCH		: comp,
+			KODSPOS		: comp,
+			KODSPKS		: comp,
+			CFILKORS	: comp,
+			SUM		    : double,
+      KolOb     : double,
+      cEd       : comp,
+
+			TBLOS     : tKodTable,
+			CKAUOS    : tKauArray,
+
+			TBLKS     : tKodTable,
+			CKAUKS    : tKauArray
+);
+
+table struct ParamTbl
+(
+  TiDkGal     : word,
+  TiDkUser		: word,
+  DESCRFLT    : string,
+  DESCGRFLT   : string,
+  dateFrom    : date,
+  dateTo      : date,
+
+  TableKauOSOld	: tKodTable,
+  TableKauKSold	: tKodTable,
+
+  SchetONew	  : string,
+  SubOSSchNew	: string,
+  SCHETKNEW	  : string,
+  SubSCHKNEW	: string,
+  DBSchetONew	: string,
+  KRSchetKNew	: string,
+
+  kauosnew	  : tKauNamesArray,
+  kauksnew	  : tKauNamesArray,
+  kodsponew	  : string,
+  kodspknew	  : string,
+
+  TableKauOSNew	: tKodTable,
+  TableKauKSNew	: tKodTable,
+
+  ckauosnew	  : tKauArray,
+  ckauksnew	  : tKauArray,
+  ckodsponew	: comp,
+  ckodspknew	: comp
+);
+
+Interface AutoStorn 'Автоформирование сторнирующих проводок'
+show at (1,1,120,31);
+
+const
+  Deb  = 1;
+  Cred = 2;
+end;
+
+#include DocSet.var  // iDocSet
+var piPlPor  : PlPorSimple;
+var arDoc    : TInfoDocument;
+var iChkSH    : ChkSoprHoz;
+
+var
+//  CS		: IContextSession;
+  plsch  	    : string;
+  cplsch 	    : Comp;
+  oldplsch 	  : Comp;
+  clastplsch 	: Comp;
+  SchOs    	  : string;
+  SubOs    	  : string;
+  SchKs    	  : string;
+  SubKs    	  : string;
+  kauos1	    : string;
+  kauos2	    : string;
+  kauos3	    : string;
+  kauos4	    : string;
+  kauos5	    : string;
+  kauos6	    : string;
+  kodspof	    : string;
+  kauks1	    : string;
+  kauks2	    : string;
+  kauks3	    : string;
+  kauks4	    : string;
+  kauks5	    : string;
+  kauks6	    : string;
+  kodspkf	    : string;
+
+  SchOSNewFld	  : string;
+  SubSchOSNewFld	: string;
+  SchKSNewFld	  : string;
+  SubSchKSNewFld	: string;
+
+  newplpor	  : comp;
+  newsoprhoz	: comp;
+  namespravka	: string;
+  deskriptor	: string;
+  desgruppa	  : string;
+  nspravka	  : string;
+  DateSpravka	: date;
+
+  mMarkDocOs1	: longint;
+  mMarkDocOs2	: longint;
+  mMarkDocOs3	: longint;
+  mMarkDocOs4	: longint;
+  mMarkDocOs5	: longint;
+  mMarkDocOs6	: longint;
+  mMarkDocOpdr: longint;
+  mMarkDocKs1	: longint;
+  mMarkDocKs2	: longint;
+  mMarkDocKs3	: longint;
+  mMarkDocKs4	: longint;
+  mMarkDocKs5	: longint;
+  mMarkDocKs6	: longint;
+  mMarkDocKpdr: longint;
+
+  onlystorn	  : byte;
+
+  summadoc	  : double;
+
+  namespradvka: string;
+
+  create view OborotOsn
+  var
+  as select *
+  from
+    Oborot,
+    ParamTbl,
+    Pick,
+    KatKau,
+    PlansSch,
+    BuhSchet
+  where
+  ((
+    ParamTbl.TiDkUser            == UsersDoc.TipUsers
+  ))
+;
+
+function MyGetKauName(wKau : word) : string;
+{
+  if (wKau = 0)
+    MyGetKauName := ''
+  else
+    if(GetFirst FastFirstRow KatKau where ((wKau == KatKau.KodGroup)) = tsOk)
+      MyGetKauName := LoCase(KatKau.Name);
+    else
+      MyGetKauName := '? группа ' + string(wKau);
+}
+
+function GetPlanSchetName(cplan : comp): string;
+{
+  If tsOk = getfirst PLANSSCH where (PLANSSCH.nrec = cplan)
+  {
+    GetPlanSchetName:=PLANSSCH.name;
+  }
+  else
+  {
+    GetPlanSchetName:='';
+  }
+}
+
+function GetSchetName(SchetNbr : tSchet3): string;
+{
+  If tsOk = getfirst BUHSCHET where (( SchetNbr == BUHSCHET.SCHET and '' == BUHSCHET.SubSCH ))
+  {
+    GetSchetName:=BUHSCHET.name;
+  }
+  else
+  {
+    GetSchetName:='';
+  }
+}
+
+function GetSubName(SchetNbr : tSchet3; SubNbr : tSubSch): string;
+{
+  if(SubNbr='')
+  {
+    GetSubName:='';
+  }
+  else
+  {
+    If tsOk = getfirst BUHSCHET where (( SchetNbr == BUHSCHET.SCHET and SubNbr == BUHSCHET.SubSCH ))
+    {
+      GetSubName:=BUHSCHET.name;
+    }
+    else
+    {
+      GetSubName:='';
+    }
+  }
+}
+
+function GetOrgName(cOrg : comp): string;
+{
+  if(cOrg = 0)
+  {
+    GetOrgName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATORG where (KATORG.NREC = cOrg)
+    {
+      GetOrgName:=KATORG.name;
+    }
+    else
+    {
+      GetOrgName:='';
+    }
+  }
+}
+
+function GetGrMcName(cgroupmc : comp): string;
+{
+  if(cgroupmc = 0)
+  {
+    GetGrMcName:='';
+  }
+  else
+  {
+    If tsOk = getfirst GROUPMC where (GROUPMC.NREC = cgroupmc)
+    {
+      GetGrMcName:=GROUPMC.name;
+    }
+    else
+    {
+      GetGrMcName:='';
+    }
+  }
+}
+
+function GetMcName(cmc : comp): string;
+{
+  if(cmc = 0)
+  {
+    GetMcName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATMC where (KATMC.NREC = cmc)
+    {
+      GetMcName:=KATMC.name;
+    }
+    else
+    {
+      GetMcName:='';
+    }
+  }
+}
+
+function GetSomeMcName(cmc: comp): string;
+{
+  var n:integer;
+  n:=0;
+  var result:string;
+  _loop pick where ((7 == Pick.wList))
+  {
+    inc(n);
+    result:=GetMcName(Pick.cRec);
+  }
+  if(n > 1)
+  {
+    result:='Выбрано ' + n + ' матценностей';
+  }
+  GetSomeMcName:=result;
+}
+
+function GetSoprName(cnakl : comp): string;
+{
+  if(cnakl = 0)
+  {
+    GetSoprName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATSOPR where (KATSOPR.NREC = cnakl)
+    {
+      GetSoprName:=KATSOPR.NSOPR;
+    }
+    else
+    {
+      GetSoprName:='';
+    }
+  }
+}
+
+function GetMolName(cmol : comp): string;
+{
+  if(cmol = 0)
+  {
+    GetMolName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATMOL where (KATMOL.NREC = cmol)
+    {
+      GetMolName:=KATMOL.NAME;
+    }
+    else
+    {
+      GetMolName:='';
+    }
+  }
+}
+
+function GetSomeSoprName: string;
+{
+  var n:integer;
+  n:=0;
+  var result:string;
+  result:='';
+  _loop pick where ((word(22) == Pick.wList))
+  {
+    inc(n);
+    result:=GetSoprName(Pick.cRec);
+  }
+  if(n > 1)
+  {
+    result:='Выбрано ' + n + ' накладных';
+  }
+  GetSomeSoprName:=result;
+}
+
+function GetSomeMolName: string;
+{
+  var n:integer;
+  n:=0;
+  var result:string;
+  result:='';
+  _loop pick where ((word(8) == Pick.wList))
+  {
+    inc(n);
+    result:=GetMolName(Pick.cRec);
+  }
+  if(n > 1)
+  {
+    result:='Выбрано ' + n + ' материально-ответственных лиц';
+  }
+  GetSomeMolName:=result;
+}
+
+function GetKauMarkerName(markername : string; wtable : word): string;
+{
+  var i : word;
+  var z : comp;
+  var mMarkDoc, IndexNo : longint;
+  var res : string;
+  var count : word;
+
+  count := 0;
+  res := '';
+  mMarkDoc := InitMarker(markername,8,1,1);
+
+  for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+  {
+    count := count + 1;
+    IndexNo := i;
+    GetMarker(mMarkDoc,IndexNo,z);
+  }
+  if (count > 1)
+    res := 'Выбрано ' + count + ' позиций';
+  else if (count = 1)
+  {
+    res := if(GetAnyKau(0,wtable,z),GivenAnName(1),'');
+  }
+  donemarker(mMarkDoc,markername);
+  GetKauMarkerName := res;
+}
+
+procedure ClearOneMarker(markername : string);
+{
+  var mMarkDoc	: longint;
+
+  mMarkDoc := InitMarker(markername,8,1,1);
+  ClearMarker(mMarkDoc);
+  donemarker(mMarkDoc,markername);
+}
+
+function GetMonthName(datain : date): string;
+{
+  var mstr : string;
+    case month(datain) of
+     1:  mstr := 'январь';
+     2:  mstr := 'февраль';
+     3:  mstr := 'март';
+     4:  mstr := 'апрель';
+     5:  mstr := 'май';
+     6:  mstr := 'июнь';
+     7:  mstr := 'июль';
+     8:  mstr := 'август';
+     9:  mstr := 'сентябрь';
+     10: mstr := 'октябрь';
+     11: mstr := 'ноябрь';
+     12: mstr := 'декабрь';
+     else   mstr := '';
+    end;
+  GetMonthName := mstr;
+}
+
+procedure CreateBuhSpr;
+{
+  var bufPlPor : TPlPor;
+  var cdoc     : comp;
+  var Dataoper : date;
+  var cHoz     : comp;
+
+  /*
+  insert into plpor set
+    	TIDKGAL = ParamTbl.TiDkGal,
+    	TIDK = ParamTbl.TiDkUser,
+    	VIDDK = 0,
+    	DIRECT = 0,
+    	NODOK = nspravka,
+    	YEARDOC = Year(DateSpravka),
+    	DATVIP = DateSpravka,
+    	DATOTS = DateSpravka,
+    	DATOB = DateSpravka,
+    	MODEDOC = 1024,
+    	DESCR = deskriptor,
+    	DESGR = desgruppa,
+    	SUMPLAT = if(onlystorn = 0, 0, summadoc),
+    	PLPOR.NAMEPL1 = namespravka;
+      newplpor := plpor.nrec;
+  */
+
+  piPlPor.PlPor_Fill(bufPlPor, ParamTbl.TiDkGal, ParamTbl.TiDkUser, DateSpravka, 0);
+
+  // заполняешь дополнительно свои поля
+  //bufPlPor.поле := значение;
+  bufPlPor.MODEDOC := word(1024);
+  bufPlPor.NoDok   := nspravka;
+ 	bufPlPor.VIDDK   := 0;
+ 	bufPlPor.DIRECT  := 0;
+  bufPlPor.DESCR   := deskriptor;
+  bufPlPor.DESGR   := desgruppa;
+  bufPlPor.SUMPLAT := if(onlystorn = 0, 0, summadoc);
+  bufPlPor.NAMEPL1 := namespravka;
+
+  cdoc := piPlPor.PlPor_insert(bufPlPor);
+  arDoc:= piPlPor.GetDocBuff(bufPlPor);
+  newplpor := cdoc;
+
+  /*
+  insert into soprhoz set
+	DATOB = DateSpravka,
+	CSOPRDOC = newplpor,
+	TIPDOC = 10,
+	TIDKGAL = 10,
+	MODEDOC = 1024,
+	SOPRHOZ.VHSUMHOZ = '+',
+	DIRECT = 1,
+	DESCR = deskriptor,
+	DESGR = desgruppa,
+	SUMMA = if(onlystorn = 0, 0, summadoc),
+	NAMESHO = namespradvka;
+  newsoprhoz := soprhoz.nrec;
+  */
+  cHoz := iChkSH.CreateOneSoprHoz(arDoc);
+  piPlPor.PlPor_CheckSH(bufPlPor, cgMakeDoc);
+
+  /*
+  insert into basefin set
+	DDOC = DateSpravka,
+	CSOPRDOC = newplpor,
+	CPLPOR = newplpor,
+	TIPDOC = 10,
+	TIDKGAL = 10,
+	MODEDOC = 1024,
+	DIRECT = 1,
+	CSOPRHOZ = newsoprhoz,
+	DESCR = deskriptor,
+	DESGR = desgruppa,
+	SUMMA = if(onlystorn = 0, 0, summadoc),
+	NAMEPL = namespravka;
+  */
+
+  _loop OborotStorn
+  {
+      ClearBuffer(tnOborot);
+
+    	Oborot.TIDKGAL 		:= bufPlPor.TIDKGAL;
+    	Oborot.TIDK 		  := bufPlPor.TIDK;
+    	Oborot.csoprdoc 	:= cdoc;
+    	Oborot.csoprhoz 	:= cHoz;
+    	Oborot.CFILKOR 		:= OborotSTORN.CFILKORS;
+    	Oborot.DESCR 		  := bufPlPor.DESCR;
+    	Oborot.DESGR 		  := bufPlPor.DESGR;
+    	Oborot.CPLANSSCH	:= OborotSTORN.PLANSCH;
+    	Oborot.DATAOT 		:= DateSpravka;
+    	Oborot.DATOB 		  := DateSpravka;
+    	Oborot.NODOK 		  := bufPlPor.NoDok;
+    	Oborot.VHPROP 		:= '+';
+
+    	Oborot.sumob 		  := OborotSTORN.sum;
+    	Oborot.Kol    		:= OborotSTORN.KolOb;
+    	Oborot.cEd        := OborotSTORN.cEd;
+
+    	Oborot.SCHETO 		:= OborotSTORN.SCHETOS;
+    	Oborot.SubOSSCH 	:= OborotSTORN.SubSCHETOS;
+    	Oborot.DBSCHETO  	:= OborotSTORN.DEBET;
+    	Oborot.KODSPO 		:= OborotSTORN.KODSPOS;
+
+    	Oborot.SCHETK 		:= OborotSTORN.SCHETKS;
+    	Oborot.SubSCHK 		:= OborotSTORN.SubSCHETKS;
+    	Oborot.KRSCHETK 	:= OborotSTORN.KREDIT;
+    	Oborot.KODSPK 		:= OborotSTORN.KODSPKS;
+
+      Oborot.tblos 	    := OborotSTORN.TBLOS;
+      Oborot.kauos 	    := OborotSTORN.CKAUOS;
+    	Oborot.tblks 	    := OborotSTORN.TBLKS;
+    	Oborot.kauks 	    := OborotSTORN.CKAUKS;
+
+      insert current Oborot;
+  }
+}
+
+function GetKodKau(SchetNbr, SubSchetNbr : string; i : word) : word;
+{
+  result := 0;
+  if getfirst BUHSCHET where ((     SchetNbr    == BUHSCHET.SCHET
+                                and SubSchetNbr == BUHSCHET.SubSCH )) = tsOk
+    result := BUHSCHET.KODTABLE[i];
+}
+
+function GetKauFromArray(KodTableArray : tKodTable; cKauArray: tKauArray; KodTable : word; PreferKau : word) : comp;
+{
+  var i : word;
+  result := 0;
+
+  if KodTableArray[PreferKau] <> KodTable
+  {
+    for (i:=1; i<=6; i++)
+    {
+      if KodTableArray[i] = KodTable
+      {
+        result := cKauArray[i];
+        exit;
+      }
+    }
+  }
+  else
+    result := cKauArray[PreferKau];
+}
+
+function GetKauFromOborotResult(Buff : type$OborotResult; KodTable : word; PreferKau : word; DebCred : word) : comp;
+{
+  var i : word;
+
+  result := 0;
+  if DebCred = Deb
+  {
+    if Buff.TblOS[PreferKau] <> KodTable
+    {
+      for (i:=1; i<=6; i++)
+      {
+        if Buff.TblOS[i] = KodTable
+        {
+          result := Buff.cKauOS[i];
+          exit;
+        }
+      }
+    }
+    else
+      result := Buff.cKauOS[PreferKau];
+  }
+  else
+  {
+    if Buff.TblKS[PreferKau] <> KodTable
+    {
+      for (i:=1; i<=6; i++)
+      {
+        if Buff.TblKS[i] = KodTable
+        {
+          result := Buff.cKauKS[i];
+          exit;
+        }
+      }
+    }
+    else
+      result := Buff.cKauKS[PreferKau];
+  }
+}
+
+procedure RecalcOborotStorn;
+{
+  var i : word;
+
+  summadoc := 0;
+  _loop OborotResult
+  {
+    summadoc := summadoc - OborotResult.SUM;
+
+  ClearBuffer(tnOborotStorn);
+	OborotSTORN.SCHETOS	    := OborotResult.SCHETOS;
+	OborotSTORN.SubSCHETOS	:= OborotResult.SubSCHETOS;
+	OborotSTORN.DEBET	      := OborotResult.DEBET;
+	OborotSTORN.KODSPOS	    := OborotResult.KODSPOS;
+
+	OborotSTORN.SCHETKS	    := OborotResult.SCHETKS;
+	OborotSTORN.SubSCHETKS	:= OborotResult.SubSCHETKS;
+	OborotSTORN.KREDIT	    := OborotResult.KREDIT;
+	OborotSTORN.KODSPKS	    := OborotResult.KODSPKS;
+
+	OborotSTORN.PLANSCH	    := OborotResult.PLANSCH;
+	OborotSTORN.CFILKORS	  := OborotResult.CFILKORS;
+	OborotSTORN.SUM		      := (-1) * OborotResult.SUM;
+	OborotSTORN.KolOb	      := (-1) * OborotResult.KolOb;
+	OborotSTORN.cEd  	      := OborotResult.cEd;
+
+	OborotSTORN.TBLOS    	:= OborotResult.TBLOS;  // массив полей
+	OborotSTORN.CKAUOS    := OborotResult.CKAUOS; // массив полей
+	OborotSTORN.TBLKS     := OborotResult.TBLKS;  // массив полей
+	OborotSTORN.CKAUKS    := OborotResult.CKAUKS; // массив полей
+  insert current OborotStorn;
+
+    if onlystorn = 0
+    {
+      ClearBuffer (tnOborotStorn);
+
+    	OborotSTORN.PLANSCH	    := OborotResult.PLANSCH;
+    	OborotSTORN.CFILKORS	  := OborotResult.CFILKORS;
+    	OborotSTORN.SUM		      := OborotResult.SUM;
+    	OborotSTORN.KolOb	      := OborotResult.KolOb;
+    	OborotSTORN.cEd 	      := OborotResult.cEd;
+
+    	OborotSTORN.SCHETOS	    := if (SchOSNewFld = '', OborotResult.SCHETOS, ParamTbl.SchetONew);
+    	OborotSTORN.SubSCHETOS	:= if (SchOSNewFld = '', OborotResult.SubSCHETOS, ParamTbl.SubOSSchNew);
+    	OborotSTORN.DEBET	      := if (SchOSNewFld = '', OborotResult.DEBET, ParamTbl.DBSchetONew);
+      for (i:=1; i<=6; i++)
+      {
+        OborotSTORN.TBLOS[i]	:= GetKodKau(OborotSTORN.SCHETOS, OborotSTORN.SubSCHETOS, i);
+      	OborotSTORN.CKAUOS[i]	:= if(ParamTbl.ckauosnew[i] = comp(0),
+                                      GetKauFromOborotResult(OborotResult.Buffer, OborotSTORN.TBLOS[i], i, Deb),
+                                      GetKauFromArray(tKodTable(ParamTbl.TableKauOSNew), tKauArray(ParamTbl.ckauosnew), OborotSTORN.TBLOS[i], i)
+                                   );
+      }
+    	OborotSTORN.KODSPOS	    := if(ParamTbl.ckodsponew = comp(0), OborotResult.KODSPOS, ParamTbl.ckodsponew);
+
+      OborotSTORN.SCHETKS	    := if (SchKSNewFld = '', OborotResult.SCHETKS, ParamTbl.SchetKNew);
+    	OborotSTORN.SubSCHETKS	:= if (SchKSNewFld = '', OborotResult.SubSCHETKS, ParamTbl.SubSchKNew);
+    	OborotSTORN.KREDIT	    := if (SchKSNewFld = '', OborotResult.KREDIT, ParamTbl.KRSchetKNew);
+      for (i:=1; i<=6; i++)
+      {
+      	OborotSTORN.TBLKS[i]	:= GetKodKau(OborotSTORN.SCHETKS, OborotSTORN.SubSCHETKS, i);
+      	OborotSTORN.CKAUKS[i]	:= if(  ParamTbl.ckauksnew[i] = comp(0),
+                                      GetKauFromOborotResult(OborotResult.Buffer, OborotSTORN.TBLKS[i], i, Cred),
+                                      GetKauFromArray(tKodTable(ParamTbl.TableKauKSNew), tKauArray(ParamTbl.ckauksnew), OborotSTORN.TBLKS[i], i)
+                                   );
+      }
+    	OborotSTORN.KODSPKS	    := if(ParamTbl.ckodspknew = comp(0), OborotResult.KODSPKS, ParamTbl.ckodspknew);
+
+      insert current OborotStorn;
+    }
+  }
+}
+
+
+procedure ClearNewKauOs;
+{
+  ClearAdvRecord(ParamTbl.kauosnew);
+  ClearAdvRecord(ParamTbl.ckauosnew);
+}
+
+procedure ClearNewKauKs;
+{
+  ClearAdvRecord(ParamTbl.kauksnew);
+  ClearAdvRecord(ParamTbl.ckauksnew);
+}
+
+procedure ReadMarkerObRepSchetOs;
+{
+  var mMarkDoc	: longint;
+  var IndexNo	: longint;
+  var i 	: word;
+  var z 	: comp;
+  var nbr : word;
+
+  delete all SelSubSchetOs;
+  delete all SelSchetOs;
+  delete all SelectSubSchetOs;
+  delete all SelectSchetOs;
+  SchOs := '';
+  SubOs := '';
+
+  mMarkDoc := InitMarker('ObRepSchetOs',8,1,1);
+  for(i := 0; i < GetMarkerCount(mMarkDoc); i := i + 1)
+  {
+    IndexNo := i;
+    GetMarker(mMarkDoc,IndexNo,z);
+    if tsOk = getFirst BUHSCHET where ((z == BUHSCHET.NREC))
+    {
+      if (BUHSCHET.CNODE > 0)
+      {
+          ClearBuffer(tnSelSubSchetOs);
+          SelSubSchetOs.NREC 		:= BUHSCHET.NREC;
+       		SelSubSchetOs.CPLANSSCH	:= BUHSCHET.CPLANSSCH;
+       		SelSubSchetOs.CNODE		:= BUHSCHET.CNODE;
+       		SelSubSchetOs.LEVELCODE	:= BUHSCHET.LEVELCODE;
+       		SelSubSchetOs.CODE		  := BUHSCHET.CODE;
+       		SelSubSchetOs.NAME		:= BUHSCHET.NAME;
+       		SelSubSchetOs.SCHET		:= BUHSCHET.SCHET;
+       		SelSubSchetOs.SubSCH		:= BUHSCHET.SubSCH;
+       		SelSubSchetOs.KODTABLE	:= BUHSCHET.KODTABLE;
+          insert current SelSubSchetOs;
+      }
+      else
+      {
+        ClearBuffer(tnSelSchetOs);
+        SelSchetOs.NREC 		:= BUHSCHET.NREC;
+        SelSchetOs.CPLANSSCH	:= BUHSCHET.CPLANSSCH;
+        SelSchetOs.CNODE		:= BUHSCHET.CNODE;
+        SelSchetOs.LEVELCODE	:= BUHSCHET.LEVELCODE;
+        SelSchetOs.CODE		:= BUHSCHET.CODE;
+        SelSchetOs.NAME		:= BUHSCHET.NAME;
+        SelSchetOs.SCHET		:= BUHSCHET.SCHET;
+        SelSchetOs.SubSCH		:= BUHSCHET.SubSCH;
+        SelSchetOs.KODTABLE	:= BUHSCHET.KODTABLE;
+        insert current SelSchetOs;
+      }
+    }
+  }
+  donemarker(mMarkDoc,'ObRepSchetOs');
+
+  nbr := 0;
+  _loop SelSchetOs
+  {
+    nbr := nbr + 1;
+    SchOs := SelSchetOs.code + ' ' + SelSchetOs.name;
+  }
+  if (nbr > 1)
+    SchOs := 'Выбрано ' + nbr + ' счетов';
+
+  nbr := 0;
+  _loop SelSubSchetOs
+  {
+    nbr := nbr + 1;
+    SubOs := SelSubSchetOs.code + ' ' + SelSubSchetOs.name;
+  }
+  if (nbr > 1)
+    SubOs := 'Выбрано ' + nbr + ' субсчетов';
+}
+
+procedure ReadMarkerObRepSchetKs;
+{
+  var mMarkDoc	: longint;
+  var IndexNo	: longint;
+  var i 	: word;
+  var z 	: comp;
+  var nbr : word;
+
+  delete all SelSubSchetKs;
+  delete all SelSchetKs;
+  delete all SelectSubSchetKs;
+  delete all SelectSchetKs;
+
+  SchKs := '';
+  SubKs := '';
+
+  mMarkDoc := InitMarker('ObRepSchetKs',8,1,1);
+  for(i := 0; i < GetMarkerCount(mMarkDoc); i := i + 1)
+  {
+    IndexNo := i;
+    GetMarker(mMarkDoc,IndexNo,z);
+    if tsOk = getFirst BUHSCHET where ((z == BUHSCHET.NREC))
+    {
+      if (BUHSCHET.CNODE > 0)
+      {
+        ClearBuffer(tnSelSubSchetKs);
+        SelSubSchetKs.NREC 		:= BUHSCHET.NREC;
+     		SelSubSchetKs.CPLANSSCH	:= BUHSCHET.CPLANSSCH;
+     		SelSubSchetKs.CNODE		:= BUHSCHET.CNODE;
+     		SelSubSchetKs.LEVELCODE	:= BUHSCHET.LEVELCODE;
+     		SelSubSchetKs.CODE		:= BUHSCHET.CODE;
+     		SelSubSchetKs.NAME		:= BUHSCHET.NAME;
+     		SelSubSchetKs.SCHET		:= BUHSCHET.SCHET;
+     		SelSubSchetKs.SubSCH		:= BUHSCHET.SubSCH;
+     		SelSubSchetKs.KODTABLE	:= BUHSCHET.KODTABLE;
+        insert current SelSubSchetKs;
+      }
+      else
+      {
+        ClearBuffer(tnSelSchetKs);
+        SelSchetKs.NREC 	    := BUHSCHET.NREC;
+     		SelSchetKs.CPLANSSCH	:= BUHSCHET.CPLANSSCH;
+     		SelSchetKs.CNODE		  := BUHSCHET.CNODE;
+     		SelSchetKs.LEVELCODE	:= BUHSCHET.LEVELCODE;
+     		SelSchetKs.CODE		    := BUHSCHET.CODE;
+     		SelSchetKs.NAME		    := BUHSCHET.NAME;
+     		SelSchetKs.SCHET		:= BUHSCHET.SCHET;
+     		SelSchetKs.SubSCH		:= BUHSCHET.SubSCH;
+     		SelSchetKs.KODTABLE	:= BUHSCHET.KODTABLE;
+        insert current SelSchetKs;
+
+      }
+    }
+  }
+  donemarker(mMarkDoc,'ObRepSchetKs');
+
+  nbr := 0;
+  _loop SelSchetKs
+  {
+    nbr := nbr + 1;
+    SchKs := SelSchetKs.code + ' ' + SelSchetKs.name;
+  }
+  if (nbr > 1)
+    SchKs := 'Выбрано ' + nbr + ' счетов';
+
+  nbr := 0;
+  _loop SelSubSchetKs
+  {
+    nbr := nbr + 1;
+    SubKs := SelSubSchetKs.code + ' ' + SelSubSchetKs.name;
+  }
+  if (nbr > 1)
+    SubKs := 'Выбрано ' + nbr + ' субсчетов';
+}
+
+procedure ClearOneKauMarker(markername : string);
+{
+  var mMarkDoc	: longint;
+
+  mMarkDoc := InitMarker(markername,8,1,1);
+  ClearMarker(mMarkDoc);
+  donemarker(mMarkDoc,markername);
+}
+
+procedure ClearKauMarkersOs;
+{
+  kauOs1 := '';
+  kauOs2 := '';
+  kauOs3 := '';
+  kauOs4 := '';
+  kauOs5 := '';
+  kauOs6 := '';
+  kodspof := '';
+
+  ClearAdvRecord(ParamTbl.TableKauOSOld);
+
+  ClearOneKauMarker('kauOs1');
+  ClearOneKauMarker('kauOs2');
+  ClearOneKauMarker('kauOs3');
+  ClearOneKauMarker('kauOs4');
+  ClearOneKauMarker('kauOs5');
+  ClearOneKauMarker('kauOs6');
+  ClearOneKauMarker('kodspof');
+
+  // ClearOldKauOs;
+  // ClearNewKauOs;
+}
+
+procedure ClearKauMarkersKs;
+{
+  kauKs1 := '';
+  kauKs2 := '';
+  kauKs3 := '';
+  kauKs4 := '';
+  kauKs5 := '';
+  kauKs6 := '';
+  kodspkf := '';
+
+  ClearAdvRecord(ParamTbl.TableKauKSOld);
+
+  ClearOneKauMarker('kauKs1');
+  ClearOneKauMarker('kauKs2');
+  ClearOneKauMarker('kauKs3');
+  ClearOneKauMarker('kauKs4');
+  ClearOneKauMarker('kauKs5');
+  ClearOneKauMarker('kauKs6');
+  ClearOneKauMarker('kodspkf');
+
+  // ClearOldKauKs;
+  // ClearNewKauKs;
+}
+
+procedure ClearMarkerObRepSchetOs;
+{
+  var mMarkDoc	: longint;
+  var IndexNo	: longint;
+
+  delete all SelSubSchetOs;
+  delete all SelSchetOs;
+  SchOs := '';
+  SubOs := '';
+
+  mMarkDoc := InitMarker('ObRepSchetOs',8,1,1);
+  ClearMarker(mMarkDoc);
+  donemarker(mMarkDoc,'ObRepSchetOs');
+  ClearKauMarkersOs;
+}
+
+procedure ClearMarkerObRepSchetKs;
+{
+  var mMarkDoc	: longint;
+  var IndexNo	: longint;
+
+  delete all SelSubSchetKs;
+  delete all SelSchetKs;
+  SchKs := '';
+  SubKs := '';
+
+  mMarkDoc := InitMarker('ObRepSchetKs',8,1,1);
+  ClearMarker(mMarkDoc);
+  donemarker(mMarkDoc,'ObRepSchetKs');
+  ClearKauMarkersKs;
+}
+
+procedure OpenKauMarkersOs;
+{
+  mMarkDocOs1 := InitMarker('kauOs1',8,1,1);
+  mMarkDocOs2 := InitMarker('kauOs2',8,1,1);
+  mMarkDocOs3 := InitMarker('kauOs3',8,1,1);
+  mMarkDocOs4 := InitMarker('kauOs4',8,1,1);
+  mMarkDocOs5 := InitMarker('kauOs5',8,1,1);
+  mMarkDocOs6 := InitMarker('kauOs6',8,1,1);
+  mMarkDocOpdr:= InitMarker('kodspof',8,1,1);
+}
+
+procedure OpenKauMarkersKs;
+{
+  mMarkDocKs1 := InitMarker('kauKs1',8,1,1);
+  mMarkDocKs2 := InitMarker('kauKs2',8,1,1);
+  mMarkDocKs3 := InitMarker('kauKs3',8,1,1);
+  mMarkDocKs4 := InitMarker('kauKs4',8,1,1);
+  mMarkDocKs5 := InitMarker('kauKs5',8,1,1);
+  mMarkDocKs6 := InitMarker('kauKs6',8,1,1);
+  mMarkDocKpdr:= InitMarker('kodspkf',8,1,1);
+}
+
+procedure CloseKauMarkersOs;
+{
+  donemarker(mMarkDocOs1,'kauOs1');
+  donemarker(mMarkDocOs2,'kauOs2');
+  donemarker(mMarkDocOs3,'kauOs3');
+  donemarker(mMarkDocOs4,'kauOs4');
+  donemarker(mMarkDocOs5,'kauOs5');
+  donemarker(mMarkDocOs6,'kauOs6');
+  donemarker(mMarkDocOpdr,'kodspof');
+}
+
+procedure CloseKauMarkersKs;
+{
+  donemarker(mMarkDocKs1,'kauKs1');
+  donemarker(mMarkDocKs2,'kauKs2');
+  donemarker(mMarkDocKs3,'kauKs3');
+  donemarker(mMarkDocKs4,'kauKs4');
+  donemarker(mMarkDocKs5,'kauKs5');
+  donemarker(mMarkDocKs6,'kauKs6');
+  donemarker(mMarkDocKpdr,'kodspkf');
+}
+
+procedure CopyTables;
+{
+  _loop SelSchetOs
+    insert into SelectSchetOs set
+	SelectSchetOs.SCHET	:= SelSchetOs.SCHET,
+	SelectSchetOs.SubSCH	:= SelSchetOs.SubSCH;
+
+  _loop SelSubSchetOs
+    insert into SelectSubSchetOs set
+	SelectSubSchetOs.SCHET	:= SelSubSchetOs.SCHET,
+	SelectSubSchetOs.SubSCH	:= SelSubSchetOs.SubSCH;
+
+  _loop SelSchetKs
+    insert into SelectSchetKs set
+	SelectSchetKs.SCHET	:= SelSchetKs.SCHET,
+	SelectSchetKs.SubSCH	:= SelSchetKs.SubSCH;
+
+  _loop SelSubSchetKs
+    insert into SelectSubSchetKs set
+	SelectSubSchetKs.SCHET	:= SelSubSchetKs.SCHET,
+	SelectSubSchetKs.SubSCH	:= SelSubSchetKs.SubSCH;
+}
+
+function RecordOsIsOk : boolean;
+{
+  var res : boolean;
+  var IndexNo : longint;
+  var schetIsOk : boolean;
+
+  res := true;
+
+  if (schOs <> '')
+  {
+    schetIsOk := false;
+    if tsOk = GetFirst SelectSchetOs where ((Oborot.SCHETO == SelectSchetOs.SCHET))
+      schetIsOk := true;
+
+    if tsOk = GetFirst SelectSubSchetOs where ((Oborot.SCHETO == SelectSubSchetOs.SCHET and Oborot.SubOSSCH == SelectSubSchetOs.SubSCH))
+      schetIsOk := true;
+
+    res := schetIsOk;
+  }
+
+  if (ParamTbl.DESCRFLT <> '' )
+    if not (Oborot.DESCR = ParamTbl.DESCRFLT) res := false;
+
+  if (ParamTbl.DESCGRFLT <> '' )
+    if not (Oborot.DESGR = ParamTbl.DESCGRFLT) res := false;
+
+  if (kauOs1 <> '' )
+    if (not SearchMarker(mMarkDocOs1,Oborot.kauos[1],IndexNo)) res := false;
+
+  if (kauOs2 <> '' )
+    if (not SearchMarker(mMarkDocOs2,Oborot.kauos[2],IndexNo)) res := false;
+
+  if (kauOs3 <> '' )
+    if (not SearchMarker(mMarkDocOs3,Oborot.kauos[3],IndexNo)) res := false;
+
+  if (kauOs4 <> '' )
+    if (not SearchMarker(mMarkDocOs4,Oborot.kauos[4],IndexNo)) res := false;
+
+  if (kauOs5 <> '' )
+    if (not SearchMarker(mMarkDocOs5,Oborot.kauos[5],IndexNo)) res := false;
+
+  if (kauOs6 <> '' )
+    if (not SearchMarker(mMarkDocOs6,Oborot.kauos[6],IndexNo)) res := false;
+
+  if (kodspof <> '' )
+    if (not SearchMarker(mMarkDocOpdr,Oborot.kodspO,IndexNo)) res := false;
+
+  RecordOsIsOk := res;
+}
+
+function RecordKsIsOk : boolean;
+{
+  var res : boolean;
+  var IndexNo : longint;
+  var schetIsOk : boolean;
+
+  res := true;
+
+  if (schKs <> '')
+  {
+    schetIsOk := false;
+    if tsOk = GetFirst SelectSchetKs where ((Oborot.SCHETK == SelectSchetKs.SCHET))
+      schetIsOk := true;
+
+    if tsOk = GetFirst SelectSubSchetKs where
+                            ((Oborot.SCHETK == SelectSubSchetKs.SCHET and Oborot.SubSCHK == SelectSubSchetKs.SubSCH))
+      schetIsOk := true;
+
+    res := schetIsOk;
+  }
+
+  if (kauKs1 <> '' )
+    if (not SearchMarker(mMarkDocKs1,Oborot.kauks[1],IndexNo)) res := false;
+
+  if (kauKs2 <> '' )
+    if (not SearchMarker(mMarkDocKs2,Oborot.kauks[2],IndexNo)) res := false;
+
+  if (kauKs3 <> '' )
+    if (not SearchMarker(mMarkDocKs3,Oborot.kauks[3],IndexNo)) res := false;
+
+  if (kauKs4 <> '' )
+    if (not SearchMarker(mMarkDocKs4,Oborot.kauks[4],IndexNo)) res := false;
+
+  if (kauKs5 <> '' )
+    if (not SearchMarker(mMarkDocKs5,Oborot.kauks[5],IndexNo)) res := false;
+
+  if (kauKs6 <> '' )
+    if (not SearchMarker(mMarkDocKs6,Oborot.kauks[6],IndexNo)) res := false;
+
+  if (kodspkf <> '' )
+    if (not SearchMarker(mMarkDocKpdr,Oborot.kodspK,IndexNo)) res := false;
+
+  RecordKsIsOk := res;
+}
+
+function RecordOborotIsOk : boolean;
+{
+  var res : boolean;
+  res := RecordOsIsOk;
+  if res res := RecordKsIsOk;
+  RecordOborotIsOk := res;
+}
+
+procedure InsertCurrentOborot;
+{
+  ClearBuffer(tnOborotResult);
+	OborotResult.DATOB 		  := Oborot.DATOB;
+	OborotResult.NODOC		  := Oborot.NODOK;
+
+	OborotResult.SCHETOS		:= Oborot.SCHETO;
+	OborotResult.SubSCHETOS := Oborot.SubOSSCH;
+	OborotResult.SCHETKS		:= Oborot.SCHETK;
+	OborotResult.SubSCHETKS := Oborot.SubSCHK;
+	OborotResult.DEBET		  := Oborot.DBSCHETO;
+	OborotResult.KREDIT		  := Oborot.KRSCHETK;
+	OborotResult.PLANSCH		:= Oborot.CPLANSSCH;
+	OborotResult.KODSPOS		:= Oborot.KODSPO;
+	OborotResult.KODSPKS		:= Oborot.KODSPK;
+	OborotResult.CFILKORS	  := Oborot.CFILKOR;
+	OborotResult.SUM		    := Oborot.SUMOB;
+	OborotResult.KolOb	    := Oborot.Kol;
+	OborotResult.cEd 	      := Oborot.cEd;
+
+	OborotResult.TBLOS     := Oborot.TBLOS;
+	OborotResult.CKAUOS    := Oborot.KAUOS;
+
+	OborotResult.TBLKS     := Oborot.TBLKS;
+	OborotResult.CKAUKS    := Oborot.KAUKS;
+  insert current OborotResult;
+}
+
+procedure GetReport;
+{
+  if DateSpravka <= dGetTune('FIN.USER.DTECBUH') // "Настройки Галактики \ Бухгалтерский контур \ Закрытый отчетный период до"
+  {
+    case wGetTune('FIN.USER.MODAFTERCLOSE') of // "Настройки Галактики \ Бухгалтерский контур \ Модификации данных после закрытия периода"
+    1:{
+        if Message('Введенная дата бухгалтерской справки ' + DateToStr(DateSpravka, 'DD.MM.YYYY') + ' попадает в закрытый период - ' + DateToStr(dGetTune('FIN.USER.DTECBUH'), 'DD.MM.YYYY') + ' !' + chr(10) + chr(13) +
+                   'Продолжить?', YesNo) = cmNo
+          { exit; }
+      }
+
+    2:{
+        Message('Введенная дата бухгалтерской справки ' + DateToStr(DateSpravka, 'DD.MM.YYYY') + ' попадает в закрытый период - ' + DateToStr(dGetTune('FIN.USER.DTECBUH'), 'DD.MM.YYYY') + ' !' + chr(10) + chr(13) +
+                'Введите дату позднее даты закрытого периода и повторите формирование.');
+        exit;
+      }
+    end;
+  }
+
+  delete all OborotResult;
+  delete all OborotStorn;
+  var gogo : boolean;
+  gogo := false;
+
+  _loop SelSubSchetOs
+    if tsOk = GetFirst SelSchetOs where ((SelSubSchetOs.cnode == SelSchetOs.nrec)) delete current SelSchetOs;
+
+  _loop SelSubSchetKs
+    if tsOk = GetFirst SelSchetKs where ((SelSubSchetKs.cnode == SelSchetKs.nrec)) delete current SelSchetKs;
+
+  CopyTables;
+  OpenKauMarkersOs;
+  OpenKauMarkersKs;
+  StartNewVisual(vtNumericVisual,vfTimer,'Формирование справки ...',0);
+
+  _loop SelSchetOs
+  {
+    gogo := true;
+      _loop Oborot where((SelSchetOs.schet == Oborot.scheto
+                          and ParamTbl.dateFrom <<= Oborot.DATOB
+                          and ParamTbl.dateTo >>= Oborot.DATOB))
+      {
+        if (RecordOborotIsOk)
+        {
+          NextVisual;
+          InsertCurrentOborot;
+        }
+      }
+  }
+
+  _loop SelSubSchetOs
+  {
+    gogo := true;
+    _loop Oborot where((SelSubSchetOs.schet == Oborot.scheto
+                        and SelSubSchetOs.Subsch == Oborot.Subossch
+                        and ParamTbl.dateFrom <<= Oborot.DATOB
+                        and ParamTbl.dateTo >>= Oborot.DATOB))
+    {
+      if (RecordOborotIsOk)
+      {
+        NextVisual;
+        InsertCurrentOborot;
+      }
+    }
+  }
+
+  if (not gogo)
+  {
+    _loop SelSchetKs
+    {
+      _loop Oborot where((SelSchetKs.schet == Oborot.schetK
+                          and ParamTbl.dateFrom <<= Oborot.DATOB
+                          and ParamTbl.dateTo >>= Oborot.DATOB))
+      {
+        if (RecordOborotIsOk)
+        {
+          NextVisual;
+          InsertCurrentOborot;
+        }
+      }
+    }
+
+    _loop SelSubSchetKs
+    {
+      _loop Oborot where((SelSubSchetKs.schet == Oborot.schetK
+                          and SelSubSchetKs.Subsch == Oborot.SubschK
+                          and ParamTbl.dateFrom <<= Oborot.DATOB
+                          and ParamTbl.dateTo >>= Oborot.DATOB))
+      {
+        if (RecordOborotIsOk)
+        {
+          NextVisual;
+          InsertCurrentOborot;
+        }
+      }
+    }
+  }
+  CloseKauMarkersOs;
+  CloseKauMarkersKs;
+  RecalcOborotStorn;
+  CreateBuhSpr;
+  StopVisual('',0);
+  RunInterface('F_PLPOR::PLPOR',10,10,newplpor);
+}
+
+procedure GetTableKauOSOld;
+{
+  var i : word;
+  var NotFirstOne : boolean;
+  var DiffAr : array[1..6] of boolean;
+
+  NotFirstOne := false;
+  ClearAdvRecord(DiffAr);
+  ClearAdvRecord(ParamTbl.TableKauOSOld);
+
+  _loop SelSchetOs
+  {
+    if getfirst SelSubSchetOs where (( SelSchetOs.Schet == SelSubSchetOs.Schet )) = tsOk
+    { // если выбраны субсчета, то обработаем их
+      _loop SelSubSchetOs where (( SelSchetOs.Schet == SelSubSchetOs.Schet ))
+      {
+        for (i:=1; i<=6; i++)
+        {
+          if not DiffAr[i]
+          {
+            if NotFirstOne and ParamTbl.TableKauOSOld[i] <> SelSubSchetOs.KODTABLE[i]
+            {
+              DiffAr[i] := true;
+              ParamTbl.TableKauOSOld[i] := 0;
+            }
+            else
+              ParamTbl.TableKauOSOld[i] := SelSubSchetOs.KODTABLE[i];
+          };
+        }
+        NotFirstOne := true;
+      }
+    }
+    else // если выбран просто счет то обрабатываем его
+    {
+      for (i:=1; i<=6; i++)
+      {
+        if not DiffAr[i]
+        {
+          if NotFirstOne and ParamTbl.TableKauOSOld[i] <> SelSchetOs.KODTABLE[i]
+          {
+            DiffAr[i] := true;
+            ParamTbl.TableKauOSOld[i] := 0;
+          }
+          else
+            ParamTbl.TableKauOSOld[i] := SelSchetOs.KODTABLE[i];
+        };
+      }
+      NotFirstOne := true;
+    }
+  }
+}
+
+
+procedure GetTableKauKSOld;
+{
+  var i : word;
+  var NotFirstOne : boolean;
+  var DiffAr : array[1..6] of boolean;
+
+  NotFirstOne := false;
+  ClearAdvRecord(DiffAr);
+  ClearAdvRecord(ParamTbl.TableKauKSOld);
+
+  _loop SelSchetKs
+  {
+    if getfirst SelSubSchetKs where (( SelSchetKs.Schet == SelSubSchetKs.Schet )) = tsOk
+    { // если выбраны субсчета, то обработаем их
+      _loop SelSubSchetKs where (( SelSchetKs.Schet == SelSubSchetKs.Schet ))
+      {
+        for (i:=1; i<=6; i++)
+        {
+          if not DiffAr[i]
+          {
+            if NotFirstOne and ParamTbl.TableKauKSOld[i] <> SelSubSchetKs.KODTABLE[i]
+            {
+              DiffAr[i] := true;
+              ParamTbl.TableKauKSOld[i] := 0;
+            }
+            else
+              ParamTbl.TableKauKSOld[i] := SelSubSchetKs.KODTABLE[i];
+          };
+        }
+        NotFirstOne := true;
+      }
+    }
+    else
+    {
+      for (i:=1; i<=6; i++)
+      {
+        if not DiffAr[i]
+        {
+          if NotFirstOne and ParamTbl.TableKauKSOld[i] <> SelSchetKs.KODTABLE[i]
+          {
+            DiffAr[i] := true;
+            ParamTbl.TableKauKSOld[i] := 0;
+          }
+          else
+            ParamTbl.TableKauKSOld[i] := SelSchetKs.KODTABLE[i];
+        };
+      }
+      NotFirstOne := true;
+    }
+  }
+
+}
+
+procedure GetTableKauOSNew;
+{
+  var i : word;
+  var NotFirstOne : boolean;
+  var DiffAr : array[1..6] of boolean;
+
+  var tmpTableKauOSNew	: tKodTable;
+  tmpTableKauOSNew := tKodTable(ParamTbl.TableKauOSNew);
+
+  NotFirstOne := false;
+  ClearAdvRecord(DiffAr);
+  ClearAdvRecord(ParamTbl.TableKauOSNew);
+
+  if SchOSNewFld = '' // если не заполнен новый счет, то буфер результирующих аналитик заполним на основе исходных счетов
+  {
+    GetTableKauOSOld;
+    ParamTbl.TableKauOSNew := ParamTbl.TableKauOSOld;
+  }
+  else
+  {
+    // иначе заполним на основе нового счета
+    if GetFirst BUHSCHET where ((ParamTbl.SchetONew == BUHSCHET.SCHET and ParamTbl.SubOSSchNew == BUHSCHET.SubSCH)) = tsOk
+      ParamTbl.TableKauOSNew := BUHSCHET.KODTABLE;
+  }
+
+  for(i:=1;i<=6;i++)
+  {
+    if tmpTableKauOSNew[i] != ParamTbl.TableKauOSNew[i] or ParamTbl.TableKauOSNew[i] = 0
+    {
+      ParamTbl.ckauosnew[i] := comp(0);
+      ParamTbl.kauosnew[i] := '';
+    }
+  }
+
+}
+
+procedure GetTableKauKSNew;
+{
+  var i : word;
+  var NotFirstOne : boolean;
+  var DiffAr : array[1..6] of boolean;
+
+  var tmpTableKauKSNew	: tKodTable;
+  tmpTableKauKSNew := tKodTable(ParamTbl.TableKauKSNew);
+
+  NotFirstOne := false;
+  ClearAdvRecord(DiffAr);
+  ClearAdvRecord(ParamTbl.TableKauKSNew);
+
+  if SchKSNewFld = '' // если не заполнен новый счет, то буфер результирующих аналитик заполним на основе исходных счетов
+  {
+    GetTableKauKSOld;
+    ParamTbl.TableKauKSNew := ParamTbl.TableKauKSOld;
+  }
+  else
+  {
+    // иначе заполним на основе нового счета
+    if GetFirst BUHSCHET where ((ParamTbl.SchetKNew == BUHSCHET.SCHET and ParamTbl.SubSchKNew == BUHSCHET.SubSCH)) = tsOk
+      ParamTbl.TableKauKSNew := BUHSCHET.KODTABLE;
+  }
+
+  for(i:=1;i<=6;i++)
+  {
+    if tmpTableKauKSNew[i] != ParamTbl.TableKauKSNew[i] or ParamTbl.TableKauKSNew[i] = 0
+    {
+      ParamTbl.ckauKsnew[i] := comp(0);
+      ParamTbl.kauKsnew[i] := '';
+    }
+  }
+}
+
+  Procedure ReFreshKauFlt;
+  {
+    var i : word;
+
+    for(i:=1;i<=6;i++)
+    {
+      if ParamTbl.TableKauOSOld[i] = 0
+        ClearOneKauMarker('kauOs' + i);
+    }
+
+    for(i:=1;i<=6;i++)
+    {
+      if ParamTbl.TableKauKSOld[i] = 0
+        ClearOneKauMarker('kauKs' + i);
+    }
+  }
+
+  Procedure ReFreshKauFltNames;
+  {
+     kauos1 := GetKauMarkerName('kauos1',ParamTbl.TableKauOSOld[1]);
+     kauos2 := GetKauMarkerName('kauos2',ParamTbl.TableKauOSOld[2]);
+     kauos3 := GetKauMarkerName('kauos3',ParamTbl.TableKauOSOld[3]);
+     kauos4 := GetKauMarkerName('kauos4',ParamTbl.TableKauOSOld[4]);
+     kauos5 := GetKauMarkerName('kauos5',ParamTbl.TableKauOSOld[5]);
+     kauos6 := GetKauMarkerName('kauos6',ParamTbl.TableKauOSOld[6]);
+     kodspof:= GetKauMarkerName('kodspof',cgKau_KatPodr);
+
+     kauks1 := GetKauMarkerName('kauks1',ParamTbl.TableKauKSOld[1]);
+     kauks2 := GetKauMarkerName('kauks2',ParamTbl.TableKauKSOld[2]);
+     kauks3 := GetKauMarkerName('kauks3',ParamTbl.TableKauKSOld[3]);
+     kauks4 := GetKauMarkerName('kauks4',ParamTbl.TableKauKSOld[4]);
+     kauks5 := GetKauMarkerName('kauks5',ParamTbl.TableKauKSOld[5]);
+     kauks6 := GetKauMarkerName('kauks6',ParamTbl.TableKauKSOld[6]);
+     kodspkf:= GetKauMarkerName('kodspkf',cgKau_KatPodr);
+  }
+
+  Procedure ReFreshKauNewFltNames;
+  {
+    var i : word;
+
+    for(i:=1;i<=6;i++)
+    {
+      set ParamTbl.kauosnew[i] := if(GetAnyKau(0, ParamTbl.TableKauOSNew[i], ParamTbl.cKauOSNew[i]), GivenAnName(1), '');
+    }
+
+    for(i:=1;i<=6;i++)
+    {
+      set ParamTbl.kauksnew[i] := if(GetAnyKau(0, ParamTbl.TableKauKSNew[i], ParamTbl.cKauKSNew[i]), GivenAnName(1), '');
+    }
+  }
+
+  function IsManyBuhSprTypes : boolean;
+  {
+    IsManyBuhSprTypes := iDocSet.OkManyTipDoc(cgCash_BuhSpr);
+  }
+
+  procedure Init_PlPorGenPram;
+  {
+    if not IsManyBuhSprTypes
+    {
+      ClearFieldState(#UsersDoc.Name, sfVisible);
+      HideLabel4Field(#UsersDoc.Name);
+    }
+  }
+
+  procedure RefreshSchOSNewFld;
+  {
+    if tsOk = GetFirst BUHSCHET where ((ParamTbl.SchetONew == BUHSCHET.SCHET and '' == BUHSCHET.SubSCH))
+    {
+      SchOSNewFld := ParamTbl.SchetONew + ' ' + BUHSCHET.NAME;
+    }
+    if tsOk = GetFirst BUHSCHET where ((ParamTbl.SchetONew == BUHSCHET.SCHET and ParamTbl.SubOSSchNew == BUHSCHET.SubSCH))
+    {
+      if ParamTbl.SubOSSchNew <> '' SubSchOSNewFld := ParamTbl.SubOSSchNew + ' ' + BUHSCHET.NAME; else SubSchOSNewFld := '';
+    }
+    else
+    {
+      ParamTbl.SchetONew := '';
+      ParamTbl.SubOSSchNew  := '';
+      SchOSNewFld  := '';
+      SubSchOSNewFld := '';
+    }
+    if ParamTbl.SchetONew <> ''
+    {
+      ParamTbl.DBSchetONew := Substr(ParamTbl.SchetONew,2,length(ParamTbl.SchetONew) - 1);
+    }
+    else
+    {
+      ParamTbl.DBSchetONew := '';
+    }
+  }
+
+  procedure RefreshSchKSNewFld;
+  {
+    if tsOk = GetFirst BUHSCHET where ((ParamTbl.SchetKNew == BUHSCHET.SCHET and '' == BUHSCHET.SubSCH))
+    {
+      SchKSNewFld := ParamTbl.SchetKNew + ' ' + BUHSCHET.NAME;
+    }
+    if tsOk = GetFirst BUHSCHET where ((ParamTbl.SchetKNew == BUHSCHET.SCHET and ParamTbl.SubSchKNew == BUHSCHET.SubSCH))
+    {
+      if ParamTbl.SubSchKNew <> '' SubSchKSNewFld := ParamTbl.SubSchKNew + ' ' + BUHSCHET.NAME; else SubSchKSNewFld := '';
+    }
+    else
+    {
+      ParamTbl.SchetKNew := '';
+      ParamTbl.SubSchKNew  := '';
+      SchKSNewFld  := '';
+      SubSchKSNewFld := '';
+    }
+    if ParamTbl.SchetKNew <> ''
+    {
+      ParamTbl.KRSchetKNew := Substr(ParamTbl.SchetKNew,2,length(ParamTbl.SchetKNew) - 1);
+    }
+    else
+    {
+      ParamTbl.KRSchetKNew := '';
+    }
+  }
+
+screen scrOborot
+table ParamTbl;
+  fields
+    plsch('План счетов'   ,,sci1378Esc): pickButton;
+
+    ParamTbl.dateFrom('Дата начала периода.'  ,,sci178Esc ): noprotect,pickButton;
+    ParamTbl.dateTo('Дата конца периода.'     ,,sci178Esc ): noprotect,pickButton;
+    ParamTbl.DESCRFLT('Фильтр по дескриптору проводок')		:noprotect,pickButton;
+    ParamTbl.DESCGRFLT('Фильтр по группе дескрипторов в проводках')	:noprotect,pickButton;
+    SchOs('Основной счет'            ,,sci1378Esc): pickButton;
+    SchKs('Корр. счет'               ,,sci1378Esc): pickButton;
+    SubOs('Основной субсчет'         ,,sci1378Esc): pickButton;
+    SubKs('Корр. субсчет'            ,,sci1378Esc): pickButton;
+    kodspof('Подразделение дебет'    ,,sci13Esc): pickButton;
+    kodspkf('Подразделение кредит'   ,,sci13Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauOSOld, 1)
+    kauos1('КАУ 1-го уровня основного счета'   ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauKSOld, 1)
+    kauks1('КАУ 1-го уровня корр. счета'       ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauOSOld, 2)
+    kauos2('КАУ 2-го уровня основного счета'   ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauKSOld, 2)
+    kauks2('КАУ 2-го уровня корр. счета'       ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauOSOld, 3)
+    kauos3('КАУ 3-го уровня основного счета'   ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauKSOld, 3)
+    kauks3('КАУ 3-го уровня корр. счета'       ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauOSOld, 4)
+    kauos4('КАУ 4-го уровня основного счета'   ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauKSOld, 4)
+    kauks4('КАУ 4-го уровня корр. счета'       ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauOSOld, 5)
+    kauos5('КАУ 5-го уровня основного счета'   ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauKSOld, 5)
+    kauks5('КАУ 5-го уровня корр. счета'       ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauOSOld, 6)
+    kauos6('КАУ 6-го уровня основного счета'   ,,sci1378Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauKSOld, 6)
+    kauks6('КАУ 6-го уровня корр. счета'       ,,sci1378Esc): pickButton;
+
+    nspravka('Номер справки')		     : noprotect;
+    DateSpravka('Дата справки.'      ,,sci178Esc ): noprotect, pickButton;
+    deskriptor('Дескриптор')		     : skip;
+    desgruppa('Группа дескрипторов') : skip;
+    UsersDoc.Name   ('Тип создаваемой бухсправки',,sci1378Esc) : protect, pickbutton;
+
+    SchOSNewFld('Основной счет'            	,,sci1378Esc): pickButton;
+    SchKSNewFld('Корр. счет'               	,,sci1378Esc): pickButton;
+    SubSchOSNewFld('Основной субсчет'         	,,sci1378Esc): pickButton;
+    SubSchKSNewFld('Корр. субсчет'            	,,sci1378Esc): pickButton;
+    ParamTbl.kodsponew('Подразделение дебет'    		  ,,sci13Esc): pickButton;
+    ParamTbl.kodspknew('Подразделение кредит'   		  ,,sci13Esc): pickButton;
+    #FldKauNum(ParamTbl.TableKauOSNew, 1)
+    ParamTbl.kauosnew[1]('КАУ 1-го уровня основного счета'   ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauKSNew, 1)
+    ParamTbl.kauksnew[1]('КАУ 1-го уровня корр. счета'       ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauOSNew, 2)
+    ParamTbl.kauosnew[2]('КАУ 2-го уровня основного счета'   ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauKSNew, 2)
+    ParamTbl.kauksnew[2]('КАУ 2-го уровня корр. счета'       ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauOSNew, 3)
+    ParamTbl.kauosnew[3]('КАУ 3-го уровня основного счета'   ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauKSNew, 3)
+    ParamTbl.kauksnew[3]('КАУ 3-го уровня корр. счета'       ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauOSNew, 4)
+    ParamTbl.kauosnew[4]('КАУ 4-го уровня основного счета'   ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauKSNew, 4)
+    ParamTbl.kauksnew[4]('КАУ 4-го уровня корр. счета'       ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauOSNew, 5)
+    ParamTbl.kauosnew[5]('КАУ 5-го уровня основного счета'   ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauKSNew, 5)
+    ParamTbl.kauksnew[5]('КАУ 5-го уровня корр. счета'       ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauOSNew, 6)
+    ParamTbl.kauosnew[6]('КАУ 6-го уровня основного счета'   ,,sci1378Esc): protect, pickButton;
+    #FldKauNum(ParamTbl.TableKauKSNew, 6)
+    ParamTbl.kauksnew[6]('КАУ 6-го уровня корр. счета'       ,,sci1378Esc): protect, pickButton;
+    onlystorn('Только сторнирование') : noprotect;
+
+  buttons
+    cmOk,default,,'Сформировать справку',,sci178Esc;
+    cmCancel,,,'Отмена',,sci178Esc;
+<<'Механизм автоматического сторнирования проводок'
+ План счетов   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Период отбора проводок с: .@@@@@@@@@@@@   по: .@@@@@@@@@@@@
+ Фильтр по дескриптору     .@@@@@@@@  группе дескрипторов .@@@@@@@@
+
+ Счет дебет    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@            Счет кредит   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Субсчет       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@            Субсчет       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Подразделение .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@            Подразделение .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ КАУ 1  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 2  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 3  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 4  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 5  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 6  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ Формируемая бухгалтерская справка
+`Номер справки`.@@@@@@@@@  `Дата справки`.@@@@@@@@@@@@ `Дескриптор`.@@@@@@@@  `Группа`.@@@@@@@@
+`Тип формируемой бух.справки` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ Новое значение аналитики
+ Счет дебет   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@            Счет кредит   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Субсчет      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@            Субсчет       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Подразделение.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@            Подразделение .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ КАУ 1  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 2  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 3  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 4  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 5  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ КАУ 6  .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      .@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ [.] Только сторнирование`                 <. Сформировать справку  .>   <.    Отмена   .>
+
+>>
+  end;
+
+  handleEvent
+   cmPick :
+   {
+    case curField of
+      #ParamTbl.DESCRFLT:
+        {
+          var UserD : string;
+          var GrupD : string;
+          var UserV : word;
+
+          UserD := ParamTbl.DESCRFLT;
+          GrupD := ParamTbl.DESCGRFLT;
+          UserV := 12345;
+          if runInterface('C_COMMON::GETDESCR'
+                                         , UserD   // дескриптор (строка) - возвращаемый
+                                         , GrupD   // дескриптор (строка) - возвращаемый
+                                         , UserV   // видимость остальных (слово) - возвращаемый
+                                                  // если на входе = 12345, то нет проверки на UserTune 'Doc.ChangeDescr' Разрешать переключение на другой дескриптор
+                      ) <> cmCancel
+          {
+            set ParamTbl.DESCRFLT := UserD;
+            // DESCGRFLT := GrupD;
+            ReScanPanel(#ParamTbl);
+          };
+        }
+
+      #DESCGRFLT:
+        {
+          var s4           : string;
+          var IsMultyPick
+            , NotNeedKill  : boolean;
+          var pGrDescr     : comp;
+
+          s4          := DESCGRFLT;
+          IsMultyPick := false;
+          NotNeedKill := false;
+          // pGrDescr    := 0;
+
+          if runInterface('C_COMMON::GetGrDescr'
+                                        , s4           // код группы пользователей (по умолчанию и возвращаемый)
+                                        , IsMultyPick  // TRUE - множественный выбор
+                                        , NotNeedKill  // TRUE - не очищать маркер
+                                        , pGrDescr     // NRec группы пользователей (по умолчанию и возвращаемый)
+                      ) <> cmCancel
+          {
+            DESCGRFLT := s4;
+            ReScanPanel(#ParamTbl);
+          };
+
+        }
+
+      #plsch:
+        begin
+          clastplsch := cplsch;
+          runInterface('F_PLANSSCH::GETPLANSSCH',cplsch);
+          if tsOk = getfirst PLANSSCH where ((cplsch == PLANSSCH.NREC))
+          {
+            coSetTune('FIN.USER.CPLANSSCH', cplsch, PLANSSCH.NAME);
+            plsch := PLANSSCH.NAME;
+          }
+          if (clastplsch <> cplsch)
+          {
+            ClearMarkerObRepSchetOs;
+            ClearMarkerObRepSchetKs;
+
+            GetTableKauOSOld;
+            GetTableKauKSOld;
+            ReFreshKauFlt;
+            ReFreshKauFltNames;
+
+            GetTableKauOSNew;
+            GetTableKauKSNew;
+
+
+
+            ReFreshKauNewFltNames;
+          }
+        end;
+
+      #SchOs:
+        begin
+          runInterface(GetBuhSchTree,'ObRepSchetOs');
+          ReadMarkerObRepSchetOs;
+          RescanPanel(#ParamTbl);
+
+          GetTableKauOSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauOSNew;
+
+
+
+          ReFreshKauNewFltNames;
+        end;
+
+      #SubOs:
+        begin
+          runInterface(GetBuhSchTree,'ObRepSchetOs');
+          ReadMarkerObRepSchetOs;
+          RescanPanel(#ParamTbl);
+
+          GetTableKauOSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauOSNew;
+
+
+          ReFreshKauNewFltNames;
+        end;
+
+      #SchKs:
+        begin
+          runInterface(GetBuhSchTree,'ObRepSchetKs');
+          ReadMarkerObRepSchetKs;
+          RescanPanel(#ParamTbl);
+
+          GetTableKauKSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauKSNew;
+
+
+          ReFreshKauNewFltNames;
+        end;
+
+      #SubKs:
+        begin
+          runInterface(GetBuhSchTree,'ObRepSchetKs');
+          ReadMarkerObRepSchetKs;
+          RescanPanel(#ParamTbl);
+
+          GetTableKauKSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauKSNew;
+
+
+          ReFreshKauNewFltNames;
+        end;
+
+      #PickKauOld(kauos1,KauOSOld,1)
+      #PickKauOld(kauos2,KauOSOld,2)
+      #PickKauOld(kauos3,KauOSOld,3)
+      #PickKauOld(kauos4,KauOSOld,4)
+      #PickKauOld(kauos5,KauOSOld,5)
+      #PickKauOld(kauos6,KauOSOld,6)
+
+      #PickKauOld(kauks1,KauKSOld,1)
+      #PickKauOld(kauks2,KauKSOld,2)
+      #PickKauOld(kauks3,KauKSOld,3)
+      #PickKauOld(kauks4,KauKSOld,4)
+      #PickKauOld(kauks5,KauKSOld,5)
+      #PickKauOld(kauks6,KauKSOld,6)
+
+      #UsersDoc.Name:
+      {
+        var iSelUsDoc   : SelUsDoc;
+        var _parIntMode : word;
+        var _myTipGal   : word;
+        var _myTipUsers : word;
+        var _myCash     : comp;
+        var _myNastr    : comp;
+
+        _parIntMode := cgiNo;
+        //  режим запуска
+                                 //    cgiNo       -обычный
+                                 //    cgiMulti    -множ.
+                                 //    cgiPickExt  -из всех разделов
+                                 //    cgiNotClear -не очищать маркер выбора
+                                 //    cgiPickAlone - обработка настройки "р\с по умолчанию"
+        _myTipGal   := ParamTbl.TiDkGal; //  тип документа системный
+        _myTipUsers := ParamTbl.TiDkUser; //  тип пользователя
+        _myCash     := 0; //  настройка для ведения учета
+        _myNastr    := 0; //  настройка для ведения учета
+
+        iSelUsDoc.Run(
+                          _parIntMode
+                        , _myTipGal
+                        , _myTipUsers
+                        , _myCash
+                        , _myNastr
+                     );
+
+        // GetTuneName('FIN.MANYTYPBUHSPR')
+        // SHPZ.TiDkGal  := _myTipGal; //  тип документа системный
+        ParamTbl.TiDkUser := _myTipUsers; //  тип пользователя
+        update current ParamTbl;
+        RereadRecord(tnParamTbl);
+      }
+
+      #SchOSNewFld, #SubSchOSNewFld:
+        begin
+          runInterface('F_BUHSCHET::GETBUHSCHET',cgiPick,cplsch,ParamTbl.SchetONew,ParamTbl.SubOSSchNew);
+          RefreshSchOSNewFld;
+
+          GetTableKauOSNew;
+
+        end;
+
+      #SchKSNewFld, #SubSchKSNewFld:
+        begin
+          runInterface('F_BUHSCHET::GETBUHSCHET',cgiPick,cplsch,ParamTbl.SchetKNew,ParamTbl.SubSchKNew);
+          RefreshSchKSNewFld;
+
+          var tmpTableKauKSNew	: tKodTable;
+          tmpTableKauKSNew := tKodTable(ParamTbl.TableKauKSNew);
+
+          GetTableKauKSNew;
+
+
+        end;
+
+      #kodspof:
+        begin
+          delete pick where ((11 == pick.wlist));
+          runInterface('GetSomeKau',cgKau_KatPodr,'kodspof');
+          set kodspof := GetKauMarkerName('kodspof',cgKau_KatPodr);
+        end;
+
+      #kodspkf:
+        begin
+          delete pick where ((11 == pick.wlist));
+          runInterface('GetSomeKau',cgKau_KatPodr,'kodspkf');
+          set kodspkf := GetKauMarkerName('kodspkf',cgKau_KatPodr);
+        end;
+
+      #PickKauNew(kauosnew, 1)
+      #PickKauNew(kauosnew, 2)
+      #PickKauNew(kauosnew, 3)
+      #PickKauNew(kauosnew, 4)
+      #PickKauNew(kauosnew, 5)
+      #PickKauNew(kauosnew, 6)
+
+      #PickKauNew(kauksnew, 1)
+      #PickKauNew(kauksnew, 2)
+      #PickKauNew(kauksnew, 3)
+      #PickKauNew(kauksnew, 4)
+      #PickKauNew(kauksnew, 5)
+      #PickKauNew(kauksnew, 6)
+
+      #ParamTbl.kodsponew:
+      {
+        delete pick where ((11 == pick.wlist));
+        runInterface('GetOneKau',cgKau_KatPodr,ParamTbl.ckodsponew);
+        set ParamTbl.kodsponew := if(GetAnyKau(0,cgKau_KatPodr,ParamTbl.ckodsponew),GivenAnName(1),'');
+      }
+
+      #ParamTbl.kodspknew:
+      {
+        delete pick where ((11 == pick.wlist));
+        runInterface('GetOneKau',cgKau_KatPodr,ParamTbl.ckodspknew);
+        set ParamTbl.kodspknew := if(GetAnyKau(0,cgKau_KatPodr,ParamTbl.ckodspknew),GivenAnName(1),'');
+      }
+
+   end;
+   }
+
+   cmDelOnProtect:
+   {
+     case CurField of
+       #ParamTbl.DESCRFLT:
+       {
+          set ParamTbl.DESCRFLT := '';
+          ReScanPanel(#ParamTbl);
+       }
+
+       #ParamTbl.DESCGRFLT:
+       {
+         set ParamTbl.DESCGRFLT := '';
+         ReScanPanel(#ParamTbl);
+       }
+
+       #SchOs:
+       {
+         set SchOs := '';
+         set SubOs := '';
+         ClearMarkerObRepSchetOs;
+
+          GetTableKauOSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauOSNew;
+
+
+          ReFreshKauNewFltNames;
+
+       }
+       #SubOs:
+       {
+         set SchOs := '';
+         set SubOs := '';
+         ClearMarkerObRepSchetOs;
+
+          GetTableKauOSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauOSNew;
+
+
+          ReFreshKauNewFltNames;
+
+       }
+
+       #DelOnProtectKauOld(kauos1)
+       #DelOnProtectKauOld(kauos2)
+       #DelOnProtectKauOld(kauos3)
+       #DelOnProtectKauOld(kauos4)
+       #DelOnProtectKauOld(kauos5)
+       #DelOnProtectKauOld(kauos6)
+
+       #DelOnProtectKauOld(kauks1)
+       #DelOnProtectKauOld(kauks2)
+       #DelOnProtectKauOld(kauks3)
+       #DelOnProtectKauOld(kauks4)
+       #DelOnProtectKauOld(kauks5)
+       #DelOnProtectKauOld(kauks6)
+
+       #DelOnProtectKauOld(kodspof)
+       #DelOnProtectKauOld(kodspkf)
+
+       #SchKs:
+       {
+         set SchKs := '';
+         set SubKs := '';
+         ClearMarkerObRepSchetKs;
+
+          GetTableKauKSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauKSNew;
+
+
+          ReFreshKauNewFltNames;
+
+       }
+       #SubKs:
+       {
+         set SchKs := '';
+         set SubKs := '';
+         ClearMarkerObRepSchetKs;
+
+          GetTableKauKSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+          GetTableKauKSNew;
+
+
+          ReFreshKauNewFltNames;
+       }
+
+      #UsersDoc.Name:
+      {
+        // SHPZ.TiDkGal  := word(10);
+        ParamTbl.TiDkUser := word(0);
+        update current ParamTbl;
+        RereadRecord(tnParamTbl);
+      }
+
+       #SchOSNewFld, #SubSchOSNewFld:
+       {
+         set SchOSNewFld := '';
+         set SubSchOSNewFld := '';
+
+         ParamTbl.SchetONew := '';
+         ParamTbl.SubOSSchNew := '';
+         ParamTbl.DBSchetONew := '';
+
+         GetTableKauOSOld;
+         // GetTableKauKSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+         GetTableKauOSNew;
+         //GetTableKauKSNew;
+
+
+          ReFreshKauNewFltNames;
+
+       }
+
+       #SchKSNewFld, #SubSchKSNewFld:
+       {
+         set SchKSNewFld := '';
+         set SubSchKSNewFld := '';
+
+         ParamTbl.SchetKNew := '';
+         ParamTbl.SubSchKNew := '';
+         ParamTbl.KRSchetKNew := '';
+
+         // GetTableKauOSOld;
+         GetTableKauKSOld;
+          ReFreshKauFlt;
+          ReFreshKauFltNames;
+
+         // GetTableKauOSNew;
+         GetTableKauKSNew;
+
+
+          ReFreshKauNewFltNames;
+
+       }
+
+       #DelOnProtectKauNew(kauosnew[1])
+       #DelOnProtectKauNew(kauosnew[2])
+       #DelOnProtectKauNew(kauosnew[3])
+       #DelOnProtectKauNew(kauosnew[4])
+       #DelOnProtectKauNew(kauosnew[5])
+       #DelOnProtectKauNew(kauosnew[6])
+
+       #DelOnProtectKauNew(kauksnew[1])
+       #DelOnProtectKauNew(kauksnew[2])
+       #DelOnProtectKauNew(kauksnew[3])
+       #DelOnProtectKauNew(kauksnew[4])
+       #DelOnProtectKauNew(kauksnew[5])
+       #DelOnProtectKauNew(kauksnew[6])
+
+       #DelOnProtectKauNew(kodsponew)
+       #DelOnProtectKauNew(kodspknew)
+    end;
+  }
+
+  cmOk:
+  {
+    update current ParamTbl;
+    if Message('Запустить функцию автоматического сторнирования проводок?', okCancel) = cmCancel
+      { exit; }
+
+    GetReport;
+  }
+
+   cmInit :
+   {
+     var vDateChanged : boolean;
+
+     cplsch := coGetTune('FIN.USER.CPLANSSCH');
+     if tsOk = getfirst PLANSSCH where ((cplsch == PLANSSCH.NREC)) plsch := PLANSSCH.NAME;
+
+     DateSpravka := cur_date;
+
+     if not ReadMyDsk(oldplsch, '#InterfaceName' + '_' + 'OldPlSch', vDateChanged) oldplsch := 0;
+
+     var ParamTblBuf : type$ParamTbl;
+     if not ReadMyDsk(ParamTblBuf, '#InterfaceName' + '_' + 'ParamTbl', vDateChanged)
+     {
+       ClearAdvRecord(ParamTblBuf);
+       ParamTblBuf.TiDkGal  := 10;
+       ParamTblBuf.TiDkUser := 0;
+       ParamTblBuf.dateFrom := date(1,1,2010);
+       ParamTblBuf.dateTo   := Add_Day(Cur_Date,Last_Day(Cur_Date) - Day(Cur_Date));
+     };
+
+     ClearBuffer(tnParamTbl);
+     ParamTbl.Buffer := ParamTblBuf;
+     insert current ParamTbl;
+
+     if oldplsch <> cplsch
+     {
+       ClearMarkerObRepSchetOs;
+       ClearMarkerObRepSchetKs;
+     }
+
+     ReadMarkerObRepSchetOs;
+     ReadMarkerObRepSchetKs;
+
+     RefreshSchOSNewFld;
+     RefreshSchKSNewFld;
+
+     GetTableKauOSOld;
+     GetTableKauKSOld;
+      ReFreshKauFlt;
+      ReFreshKauFltNames;
+
+     GetTableKauOSNew;
+     GetTableKauKSNew;
+
+
+
+      ReFreshKauNewFltNames;
+
+     Init_PlPorGenPram;
+
+     deskriptor := sGetTune('USER.DESCR');
+     desgruppa := sGetTune('USER.DESGR');
+     nspravka :='000001';
+     namespravka := 'Сторнирование проводок (автоформирование)';
+
+   }
+
+   cmDone:
+   {
+     SaveMyDsk(ParamTbl.Buffer, '#InterfaceName' + '_' + 'ParamTbl');
+     SaveMyDsk(cplsch,          '#InterfaceName' + '_' + 'OldPlSch');
+   }
+end;
+
+end.
+
+
+////////////////////////////////////////////////////////////////////////////
+#include UserReport.vih
+
+VipInterface UserReport_AutoStornMenu Implements IUserReport;
+
+Interface UserReport_AutoStornMenu;
+
+procedure Run;
+begin
+  runInterface(AutoStorn);
+end;
+
+function GetReportName: String;
+begin
+  GetReportName := 'Автоформирование сторнирующих проводок';
+end;
+
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Обороты';
+  end;
+end;
+
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := 'B_Finans';
+  end;
+end;
+end.

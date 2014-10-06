@@ -1,0 +1,122 @@
+
+#component "F_OS"
+
+Interface VVNP_UpDateSrok_OS 'VVNP_UpDateSrok_OS' EscClose DoAccept;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, _InNum
+               : string;
+  _SrokPosle
+               : double;
+
+as select * from
+  KatOS
+, SpKatOS
+, ArcIznos
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := 'C:\Temp\SrokOS.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+StartNewVisual(vtRotateVisual, vfTimer+vfThread, 'Идёт обновление Срока после поступления по ОС МРНУ', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            _InNum      := string( DBFGetFieldValue(Handle,'InNum')       );
+            _SrokPosle  := double( DBFGetFieldValue(Handle,'SrokPosle')   );
+
+         if (GetFirst KatOS
+              where ((  15                 == KatOS.TiDk
+                    and _InNum             == KatOS.InNum         (noIndex)
+                    and 86131342873460776  == KATOS.cCO           (noIndex)
+                    )) <> tsOK) {
+                      LogStrToFile('C:\Temp\Err_KatOS.log', _InNum);
+                      Continue;
+                      }
+
+            if (GetFirst SpKatOS
+                 where (( 28147497671065602  == SpKatOS.cNastrOS               // Налоговый метод учёта
+                      and KatOS.nRec         == SpKatOS.cKatOS
+                       )) <> tsOK) {
+                         LogStrToFile('C:\Temp\Err_SpKatOS.log', _InNum);
+                         Continue;
+                         }
+
+    SpKatOs.IspCur := _SrokPosle;
+    UpDate current SpKatOS;
+
+
+         if (GetFirst ArcIznos
+              where ((  15                 == ArcIznos.TiDk
+                    and _InNum             == ArcIznos.InNum         (noIndex)
+                    and 86131342873460776  == ArcIznos.cCO           (noIndex)
+                    and 28147497671065602  == ArcIznos.cNastrOS                 // Налоговый метод учёта
+                    )) <> tsOK) {
+                      LogStrToFile('C:\Temp\Err_ArcIznos.log', _InNum);
+                      Continue;
+                      }
+
+    ArcIznos.IspCur := _SrokPosle;
+    UpDate current ArcIznos;
+
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+
+
+StopVisual('',0);
+}
+
+end;
+
+end.
+
+////////////////////////////////////////////////////////////////////////////
+#include UserReport.vih
+
+VipInterface UserReport_VVNP_UpDateSrok_OS Implements IUserReport;
+
+Interface UserReport_VVNP_UpDateSrok_OS;
+
+procedure Run;
+begin
+  RunInterface(F_OS::VVNP_UpDateSrok_OS);
+end;
+
+function GetReportName: String;
+begin
+  GetReportName := 'МРНУ. VVNP_UpDateSrok_OS';
+end;
+
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+end;
+
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '*';
+end;
+end.

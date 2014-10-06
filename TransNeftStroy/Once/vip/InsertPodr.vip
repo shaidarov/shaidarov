@@ -1,0 +1,66 @@
+
+Interface InsertPodr 'InsertPodr' EscClose DoAccept;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, _Name
+, _Kod
+, _EdIzm
+, _Papa
+, _TipMC
+, _ElZatr
+               : string;
+
+as select * from
+  KatPodr
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := 'C:\Documents and Settings\shaydarovia\Desktop\PodrIns.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка InsertPodr', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+        _Name   := string( DBFGetFieldValue(Handle,'ИНВЕНТАРНЫ')   );
+        _Kod    := string( DBFGetFieldValue(Handle,'КОД')       );
+
+        if (GetFirst KatPodr where (( _Kod == KatPodr.Kod )) = tsOK ) {
+          KatPodr.Name      := _Name;
+          UpDate current KatPodr;
+          }
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.
+
+.Form 'Закачка InsertPodr'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('InsertPodr');
+end.
+.endform

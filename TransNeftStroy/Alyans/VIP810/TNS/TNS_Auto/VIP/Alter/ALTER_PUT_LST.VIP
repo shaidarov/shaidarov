@@ -1,0 +1,509 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! доработка для ТНФ 2014 !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+#include ExtAttr.vih
+!#include GetKau.Vih
+#include ALTER_PUT_LST.FNC  end; //печать ПЛ
+
+const
+NAME_GR_GSMRAS = 'Печать расчета ГСМ TNS';
+NAME_GR_ALLTNS = 'Формы TNS';
+NPL_ZERRO      = 'НЕТ ТС';
+end;
+
+
+#Component "M_Transp"
+ALTER interface Put_lst 'Путевые листы'; // escclose, cyan ;
+!var  oExtAtr      : iExtAttr;
+  overload
+!    Procedure OpenSearch_zakaz;
+!    Procedure CheckExprFields;
+    Procedure Filt_New;
+    Procedure Find_NewPutTmp ;
+    Procedure From_Avto( WhatOpl   : word ; //отбой выбора ТС при наличии запрета на движение + вкидка местонахождения (дислокация)
+                         CreateTime: word ;
+                         Print_Mes : word);
+  end;
+
+  overloadformats Put_Main;
+
+var bPrintGsmRas: boolean;
+    oExtAttr_TNS : iExtAttr;
+
+Function GetStrTlrRel : string; forward;
+
+Create view zputlst
+var wcpodr:comp ;
+    wusername :string ;
+    wneedfiltr:boolean ;
+    boNum4Podr_TNS : boolean;
+    woNumKolCH_TNS : word;
+as select
+  MoralePlace.Name
+ ,if(IsValid(tnTrlRel), GetStrTlrRel, '') (fieldname = StrTlrRel)
+ ,if(boNum4Podr_TNS and PutLst.NSeria='', 'не определен', PutLst.NSeria) (FieldName = PodTipNum)
+from
+  Morale MoralePlace
+, podrier podrier1, tmp_USERRIGHTS
+, KatPodr KatPodr4Num
+where
+  ((
+  PutLst.cWayItem == MoralePlace.NRec
+  and wusername == USERRIGHTS.OWNNAME
+  and Transp.POSTNREC == KatPodr4Num.NRec
+  ))
+bounds mypodrier =   wcpodr /== podrier1.cgroup
+                     and putlst.cpol /== podrier1.crecds
+bounds mypodr =   wcpodr == putlst.cpol(noindex)
+//bounds  prcex - filtr
+//bounds mypodrzar =    putlst.cpol /== USERRIGHTS.crecds
+//            and wusername == USERRIGHTS.OWNNAME
+bounds mypodrzar = putlst.cpol /== tmp_USERRIGHTS.crecds
+;
+
+Function GetStrTlrRel : string;
+var str : string;
+    col : byte;
+{
+str := ''; col := 0
+if IsValid(tnTrlRel)
+{
+PushPos(tnTrlRel)
+_loop TrlRel {col++; str := str + if(str='', '', ', ') + TrlRel.LASTUSER}
+PopPos(tnTrlRel)
+if col>=0 Result := 'Прицеп' + if(col>1,'ы: ',': ') + str
+else Result := ''
+}
+}
+
+#include ALTER_PUT_LST__FILT_NEW.VPP
+
+//генерация нового номера
+//Сюда вход только из сетдефаулт через put_new. Поэтому просто вставляем НАПОМИНАЛКУ при необходимости...
+Procedure Find_NewPutTmp ;
+  {
+      if boNum4Podr_TNS //(100 <= prstat  and prstat < 110 ) or (200 <= prstat   and prstat < 210 )
+         //and Systran.temp8 = 0 //есть автонумерация
+         {
+         // а не буду нули вставлять... лучше сразу дать понять, что нужно обязательно ТС!
+         tmp := NPL_ZERRO
+         //tmp := PadCh('', '0', woNumKolCH_TNS) //вкидываем нулевые значения
+         //tmp := GetLastNumD__(wLstNmd, PutLst.NSeria, woNumKolCH_TNS)
+         }
+         else
+         inherited :: Find_NewPutTmp ;
+  } // procedure Find_NewPutNum
+
+Procedure From_Avto( WhatOpl   : word ;
+                     CreateTime: word ;
+                     Print_Mes : word);
+{
+    //начало стандартное
+    if  What_org = comp(0)
+      What_org  := coGetTune('MyOrg');
+
+    if wGetTune('TranspPl.ControlExistPL') > 0
+     if not (_datetime1(Putlst.ExitDn,Putlst.ExitCh) >=_datetime1(Putlst.ReturnDn,Putlst.ReturnCh))
+      if not  Contrl_TcExPl(Transp.nrec, word(0)) {PutLst.cTransp := 0; exit;}
+
+    PutLst.cTransp   := Transp.nrec  ; //это уже не важно... из Ins_New_tc уже входим с обновленной ссылкой (((
+    /* потом стандартный блок отработает
+    if boGetTune('Transp.ExClass_Putlst_Transp')
+      oEntTranspAt.CopyEqualAttrEx(word(coTransp), Putlst.cTransp, word(coPutlst), putlst.NRec);
+    */
+
+    var OldSeria : string;
+    OldSeria := PUTLST.NSeria; //это чтобы не перенумеровывать, если подразделение не сменится
+
+    //вот нужно блокировать выбор ТС
+    if not Verif_StopMove(PutLst.cTransp, coPutlst, Putlst.ExitDn,  Putlst.ReturnDn, Print_Mes)
+       {set PutLst.cTransp := 0; update current PutLst; exit;} //все-таки надо стирать ссылку ((( она уже есть - прямо из Ins_New_tc... и пришлось обновить отсюда
+    ELSE
+    {
+    //message('Входим в стандартный блок')
+    inherited :: From_Avto(WhatOpl, CreateTime, Print_Mes)
+    set PUTLST.cWayItem := Transp.Klassif7; //местонахождение
+    //set putlst.cpol := transp.POSTNREC; //подразделение баланса ТС можно вкинуть здесь! но пока вроде не треба )
+
+    //автонумерация ТНС
+    set PUTLST.NSeria := ''
+    if boNum4Podr_TNS
+       //and  Systran.temp8 = 0 //есть автонумерация
+    if IsValid(tnKatPodr4Num)
+       {
+       set PUTLST.NSeria := UpCase(Trim(oExtAttr_TNS.sGetAttr(coKatPodr, KatPodr4Num.Nrec, ATR_NAME_PODR_LASTNUMD)))
+       if PUTLST.NSeria <> OldSeria //новое подразделение
+          {
+          set PUTLST.NPL := GetLastNumD__(wLstNmd, PutLst.NSeria, woNumKolCH_TNS);
+          PutBufferPutLstSoprHoz;
+          }
+       }
+       else if PUTLST.NPL=NPL_ZERRO //при автонумерации не нашли балансового подра, а ТС есть!
+          {
+          set PUTLST.NPL := GetLastNumD__(wLstNmd, PutLst.NSeria, woNumKolCH_TNS); //возьмет с нетипизированного номера ПЛ, чтобы не пугать прежним номером
+          PutBufferPutLstSoprHoz;
+          }
+
+    update current PutLst;
+    }
+}
+
+
+winDow winPutLst 'Путевые листы' (,hcAvtoWEditPytevyeListy,sci178Esc)escclose ;
+!  Show at (,,,28) ;
+panel pan_win table PutLst ;
+screen  Put_Main 'Собственные автотранспортные ТС';
+fields
+     PutLst.DesGr ('Дескриптор группы менеджеров',hcAvtoPut_lstGroup,sci1378Esc) :,protect  ;
+     PutLst.Descr ('Дескриптор менеджера',hcAvtoPut_lstDescr,sci1378Esc) :,protect  ;
+     PutLst.Npl             ('Номер путевого листа',hcAvtoPut_lstFNpl) ;
+     //PutLst.NSeria          ('Серия путевого листа',hcAvtoPut_lstFNpl) ;
+     PodTipNum : skip, {font={bold=(PutLst.NSeria<>'')}};
+     PutLst.Datpl           ('Дата выписки путевого листа') :[10,'DD/MM/YYYY']  ;
+     PutLst.Datobr          ('Дата обработки путевого листа',hcAvtoPut_lstFDatObr) :[10,'DD/MM/YYYY']  ;
+     Transp_Nomer     ('Нажмите <F3> или <Shift+F3> для выбора ТС или c учетом истории ТС', hcAvtoPut_lstFGnom,sci1378Esc) ,PickButton,QuickChoice,protect;
+     Transp.GarNom   ('Гаражный номер',hcAvtoPut_lstFGnom,sci1378Esc) :PickButton,QuickChoice,protect  ;
+     Traninf_Vix.NomKar1 ('Общая работа на ПЛ из расписания выходов',hcAvtoPut_lstFVix,sci1378Esc):,protect;
+     NM              ('Марка средства') :,skip  ;
+
+     TipPut.Name      ('Наименование путевого ',,sci1378ESC),protect;
+     NaimpodrAvto    ('Подразделение, за которым закреплено средство',hcAvtoM2NastrDopFunArx,sci1378Esc) :protect ;
+     PutLst.NomSmena ('Номер смены ',hcAvtoPut_lstFTabn,sci178Esc) :,noprotect ;
+     PutLst.DpPokaz11  ('Путевой выдан водителю',hcPutLstForm) :
+      [LIST 'нет','да'],protect ;
+     KatNotes.sName    ('Дополнительный статус ПЛ', , sci1378Esc) : [8], Protect;
+
+     StrTlrRel (): Skip; //, {font = {italic=true}};
+     PutLst.ExitCh   ('Время выезда',hcAvtoPut_lstFEnt) :[5,'HH :MM'], nosetcurrent,
+    {Font = {BackColor = if ( _datetime1(PutLst.ExitDn,PutLst.ExitCh) >_datetime1(PutLst.ReturnDn,PutLst.ReturnCh) , ColorError, 0)}};
+     PutLst.ExitDn   ('Дата выезда',hcAvtoPut_lstFEnt) :[10,'DD/MM/YYYY'],
+    {Font = {BackColor = if ( _datetime1(PutLst.ExitDn,PutLst.ExitCh) >_datetime1(PutLst.ReturnDn,PutLst.ReturnCh) , ColorError, 0)}};
+     PutLst.SpeedExi ('Показания спидометра при выезде в км',hcAvtoPut_lstFSpeedExi) :[9.2]  ;
+     SpeedExi_Mil    ('Показания спидометра при возвращении в милях',hcAvtoPut_lstFSpeedRet) :[9.2] ,noprotect  ;
+     PutLst.npVirVal ('Показания счетчика моточасов при выезде',hcAvtoPut_lstFMotoHour) :[9.1]  ;
+     PutLst.ReturnCh ('Время возвращения',hcAvtoPut_lstFEnt) :[5,'HH :MM'], nosetcurrent,
+    {Font = {BackColor = if ( _datetime1(PutLst.ExitDn,PutLst.ExitCh) >_datetime1(PutLst.ReturnDn,PutLst.ReturnCh) , ColorError, 0)}};
+     PutLst.ReturnDn ('Дата возвращения',hcAvtoPut_lstFEnt) :[10,'DD/MM/YYYY'],
+    {Font = {BackColor = if ( _datetime1(PutLst.ExitDn,PutLst.ExitCh) >_datetime1(PutLst.ReturnDn,PutLst.ReturnCh) , ColorError, 0)}};
+     PutLst.SpeedRet ('Показания спидометра при возвращении в км',hcAvtoPut_lstFSpeedRet) :[9.2]  ;
+     SpeedRet_Mil    ('Показания спидометра при возвращении в милях',hcAvtoPut_lstFSpeedRet) :[9.2] ,noprotect  ;
+     PutLst.fkVirVal ('Показания счетчика моточасов при возвращении',hcAvtoPut_lstFMotoHour) :[9.1]  ;
+
+     Save_Drv_TabN   ('Табельный номер водителя (сопровождающего)',hcAvtoPut_lstFTabn,sci1378Esc) :,protect;
+     Save_Drv.Fio     ('Фамилия водителя (сопровождающего) ',hcAvtoPut_lstFTabn,sci1378Esc) :PickButton,QuickChoice,protect;
+!     PutLst.KolEz      ('Количество ездок',hcAvtoPut_lstFRas) ;
+     MarAvt.nMarAvt  ('Наименование маршрута',hcAvtoFMarshrut,sci1378Esc): PickButton,QuickChoice, Protect  ;
+
+     'Время (часы):'    (): Skip, {font = {bold=true}};
+     StandardTimeAll   ('Всего часов по путевому',hcAvtoPut_lstFTimeAll,sci178Esc): [8], right;
+     StandardTimeMove  ('Часы в движении  ',hcAvtoPut_lstFRas): [8], right;
+     StandardTimeLoad        ('Время погрузки/разгрузки (часы)',hcAvtoPut_lstFRas) :[8], right  ;
+     StandardTimeStop        ('Часы простоя',hcAvtoPut_lstFRas) :[7.2], right ;
+     StandardTimeRep         ('Часы технич. неиспр (ремонт)',hcAvtoPut_lstFEnt) :[8], right  ;
+     StandardTimeheat        ('Время работы автoномного оборудования (отопитель)') :[8], right  ;
+     StandardTimespec        ('Моточасы (время работы механизмов, основного спецоборудования)') :[8], right  ;
+     PutLst.VolWrk           ('Время работы доп. спецоборудования (кол-во единиц спецработы)') :[9.2], noprotect ;
+     StandardtimeEngine      ('Время работы на холостом ходу (простой с вкл. двигателем)') :[8], right  ;
+!     StandardTimeVolume0     ('Время внутригаражного простоя ') :  [8], right;
+!     StandardTimePg     ('Время в наряде ',hcAvtoPut_lstFRas) :[8], right  ;
+     StandardTimeDn    ('Время обеда ')               :[8], right  ;
+
+     'Рассчитанные итоговые показатели:'    (): Skip, {font = {bold=true}};
+     PutLst.KolEz      ('Количество ездок',hcAvtoPut_lstFRas) ;
+     PutLst.ProbegAll  ('Общий пробег ',hcAvtoPut_lstFProbegAll) :[7.2]  ;
+     PutLst.ProbegGr   ('Пробег средства с грузом ',hcAvtoPut_lstFRas) :[7.2]  ;
+     PutLst.Probegv    ('Пробег по маршруту ',hcAvtoPut_lstFRas) :[7.2]  ;
+
+     PutLst.GruzTn     ('Общее количество перевезенного груза',hcAvtoPut_lstFGruzTn) :[7.2]  ;
+     PutLst.GruzTnKm   ('Выполнено тонно-километров') :[7.2]  ;
+!     PutLst.Volume2    ('Стоимость услуг') :[7.2]  ;
+     PutLst.Volumeall  ('Суммарный объем работ по заказам') :[9.2], noprotect ;
+
+     'Дополнительная информация:'    (): Skip, {font = {bold=true}};
+!     PutLst.Gruzpod1   ('Путевой лист сформирован автоматически'): noProtect;
+!     PutLst.KoffProbeg ('Коэффициент использования пробега',hcAvtoCoefIspProbega) : [5.3], NoProtect  ;
+!     PutLst.Probeg2    ('Коэффициент загрузки транспортного средства',hcAvtoPut_lstKoffKm) : [5.3], NoProtect  ;
+
+     MoralePlace.Name  ('Местонахождение (дислокация) ТС',,sci1378Esc): PickButton, Protect ;
+     PutLst.ProbegWrk  ('Чрезвычайный коэффициент (согласно акта в формате: 0.35, 0.5 и т.п.)') :[9.2], noprotect ;
+     PutLst.DpPokaz13  ('Повторная печать путевых'): noProtect;
+     PutLst.TipUsl     ('Пересчет показателей путевого по заказам не проводить'): noProtect;
+
+     'Спец.режимы ТС:'    (): Skip; //, {font = {bold=true}};
+     'Пробеги по разрезам учета:'    (): Skip, {font = {bold=true}};
+     PutLst.FKVIR      ('Спец.режимы работы ТС') : noprotect ;
+
+     PutLst.PrPrc      ('Пробег по городу до 100 тыс.чел.',hcAvtoPut_lstFGruzTn):[7.2] ;
+     PutLst.Pok3Cng    ('Пробег по городу от 100 тыс. до 250 тыс.чел.',hcAvtoPut_lstFGruzTn):[7.2] ;
+     PutLst.Pok3Rb     ('Пробег по городу от 250 тыс. до 1,0 млн.чел.',hcAvtoPut_lstFGruzTn):[7.2] ;
+!     PutLst.ProbegTam  ('Пробег с работой кондиционера',hcAvtoPut_lstFRas) :[7.2]  ;
+     PutLst.Pok4Rb     ('Пробег по городу от 1,0 до 3,0 млн.чел.',hcAvtoPut_lstFGruzTn):[7.2] ;
+!     PutLst.Pok3Ino    ('Пробег по трассе в составе колонны',hcAvtoPut_lstFGruzTn):[7.2] ;
+     PutLst.Pok5Ino    ('Пробег по городу более 3,0 млн.чел.',hcAvtoPut_lstFGruzTn):[7.2] ;
+!     PutLst.TimeRz     ('Пробег при буксировке',hcAvtoPut_lstFRas):[7.2] ;
+
+     buttons cmTab1    ,,,'Данные о водителях (сопровождающих лицах) в целом на путевой',hcAvtoPut_LstWSave_Drv ;
+     buttons cmMarItem ,,,'Данные о маршруте движения',hcAvtoPut_lstBMar ;
+     buttons cmgsm     ,,,'Горюче-смазочные материалы',hcAvtoWDvizenieGSMDlyaBaka1 ;
+     buttons cmZakaz   ,,,'Формирование заказов для путевого',hcAvtoM2NastrDopFunArx ;
+     buttons cmRasZakaz ,,,'Расчет показателей на основании заказов (пунктов маршрута)',hcAvtoPut_lstBRas ;
+     buttons cmXarTC  ,,,'Характеристики транспортных средств',hcAvtoPut_lstCharTS ;
+     buttons cmKor_Tab  ,,,'Корректировка табеля водителей, ПС',hcAvtoPut_lstBKor_tab ;
+     buttons cmUdal_Tab ,,,'Удаление данных из табеля водителей, ПС',hcAvtoPut_lstBKor_Udal ;
+     buttons cmPrintDoc_Dop ,,,'Печать ПЛ', ;
+     buttons cmPrintDoc_GsmRas ,,,'Печать расчета нормативного расхода ГСМ', ;
+ <<
+                                                                            `Группа/дескриптор:` .@@@@/.@@@@@
+`№ ПЛ`  .@@@@@@@@@@@@@ `Подтип ПЛ`.@@@@@@@@@@@@@@@@ `Дата выдачи`   .@@@@@@@@@@@ `Дата обработки`.@@@@@@@@@@@
+`Гос №` .@@@@@@@@@@@@@ `Гар №`    .@@@@@@@@@@@@@@@@ `Работа`.@@@@@@@@@@@@@@@@@@@ `Марка`.@@@@@@@@@@@@@@@@@@@@
+`Форма` .@@@@@@@@@@@@@ `Подразд.` .@@@@@@@@@@@@@@@@ `Смена` .@@@@  `Выдан`.@@@@@   `Доп. статус` .@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            Время:        Дата:         Спидометр:                     Счетчик:       <.Водители(сопровожд.).>
+ Выезд:   .@@@@@@    .@@@@@@@@@@@ `км` .@@@@@@@@@  `мили`.@@@@@@@@@  .@@@@@@@@@@
+ Возврат: .@@@@@@    .@@@@@@@@@@@ `км` .@@@@@@@@@  `мили`.@@@@@@@@@  .@@@@@@@@@@      <.Движение по маршруту.>
+
+`Табельный номер:`   .@@@@@@@@@@@ `ФИО:`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.   Све~д~ения о ГСМ   .>
+                                  `Маршрут:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+.@@@@@@@@@@@@@  `всего` .@@@@@@@@      `в движении`.@@@@@@@@                          <.Формирова~н~ие заказов.>
+`Погрузка/разгрузка:`   .@@@@@@@@      `Простой:`  .@@@@@@@@      `Ремонт:` .@@@@@@@@
+`Автоном.обор.(отопит.)`.@@@@@@@@      `Моточасы:` .@@@@@@@@  `Доп.спецоб.:`.@@@@@@@@ <. Пересчет п~о~ заказам.>
+`Время на холостом ходу`.@@@@@@@@                                  `Обед:`  .@@@@@@@@
+.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      `Ездки:`    .@@                                <. Характеристики ТС  .>
+ Пробег(км):    `общий` .@@@@@@@@      `с грузом`  .@@@@@@@@   `по маршруту`.@@@@@@@@
+`Перевезено всего тонн:`.@@@@@@@@      `ткм`       .@@@@@@@@   `объем работ`.@@@@@@@@ <.  Из~м~енение табеля  .>
+.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Местонахождение ТС:`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Чрезвычайный коэффициент:`.@@@@@ <. ~У~даление в табеле  .>
+  [.] ПЛ был распечатан`  [.] По заказам не пересчитывать`.@@@@@@@@@@@@@@@@@@@@@@@@@
+.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                      [.] Внутрихоз. работы`
+  По городу: `до 100 тыс.чел.`   .@@@@@@@@             [.] Обкатка`
+    `от 100 тыс. до 250 тыс.чел.`.@@@@@@@@             [.] Корыто 3 тн`               <. Печать ПЛ          .>
+    `от 250 тыс. до 1,0 млн.чел.`.@@@@@@@@             [.] Пенал 5,3 тн`
+    `от 1,0 до 3,0 млн.чел.`     .@@@@@@@@             [.] Пробег с кондиционером`    <. Печать расчета ГСМ .>
+    `более 3,0 млн.чел.`         .@@@@@@@@             [.] Движение в колонне`
+
+>>
+End ;                     //SCREEN
+End ; //panel
+
+HAndleevent
+cmZakaz :
+  {
+   if not Create_lst(Putlst.nrec) exit;
+   if updatetable
+   {
+   //////////////
+   if PutLst.TipUsl=0
+   If GetFirst KatZak = tsOk
+   if GetNext KatZak <> tsOk
+   If GetFirst KatZak = tsOk
+   if PutLst.PROBEGALL>0
+   if KatZak.PROBEGALL<>PutLst.PROBEGALL
+   if message('Перенести общий пробег ПЛ (' + string(word(PutLst.PROBEGALL))+ ' км) в заказ?', YesNo + Confirmation) = cmYes
+      {
+      set KatZak.PROBEGALL=PutLst.PROBEGALL;
+      update current KatZak;
+      }
+   //////////////
+    RunWinDow(WinZakaz_Transp);
+   }
+  }
+cmPrintDoc :
+{
+ if not Create_lst(Putlst.nrec) {bPrintGsmRas := false; exit;}
+ if updatetable {}
+ If Modifier GetFirst SysTran <> tsOk  { }
+! /* накуй нужно! сказали, нуно...
+ if Putlst.dppokaz13 = 1 and not bPrintGsmRas and wGetTune('RARS_TRANSP.PL_MESS_REPEAT')=1
+  {
+   If Message(''#3'Повторная печать ПЛ!'#13#3'Продолжить? ', YesNo) <> cmYes
+   exit;
+  }
+! */
+ if bPrintGsmRas //зашли по кнопуле печати расчета расхода ГСМ
+    {
+    //bPrintGsmRas := false;
+    FrmPutWay.SetGroup(NAME_GR_GSMRAS);
+    }
+ ELSE
+ if GetFirst TipPut = tsok
+  {
+    case  wGetTune('TranspPlPrint.ChoiseForma') of
+      0 :
+        FrmPutWay.SetGroup(TipPut.Name_Gr);
+      1 :
+        FrmPutWay.SetGroup('Полный ' + TipPut.Name_Gr);
+      2 :
+        FrmPutWay.SetGroup('Лицевая ' + TipPut.Name_Gr);
+      3 :
+        FrmPutWay.SetGroup('Оборотная ' + TipPut.Name_Gr);
+    end; // case
+  }
+ else
+   //FrmPutWay.SetGroup('Реестр П/Л') ;
+   FrmPutWay.SetGroup(NAME_GR_ALLTNS) ;
+
+ StartNewVisual(vtRotateVisual, vfTimer+vfBreak+vfConfirm,
+        ''#3'Печать ' + if(bPrintGsmRas, 'расчета ГСМ', 'путевого листа'), 1) ;
+ Prn_Put ;
+ FrmPutWay.PutEventById(feFalse,fcbrPutWay) ;
+ FrmPutWay.PutEvent(feBreak) ;
+ StopVisual('',0) ;
+ If (Not FrmPutWay.Error)
+  {
+    FrmPutWay.ShowFile('') ;
+    rereadrecord(tnPutlst);
+    if not bPrintGsmRas //при печати рахода не треба
+       update current Putlst set Putlst.dppokaz13 := 1;
+  }
+ Else
+    FrmPutWay.AbortForm ;
+
+ bPrintGsmRas := false;
+
+rereadrecord(tnPutlst);
+ }
+
+cmPrintDoc_Dop:
+   PutCommand(cmPrintDoc)
+
+cmPrintDoc_GsmRas:
+ {
+   bPrintGsmRas := true;
+   PutCommand(cmPrintDoc)
+ }
+end;
+End ;  //winDow
+///////////////////////////////////////////////////////
+
+panel systabll  ;
+table PutLst ;
+HandleEvent
+cmSetDefault :
+{
+ //message('cmSetDefault')
+ if Inherited::HandleEvent(cmSetDefault) = heOK //есть стандартные проверки
+   {
+   if wcpodr>0 PutLst.cpol:=wcpodr ;
+   //чтобы не подвисало старое наименование подра
+   If Modifier GetFirst KatpodrZk Where ((PutLst.cPol == Katpodrzk.nrec)) = tsOk
+     Set NaimPodrAvto := Katpodrzk.name ; Else Set NaimPodrAvto := 'Не задано подразделение' ;
+   }
+}
+
+cmPick :
+{
+  if (CurField=#Traninf_Vix.NomKar1) //перекрытая обработка полей
+     {
+     if UserProtect(True) then exit;
+     if putlst.nrec = 0
+        {
+        insert current Putlst;
+        setnew(False);
+        PutBufferPutLstSoprHoz;
+        //InfStat := TRUE; - не треба для выбора ТС - там вставка уже есть
+        }
+     //
+     Case CurField of //вдруг че еще из старого перекроем...
+   #Traninf_Vix.NomKar1:
+   {
+     //if message(''#3'Будет проведено переформирование маршрутов и видов оплат'#13#3'Осуществить выбор? ', YesNo) = cmYes
+     {
+       var crec_ : comp;
+       crec_ := Putlst.cval;
+#ifDef Gal7_1
+      if RunInterface('Sheet_Vx',word(1),Putlst.DatPl,crec_,MetodTc)<> cmCancel
+#else
+      if RunInterface('Sheet_Vx',word(1),Putlst.DatPl,crec_)<> cmCancel
+#end
+         //From_Vix(1);
+         set PutLst.cval := crec_;
+     }
+   }
+     end;
+     }
+  ELSE
+   if inherited :: HandleEvent (cmPick) = heOK //есть стандартные проверки
+     Case CurField of
+     #MoralePlace.Name :
+      {
+       var crec_ : comp;
+       crec_ := PutLst.cWayItem;
+       if RunInterface(GetMorale,Word(MetodTc*10 + 8), crec_, '',word(0),word(0))<>cmCancel
+          {
+          set PutLst.cWayItem := crec_;
+          UpdateTable;
+          if IsValid(tnTransp) //закидываем в карточку ВС
+             update current Transp set Transp.Klassif7 := crec_;
+          }
+      }
+/* а вот так уже поздно... да и может быть принудительный фильтр на ТС, тогда при создании облом будет! Так что уношу в общую функцию выбора ТС!
+     #TRANSP.NOMER:
+      {
+       if wneedfiltr
+          if isvalid(#transp)
+             set putlst.cpol :=transp.POSTNREC ; //если треба подразделение баланса, то надо не здесь вкидывать!!!
+       }
+*/
+     end;
+}
+End ;           //hAndlevent
+End ;           //panel
+
+HandleEvent
+cmInit:
+{
+ InitServTxo(0);
+ wneedfiltr:=false ;
+ wcpodr:=0;
+ //настройки нумерации для ЛТК
+ boNum4Podr_TNS := boGetTune('RARS_TRANSP.Num4Podr_TNS')
+ woNumKolCH_TNS := wGetTune('RARS_TRANSP.NumKolCH_TNS')
+ if woNumKolCH_TNS=0 woNumKolCH_TNS:=6;
+
+ if Inherited::HandleEvent(cmInit) = heOK //не было аборта
+ if wgettune('RARS_TRANSP.FILTR_PODR_PUTLST')=1 and PrPutlst<=0 //режим запуска без нрека ПЛ, есть еще -1 и -2, и там сразу генерится ПЛ
+ { wneedfiltr:=true ;
+   MyPodrFlt ;
+   ClearFieldOption(#HowPodr,ofSelectable);
+   set HowPodr:=1 ;
+   set WhatPodr:=wcpodr ;
+   if GetFirst KatPodr where ((WhatPodr == Katpodr.nrec)) = tsok
+      set WhatPodr_Name := Katpodr.Name;
+      else set WhatPodr_Name := '';
+   SaveMyDsk(HowPodr, #__InterfaceName__ + 'Filt_new_22')
+   SaveMyDsk(WhatPodr, #__InterfaceName__ + 'Filt_new_23')
+   SaveMyDsk(Whatpodr_Name, #__InterfaceName__ + 'Filt_new_24');
+   if not IsNew //может уже открыто окно редактирования ПЛ
+        if ( Modifier GetLast PutLst <> tsOk )
+          if (  Message('Нет путевых листов по Вашему подразделению.'#13'Желаете создать путевой лист?',
+                        YesNo) = cmNo )
+            {
+            DoneServTxo;
+            Abort;
+            }
+          else
+            {
+            PutCommand(cmDefault);
+            set PutLst.cpol:=wcpodr ;
+            }
+         else
+          PutCommand(cmDoNothing); //Только таким способ удалось добиться перерисовки Browse
+        else
+         set PutLst.cpol:=wcpodr ;
+ }
+ else { } //не надо фильтра
+ else //был аборт
+ {
+ DoneServTxo;
+ abort
+ }
+}
+cmDone:
+{
+  DoneServTxo;
+  Inherited::HandleEvent(cmDone) 
+}
+end;
+
+end.

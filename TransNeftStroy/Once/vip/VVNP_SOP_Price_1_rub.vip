@@ -1,0 +1,73 @@
+
+#component "L_Sklad"
+
+Interface VVNP_SOP_Price_1_rub 'VVNP_SOP_Price_1_rub' EscClose DoAccept;
+
+create view
+var
+as select * from
+  SpOrder
+, SpSopr
+;
+
+HandleEvent
+
+cmInit:{
+StartNewVisual(vtRotateVisual, vfTimer+vfThread, 'Идёт округление цены по Продуктам питания МРНУ', 1);
+   _Loop SpOrder where (( 0                 == SpOrder.SP
+                      and 86131342873668925 == SpOrder.cMC     // Продукты питания в Нижнем Новгороде
+                      and '04'              == SpOrder.DesGr
+                       )) {
+         if ( 0.9 < SpOrder.SrPrice and SpOrder.SrPrice < 1.1 ) {
+                _Loop SpSopr where (( SpOrder.cSpSopr == SpSopr.nRec )) {
+                  if ( 0.9 < SpSopr.Price and SpSopr.Price < 1.1) {
+                    SpSopr.Price     := 1;
+                    SpSopr.rPrice    := 1;
+                    UpDate current SpSopr;
+
+                    SpOrder.SrPrice  := 1;
+                    SpOrder.rSrPrice := 1;
+                    UpDate current SpOrder;
+                    }
+                  }
+           }
+   }
+StopVisual('',0);
+}
+
+end;
+
+end.
+
+////////////////////////////////////////////////////////////////////////////
+#include UserReport.vih
+
+VipInterface UserReport_VVNP_SOP_Price_1_rub Implements IUserReport;
+
+Interface UserReport_VVNP_SOP_Price_1_rub;
+
+procedure Run;
+begin
+  RunInterface(L_Sklad::VVNP_SOP_Price_1_rub);
+end;
+
+function GetReportName: String;
+begin
+  GetReportName := 'МРНУ. Продукты питания. Привидение цен к 1-му рублю';
+end;
+
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+end;
+
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '*';
+end;
+end.

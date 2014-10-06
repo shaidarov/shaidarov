@@ -1,0 +1,1150 @@
+table struct TblOb
+(
+	cRec: Comp,
+	wDirect: Word,
+	DatOb: Date
+)
+with index
+(
+	TblOb00 = cRec,
+	TblOb01 = DatOb
+);
+
+table struct TblSal
+(
+	wType: Word,		//1 - входящее, 2 - исходящее
+	coTable: Word,
+	cRec: Comp,
+	Sch: tSchet3,
+	Sub: tSubSch
+)
+with index
+(
+	TblSal00 = cRec,
+	TblSal01 = wType + Sch + Sub
+);
+
+table struct TblSalMem = SaldoNm;
+
+type TTblSalMem = record as table TblSalMem;
+
+create view vOb
+from
+//--для отчета
+	TblOb(TblOb01),
+	Oborot,
+
+	TblSal(TblSal01),
+	SaldMoun,
+	TblSalMem,
+
+	KatEd,
+	HozOper,
+
+//--для поиска
+	PickBuh,
+	BuhSchet,
+	Synonym TblOb SynTblOb,
+	Synonym Oborot SynOborot,
+  Synonym TblSal SynTblSal,
+	Synonym TblSalMem SynTblSalMem,
+	Synonym SaldMoun SynSaldMoun,
+	Synonym SaldoNm SynSaldoNm
+where
+((
+	TblOb.cRec == Oborot.nRec and
+
+	TblSal.cRec == SaldMoun.nRec and
+	TblSal.cRec == TblSalMem.nRec
+));
+
+Exception excStopRunRep, excStopInsErr;
+
+//вызов меню
+procedure OnHotKeys;
+{
+	PutHotCommand(RunMenu('MF_ObjGetMenu'));
+}
+
+//смена плана счетов
+procedure OnPickPlansSch;
+{
+  	if iPSManager.PickPlansSch(cPlansSch)
+	{
+		DelSchSubFlt(cgPick_Schet);
+		ReScanPanel(tnNoTable);
+	}
+}
+
+var lM_Sch, lM_Sub: LongInt;
+
+//инициализация
+function InitInterface: Boolean;
+{
+var DT: Boolean;
+var iCount, i: LongInt;
+var cRec: Comp;
+
+	Result := true;
+
+	cfsGetObjInfo(cfsGetCurrentContainerSelf, '', lEntity, 0, 0);
+
+	if not ReadMyDSK(cPlansSch, Intername + '.План', DT)
+		cPlansSch := coGetTune('FIN.USER.CPLANSSCH');
+
+	if not ReadMyDSK(D1, Intername + '.ДатаС', DT)
+		D1 := Date(0, 0, 0);
+
+	if not ReadMyDSK(D2, Intername + '.ДатаПо', DT)
+		D2 := Date(0, 0, 0);
+
+	if not ReadMyDSK(wTypeRep, Intername + '.Тип', DT)
+		wTypeRep := btTROborot;
+
+	lMarkers[lKAU_Podr] := InitMarker(Intername + '.Подр' , 8, 100, 10, false);
+	lMarkers[lKAU_MOL]  := InitMarker(Intername + '.МОЛ'  , 8, 100, 10, false);
+	lMarkers[lKAU_MC]   := InitMarker(Intername + '.МЦ'   , 8, 100, 10, false);
+	lMarkers[lKAU_Obj]  := InitMarker(Intername + '.ОбСтр', 8, 100, 10, false);
+	lMarkers[lKAU_Dog]  := InitMarker(Intername + '.Дог'  , 8, 100, 10, false);
+
+	lM_Sch := InitMarker(Intername + '.Счет', 8, 100, 10, false);
+	lM_Sub := InitMarker(Intername + '.Субсчет', 8, 100, 10, false);
+
+	iPickBuh.DeletePickBuh;
+
+	iPickBuh.DeleteItem(cgPick_Schet);
+	iCount := GetMarkerCount(lM_Sch);
+	for (i := 0; i < iCount; i++)
+	{
+		GetMarker(lM_Sch, i, cRec);
+		if vOb.GetFirst FastFirstRow BuhSchet
+			where ((cRec == BuhSchet.nRec)) = tsOK
+		{
+			iPickBuh.InsertFullRecord(cgPick_Schet, vOb.BuhSchet.nRec, #GetDbSch(vOb.BuhSchet.Schet), vOb.BuhSchet.Schet, '', vOb.BuhSchet.Name, i + 1, 0);
+		}
+	}
+
+	iPickBuh.DeleteItem(cgPick_SubSch);
+	iCount := GetMarkerCount(lM_Sub);
+	for (i := 0; i < iCount; i++)
+	{
+		GetMarker(lM_Sub, i, cRec);
+		if vOb.GetFirst FastFirstRow BuhSchet
+			where ((cRec == BuhSchet.nRec)) = tsOK
+		{
+			iPickBuh.InsertFullRecord(cgPick_SubSch, vOb.BuhSchet.nRec, #GetDbSch(vOb.BuhSchet.Schet), vOb.BuhSchet.Schet, vOb.BuhSchet.SubSch, vOb.BuhSchet.Name, i + 1, 0);
+		}
+	}
+	iPickBuhNew.GetPickBuh(lEntity);
+}
+
+procedure DoneInterface;
+{
+	SaveMyDSK(cPlansSch, Intername + '.План');
+
+	SaveMyDSK(D1, Intername + '.ДатаС');
+	SaveMyDSK(D2, Intername + '.ДатаПо');
+
+	SaveMyDSK(wTypeRep, Intername + '.Тип');
+
+	DoneMarker(lMarkers[lKAU_Podr], Intername + '.Подр');
+	DoneMarker(lMarkers[lKAU_MOL] , Intername + '.МОЛ');
+	DoneMarker(lMarkers[lKAU_MC]  , Intername + '.МЦ');
+	DoneMarker(lMarkers[lKAU_Obj] , Intername + '.ОбСтр');
+	DoneMarker(lMarkers[lKAU_Dog] , Intername + '.Дог');
+
+	iPickBuhNew.MakePickBuh(lEntity);
+	ClearMarker(lM_Sch);
+	vOb._loop PickBuh where ((cgPick_Schet == PickBuh.KodTable))
+	{
+		InsertMarker(lM_Sch, vOb.PickBuh.PickRec);
+	}
+
+	ClearMarker(lM_Sub);
+	vOb._loop PickBuh where ((cgPick_SubSch == PickBuh.KodTable))
+	{
+		InsertMarker(lM_Sub, vOb.PickBuh.PickRec);
+	}
+
+	DoneMarker(lM_Sch, Intername + '.Счет');
+	DoneMarker(lM_Sub, Intername + '.Субсчет');
+}
+
+function IsSetBt(Value: Word; btValue: Word): Boolean;
+{
+	Result := (Value and btValue) = btValue;
+}
+
+//проверка фильтра
+function TestOneFlt(wDirect: Word; coTable: Word; lMarker: LongInt; cgKau: Word): Boolean;
+{
+var i: Word;
+
+	if IsSetKauFlt(lMarker)
+	{
+		Result := false;
+		if cgKau <> cgKau_KatPodr
+		{
+			for (i := 1; i <= 6; i++)
+			{
+				case wDirect of
+	 				1:
+					{
+						case coTable of
+							coOborot:
+							{
+								if vOb.SynOborot.TblOS[i] = cgKau
+								{
+									Result := TestKauFlt(lMarker, vOb.SynOborot.KauOS[i]);
+									break;
+								}
+							}
+							coSaldMoun:
+							{
+								if vOb.SynSaldMoun.TblOS[i] = cgKau
+								{
+									Result := TestKauFlt(lMarker, vOb.SynSaldMoun.KauOS[i]);
+									break;
+								}
+							}
+							coSaldoNm:
+							{
+								if vOb.SynSaldoNm.TblOS[i] = cgKau
+								{
+									Result := TestKauFlt(lMarker, vOb.SynSaldoNm.KauOS[i]);
+									break;
+								}
+							}
+						end;
+					}
+					2:
+					{
+						if vOb.SynOborot.TblKS[i] = cgKau
+						{
+							Result := TestKauFlt(lMarker, vOb.SynOborot.KauKS[i]);
+							break;
+						}
+					}
+				end;
+			}
+		}
+		else
+		{
+			case wDirect of
+	 			1:
+				{
+					case coTable of
+						coOborot:
+						{
+							Result := TestKauFlt(lMarker, vOb.SynOborot.KodSpO);
+						}
+						coSaldMoun:
+						{
+							Result := TestKauFlt(lMarker, vOb.SynSaldMoun.KodSpO);
+						}
+						coSaldoNm:
+						{
+							Result := TestKauFlt(lMarker, vOb.SynSaldoNm.KodSpO);
+						}
+					end;
+				}
+				2:
+				{
+					Result := TestKauFlt(lMarker, vOb.SynOborot.KodSpK);
+				}
+			end;
+		}
+	}
+	else Result := true;
+	#LogS('TestOneFlt ' + Result + ' ' + cgKau)
+}
+
+//проверка установленных фильтров
+function TestFlts(wDirect: Word; coTable: Word): Boolean;
+{
+var Result1, Result2, Result3, Result4, Result5: Boolean;
+
+	Result1 := TestOneFlt(wDirect, coTable, lMarkers[lKAU_Podr], cgKau_KatPodr) ;
+	Result2 := TestOneFlt(wDirect, coTable, lMarkers[lKAU_MOL] , cgKau_KatMOL)  ;
+	Result3 := TestOneFlt(wDirect, coTable, lMarkers[lKAU_MC]  , cgKau_KatMC)   ;
+	Result4 := TestOneFlt(wDirect, coTable, lMarkers[lKAU_Obj] , cgKau_ObjBuild);
+	Result5 := TestOneFlt(wDirect, coTable, lMarkers[lKAU_Dog] , cgKau_Dogovor) ;
+
+	Result := Result1 and Result2 and Result3 and Result4 and Result5;
+	#LogS('TestFlts ' + Result + ' ' + Result1 + ' ' + Result2 + ' ' + Result3 + ' ' + Result4 + ' ' + Result5)
+}
+
+//вставка проводок
+function InsertOborot(wDirect: Word): Boolean;
+{
+	if TestFlts(wDirect, coOborot)
+	{
+		vOb.SynTblOb.cRec := vOb.SynOborot.nRec;
+		vOb.SynTblOb.wDirect := wDirect;
+ 		vOb.SynTblOb.DatOb := vOb.SynOborot.DatOb;
+		Result := vOb.insert current SynTblOb = tsOK;
+	}
+	else Result := true;
+}
+
+//вставка сальдо
+function InsertSaldo(wType: Word; coTable: Word): Boolean;
+{
+	if TestFlts(1, coTable)
+	{
+		vOb.SynTblSal.wType := wType;
+		vOb.SynTblSal.coTable := coTable;
+		case coTable of
+			coSaldMoun:
+			{
+				vOb.SynTblSal.cRec := vOb.SynSaldMoun.nRec;
+				vOb.SynTblSal.Sch  := vOb.SynSaldMoun.SchetO;
+				vOb.SynTblSal.Sub  := vOb.SynSaldMoun.SubOsSch;
+
+				Result := vOb.insert current SynTblSal = tsOK;
+			}
+ 			coSaldoNm:
+			{
+				vOb.SynTblSalMem.Buffer := TTblSalMem(vOb.SynSaldoNm.Buffer);
+				vOb.SynTblSalMem.nRec   := Comp(0);
+				Result := vOb.insert current SynTblSalMem = tsOK;
+
+				if Result
+				{
+					vOb.SynTblSal.cRec := vOb.SynTblSalMem.nRec;
+					vOb.SynTblSal.Sch  := vOb.SynTblSalMem.SchetO;
+					vOb.SynTblSal.Sub  := vOb.SynTblSalMem.SubOsSch;
+
+					Result := vOb.insert current SynTblSal = tsOK;
+				}
+			}
+		end;
+	}
+	else Result := true;
+}
+
+procedure ClearTables;
+{
+	vOb.delete all visual 'Удаление временой таблицы...' SynTblOb;
+	vOb.delete all visual 'Удаление временой таблицы...' SynTblSal;
+	vOb.delete all visual 'Удаление временой таблицы...' SynTblSalMem;
+}
+
+function GetStartDate(dDate: Date): Date;
+{
+	Result := Date(0, 0, 0);
+	if dDate >= dGetTune('Dat_M_Ot')
+	{
+		Result := dGetTune('Dat_M_Ot');
+	}
+	else
+	{
+		if vOb.GetLast FastFirstRow SynSaldMoun
+		  	where ((dDate >>= SynSaldMoun.DateSal)) = tsOK
+		{
+			Result := vOb.SynSaldMoun.DateSal;
+		}
+	}
+	if Result = Date(0, 0, 0)
+	  	Result := Date(1, 1, Year(dDate));
+}
+
+function GetEndDate(dDate: Date): Date;
+{
+	Result := GetStartDate(Add_Day(dDate, 1)); //а вдруг на конец месяца, что скорее всего :)
+}
+
+procedure ReportGet_SaldoIn;
+{
+var _cPlans: Comp;
+var _D1: Date;
+var dStart: Date;
+
+	if IsSetBt(wTypeRep, btTRSaldoIn)
+	{
+		_cPlans := cPlansSch;
+		_D1 := D1;
+
+		dStart := GetStartDate(_D1);
+
+		#LogS('ReportGet_SaldoIn(1) ' + _D1 + ' ' + dStart)
+
+		if dStart = _D1
+		{
+			vOb._loop PickBuh
+			{
+			  	#LogS('ReportGet_SaldoIn(2) ' + vOb.PickBuh.Schet + '.' + vOb.PickBuh.SubKau + ' ' + dStart)
+				//если субсчета указаны
+			  	if iPickBuh.FoundSubForSchet(vOb.PickBuh.Schet)
+				{
+            		if vOb.PickBuh.SubKau = cgDefSch continue;
+
+					#LogS('ReportGet_SaldoIn(3)')
+					vOb._loop SynSaldMoun where ((_cPlans == SynSaldMoun.cPlansSch and
+					  								dStart == SynSaldMoun.DateSal and
+					  								PickBuh.Schet== SynSaldMoun.SchetO and
+					  								PickBuh.SubKau == SynSaldMoun.SubOsSch))
+					{
+						#LogS('ReportGet_SaldoIn(4) ' + vOb.SynSaldMoun.DBSchetO + '.' + vOb.SynSaldMoun.SubOsSch)
+
+						if not InsertSaldo(1, coSaldMoun) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+				else //если субсчета не указаны
+				{
+					#LogS('ReportGet_SaldoIn(5)')
+					vOb._loop SynSaldMoun where ((_cPlans == SynSaldMoun.cPlansSch and
+					  								dStart == SynSaldMoun.DateSal and
+					  								PickBuh.Schet == SynSaldMoun.SchetO))
+					{
+						#LogS('ReportGet_SaldoIn(6) ' + vOb.SynSaldMoun.DBSchetO + '.' + vOb.SynSaldMoun.SubOsSch)
+						if not InsertSaldo(1, coSaldMoun) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+			}
+		}
+		else
+		{
+			vOb._loop PickBuh
+			{
+			  	#LogS('ReportGet_SaldoIn(7) ' + vOb.PickBuh.Schet + '.' + vOb.PickBuh.SubKau + ' ' + _D1)
+				//если субсчета указаны
+	    		if iPickBuh.FoundSubForSchet(vOb.PickBuh.Schet)
+	    		{
+					if vOb.PickBuh.SubKau = cgDefSch continue;
+
+					#LogS('ReportGet_SaldoIn(8)')
+					if not Calc_NewSaldo(Word(0),
+					  						_cPlans,
+					  						coSaldoNm,
+					  						vOb.PickBuh.Schet,
+					  						vOb.PickBuh.SubKau,
+					  						Comp(0),    //KodSpO
+					  						Comp(0),    //Kau[1]
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),    //Kau[6]
+					  						dStart,
+					  						Sub_Day(_D1, 1))
+					{
+						_raise excStopInsErr;
+					}
+	    		}
+				else //если субсчета не указаны
+				{
+					#LogS('ReportGet_SaldoIn(9)')
+					if not Calc_NewSaldo(Word(0),
+					  						_cPlans,
+					  						coSaldoNm,
+					  						vOb.PickBuh.Schet,
+					  						'',
+					  						Comp(0),    //KodSpO
+					  						Comp(0),    //Kau[1]
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),    //Kau[6]
+					  						dStart,
+					  						Sub_Day(_D1, 1))
+					{
+						_raise excStopInsErr;
+					}
+				}
+			}
+
+			vOb._loop PickBuh
+			{
+			  	#LogS('ReportGet_SaldoIn(10) ' + vOb.PickBuh.Schet + '.' + vOb.PickBuh.SubKau + ' ' + _D1)
+				//если субсчета указаны
+			  	if iPickBuh.FoundSubForSchet(vOb.PickBuh.Schet)
+				{
+					if vOb.PickBuh.SubKau = cgDefSch continue;
+
+					vOb._loop SynSaldoNm where ((_D1 == SynSaldoNm.DateSal and
+					  							PickBuh.Schet == SynSaldoNm.SchetO))
+					{
+						if vOb.PickBuh.SubKau <> vOb.SynSaldoNm.SubOsSch continue;
+						#LogS('ReportGet_SaldoIn(11) ' + vOb.SynSaldoNm.DBSchetO + '.' + vOb.SynSaldoNm.SubOsSch)
+
+						if not InsertSaldo(1, coSaldoNm) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+				else //если субсчета не указаны
+				{
+					vOb._loop SynSaldoNm where ((_D1 == SynSaldoNm.DateSal and
+					  							PickBuh.Schet == SynSaldoNm.SchetO))
+					{
+						#LogS('ReportGet_SaldoIn(12) ' + vOb.SynSaldoNm.DBSchetO + '.' + vOb.SynSaldoNm.SubOsSch)
+
+						if not InsertSaldo(1, coSaldoNm) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+			}
+		}
+
+	}
+}
+
+procedure ReportGet_SaldoOut;
+{
+var _cPlans: Comp;
+var _D1, _D2: Date;
+var dStart, dEnd: Date;
+
+	if IsSetBt(wTypeRep, btTRSaldoOut)
+	{
+		_cPlans := cPlansSch;
+		_D1 := D1;
+		_D2 := D2;
+
+		dStart := GetStartDate(_D2);
+		dEnd := GetEndDate(_D2);
+
+		#LogS('ReportGet_SaldoOut(1) ' + _D1 + ' ' + dStart + ' - ' + _D2 + ' ' + dEnd)
+
+		if dEnd = Add_Day(_D2, 1)
+		{
+			vOb._loop PickBuh
+			{
+			  	#LogS('ReportGet_SaldoOut(2) ' + vOb.PickBuh.Schet + '.' + vOb.PickBuh.SubKau + ' ' + _D1)
+				//если субсчета указаны
+			  	if iPickBuh.FoundSubForSchet(vOb.PickBuh.Schet)
+				{
+					if vOb.PickBuh.SubKau = cgDefSch continue;
+
+					#LogS('ReportGet_SaldoOut(3)')
+					vOb._loop SynSaldMoun where ((_cPlans == SynSaldMoun.cPlansSch and
+					  								dEnd == SynSaldMoun.DateSal and
+					  								PickBuh.Schet == SynSaldMoun.SchetO and
+					  								PickBuh.SubKau == SynSaldMoun.SubOsSch))
+					{
+						#LogS('ReportGet_SaldoOut(4) ' + vOb.SynSaldMoun.DBSchetO + '.' + vOb.SynSaldMoun.SubOsSch)
+
+						if not InsertSaldo(2, coSaldMoun) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+				else //если субсчета не указаны
+				{
+					#LogS('ReportGet_SaldoOut(5)')
+					vOb._loop SynSaldMoun where ((_cPlans == SynSaldMoun.cPlansSch and
+					  								dEnd == SynSaldMoun.DateSal and
+					  								PickBuh.Schet == SynSaldMoun.SchetO))
+					{
+						#LogS('ReportGet_SaldoOut(6) ' + vOb.SynSaldMoun.DBSchetO + '.' + vOb.SynSaldMoun.SubOsSch)
+						if not InsertSaldo(2, coSaldMoun) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+			}
+		}
+		else
+		{
+			vOb._loop PickBuh
+			{
+			  	#LogS('ReportGet_SaldoOut(7) ' + vOb.PickBuh.Schet + '.' + vOb.PickBuh.SubKau + ' ' + _D2)
+				//если субсчета указаны
+	    		if iPickBuh.FoundSubForSchet(vOb.PickBuh.Schet)
+				{
+					if vOb.PickBuh.SubKau = cgDefSch continue;
+
+					#LogS('ReportGet_SaldoOut(8)')
+					if not Calc_NewSaldo(Word(0),
+					  						_cPlans,
+					  						coSaldoNm,
+					  						vOb.PickBuh.Schet,
+					  						vOb.PickBuh.SubKau,
+					  						Comp(0),    //KodSpO
+					  						Comp(0),    //Kau[1]
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),    //Kau[6]
+					  						dStart,
+					  						_D2)
+					{
+						_raise excStopInsErr;
+					}
+				}
+				else //если субсчета не указаны
+				{
+					#LogS('ReportGet_SaldoOut(9)')
+					if not Calc_NewSaldo(Word(0),
+					  						_cPlans,
+					  						coSaldoNm,
+					  						vOb.PickBuh.Schet,
+					  						'',
+					  						Comp(0),    //KodSpO
+					  						Comp(0),    //Kau[1]
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),
+					  						Comp(0),    //Kau[6]
+					  						dStart,
+					  						_D2)
+					{
+						_raise excStopInsErr;
+					}
+				}
+			}
+
+			dEnd := Add_Day(_D2, 1);
+			vOb._loop PickBuh
+			{
+			  	#LogS('ReportGet_SaldoOut(10) ' + vOb.PickBuh.Schet + '.' + vOb.PickBuh.SubKau + ' ' + dEnd)
+				//если субсчета указаны
+			  	if iPickBuh.FoundSubForSchet(vOb.PickBuh.Schet)
+				{
+					if vOb.PickBuh.SubKau = cgDefSch continue;
+
+					vOb._loop SynSaldoNm where ((dEnd == SynSaldoNm.DateSal and
+					  							PickBuh.Schet== SynSaldoNm.SchetO))
+					{
+						if vOb.PickBuh.SubKau <> vOb.SynSaldoNm.SubOsSch continue;
+						#LogS('ReportGet_SaldoOut(11) ' + vOb.SynSaldoNm.DBSchetO + '.' + vOb.SynSaldoNm.SubOsSch)
+
+						if not InsertSaldo(2, coSaldoNm) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+				else //если субсчета не указаны
+				{
+					vOb._loop SynSaldoNm where ((dEnd == SynSaldoNm.DateSal and
+					  							PickBuh.Schet == SynSaldoNm.SchetO))
+					{
+						#LogS('ReportGet_SaldoOut(12) ' + vOb.SynSaldoNm.DBSchetO + '.' + vOb.SynSaldoNm.SubOsSch)
+
+						if not InsertSaldo(2, coSaldoNm) _raise excStopInsErr;
+						if not NextVisual _raise excStopRunRep;
+					}
+				}
+			}
+		}
+
+	}
+}
+
+procedure ReportGet_Oborot;
+{
+var _D1, _D2: Date;
+
+	if IsSetBt(wTypeRep, btTROborot)
+	{
+		_D1 := D1;
+		_D2 := D2;
+
+		vOb._loop PickBuh
+		{
+			#LogS('ReportGet(1) ' + vOb.PickBuh.Schet + '.' + vOb.PickBuh.SubKau)
+			//если субсчета указаны
+			if iPickBuh.FoundSubForSchet(vOb.PickBuh.Schet)
+			{
+				if vOb.PickBuh.SubKau = cgDefSch continue;
+
+				vOb._loop SynOborot where ((PickBuh.Schet == SynOborot.SchetO and
+				  							PickBuh.SubKau == SynOborot.SubOsSch and
+				  							_D1 <<= SynOborot.DatOb and
+				  							_D2 >>= SynOborot.DatOb))
+				{
+					#LogS('ReportGet(2) [1] ' + vOb.SynOborot.SchetO + '.' + vOb.SynOborot.SubOsSch + ' ' + vOb.SynOborot.DatOb + ' ' + vOb.SynOborot.SumOb)
+					if not InsertOborot(1) _raise excStopInsErr;
+					if not NextVisual _raise excStopRunRep;
+				}
+				vOb._loop SynOborot where ((PickBuh.Schet == SynOborot.SchetK and
+					  						PickBuh.SubKau == SynOborot.SubSchK and
+					  						_D1 <<= SynOborot.DatOb and
+					  						_D2 >>= SynOborot.DatOb))
+				{
+					#LogS('ReportGet(3) [2] ' + vOb.SynOborot.SchetK + '.' + vOb.SynOborot.SubSchK + ' ' + vOb.SynOborot.DatOb + ' ' + vOb.SynOborot.SumOb)
+					if not InsertOborot(2) _raise excStopInsErr;
+					if not NextVisual _raise excStopRunRep;
+				}
+			}
+			else //если субсчета не указаны
+			{
+				vOb._loop SynOborot where ((PickBuh.Schet == SynOborot.SchetO and
+					  						_D1 <<= SynOborot.DatOb and
+					  						_D2 >>= SynOborot.DatOb))
+				{
+					#LogS('ReportGet(4) [1] ' + vOb.SynOborot.SchetO + ' ' + vOb.SynOborot.SubOsSch + ' ' + vOb.SynOborot.DatOb + ' ' + vOb.SynOborot.SumOb)
+					if not InsertOborot(1) _raise excStopInsErr;
+					if not NextVisual _raise excStopRunRep;
+				}
+				vOb._loop SynOborot where ((PickBuh.Schet == SynOborot.SchetK and
+					  						_D1 <<= SynOborot.DatOb and
+					  						_D2 >>= SynOborot.DatOb))
+				{
+					#LogS('ReportGet(5) [2] ' + vOb.SynOborot.SchetK + '.' + vOb.SynOborot.SubSchK + ' ' + vOb.SynOborot.DatOb + ' ' + vOb.SynOborot.SumOb)
+					if not InsertOborot(2) _raise excStopInsErr;
+					if not NextVisual _raise excStopRunRep;
+				}
+			}
+		}
+	}
+}
+
+function ReportGet: Boolean;
+{
+	_try
+	{
+		Result := true;
+		StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, 'Поиск данных...', 100);
+
+		ClearTables;
+		iPickBuhNew.MakePickBuh(lEntity);
+
+		ReportGet_SaldoIn;
+		ReportGet_Oborot;
+		ReportGet_SaldoOut;
+
+	}
+	_except
+		on excStopRunRep:
+		{
+			Result := false;
+		}
+		on excStopInsErr:
+		{
+			Message('Ошибка при формировании данных', Error);
+			Result := false;
+		}
+	_finally
+	{
+	  	if VisualizationActive StopVisual('', 0);
+	}
+}
+
+function GetNameKau(wTbl: Word; cKau: Comp): String;
+{
+  	GetNameKau := if (GetAnyKau(cgAkSimple, wTbl, cKau), GivenAnName(cgAnName), '')
+}
+
+function GetDocNameFromOborot: String;
+{
+	Result := '';
+
+	if (vOb.Oborot.TiDkGal = cgDoc_0014) Result := 'Проводка №' + vOb.Oborot.NoDok
+	else
+	{
+		Result := GetTiDkGalName(vOb.Oborot.TiDkGal);
+		if not FindSoprDoc(vOb.Oborot.TiDkGal, vOb.Oborot.cSoprDoc)
+			Result := Result + ' <первичный хозяйственный документ не найден>'
+		else
+			Result := Result + ' №' + vOb.Oborot.NoDok + ' от ' +
+						DateToStr(GetDateHozDoc(vOb.Oborot.TiDkGal, vOb.Oborot.cSoprDoc), 'DD/MM/YYYY');
+	}
+}
+
+function GetKatEdName(cEd: Comp): String;
+{
+	Result := if (vOb.GetFirst FastFirstRow KatEd where ((cEd == KatEd.nRec)) = tsOK,
+ 					vOb.KatEd.Abbr, '');
+}
+
+function GetHozOperName(cHozOper: Comp): String;
+{
+	Result := if (vOb.GetFirst FastFirstRow HozOper where ((cHozOper == HozOper.nRec))= tsOK,
+					vOb.HozOper.Name1, '');
+}
+
+var pXL: XLSRepBuilder;  // объект формирования Excel-отчетов
+
+const
+#ifdef __MF_DEBUG__
+	sXLT = 'XLS\F_BUHREP\TEST\AnObGet.XLT';
+#else
+	sXLT = 'XLS\F_BUHREP\AnObGet.XLT';
+#end
+ 	sTblSaldoIn = 'БазаСлдВх';
+ 	sTblOborot = 'БазаПров';
+	sTblSaldoOut = 'БазаСлдИсх';
+end
+
+procedure ReportView_Saldo(wModePrint: Word; wTypeSaldo: Word);
+{
+var sTblSaldo: String;
+var btTR: Word;
+var i: Word;
+
+#declare dclReportView_Saldo(TableName)
+{
+	if vOb.GetFirst FastFirstRow #TableName = tsOK
+	{
+		pXL.ClearTblBuffer;
+
+		pXL.SetTblDateFldValue(sTblSaldo + 'Дата', if (wTypeSaldo = 1, vOb.#TableName.DateSal, Sub_Day(vOb.#TableName.DateSal, 1)));
+
+		pXL.SetTblStringFldValue(sTblSaldo + 'Счет', SubStr(vOb.#TableName.SchetO, 2, cgSchetLength - 1));
+		pXL.SetTblStringFldValue(sTblSaldo + 'Субсчет', vOb.#TableName.SubOsSch);
+		for (i := 1; i <= 6; i++)
+			pXL.SetTblStringFldValue(sTblSaldo + 'КАУ' + i, GetNameKau(vOb.#TableName.TblOS[i], vOb.#TableName.KauOS[i]));
+		pXL.SetTblStringFldValue(sTblSaldo + 'Подр', GetNameKau(cgKau_KatPodr, vOb.#TableName.KodSpO));
+
+		if vOb.GetFirst FastFirstRow BuhSchet
+ 			where ((#TableName.SchetO == BuhSchet.Schet and
+					#TableName.SubOsSch == BuhSchet.SubSch)) = tsOK
+		{
+			case vOb.#TableName.ViOb of
+			 	1:
+				{
+					pXL.SetTblNumberFldValue(sTblSaldo + 'Сумма', vOb.#TableName.Sums);
+					pXL.SetTblNumberFldValue(sTblSaldo + 'Количество', vOb.#TableName.Kol);
+					if vOb.BuhSchet.VidSald = cgPSchet
+ 					{
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Кт_Сумма', -vOb.#TableName.Sums);
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Кт_Количество', -vOb.#TableName.Kol);
+					}
+					else
+					{
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Дт_Сумма', vOb.#TableName.Sums);
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Дт_Количество', vOb.#TableName.Kol);
+					}
+				}
+				2:
+				{
+					pXL.SetTblNumberFldValue(sTblSaldo + 'Сумма', -vOb.#TableName.Sums);
+					pXL.SetTblNumberFldValue(sTblSaldo + 'Количество', -vOb.#TableName.Kol);
+					if vOb.BuhSchet.VidSald = cgASchet
+ 					{
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Дт_Сумма', -vOb.#TableName.Sums);
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Дт_Количество', -vOb.#TableName.Kol);
+					}
+					else
+					{
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Кт_Сумма', vOb.#TableName.Sums);
+						pXL.SetTblNumberFldValue(sTblSaldo + 'Кт_Количество', vOb.#TableName.Kol);
+					}
+				}
+			end;
+		}
+		pXL.SetTblStringFldValue(sTblSaldo + 'ЕдИзм', GetKatEdName(vOb.#TableName.cEd));
+
+		for (i := 1; i <= 6; i++)
+		{
+			if vOb.#TableName.TblOS[i] = cgKau_KatMOL
+				pXL.SetTblStringFldValue(sTblSaldo + 'МОЛ', GetNameKau(vOb.#TableName.TblOS[i], vOb.#TableName.KauOS[i]));
+			if vOb.#TableName.TblOS[i] = cgKau_KatMC
+				pXL.SetTblStringFldValue(sTblSaldo + 'МЦ', GetNameKau(vOb.#TableName.TblOS[i], vOb.#TableName.KauOS[i]));
+			if vOb.#TableName.TblOS[i] = cgKau_ObjBuild
+				pXL.SetTblStringFldValue(sTblSaldo + 'Объект', GetNameKau(vOb.#TableName.TblOS[i], vOb.#TableName.KauOS[i]));
+			if vOb.#TableName.TblOS[i] = cgKau_Dogovor
+				pXL.SetTblStringFldValue(sTblSaldo + 'Договор', GetNameKau(vOb.#TableName.TblOS[i], vOb.#TableName.KauOS[i]));
+		}
+		pXL.SetTblStringFldValue(sTblSaldo + 'Подразделение', GetNameKau(cgKau_KatPodr, vOb.#TableName.KodSpO));
+
+		pXL.InsTblRow;
+	}
+}
+#end
+
+	if wTypeSaldo = 1
+	{
+		sTblSaldo := sTblSaldoIn;
+		btTR := btTRSaldoIn;
+	}
+	else
+	{
+		sTblSaldo := sTblSaldoOut;
+		btTR := btTRSaldoOut;
+	}
+
+
+	pXL.CreateTbl(sTblSaldo);
+
+	// объявление полей таблицы
+	pXL.CreateTblFld(sTblSaldo + 'Дата');
+
+	pXL.CreateTblFld(sTblSaldo + 'Счет');
+	pXL.CreateTblFld(sTblSaldo + 'Субсчет');
+	pXL.CreateTblFld(sTblSaldo + 'КАУ1');
+	pXL.CreateTblFld(sTblSaldo + 'КАУ2');
+	pXL.CreateTblFld(sTblSaldo + 'КАУ3');
+	pXL.CreateTblFld(sTblSaldo + 'КАУ4');
+	pXL.CreateTblFld(sTblSaldo + 'КАУ5');
+	pXL.CreateTblFld(sTblSaldo + 'КАУ6');
+	pXL.CreateTblFld(sTblSaldo + 'Подр');
+	pXL.CreateTblFld(sTblSaldo + 'Дт_Сумма');
+	pXL.CreateTblFld(sTblSaldo + 'Дт_Количество');
+	pXL.CreateTblFld(sTblSaldo + 'Кт_Сумма');
+	pXL.CreateTblFld(sTblSaldo + 'Кт_Количество');
+	pXL.CreateTblFld(sTblSaldo + 'Сумма');
+	pXL.CreateTblFld(sTblSaldo + 'Количество');
+	pXL.CreateTblFld(sTblSaldo + 'ЕдИзм');
+
+	pXL.CreateTblFld(sTblSaldo + 'МОЛ');
+	pXL.CreateTblFld(sTblSaldo + 'Подразделение');
+	pXL.CreateTblFld(sTblSaldo + 'МЦ');
+	pXL.CreateTblFld(sTblSaldo + 'Объект');
+	pXL.CreateTblFld(sTblSaldo + 'Договор');
+
+	if (wModePrint = 2) and IsSetBt(wTypeRep, btTR)
+	{
+		vOb._loop TblSal where ((wTypeSaldo == TblSal.wType))
+		{
+			if vOb.TblSal.coTable = coSaldMoun #dclReportView_Saldo(SaldMoun)
+			else #dclReportView_Saldo(TblSalMem)
+
+			if not NextVisual _raise excStopRunRep;
+		}
+	}
+	pXL.PublishTbl(sTblSaldo);
+}
+
+procedure ReportView_Oborot(wModePrint: Word);
+{
+var i: Word;
+
+	pXL.CreateTbl(sTblOborot);
+
+	// объявление полей таблицы
+	pXL.CreateTblFld(sTblOborot + 'Дескр');
+	pXL.CreateTblFld(sTblOborot + 'ГрДескр');
+	pXL.CreateTblFld(sTblOborot + 'Дата');
+
+	pXL.CreateTblFld(sTblOborot + 'Дт_Счет');
+	pXL.CreateTblFld(sTblOborot + 'Дт_Субсчет');
+	pXL.CreateTblFld(sTblOborot + 'Дт_КАУ1');
+	pXL.CreateTblFld(sTblOborot + 'Дт_КАУ2');
+	pXL.CreateTblFld(sTblOborot + 'Дт_КАУ3');
+	pXL.CreateTblFld(sTblOborot + 'Дт_КАУ4');
+	pXL.CreateTblFld(sTblOborot + 'Дт_КАУ5');
+	pXL.CreateTblFld(sTblOborot + 'Дт_КАУ6');
+	pXL.CreateTblFld(sTblOborot + 'Дт_Подр');
+
+	pXL.CreateTblFld(sTblOborot + 'Дт_МОЛ');
+	pXL.CreateTblFld(sTblOborot + 'Дт_МЦ');
+	pXL.CreateTblFld(sTblOborot + 'Дт_Объект');
+	pXL.CreateTblFld(sTblOborot + 'Дт_Договор');
+
+	pXL.CreateTblFld(sTblOborot + 'Дт_Сумма');
+	pXL.CreateTblFld(sTblOborot + 'Дт_Количество');
+
+	pXL.CreateTblFld(sTblOborot + 'Кт_Счет');
+	pXL.CreateTblFld(sTblOborot + 'Кт_Субсчет');
+	pXL.CreateTblFld(sTblOborot + 'Кт_КАУ1');
+	pXL.CreateTblFld(sTblOborot + 'Кт_КАУ2');
+	pXL.CreateTblFld(sTblOborot + 'Кт_КАУ3');
+	pXL.CreateTblFld(sTblOborot + 'Кт_КАУ4');
+	pXL.CreateTblFld(sTblOborot + 'Кт_КАУ5');
+	pXL.CreateTblFld(sTblOborot + 'Кт_КАУ6');
+	pXL.CreateTblFld(sTblOborot + 'Кт_Подр');
+
+	pXL.CreateTblFld(sTblOborot + 'Кт_МОЛ');
+	pXL.CreateTblFld(sTblOborot + 'Кт_МЦ');
+	pXL.CreateTblFld(sTblOborot + 'Кт_Объект');
+	pXL.CreateTblFld(sTblOborot + 'Кт_Договор');
+
+	pXL.CreateTblFld(sTblOborot + 'Кт_Сумма');
+	pXL.CreateTblFld(sTblOborot + 'Кт_Количество');
+
+	pXL.CreateTblFld(sTblOborot + 'МОЛ');
+	pXL.CreateTblFld(sTblOborot + 'Подразделение');
+	pXL.CreateTblFld(sTblOborot + 'МЦ');
+	pXL.CreateTblFld(sTblOborot + 'Объект');
+	pXL.CreateTblFld(sTblOborot + 'Договор');
+
+	pXL.CreateTblFld(sTblOborot + 'Сумма');
+	pXL.CreateTblFld(sTblOborot + 'Количество');
+	pXL.CreateTblFld(sTblOborot + 'ЕдИзм');
+	pXL.CreateTblFld(sTblOborot + 'Содержание');
+
+	pXL.CreateTblFld(sTblOborot + 'ДокументТип');
+	pXL.CreateTblFld(sTblOborot + 'Документ');
+	pXL.CreateTblFld(sTblOborot + 'ТХО');
+
+	if (wModePrint = 2) and IsSetBt(wTypeRep, btTROborot)
+	{
+		vOb._loop TblOb
+		{
+			if vOb.GetFirst FastFirstRow Oborot = tsOK
+			{
+				pXL.ClearTblBuffer;
+
+				pXL.SetTblStringFldValue(sTblOborot + 'Дескр', vOb.Oborot.Descr);
+				pXL.SetTblStringFldValue(sTblOborot + 'ГрДескр', vOb.Oborot.DesGr);
+				pXL.SetTblDateFldValue(sTblOborot + 'Дата', vOb.Oborot.DatOb);
+
+				pXL.SetTblStringFldValue(sTblOborot + 'Дт_Счет', #GetDbSch(vOb.Oborot.SchetO));
+				pXL.SetTblStringFldValue(sTblOborot + 'Дт_Субсчет', vOb.Oborot.SubOsSch);
+				for (i := 1; i <= 6; i++)
+				{
+					pXL.SetTblStringFldValue(sTblOborot + 'Дт_КАУ' + i, GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+
+					if vOb.Oborot.TblOS[i] = cgKau_KatMOL
+						pXL.SetTblStringFldValue(sTblOborot + 'Дт_МОЛ', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+					if vOb.Oborot.TblOS[i] = cgKau_KatMC
+						pXL.SetTblStringFldValue(sTblOborot + 'Дт_МЦ', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+					if vOb.Oborot.TblOS[i] = cgKau_ObjBuild
+						pXL.SetTblStringFldValue(sTblOborot + 'Дт_Объект', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+					if vOb.Oborot.TblOS[i] = cgKau_Dogovor
+						pXL.SetTblStringFldValue(sTblOborot + 'Дт_Договор', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+				}
+				pXL.SetTblStringFldValue(sTblOborot + 'Дт_Подр', GetNameKau(cgKau_KatPodr, vOb.Oborot.KodSpO));
+
+				pXL.SetTblStringFldValue(sTblOborot + 'Кт_Счет', #GetDbSch(vOb.Oborot.SchetK));
+				pXL.SetTblStringFldValue(sTblOborot + 'Кт_Субсчет', vOb.Oborot.SubSchK);
+				for (i := 1; i <= 6; i++)
+				{
+					pXL.SetTblStringFldValue(sTblOborot + 'Кт_КАУ' + i, GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+
+					if vOb.Oborot.TblKS[i] = cgKau_KatMOL
+						pXL.SetTblStringFldValue(sTblOborot + 'Кт_МОЛ', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+					if vOb.Oborot.TblKS[i] = cgKau_KatMC
+						pXL.SetTblStringFldValue(sTblOborot + 'Кт_МЦ', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+					if vOb.Oborot.TblKS[i] = cgKau_ObjBuild
+						pXL.SetTblStringFldValue(sTblOborot + 'Кт_Объект', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+					if vOb.Oborot.TblKS[i] = cgKau_Dogovor
+						pXL.SetTblStringFldValue(sTblOborot + 'Кт_Договор', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+				}
+				pXL.SetTblStringFldValue(sTblOborot + 'Кт_Подр', GetNameKau(cgKau_KatPodr, vOb.Oborot.KodSpK));
+
+				case vOb.TblOb.wDirect of
+		 			1:
+					{
+						pXL.SetTblNumberFldValue(sTblOborot + 'Дт_Сумма', vOb.Oborot.SumOb);
+						pXL.SetTblNumberFldValue(sTblOborot + 'Дт_Количество', vOb.Oborot.Kol);
+
+						for (i := 1; i <= 6; i++)
+						{
+							if vOb.Oborot.TblOS[i] = cgKau_KatMOL
+								pXL.SetTblStringFldValue(sTblOborot + 'МОЛ', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+							if vOb.Oborot.TblOS[i] = cgKau_KatMC
+								pXL.SetTblStringFldValue(sTblOborot + 'МЦ', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+							if vOb.Oborot.TblOS[i] = cgKau_ObjBuild
+								pXL.SetTblStringFldValue(sTblOborot + 'Объект', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+							if vOb.Oborot.TblOS[i] = cgKau_Dogovor
+								pXL.SetTblStringFldValue(sTblOborot + 'Договор', GetNameKau(vOb.Oborot.TblOS[i], vOb.Oborot.KauOS[i]));
+						}
+						pXL.SetTblStringFldValue(sTblOborot + 'Подразделение', GetNameKau(cgKau_KatPodr, vOb.Oborot.KodSpO));
+					}
+					2:
+					{
+						pXL.SetTblNumberFldValue(sTblOborot + 'Кт_Сумма', vOb.Oborot.SumOb);
+						pXL.SetTblNumberFldValue(sTblOborot + 'Кт_Количество', vOb.Oborot.Kol);
+
+						for (i := 1; i <= 6; i++)
+						{
+							if vOb.Oborot.TblKS[i] = cgKau_KatMOL
+								pXL.SetTblStringFldValue(sTblOborot + 'МОЛ', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+							if vOb.Oborot.TblKS[i] = cgKau_KatMC
+								pXL.SetTblStringFldValue(sTblOborot + 'МЦ', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+							if vOb.Oborot.TblKS[i] = cgKau_ObjBuild
+								pXL.SetTblStringFldValue(sTblOborot + 'Объект', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+							if vOb.Oborot.TblKS[i] = cgKau_Dogovor
+								pXL.SetTblStringFldValue(sTblOborot + 'Договор', GetNameKau(vOb.Oborot.TblKS[i], vOb.Oborot.KauKS[i]));
+						}
+						pXL.SetTblStringFldValue(sTblOborot + 'Подразделение', GetNameKau(cgKau_KatPodr, vOb.Oborot.KodSpK));
+					}
+				end;
+
+				pXL.SetTblNumberFldValue(sTblOborot + 'Сумма', vOb.Oborot.SumOb);
+				pXL.SetTblNumberFldValue(sTblOborot + 'Количество', vOb.Oborot.Kol);
+				pXL.SetTblStringFldValue(sTblOborot + 'ЕдИзм', GetKatEdName(vOb.Oborot.cEd));
+				pXL.SetTblStringFldValue(sTblOborot + 'Содержание', vOb.Oborot.SodPr);
+
+				pXL.SetTblStringFldValue(sTblOborot + 'ДокументТип', GetTiDkGalName(vOb.Oborot.TiDkGal));
+				pXL.SetTblStringFldValue(sTblOborot + 'Документ', GetDocNameFromOborot);
+
+				pXL.SetTblStringFldValue(sTblOborot + 'ТХО', GetHozOperName(vOb.Oborot.cHozOper));
+
+				pXL.InsTblRow;
+			}
+			if not NextVisual _raise excStopRunRep;
+		}
+	}
+	pXL.PublishTbl(sTblOborot);
+}
+
+function ReportView: Boolean;
+{
+var sXLTName: String;
+var sXLSName: String;
+var wModePrint: Word;
+
+	_try
+	{
+		Result := true;
+		StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, 'Формирование отчета...', 100);
+
+  		sXLTName := AddSlashToPath(TranslatePath('%ClientStartPath%')) + sXLT;
+
+  		wModePrint := 0;
+		if not FileExist(sXLTName)
+		{
+			if Message('Не найден шаблон отчета'#13 + 'Сформировать шаблон?', YesNo + Confirmation) = cmYes
+			{
+				wModePrint := 1;
+			}
+		}
+		else
+		{
+			wModePrint := 2;
+		}
+
+		if wModePrint = 1
+		{
+			SetVisualHeader('Формирование шаблона...');
+			sXLSName := pXL.CreateXLT(sXLTName, true);
+		}
+		else sXLSName := pXL.CreateReport(sXLTName, true);
+
+		if wModePrint > 0
+		{
+			//создание переменных отчета
+			pXL.CreateVar(sXLSName);
+			pXL.SetStringVar('ОтчетНаименование', 'Реестр действующих банковских гарантий');
+			pXL.SetDateVar('ОтчетДата', Cur_Date);
+			pXL.SetStringVar('ОтчетВремя', Cur_Time);
+			pXL.SetStringVar('ОтчетДатаВремя', _DateTimeToStr(_CurDateTime, 'DD.MM.YYYY HH:NN'));
+			pXL.SetStringVar('ОтчетПользователь', UserName);
+			pXL.SetStringVar('ОтчетПользовательДескр', sGetTune('USER.DESCR'));
+			pXL.SetStringVar('ОтчетПользовательФИО', sGetTune('USER.FIO'));
+			pXL.SetStringVar('ОтчетЗапуск', Replace(CommonFormHeader, '/', '.'));
+			pXL.SetStringVar('ОтчетРуководитель', sGetTune('BOSS'));
+			pXL.SetStringVar('ОтчетГлБухгалтер', sGetTune('MAINBUH'));
+			pXL.SetDateVar('ПарамДатаС', D1);
+			pXL.SetDateVar('ПарамДатаПо', D2);
+			pXL.SetDateVar('ПарамДатаСлдВх', D1);
+			pXL.SetDateVar('ПарамДатаСлдИсх', Add_Day(D2, 1));
+			pXL.SetNumberVar('ПарамВхСальдо', Word(IsSetBt(wTypeRep, btTRSaldoIn)));
+			pXL.SetNumberVar('ПарамПроводки', Word(IsSetBt(wTypeRep, btTROborot)));
+			pXL.SetNumberVar('ПарамИсхСальдо', Word(IsSetBt(wTypeRep, btTRSaldoOut)));
+			pXL.PublishVar;
+
+			// определение таблицы отчета (DBTbl Constructor)
+			pXL.CreateTbls(sXLSName);
+
+			ReportView_Saldo(wModePrint, 1);
+			ReportView_Oborot(wModePrint);
+			ReportView_Saldo(wModePrint, 2);
+		}
+	}
+	_except
+		on excStopRunRep:
+		{
+			Result := false;
+		}
+		on excStopInsErr:
+		{
+			Message('Ошибка при формировании данных', Error);
+		}
+	_finally
+	{
+		if wModePrint > 0
+		{
+    		pXL.LoadReport(sXLSName);
+    		pXL.DisConnectExcel;
+		}
+
+	  	if VisualizationActive StopVisual('', 0);
+	}
+}

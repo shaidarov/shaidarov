@@ -1,0 +1,222 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2012 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Модуль        : Основные средства                                         ║
+ ║ Версия        : 8.10                                                      ║
+ ║ Назначение    : Генерирование инвентарного номера ОС по шаблону           ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+
+ Генерирование номера реализовано по алгоритму
+ XXYNNNNNNN - шаблон номера
+
+ XX - одна цифра кода подразделения с добавлением лидирующего нуля
+      определяется на основе выбранного подразделения в карточке ОС
+
+ Y  - литера "С" - для собственных
+      литера "А" - для арендованных
+      литера "Л" - для полученных в лизинг
+      определяется на основе выбранного в бух.методе признака использования
+
+ NNNNNNN - автоинкрементируемая часть.
+      к последнему найденному номеру заданного шаблона прибавляется единица
+
+ Для генерирования номера данный код подписывается на точки расширения интерфейса KatOS
+
+*/
+
+
+#include KatOs.vih
+
+//------------------------------------------------------------------------------
+// объектный интерфейс и его реализация по генерированию нового инвентарного номера
+//------------------------------------------------------------------------------
+ObjInterface ObjInnumGenPlugIn;
+  function GetNewData(oKatOS: ObjKatOs; sFieldName: string)  : boolean;
+end;
+VipInterface iInnumGenPlugIn implements ObjInnumGenPlugIn;
+
+interface  iInnumGenPlugIn;
+Const
+  cgReport_50010 = 50010;
+end;
+
+create view
+as select *
+from
+    IspOS
+  , KatPodr
+  , KatOs KatOsSearch
+  , UserDeskRep
+;
+
+function GetNewData(oKatOS: ObjKatOs; sFieldName: string)  : boolean;
+var
+  KatOsBuf  : type$KatOs;
+  SpKatOsBuf: type$SpKatOs;
+
+  _InNum    : string;
+  _PrSb     : string;
+  _Podr     : string;
+
+  sRes                : string; // результат
+  sKatOsVar           : string;
+  sFolderKatOsVar     : string;
+  sTmpVar             : string;
+  bEndIt              : boolean;
+  wUniqueInNum        : word;
+  wIncWidth           : word;
+  awSize              : word;
+
+{
+  result  := false;
+  _PrSb   := '';
+  _Podr   := '';
+  _InNum  := '';
+
+  KatOsBuf   := oKatOS.GetKatOSBuff;
+  SpKatOsBuf := oKatOS.GetSpKatOSBuff;
+
+  // добыча первого сегмента инвентарного номера
+  if getfirst KatPodr where (( KatOsBuf.cPodr == KatPodr.Nrec )) = tsOk
+  {
+    _Podr := SubStr(KatPodr.Kod,1,1);
+  }
+  else
+  {
+    Message('Для правильного создания инвентарного номера необходимо выбрать подразделение ОС');
+  }
+
+  // добыча второго сегмента инвентарного номера
+  if SpKatOsBuf.cNastrOS = 0064000000000001h
+  {
+    if getfirst IspOS where (( SpKatOsBuf.cIsp == IspOS.NRec )) = tsOk
+    {
+      if IspOS.PrIsp < 80
+      {
+        case IspOS.PrIsp of
+          71 : _PrSb := 'Л';
+          72 : _PrSb := 'А';
+          else
+               _PrSb := 'С';
+        end;
+      }
+      else
+      {
+        Message('Для правильного создания инвентарного номера необходимо выбрать код признака использования для бухгалтерского метода, т.е. меньше 80');
+      }
+    }
+    else
+    {
+      message ('Не определен признак использования! Он необходим для создания инвентарного номера');
+    }
+  }
+  else
+  {
+    message ('Для правильного создания инвентарного номера необходимо переключиться на бухгалтерский метод учета');
+  }
+
+  // собственно генерация инвентарного номера
+  if _PrSb <> '' and _Podr <> ''
+  {
+    // * НАЧАЛО * генерируем постоянную часть номера ОС
+    wIncWidth := 7;
+    sRes := '0' + _Podr + _PrSb;
+    // * КОНЕЦ * генерируем постоянную часть номера ОС
+
+    // для формирования от хранимого последнего использованного номера
+    if getfirst UserDeskRep where
+                                ((
+                                       sRes           == UserDeskRep.OWNNAME
+                                   and cgReport_50010 == UserDeskRep.NREP
+                                )) <> tsOk
+    {
+      ClearBuffer(tnUserDeskRep);
+      UserDeskRep.OWNNAME      := sRes;
+      UserDeskRep.NREP         := cgReport_50010;
+      UserDeskRep.RESLNGINT[1] := 1;
+      insert current UserDeskRep;
+    }
+
+    var Counter   : longint;
+    var sTmpVar1  : string;
+    var NavigFlag : boolean;
+    Counter  := UserDeskRep.RESLNGINT[1];
+    sTmpVar1 := '';
+
+
+    do
+    {
+      sTmpVar1 := trim (String(Counter, wIncWidth, 0));
+      sTmpVar  := LPadCh(sTmpVar1, '0', wIncWidth);
+
+      NavigFlag := getfirst KatOsSearch where ((
+                                             15              == KatOsSearch.TiDk
+                                         and 1               == KatOsSearch.IsLeaf
+                                         and sRes + sTmpVar  == KatOsSearch.InNum
+                                     )) = tsOk;
+
+      if not NavigFlag
+        NavigFlag := getfirst KatOsSearch where ((
+                                             15              == KatOsSearch.TiDk
+                                         and 0               == KatOsSearch.IsLeaf
+                                         and sRes + sTmpVar  == KatOsSearch.InNum
+                                     )) = tsOk;
+
+      if NavigFlag and KatOsSearch.NRec <> KatOsBuf.NRec
+      { Counter := Counter + 1 }
+      else
+      { NavigFlag := false ;}
+    }
+    while NavigFlag // пока не найдем первый свободный
+
+    UserDeskRep.RESLNGINT[1] := Counter;
+    update current UserDeskRep;
+
+    _InNum := sRes + sTmpVar;
+
+    KatOSBuf.inNum := _InNum;
+    result := true;
+  }
+
+  if (Result)
+    oKatOS.SetKatOSBuff(KatOsBuf);
+}
+end.
+
+
+//------------------------------------------------------------------------------
+// точки расширения интерфейса KatOS
+//------------------------------------------------------------------------------
+
+Handler with replace F_KatOS_OnKatOSInsert on ExtensionPoint
+  epOnKatOSInsert (oKatOS: ObjKatOs)
+Action
+{
+  Result := true;
+}
+
+Handler with replace F_KatOS_epOnKatOSPick on ExtensionPoint
+  epOnKatOSPick (oKatOS: ObjKatOs; sFieldName: string)
+Action
+{
+  var Res : boolean;
+  Res := false;
+
+  if UpCase(sFieldName) = UpCase('katos.innum')
+  {
+    var buf: type$KatOs;
+    buf := oKatOS.GetKatOSBuff;
+
+    // Только для ОС, Для РБП - стандартный обработчик
+    if buf.TiDk = 15
+    {
+      var pInnumGenPlugIn : iInnumGenPlugIn;
+      result := pInnumGenPlugIn.GetNewData(oKatOS, sFieldName);
+    }
+  }
+
+  Result := not Res;
+  // если вернуть false в onPick то стандартная обработка не сработает
+  // если вернуть true, отработает стандартная
+}

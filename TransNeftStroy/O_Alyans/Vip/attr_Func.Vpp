@@ -1,0 +1,238 @@
+#include ExtAttr.Vih //nastr/exclass
+var iAttr : iExtAttr;
+create view vAttr
+var
+ attr_table:word ;
+ attr_name :string ;
+ attr_crec :comp ;
+ attr_nrec :comp ;
+ attr_analitik :word ;
+ attr_ancrec :comp ;
+ attr_ancode :string ;
+as select  AttrNam.nrec
+
+from AttrNam,AttrVal
+,katkau,spkau,spkau spkau1
+where ((
+//внешние атрибуты
+    attr_table ==  AttrNam.wTable
+and attr_name  ==  AttrNam.name
+and attr_table ==  AttrVal.wTable
+and attr_crec    ==  AttrVal.cRec
+and AttrNam.NRec    ==  AttrVal.cAttrNam
+and attr_analitik == katkau.kodgroup
+and attr_ancrec == spkau.nrec
+and katkau.KODGROUP == spkau1.KODGRKAU
+and attr_ancode == spkau1.code
+)) ;
+file fh_attr ; // нужен для чтения мемополей в атрибут
+//============================================
+// проверить наличие записи в значениях
+//============================================
+Function CheckAttr(wtbl :word ;wname :string;wtype :word ) :boolean ;
+{ set vattr.attr_table:=wtbl ;
+  set vattr.attr_name :=wname ;
+  CheckAttr:=true ;
+  if vattr.getfirst AttrNam<>0
+  { vattr.attr_nrec:=iAttr.CreateAttr(wtbl,wname,wtype) ;
+    if vattr.getfirst AttrNam<>0
+    { mylog('ошибка создания внешнего атрибута к таблице '+
+       string(wtbl)+'='+wname)
+      CheckAttr:=false ;
+    }
+  }
+  if vattr.AttrNam.AttrType<>wtype and wtype>0
+  {  mylog('ошибка типа внешнего атрибута к таблице '+
+       string(wtbl)+'='+wname+', заменили '+string(vAttr.AttrNam.AttrType)+
+       'на '+string(wtype))
+    vattr.update current AttrNam set  AttrNam.AttrType:=wtype   ;
+  }
+  
+}
+//============================================
+// проверить наличие записи в значениях
+//============================================
+Function CheckAttrVal(wtbl :word ;wname :string ;wwcrec:comp ) :boolean ;
+{ CheckAttrVal:=false
+  if not CheckAttr(wtbl,wname,0 ) then exit ;
+  set vattr.attr_crec:=wwcrec ;
+  if vattr.getfirst AttrVal<>0
+  { vattr.clearbuffer(vattr.tnAttrVal)
+    vattr.AttrVal.wtable  :=vattr.attr_table ;
+    vattr.AttrVal.cAttrNam:=vattr.AttrNam.nrec ;
+    vattr.AttrVal.crec    :=vattr.attr_crec ;
+    vattr.insert current AttrVal ;
+  }
+  CheckAttrVal:=true ;
+}  
+//============================================
+// получить значение атрибута 
+//============================================
+Function GetAttr(wtbl :word ;wname :string ;wcrec:comp ) :string ;
+{ //CheckAttrVal(wtbl,wname,wcrec )
+/*
+  case vattr.AttrNam.AttrType of
+  0 : GetAttr:=vattr.AttrVal.vstring ;
+  1 : GetAttr:=string(vattr.AttrVal.vdouble) ;
+  2 : GetAttr:=DateToStr(vattr.AttrVal.vdate,'DD/MM/YYYY') ;
+  3 : GetAttr:=TimeToStr(vattr.AttrVal.vtime,'HH/MM/SS') ;
+  5 : GetAttr:=string(vattr.AttrVal.VCOMP) ;
+  end ;
+*/
+
+  GetAttr:='' ;
+  set vattr.attr_table:=wtbl ;
+  set vattr.attr_name :=wname ;
+  set vattr.attr_crec :=wcrec ;
+  if vattr.getfirst AttrNam=0
+  { Mylog(string(vattr.attr_table)+'/'+vattr.AttrNam.name+'/'+string(vattr.AttrNam.AttrType))
+    case vattr.AttrNam.AttrType of
+    5:
+    { if vattr.getfirst attrval=0 
+      { mylog(vattr.attrval.vstring+'/'+ string(vattr.AttrVal.VCOMP) )
+        GetAttr:=string(vattr.AttrVal.VCOMP) ;
+      }
+    }  
+    else
+      GetAttr:=iAttr.sGetAttr (wTbl,wcrec,wname) ;
+    end ;
+  }    
+}
+//============================================
+// установить значение атрибута 
+//============================================
+Procedure SetAttr(wtbl :word ;wname :string ;wwcrec:comp;wval:string );
+var wstr:string ;
+    wnrec :comp ;
+{ if not CheckAttrVal(wtbl,wname,wwcrec ) then exit ;
+  case vattr.AttrNam.AttrType of
+  0 : iAttr.sSetAttr (wtbl,wwcrec,wname,wval) ;
+  1 : iAttr.doSetAttr(wtbl,wwcrec,wname,double(wval)) ;
+  2 : iAttr.dSetAttr (wtbl,wwcrec,wname,StrToDate(wval,'DD/MM/YYYY')) ;
+  3 : iAttr.tSetAttr (wtbl,wwcrec,wname,StrToTime(wval,'HH/MM/SS')) ;
+  4 : iAttr.mSetAttr (wtbl,wwcrec,wname,wval) ;
+  5 : 
+  { wstr:=wval ;
+    wnrec:=comp(wval) ;
+#IFDEF _DOG_IMP_  
+    if wname='основной договор'
+    { 
+      if getfirst dogovor1 where (( comp(wval) == dogovor1.nrec ))=0
+      { wstr:='Дог '+dogovor1.nodoc+' от '+datetostr(dogovor.ddoc,'DD/MM/YYYY')
+      }
+    }
+#ENDIF    
+    mylog('атрибут сссылка= '+wname+',знач.='+string(wnrec)+','+wstr)
+    iAttr.coSetAttr (wtbl,wwcrec,wname,wnrec,wstr) ;
+
+  }
+  end ;
+}
+//============================================
+// устновить атрибут с типом ссылка
+//============================================
+Procedure SetAttrComp(wtbl :word ;wname :string ;wwcrec:comp; wtblan : word ; wval:string );
+var wstr:string ;
+{ if not CheckAttrVal(wtbl,wname,wwcrec ) then exit ;
+  case vattr.AttrNam.AttrType of
+  5 : 
+  { set vAttr.attr_analitik:=wtblan ;
+    set vAttr.attr_ancrec:=comp(wval)
+    if substr(wval,1,1)='.' then 
+    {  wval:=substr(wval,2,length(wval))
+       set vAttr.attr_ancrec:=0 ;
+    }   
+    wstr:=wval ;
+    if vattr.getfirst fastfirstrow katkau=0
+    { case vAttr.katkau.sysnum of
+      1: { // пользовательская
+        if vAttr.attr_ancrec=0 // пришел код
+        { set vAttr.attr_ancode:=wstr ;
+          if vattr.getfirst  fastfirstrow spkau1<>0
+          { vAttr.insert into spkau1 set spkau1.code:=wval,spkau1.name:=wval,SPKAU1.LEVELCODE:=wval ;
+          }
+          set vAttr.attr_ancrec:=vAttr.spkau1.nrec ; 
+        }
+        if vattr.getfirst  fastfirstrow spkau=0
+        { wstr:=vattr.spkau.name
+        }
+      } //1
+      end; //case katkau.sysnum of
+    }
+    iAttr.coSetAttr (wtbl,wwcrec,wname,vAttr.attr_ancrec,wstr) ;
+  }
+  end ;
+}//Procedure SetAttrСomp(wtbl :word ;wname :string ;wwcrec:comp; wtblan : word ; wval:string );
+//============================================
+// установить значение атрибута из DBF
+//============================================
+Procedure SetAttrDBF(wtbl :word ;wname :string ;wwcrec:comp;wfld:string;whandler:longint );
+var wval :string ;
+{ wval:='' ;
+  wfld:=wfld ;
+  if whandler=0 then exit ;
+  if false //if DBF_ReadField(WHandler, wfld  ,wval)=0
+  {  SetAttr(wtbl,wname,wwcrec,wval );
+  }
+}
+//============================================
+// установить загрузить мемо значение атрибута из DBF
+//============================================
+Function SetAttrMemoFromDbf(wtbl :word ;wname :string ;wwcrec:comp;whandler:longint ;wnmfield :string ) : word;
+var wnrec:comp ;
+  k:word ;
+  wstr:string ;
+  wstr1:string; 
+{ SetAttrMemoFromDbf:=10 ;
+  if whandler=0 then exit ;
+  SetAttrMemoFromDbf:=9 ;
+  wnmfield:=wnmfield ;
+  if not CheckAttrVal(wtbl,wname,wwcrec ) then exit ;
+  SetAttrMemoFromDbf:=8 ;
+//   DBFGetMemoFieldValue(DBFALLMEMO, ExImFld.FieldDbf, ALLMEMO.Mem);
+//                if(getfirst AllMemo2 where((coKatOs == AllMemo2.wTable and KATOS.NRec == AllMemo2.cRec)) <> tsOk )
+  wnrec:=vattr.attrval.nrec ;
+//  if getfirst attrval where (( wnrec == attrval.nrec ))<>0 then exit ;
+//4612166960258407030  
+//4612166960258407030
+#IFDEF _DEBUG_
+  mylog('!!! vattr.name='+vattr.attrnam.name+'/'+string(vattr.attrval.crec)+'/'+string(vattr.attrval.nrec))
+#ENDIF  
+//  logstrtofile('!memall.txt',string(wtbl)+'/'+string(vattr.attrval.crec)+'/'+
+//  'vattr.name='+vattr.attrnam.name+'/'+string(vattr.attrval.nrec))
+//  logstrtofile('!memall.txt','========================')
+  SetAttrMemoFromDbf:=7 ;
+  ClearMemoField(vattr.attrval.VLVAR)
+  vattr.update current attrval ;
+//  k:=DBFGetMemoFieldValue(WHandler, wnmfield,attrval.VLVAR)
+//  if k<>0 then exit ;
+
+  if fileexist('!mem.txt') deletefile('!mem.txt')
+  fh_attr.OpenFile('!mem.txt', stCreate);
+
+  for(k:=0;k<=10;inc(k))
+  { if false // DBF_ReadField(WHandler, wnmfield+if(k=0,'',string(k))  ,wstr)<>0 then
+     break ;
+    //wstr:=replace(wstr,chr(187),'"') ;
+    //wstr:=replace(wstr,chr(171),'"') ;
+//    wstr:=CheckStringForGal(wstr) ;
+    while wstr<>'' // порежем на 80 символов
+    { wstr1:=GroupWrap(wstr,1,70)
+      wstr:=substr(wstr,length(wstr1)+1,250) ;
+      fh_attr.Writeline(wstr1) ;
+      if length(wstr)>0
+        fh_attr.Writeln('') ;
+//      logstrtofile('!memall.txt',wstr1)
+    }  
+  }
+  fh_attr.writeln('')
+  fh_attr.close ;
+  if fileexist('!mem.txt')
+    ImportfiletoMemo(vattr.attrval.VLVAR,'!mem.txt',True) ;
+  SetMemoPrefix(vattr.tnattrval,'TXT')  
+  vattr.update current attrval ;
+//  logstrtofile('!memall.txt','========================')
+  SetAttrMemoFromDbf:=0 ;
+
+
+}

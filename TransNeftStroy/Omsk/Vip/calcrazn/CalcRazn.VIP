@@ -1,0 +1,264 @@
+#include CalcRazn.vih
+
+Interface CalcRazn;
+
+Create View
+Var
+  iznmb
+ ,iznmn
+ ,stb
+ ,stn
+ ,iznb
+ ,iznn
+ ,stba
+ ,stna
+ ,iznba
+ ,iznna
+ ,edin
+ ,sumL
+ ,pr_arc
+ ,pr_kat
+ ,pr_ras
+ ,pr
+ ,nnvr
+ ,pnvr
+ ,nvr
+ ,nvvr
+ ,pvvr
+ ,vvr         :double;
+  is_nouch
+ ,is_arc      :boolean;
+
+as select * 
+From
+  katos
+ ,spkatos spkatosb
+ ,spkatos spkatosn
+ ,arciznos arciznosb
+ ,arciznos arciznosn
+ ,spmoveos
+ ,osrazn
+ ,attrval
+ ,attrnam
+;
+//подсчет сумм по разницам
+public function CalcSumRazn(buh, nal: comp; mode: word) : double;
+{
+  iznmb :=0;
+  iznmn :=0;
+  stb   :=0;
+  stn   :=0;
+  iznb  :=0;
+  iznn  :=0;
+  stba  :=0;
+  stna  :=0;
+  iznba :=0;
+  iznna :=0;
+  edin  :=0;
+  sumL  :=0;
+  pr_arc:=0;
+  pr_kat:=0;
+  pr_ras:=0;
+  pr    :=0;
+  nnvr  :=0;
+  pnvr  :=0;
+  nvr   :=0;
+  nvvr  :=0;
+  pvvr  :=0;
+  vvr   :=0;
+  is_nouch :=false;
+  is_arc   :=false;
+ _loop spkatosb where ((buh   == spkatosb.nrec))
+ {
+  iznmb :=spkatosb.SIZNM;
+  stb   :=spkatosb.STOIM;
+  iznb  :=spkatosb.SUMIZN;
+  if spkatosb.chozoper=comp('006400000000026Eh')
+   {
+    iznmb :=0;
+    iznb  :=0;
+   };
+  _loop katos where ((spkatosb.ckatos  == katos.nrec)) {};
+  _loop arciznosb where ((katos.nrec                  == arciznosb.ckatos
+                      and spkatosb.cnastros           == arciznosb.cnastros
+                      and date(Last_Day(Sub_Months(katos.OTCHPER,1)),Month(Sub_Months(katos.OTCHPER,1)),year(Sub_Months(katos.OTCHPER,1))) == arciznosb.data))
+   {
+    stba:=arciznosb.STOIM;
+    iznba:=arciznosb.SUMIZN+arciznosb.SIZNM;
+   };
+ };
+ _loop spkatosn where ((nal   == spkatosn.nrec))
+ {
+  iznmn :=spkatosn.SIZNM;
+  stn   :=spkatosn.STOIM;
+  iznn  :=spkatosn.SUMIZN;
+  if spkatosn.cisp=comp('0064000000000065h')
+   is_nouch:=true;
+  _loop spmoveos where ((word(3)                    == spmoveos.sysoper
+                     and spkatosn.cnastros           == spmoveos.cnastros
+                     and spkatosn.ckatos             == spmoveos.ckatos
+                     and katos.otchper               >> spmoveos.datob
+                     and Add_Day(date(Last_Day(Sub_Months(katos.OTCHPER,1)),Month(Sub_Months(katos.OTCHPER,1)),year(Sub_Months(katos.OTCHPER,1))),1)   << spmoveos.datob))
+    sumL:=sumL+spmoveos.RASHOD;
+  _loop arciznosn where ((katos.nrec                  == arciznosn.ckatos
+                      and spkatosn.cnastros           == arciznosn.cnastros
+                      and date(Last_Day(Sub_Months(katos.OTCHPER,1)),Month(Sub_Months(katos.OTCHPER,1)),year(Sub_Months(katos.OTCHPER,1))) == arciznosn.data))
+   {
+    stna:=arciznosn.STOIM;
+    iznna:=arciznosn.SUMIZN+arciznosn.SIZNM;
+   };
+ };
+ _loop attrnam where ((word(3000)         == attrnam.wtable
+                   and 'ПР к начислению'  == attrnam.name))
+     if ( GetFirst FastFirstRow attrval where (( word(3000)   == attrval.wtable
+                                             and katos.nrec   == attrval.crec
+                                             and attrnam.nrec == attrval.cattrnam )) <> tsOk )
+     {
+        //считаем ПР к списанию pr_kat
+        _loop osrazn where ((word(15)     == osrazn.tidk
+                         and katos.nrec   == osrazn.cdoc
+                         and date(Last_Day(katos.datek),Month(katos.datek),year(katos.datek))  == osrazn.data))
+           edin:=osrazn.NVRNACHM;
+        pr_kat:= (stb-stn-edin)*(stb-iznb)/stb;
+
+        ClearBuffer(#attrval);
+        attrval.wtable   := word(3000);
+        attrval.crec     := katos.nrec;
+        attrval.cattrnam := attrnam.nrec;
+        attrval.vdouble  := pr_kat;
+        insert current attrval;
+
+     } else pr_kat:= attrval.vdouble;
+// message(' pr_kat '+string(pr_kat));
+ _loop arciznosb where ((katos.nrec                  == arciznosb.ckatos
+                     and spkatosb.cnastros           == arciznosb.cnastros
+                     and date(Last_Day(Sub_Months(katos.OTCHPER,1)),Month(Sub_Months(katos.OTCHPER,1)),year(Sub_Months(katos.OTCHPER,1))) == arciznosb.data))
+  {
+   is_arc:=true;
+   _loop attrnam where ((word(3006)         == attrnam.wtable
+                     and 'ПР к начислению'  == attrnam.name))
+       if ( GetFirst FastFirstRow attrval where (( word(3006)       == attrval.wtable
+                                               and arciznosb.nrec   == attrval.crec
+                                               and attrnam.nrec     == attrval.cattrnam )) <> tsOk )
+       {
+          pr_arc:= pr_kat;
+          ClearBuffer(#attrval);
+          attrval.wtable   := word(3006);
+          attrval.crec     := arciznosb.nrec;
+          attrval.cattrnam := attrnam.nrec;
+          attrval.vdouble  := pr_arc;
+          insert current attrval;
+
+       } else pr_arc:= attrval.vdouble;
+  };
+// message(' pr_arc '+string(pr_arc));
+//////////////////////////////////////////////
+ if is_arc
+  {
+//   if ((pr_kat<>pr_arc)/* and (pr_arc=0)*/)
+//    pr_arc:= pr_kat;
+   if stb-stn<>stba-stna
+    if sumL=0
+     pr_arc:=pr_arc+round(((stb-iznb)-(stn-iznn))-((stba-iznba)-(stna-iznna)),2);
+   if sumL=0
+    pr:=round(pr_arc*iznmb/(stb-iznb),2)
+    else pr:=round(pr_arc*iznmb/(stba-iznba),2);
+   pr_kat:=pr_arc-pr+if(sumL=0,0,round(((stb-iznb)-(stn-iznn))-((stba-iznba)-(stna-iznna)),2));
+  } else pr_arc:= pr_kat;
+//  message(' pr_kat '+string(pr_kat)+' pr_arc '+string(pr_arc));
+
+//////////////////////////////////////////////
+
+ _loop osrazn where ((word(15)       == osrazn.tidk
+                  and katos.nrec     == osrazn.cdoc
+                  and katos.OTCHPER  >> osrazn.data))
+     {
+      vvr:=vvr+OSRAZN.VVRNACHM-OSRAZN.VVRPOGM;
+      nvr:=nvr+OSRAZN.NVRNACHM-OSRAZN.NVRPOGM;
+     };
+ if (iznmb-iznmn-pr > 0)
+  {
+   if (nvr>0)
+    {
+     if (nvr>iznmb-iznmn-pr)
+      pnvr:=iznmb-iznmn-pr
+      else
+      {
+       pnvr:=nvr;
+       nvvr:=iznmb-iznmn-pr-nvr;
+      };
+    } else nvvr:=iznmb-iznmn-pr;
+  } else
+     {
+       if (vvr>0)
+        {
+         if (vvr>-(iznmb-iznmn-pr))
+          pvvr:=-(iznmb-iznmn-pr)
+          else
+          {
+           pvvr:=vvr;
+           nnvr:=-(iznmb-iznmn-pr)-vvr;
+          };
+        } else nnvr:=-(iznmb-iznmn-pr);
+     };
+ if (abs(iznmn) < 0.01) is_nouch:=false;
+ if (stb-iznb<0.01 or stn-iznn<0.01)    //еще нужно проанализировать пограничный момент
+  {
+   pr:=pr+nvvr;
+   nvvr:=0;
+   pr:=pr-nnvr;
+   nnvr:=0;
+  };
+  
+ if is_nouch and (abs(stb-iznb) >= 0.01)
+  {
+   pr:=iznmb;
+   nvvr:=-pvvr;
+   pvvr:=0;
+   nnvr:=-pnvr;
+   pnvr:=0;
+  };
+ if is_nouch and (abs(stb-iznb) < 0.01)
+  {
+   pr:=0;
+   nvvr:=-pvvr;
+   pvvr:=0;
+   nnvr:=-pnvr;
+   pnvr:=0;
+  };
+
+////////////////////////////////////
+ _loop attrnam where ((word(3000)         == attrnam.wtable
+                   and 'ПР к начислению'  == attrnam.name))
+     if ( GetFirst FastFirstRow attrval where (( word(3000)   == attrval.wtable
+                                             and katos.nrec   == attrval.crec
+                                             and attrnam.nrec == attrval.cattrnam )) = tsOk )
+     {
+        update current attrval set attrval.vdouble  := pr_kat;
+     };
+// _loop arciznosb where ((katos.nrec                  == arciznosb.ckatos
+//                     and spkatosb.cnastros           == arciznosb.cnastros
+//                     and date(Last_Day(Sub_Months(katos.OTCHPER,1)),Month(Sub_Months(katos.OTCHPER,1)),year(Sub_Months(katos.OTCHPER,1))) == arciznosb.data))
+//   _loop attrnam where ((word(3006)         == attrnam.wtable
+//                     and 'ПР к начислению'  == attrnam.name))
+//       if ( GetFirst FastFirstRow attrval where (( word(3006)       == attrval.wtable
+//                                               and arciznosb.nrec   == attrval.crec
+//                                               and attrnam.nrec     == attrval.cattrnam )) = tsOk )
+//       {
+//          update current attrval set attrval.vdouble  := pr_arc;
+//       };
+
+
+
+/////////////////////////////////////
+CalcSumRazn:=case(mode;
+            1 : pr    ,
+            2 : nvvr  ,
+            3 : pvvr  ,
+            4 : nnvr  ,
+            5 : pnvr
+            ;0)
+/////////////////////////////////////
+
+}
+end.

@@ -1,0 +1,1854 @@
+#include KauReff.vih
+#include xlReport.Vih
+#include Amort.vih
+
+#include ShowKau.vpp
+
+#doc
+  Выгрузка данных из arciznos по картотеке ОС
+#end
+interface User_ArciznosToDBF 'Выгрузка данных по картотеке ОС' (,,) escClose;
+  show at (,,100,39);
+
+var iKauReff    : EditKauReff; // Переменная типа "Интерфеса EditKauReff"
+    pXL         : XLSRepBuilder;
+    iAmort      : Amort;
+    DateFormat  : string;
+    wVybyt      : word;
+    bActualFlag : boolean;
+    bVybytFlag  : boolean;
+
+#declare FieldsUKAU(Kau)
+  , sKau#Kau        : string
+  , kKau#Kau        : string
+#end
+#declare FieldsSKAU(Kau)
+  , sKau#Kau        : string
+  , kKau#Kau        : string
+#end
+#declare FieldsSKAUOrg(Kau)
+  , kKauNREC#Kau    : comp
+  , kKauNum#Kau     : string
+  , kKauINN#Kau     : string
+  , kKauKPP#Kau     : string
+#end
+#declare FieldsSKAU14(Kau)
+  , dKau#Kau        : date
+  , kKau#Kau        : string
+#end
+
+#declare FieldsVisKAU(Kau)
+     stOs.sKau#Kau    'KauReff#Kau.name' : [10], protect;
+     stOs.kKau#Kau    'KauReff#Kau.code' : [10], protect;
+#end
+#declare FieldsVisKAUOrg(Kau)
+     stOs.kKauINN#Kau  'KauReff#Kau.INN' : protect;
+     stOs.kKauKPP#Kau  'KauReff#Kau.KPP' : [10], protect;
+#end
+#declare FieldsViSKAU14(Kau)
+     stOs.dKau#Kau    'KauReff#Kau.date' : protect;
+     stOs.kKau#Kau    'KauReff#Kau.num' : [10], protect;
+#end
+
+#declare FillUKAU(Kau)
+   stOs.sKau#Kau    := GetKauReffName   ('KatOs', KatOs.NRec, #Kau);
+   stOs.kKau#Kau    := GetKauReffStrKod ('KatOs', KatOs.NRec, #Kau);
+#end
+#declare FillSKAU(Kau)
+   stOs.sKau#Kau    := GetKauReffName   ('KatOs', KatOs.NRec, #Kau);
+   stOs.kKau#Kau    := GetKauReffCode   ('KatOs', KatOs.NRec, #Kau);
+#end
+
+#declare FillSKAU40(Kau)
+   if getfirst KatStroy where (( GetKauReffNRec('KatOs', KatOs.NRec, #Kau) == KatStroy.NRec  )) = tsOk
+     stOs.sKau#Kau    := KatStroy.Name;
+   stOs.kKau#Kau    := GetKauReffCode ('KatOs', KatOs.NRec, #Kau);
+#end
+
+#declare FillSKAUOrg(Kau)
+   _cRec := GetKauReffNRec('KatOs', KatOs.NRec, #Kau);
+   if getfirst KatOrg where (( _cRec == KatOrg.NRec)) = tsOk
+   {
+     stOs.kKauNREC#Kau  := KatOrg.NRec;
+     stOs.kKauNum#Kau   := KatOrg.Code;
+     stOs.kKauINN#Kau   := KatOrg.UNN;
+     stOs.kKauKPP#Kau   := KatOrg.KodPlatNDS;
+   }
+#end
+#declare FillSKAU14(Kau)
+   _cRec := GetKauReffNRec('KatOs', KatOs.NRec, #Kau);
+   if getfirst Dogovor where (( _cRec == Dogovor.NRec)) = tsOk
+   {
+     stOs.dKau#Kau   := DOGOVOR.DINPUT;
+     stOs.kKau#Kau   := DOGOVOR.NODOC;
+   }
+#end
+
+#declare CrtFldXLSUKAU(Kau)
+  pXL.CreateTblFld('sKau' + #Kau);
+  pXL.CreateTblFld('kKau' + #Kau);
+#end
+
+#declare CrtFldDBFSKAU(Kau)
+  DBFAddField(DBFHandle, 'S' + #Kau, DbChar, 20, 0);
+#end
+
+#declare CrtFldDBFUKAU(Kau)
+  DBFAddField(DBFHandle, 'U' + #Kau, DbChar, 20, 0);
+#end
+
+#declare SetXLSUKAU(Kau)
+    pXL.SetTblStringFldValue('sKau' + #Kau    , stOs.sKau#Kau);
+    pXL.SetTblStringFldValue('kKau' + #Kau    , stOs.kKau#Kau);
+#end
+#declare SetXLSSKAU(Kau)
+    pXL.SetTblStringFldValue('sKau' + #Kau   , stOs.sKau#Kau);
+    pXL.SetTblStringFldValue('kKau' + #Kau   , stOs.kKau#Kau);
+#end
+
+#declare SetDBFSKAU(Kau)
+    DBFPutFieldValue(DBFHandle, 'S' + #Kau   , stOs.kKau#Kau);
+#end
+#declare SetDBFUKAU(Kau)
+    DBFPutFieldValue(DBFHandle, 'U' + #Kau   , stOs.kKau#Kau);
+#end
+
+Table struct stOs  (
+    cKatOs        : comp
+  , innum         : string
+  , regnum        : string
+  , nameos        : string
+  , zavnom        : string
+  , godv          : date
+  , datek         : date
+  , datok         : date
+  , datv          : date
+  , skodof        : string
+  , kkodof        : string
+  , kol           : double
+  , srokisp       : double
+  , stoim         : double
+  , sumizn        : double
+  , siznm         : double
+  , stoimps       : double
+  , IznosPS       : double
+  , stost         : double
+  , sgrup         : string
+  , kgrup         : string
+  , svid          : string
+  , kvid          : string
+  , snorma        : string
+  , norma         : double
+  , koofsm        : double
+  , sisp          : string
+  , kisp          : string
+  , ispcur        : double
+  , ispps         : double
+  , sgram         : string
+  , kgram         : string
+  , sPrSb         : string
+  , sSposob      : string
+  , spodr         : string
+  , kpodr         : string
+  , smol          : string
+  , kmol          : string
+  , smetod        : string
+  , shozoper      : string
+  , khozoper      : string
+  , sco           : string
+  , kco           : string
+  , perstoim      : double
+  , persumizn     : double
+  , dbreserv      : double
+//  , fullprod      : double
+  , psnum         : string
+
+  , KatSoprNoDoc  : string
+  , KatSoprDDoc   : date
+  , KatSoprOrgName: string
+  , KatSoprOrgINN : string
+  , DogovorNoDoc  : string
+  , DogovorDDoc   : date
+
+   #FieldsSKAUOrg(1)
+   #FieldsSKAU(2)
+   #FieldsSKAU14(14)
+   #FieldsSKAU(22)
+   #FieldsSKAU(40)
+   #FieldsSKAU(43)
+   #FieldsSKAU(72)
+   #FieldsSKAU(50001)
+   #FieldsSKAU(5003)
+   #FieldsSKAUOrg(50000)
+
+   #FieldsUKAU(20009)
+   #FieldsUKAU(20034)
+   #FieldsUKAU(20043)
+   #FieldsUKAU(20054)
+   #FieldsUKAU(20055)
+   #FieldsUKAU(20057)
+   #FieldsUKAU(20064)
+   #FieldsUKAU(20065)
+   #FieldsUKAU(20067)
+   #FieldsUKAU(20073)
+   #FieldsUKAU(20077)
+   #FieldsUKAU(20080)
+   #FieldsUKAU(20081)
+   #FieldsUKAU(20088)
+   #FieldsUKAU(20105)
+   #FieldsUKAU(20106)
+   #FieldsUKAU(20107)
+
+   #FieldsUKAU(50521)
+   #FieldsUKAU(50522)
+
+   , iAmort_Sum1      : double
+   , iAmort_Sum2      : double
+   , iAmort_Sum3      : double
+   , iAmort_Sum4      : double
+   , iAmort_CurSumL   : double
+   , iAmort_AllSumL   : double
+    );
+
+  create view
+  var
+    sXLTFileName
+  , sXLSFileName
+                : string;
+    nReport
+                : word;
+    n
+                : double;
+    _cnorma
+  , _chozoper
+  , _cmetod
+  , _cmol
+  , _ckatpodr
+  , _cisp
+  , _cgrup
+  , _cvid
+  , _cgram
+  , _cco
+  , _cPrSb
+  , _cSposob
+  , _fcRecKatSopr
+                : comp;
+  as select
+     if (UserDeskRep.ResComp[1] <> 0, afpco.Name,
+       if (UserDeskRep.ResWord[1] <> 0, 'Множественный выбор (' + UserDeskRep.ResWord[1] + ')', ''))
+             (FieldName = sfpco),
+     if (UserDeskRep.ResComp[2] <> 0, nastros.Name, '')
+           (FieldName = snastros),
+     UserDeskRep.Resdate[1]  (FieldName = wdate)
+  from
+     PickRep
+   , UserDeskRep
+   , fpco
+   , synonym fpco afpco
+   , KatOs
+   , arciznos
+   , spKatOs
+   , nastros
+   , vidnorma
+   , synonym vidnorma vidnormaval
+   , sterr
+   , gros
+   , klassos
+   , kodof
+   , ispos
+   , PrSb
+   , Sposob
+   , katmol
+   , katpodr
+   , osalg
+   , hozoper
+   , kaureff
+   , synonym kaureff kaureff50001
+   , synonym kaureff kaureff2
+   , synonym katpodr katpodr2
+   , synonym sterr sterr2
+   , stOs
+   , Dogovor
+   , KatOrg
+   , KatStroy
+   , Marka
+   , KatKod
+   , KatSopr KatSoprPost
+   , KatOrg KatOrgPost
+   , Dogovor DogovorPost
+   , Pick
+
+  where
+  ((       UserName                              == UserDeskRep.OwnName
+      and  nReport                               == UserDeskRep.nRep
+      and  UserDeskRep.ResComp[1]                == afpco.nrec
+      and  UserDeskRep.ResComp[2]                == nastros.nrec
+      and  word(15)                              == KatOs.tidk
+      and  word(1)                               == KatOs.isleaf
+      and  KatOs.nrec                            == spKatOs.cKatOs
+      and  UserDeskRep.ResComp[2]                == spKatOs.cnastros
+      and  KatOs.nrec                            == arciznos.cKatOs
+      and  UserDeskRep.ResComp[2]                == arciznos.cnastros
+      and  UserDeskRep.Resdate[1]                == arciznos.data
+      and  _cnorma                               == VIDNORMAval.nrec
+      and  _chozoper                             == HOZOPER.nrec
+      and  _cmetod                               == osalg.nrec
+      and  _cmol                                 == katmol.nrec
+      and  _ckatpodr                             == katpodr.nrec
+      and  _cisp                                 == ispos.nrec
+      and  _cPrSb                                == PrSb.NRec
+      and  _cgrup                                == gros.nrec
+      and  _cSposob                              == Sposob.NRec
+      and  _cvid                                 == vidnorma.nrec
+      and  _cgram                                == klassos.nrec
+      and  _cco                                  == fpco.nrec
+      and  KatOs.cokof                           == kodof.nrec
+
+      and _fcRecKatSopr                           == KatSoprPost.NRec
+      and KatSoprPost.cOrgBase                   == KatOrgPost.NRec
+      and KatSoprPost.cDogovor                   == DogovorPost.NRec
+
+      and  word(3000)                            == kaureff2.cotable
+      and  KatOs.nrec                            == kaureff2.crec
+      and  word(2)                               == kaureff2.wkau
+      and  kaureff2.ckau                         == katpodr2.nrec
+
+      and  word(3000)                            == kaureff.cotable
+      and  KatOs.nrec                            == kaureff.crec
+      and  word(72)                              == kaureff.wkau
+      and  kaureff.ckau                          == sterr.nrec
+
+      and  word(3000)                            == kaureff50001.cotable
+      and  KatOs.nrec                            == kaureff50001.crec
+      and  word(50001)                           == kaureff50001.wkau
+      and  kaureff50001.ckau                     == sterr2.nrec
+
+  ))
+  ;
+
+#include pmarker.vpp
+
+Function DateToStr2(_d : date) : string;
+{
+  result := if (double(_d) <> 0,  DateToStr(_d, DateFormat), '');
+}
+
+Function ToStr(_n : double) : string;
+{
+  result := trim(String(_n, 20, 10));
+}
+
+Function FindInPickRep ( _wList : word ; _cRec : comp ) : word;
+{
+  FindInPickRep := GetFirst PickRep where ((  UserName          == PickRep.OwnName
+                                          and UserDeskRep.nRec  == PickRep.cUserDeskRep
+                                          and _wList            == PickRep.wList
+                                          and _cRec             == PickRep.cRec
+                                          ))
+}
+
+Function ThisRecordIsOK  : boolean;
+{
+  ThisRecordIsOK := false;
+
+// ЦО
+  if( UserDeskRep.ResComp[1] = 0 )
+    {if( UserDeskRep.ResWord[1] <> 0 )
+         if (FindInPickRep( nReport, _cco) <> tsOK)
+              Exit;
+    }
+    else if (_cco <> UserDeskRep.ResComp[1])
+                   Exit ;
+  ThisRecordIsOK := true;
+}
+screen inData;
+  show at (1,1,99,11);
+  noTableNavigation;
+  fields
+    wDate ('Дата отчета',,) : [,'MM/YYYY'], NoProtect;
+    wVybyt ('Выгружать ли выбывшие',,) : NoProtect;
+    sfpco ('Фильтр по ЦО',,sci13Esc  ): Protect, PickButton;
+    snastros ('Метод учета',,sci13Esc  ): Protect, PickButton;
+    UserDeskRep.RESNAME[1] ( 'Файл - шаблон отчета ',) : Protect, PickButton ;
+  buttons
+    cmRun, Default;
+    cmExcel;
+    cmDBF;
+    cmCancel;
+<<
+  Дата             .@@@@@@@@@@@    [.] выгружать действующие`
+                                   [.] выгружать выбывшие`
+  Фильтр по ЦО     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  Метод учета      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  Путь на шаблон   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ <.Заполнить выгрузку.>  <.Выгрузить в Excel.>   <. Выгрузить в DBF .>  <. Выйти .>
+
+>>
+end;
+browse brw1;
+  show at (1,12,99,38);
+  noMove, excelColumns
+  table stos;
+
+fields
+         stOs.innum     'Инв. ном.' : [10], protect;
+         stOs.nameos    'Наименование ОС' : [10], protect;
+         stOs.zavnom    'Заводской ном.' : [10], protect;
+         stOs.psnum     'KatOs.psnum' : [10], protect;
+         stOs.regnum    'Рег. ном.' : [10], protect;
+
+         stOs.godv      'Дата выпуска' : [10], protect;
+         stOs.datek     'Дата ввода' : [10], protect;
+         stOs.datok     'Дата поступления' : [10], protect;
+         stOs.datv      'Дата выбытия' : [10], protect;
+
+         stOs.skodof    'Наименование ОКОФ' : [10], protect;
+         stOs.kkodof    'Код ОКОФ' : [10], protect;
+         stOs.kol       'Количество' : [10], protect;
+         stOs.srokisp   'arciznos.srokisp' : [10], protect;
+         stOs.stoim     'arciznos.stoim' : [10], protect;
+         stOs.sumizn    'arciznos.sumizn' : [10], protect;
+         stOs.siznm     'arciznos.siznm' : [10], protect;
+         stOs.stost     'Ост. ст-ть' : [10], protect;
+         stOs.stoimps   'arciznos.stoimps' : [10], protect;
+         stOs.IznosPS   'ArcIznos.IznosPS' : [10], protect;
+
+         stOs.snorma    'vidnormaval.kod' : [10], protect;
+         stOs.norma     'vidnormaval.norma' : [10], protect;
+         stOs.shozoper  'hozoper.name1' : [10], protect;
+         stOs.khozoper  'hozoper.code' : [10], protect;
+         stOs.smetod    'osalg.name' : [10], protect;
+         stOs.koofsm    'arciznos.koofsm' : [10], protect;
+         stOs.spodr     'katpodr.name' : [10], protect;
+         stOs.kpodr     'katpodr.kod' : [10], protect;
+         stOs.smol      'katmol.name' : [10], protect;
+         stOs.kmol      'katmol.kod' : [10], protect;
+         stOs.sisp      'ispos.nameis' : [10], protect;
+         stOs.kisp      'ispos.prisp' : [10], protect;
+         stOs.sPrSb     'PrSb.Name' : [10], protect;
+         stOs.sSposob   'Sposob.NameSb' : [10], protect;
+         stOs.ispcur    'arciznos.ispcur' : [10], protect;
+         stOs.ispps     'spKatOs.ispps' : [10], protect;
+         stOs.sgrup     'gros.namegr' : [10], protect;
+         stOs.kgrup     'gros.kodgr' : [10], protect;
+         stOs.svid      'vidnorma.name' : [10], protect;
+         stOs.kvid      'vidnorma.kod' : [10], protect;
+         stOs.sgram     'klassos.name' : [10], protect;
+         stOs.kgram     'klassos.kod' : [10], protect;
+         stOs.sco       'fpco.name' : [10], protect;
+         stOs.kco       'fpco.levelcode' : [10], protect;
+         stOs.perstoim  'arciznos.perstoim' : [10], protect;
+         stOs.persumizn 'arciznos.persumizn' : [10], protect;
+         stOs.dbreserv  'spKatOs.dbreserv' : [10], protect;
+//         stOs.fullprod  'KatOs.fullprod' : [10], protect;
+
+         #FieldsVisKAUOrg(1)
+         #FieldsVisKAU(2)
+         #FieldsViSKAU14(14)
+         #FieldsVisKAU(22)
+         #FieldsVisKAU(40)
+         #FieldsVisKAU(43)
+         #FieldsVisKAU(72)
+         #FieldsVisKAU(50001)
+         #FieldsVisKAU(5003)
+         #FieldsVisKAUOrg(50000)
+
+         #FieldsVisKAU(20009)
+         #FieldsVisKAU(20034)
+         #FieldsVisKAU(20043)
+         #FieldsVisKAU(20054)
+         #FieldsVisKAU(20055)
+         #FieldsVisKAU(20057)
+         #FieldsVisKAU(20064)
+         #FieldsVisKAU(20065)
+         #FieldsVisKAU(20067)
+         #FieldsVisKAU(20073)
+         #FieldsVisKAU(20077)
+         #FieldsVisKAU(20080)
+         #FieldsVisKAU(20081)
+         #FieldsVisKAU(20088)
+         #FieldsVisKAU(20105)
+         #FieldsVisKAU(20106)
+         #FieldsVisKAU(20107)
+end;
+
+Create view loPrihKS
+var
+  _cRecSpOrder : comp;
+from
+  SpOrder
+, SpSopr
+, SpSopr SpS_S
+, KatSopr
+, KatSopr KS_S
+, SpecZatr
+where
+((
+      _cRecSpOrder         == SpOrder.NRec
+  and SpOrder.cSpSopr      == SpSopr.NRec
+  and SpSopr.cSopr         == KatSopr.NRec
+  and SpSopr.NRec          == SpecZatr.cUKS
+  and Word(0)              == SpecZatr.coTable(NoIndex)
+  and SpecZatr.cAddSumTune == SpS_S.NRec
+  and SpS_S.cSopr          == KS_S.NRec
+));
+
+Function GetRefKatSopr(pcInSpOrder: comp): comp;
+{
+  GetRefKatSopr := Comp(0);
+  loPrihKS._cRecSpOrder := pcInSpOrder;
+
+  if (loPrihKS.GetFirst SpOrder = tsOk)
+    if (loPrihKS.GetFirst SpSopr = tsOk)
+      if (loPrihKS.GetFirst KatSopr = tsOk)
+        if (loPrihKS.KatSopr.VidSopr <> 115)
+        {
+          GetRefKatSopr := loPrihKS.KatSopr.NRec
+        }
+        else
+        {
+          if (loPrihKS.GetFirst SpecZatr = tsOk)
+            if (loPrihKS.GetFirst SpS_S = tsOk)
+              if (loPrihKS.GetFirst KS_S = tsOk)
+                GetRefKatSopr := loPrihKS.KS_S.NRec
+        }
+};
+
+handleEvent
+cmInsertRecord:
+  Insert Current UserDeskRep;
+
+cmUpdateRecord:
+{  UserDeskRep.OwnName := UserName;
+   update current UserDeskRep;
+}
+
+cmDeleteRecord:
+    Delete Current UserDeskRep;
+
+cmInit:
+{
+  nReport      := 21021;
+  DateFormat   := 'YYYYMMDD';
+  wVybyt       := 1;
+
+  if (GetFirst UserDeskRep <> tsOK)
+    {
+      ClearBuffer(#UserDeskRep);
+       UserDeskRep.OwnName := UserName;
+       UserDeskRep.nRep    := nReport;
+      insert current UserDeskRep;
+    }
+  if (GetFirst afpco    <> tsOK)
+     set UserDeskRep.ResComp[1]:=0;
+  if (GetFirst nastros  <> tsOK)
+     set UserDeskRep.ResComp[2]:=0;
+  if (UserDeskRep.Resdate[1]=0)
+     set UserDeskRep.Resdate[1]:=cur_date;
+
+  if UserDeskRep.RESNAME[1] = '' or (not ExistFile(UserDeskRep.RESNAME[1]))
+     set UserDeskRep.resname[1] := TranslatePath('%ClientStartPath%') + 'xls\_USER\RepOsNew_form2.xlt';
+
+  RescanPanel(#UserDeskRep);
+
+  InitServTXO(0);
+}
+cmDone:
+{
+  DoneServTXO;
+}
+cmPick:
+{
+ var
+  NumPick : Word;
+
+  case CurField of
+     #sfpco:
+    {
+      PickRep2Marker('GetSomeFpCO', NReport, comp(0));
+      if (RunInterface('F_FPCATALOG::GetCO', word(cgiPickMult+cgiNotClear), comp(0), comp(0), UserDeskRep.ResComp[1]) <> cmCancel)
+      {
+        DelPickRep(NReport);
+        Marker2PickRep('GetSomeFpCO', NReport, UserDeskRep.ResComp[1], NumPick);
+        if (NumPick > 1)
+          set UserDeskRep.ResWord[1] := NumPick;
+        else
+          set UserDeskRep.ResWord[1] := 0;
+      }
+    }
+     #snastros:
+    {
+     RunInterface('f_os::NastrOS', word(15), word(5), UserDeskRep.ResComp[2], 0);
+    }
+     #UserDeskRep.RESNAME[1]:
+    {
+      sXLTFileName:=GetFileName ('*.XLT', 'Задайте файл шаблона' ) ;
+      if sXLTFileName<>''
+       set UserDeskRep.RESNAME[1] := sXLTFileName;
+       if ( Not UpdateTable() ) Exit;
+      RescanPanel(#UserDeskRep);
+    }
+
+   end; // case
+        RescanPanel(#UserDeskRep);
+}
+cmDelOnProtect:
+{
+  case CurField of
+    #sfpco:
+      {
+      DelPickRep( nReport );
+       Set UserDeskRep.ResComp[1] := 0;
+       Set UserDeskRep.ResWord[1] := 0;
+      }
+
+      #snastros:
+       Set UserDeskRep.ResComp[2] := 0;
+
+      #UserDeskRep.resname[1]:
+        set UserDeskRep.resname[1] := TranslatePath('%ClientStartPath%') + 'xls\_USER\RepOsNew_form2.xlt';
+  end; // case
+        RescanPanel(#UserDeskRep);
+}
+cmRun:
+{
+  var _cRec    : comp;
+  var _Date    : date;
+  var _CurDate : date;
+
+  set UserDeskRep.Resdate[1]:=date(last_day(UserDeskRep.Resdate[1]),month(UserDeskRep.Resdate[1]),year(UserDeskRep.Resdate[1]));
+  if UserDeskRep.ResComp[2]<>0
+  {
+//   message(DateToStr(UserDeskRep.Resdate[1],'DD-MM-YY'));
+ delete all stOs;
+ n:=0;
+
+ bActualFlag := ((wVybyt and 1) = 1);
+ bVybytFlag  := ((wVybyt and 2) = 2);
+
+ StartNewVisual (vtNumericVisual , vfTimer + vfBreak + vfConfirm,  'Обработка данных', 1);
+
+ _loop KatOs
+ {
+    if bActualFlag
+      if not (Date (1, month(wdate), year(wdate)) <= KatOs.datv or date(0,0,0) = KatOs.datv)
+        continue;
+
+    if bVybytFlag
+      if (Date (1, month(wdate), year(wdate)) <= KatOs.datv)
+        continue;
+
+   _CurDate := Date( Last_Day(UserDeskRep.Resdate[1]), Month(UserDeskRep.Resdate[1]), Year(UserDeskRep.Resdate[1]) );
+
+   if not NextVisual
+     break;
+
+   if (KatOs.otchper=UserDeskRep.Resdate[1])
+   {
+
+   if getfirst spKatOs = tsOk
+   {
+      _cnorma   := spKatOs.cnorma;
+      _chozoper := spKatOs.chozoper;
+      _cmetod   := spKatOs.cmetod;
+      _cmol     := KatOs.cmol;
+      _ckatpodr := KatOs.cpodr;
+      _cisp     := spKatOs.cisp;
+      _cPrSb    := KatOs.cPrSb;
+      _cgrup    := KatOs.cgrup;
+      _cSposob  := KatOs.cSposob;
+      _cvid     := KatOs.cvid;
+      _cgram    := spKatOs.cgram;
+      _cco      := KatOs.cco;
+
+     if ThisRecordIsOK
+       {
+         ClearBuffer(#stOs);
+
+         stOs.cKatOs    := KatOs.NRec;
+         stOs.innum     := KatOs.innum;
+         stOs.nameos    := KatOs.nameos;
+         stOs.zavnom    := KatOs.zavnom;
+         stOs.psnum     := KatOs.psnum;
+         stOs.regnum    := KatOs.REGNUM; // DOPINNUM;
+
+         stOs.godv      := KatOs.godv;
+         stOs.datek     := KatOs.datek;
+         stOs.datok     := KatOs.datok;
+         stOs.datv      := KatOs.datv;
+         stOs.kol       := KatOs.kol;
+//         stOs.fullprod  := KatOs.fullprod;
+
+         if getfirst katpodr = tsOk
+         {
+           stOs.spodr     := katpodr.name;
+           stOs.kpodr     := katpodr.kod;
+         }
+         if getfirst katmol = tsOk
+         {
+           stOs.smol      := katmol.name;
+           stOs.kmol      := katmol.kod;
+         }
+         if getfirst gros = tsok
+         {
+           stOs.sgrup     := gros.namegr;
+           stOs.kgrup     := gros.kodgr;
+         }
+         if getfirst vidnorma = tsOk
+         {
+           stOs.svid      := vidnorma.name;
+           stOs.kvid      := vidnorma.kod;
+         }
+         if getfirst kodof = tsOk
+         {
+           stOs.skodof    := kodof.name_of;
+           stOs.kkodof    := kodof.kod_of;
+         }
+
+         if getfirst PrSb = tsOk
+           stOs.sPrSb     := PrSb.Name;
+
+         if getfirst Sposob = tsOk
+           stOs.sSposob   := Sposob.NameSB;
+
+         if getfirst VIDNORMAval =tsOk
+         {
+           stOs.snorma    := vidnormaval.kod;
+           stOs.norma     := vidnormaval.norma;
+         }
+
+         if getfirst klassos = tsOk
+         {
+         stOs.sgram     := klassos.name;
+         stOs.kgram     := klassos.kod;
+         }
+
+         if getfirst ispos = tsOk
+         {
+           stOs.sisp      := ispos.nameis;
+           stOs.kisp      := ispos.prisp;
+         }
+         if getfirst hozoper = tsok
+         {
+           stOs.shozoper  := hozoper.name1;
+           stOs.khozoper  := hozoper.code;
+         }
+         if getfirst OsAlg = tsOk
+         {
+           stOs.smetod    := osalg.name;
+         }
+         if getfirst fpco = tsOk
+         {
+           stOs.sco       := fpco.name;
+           stOs.kco       := fpco.levelcode;
+         }
+
+         stOs.srokisp   := spKatOs.srokisp;
+         stOs.stoim     := spKatOs.stoim*KatOs.kol;
+         stOs.sumizn    := spKatOs.sumizn*KatOs.kol;
+         stOs.siznm     := spKatOs.siznm*KatOs.kol;
+         stOs.stost     := (spKatOs.stoim-spKatOs.sumizn-spKatOs.siznm)*KatOs.kol;
+
+         stOs.stoimps   := spKatOs.stoimps * KatOs.kol;
+         stOs.IznosPS   := spKatOs.IznosPS * KatOs.kol;
+         stOs.koofsm    := spKatOs.poprkoef;
+         stOs.ispcur    := spKatOs.ispcur;
+         stOs.ispps     := spKatOs.ispps;
+         stOs.perstoim  := spKatOs.perstoim*KatOs.kol;
+         stOs.persumizn := spKatOs.persumizn*KatOs.kol;
+         stOs.dbreserv  := spKatOs.dbreserv;
+
+         if (KatOs.wReserv1 <> osfKatStroy)
+         {
+           _fcRecKatSopr := GetRefKatSopr(KatOs.cInSpOrder);
+           if getfirst KatSoprPost = tsOk
+           {
+             stOs.KatSoprNoDoc   := KatSoprPost.NSopr;
+             stOs.KatSoprDDoc    := KatSoprPost.DSopr;
+           }
+           if getfirst KatOrgPost = tsOk
+           {
+             stOs.KatSoprOrgName := KatOrgPost.Name;
+             stOs.KatSoprOrgINN  := KatOrgPost.UNN;
+           }
+           if getfirst DogovorPost = tsOk
+           {
+             stOs.DogovorNoDoc   := DogovorPost.NODOC_EXT;
+             stOs.DogovorDDoc    := DogovorPost.DDOC;
+           }
+         }
+         else
+           _fcRecKatSopr := 0;
+
+         #FillSKAUOrg(1)
+         #FillSKAU(2)
+         #FillSKAU14(14)
+         #FillSKAU(22)
+         #FillSKAU40(40)
+         #FillSKAU(43)
+         #FillSKAU(72)
+         #FillSKAU(50001)
+
+         _cRec := GetKauReffNRec('KatOs', KatOs.NRec, 5003);
+         if getfirst Marka where (( _cRec  == Marka.NRec )) = tsOk
+         {
+           stOs.sKau5003    := Marka.NM;
+           stOs.kKau5003    := Marka.KodMar
+         }
+
+         #FillSKAUOrg(50000)
+
+         #FillUKAU(20009)
+         #FillUKAU(20034)
+         #FillUKAU(20043)
+         #FillUKAU(20054)
+         #FillUKAU(20055)
+         #FillUKAU(20057)
+         #FillUKAU(20064)
+         #FillUKAU(20065)
+         #FillUKAU(20067)
+         #FillUKAU(20073)
+         #FillUKAU(20077)
+         #FillUKAU(20080)
+         #FillUKAU(20081)
+         #FillUKAU(20088)
+         #FillUKAU(20105)
+         #FillUKAU(20106)
+         #FillUKAU(20107)
+
+         #FillUKAU(50521)
+         #FillUKAU(50522)
+
+         var _Sum1, _Sum2, _Sum3, _Sum4, _CurSumL, _AllSumL   : double
+
+         iAmort.GetSumCalcAmortLgota(   KatOS.TiDk         // wTiDk      : word;
+                                      , KatOS.NRec         // In_cKatOs
+                                      , SpKatOS.cNastros   // In_cNastrOs: comp;
+                                      , _CurDate // In_dAmortOper      // дата операции начисления износа
+                                      , longint(0) // In_dBegOper        // начальная дата периода
+                                      , KatOs.OtchPer // In_dEndOper: date; // конечная дата периода
+                                      , 0 // wMode      : word; // 0 - без детализации,
+                                                                // 1 - по датам
+                                                                // 2 - операции изменения стоимости текущего периода
+                                      ,_Sum1, _Sum2, _Sum3, _Sum4, _CurSumL, _AllSumL // var _Sum1, _Sum2, _Sum3, _Sum4, _CurSumL, _AllSumL   : double
+                                     );
+
+         stOs.iAmort_Sum1      := _Sum1;
+         stOs.iAmort_Sum2      := _Sum2;
+         stOs.iAmort_Sum3      := _Sum3;
+         stOs.iAmort_Sum4      := _Sum4;
+         stOs.iAmort_CurSumL   := _CurSumL;
+         stOs.iAmort_AllSumL   := _AllSumL;
+
+         insert current stOs;
+         nextvisual;
+         n:=n+1;
+//        message('чета пишет');
+       }
+//message('лупит spKatOs');
+   }
+
+   };
+  if (KatOs.otchper>UserDeskRep.Resdate[1])
+   {
+  if getfirst arciznos = tsOk
+   {
+    _cnorma   := arciznos.cnorma;
+    _chozoper := arciznos.chozoper;
+    _cmetod   := arciznos.cmetod;
+    _cmol     := arciznos.cmol;
+    _ckatpodr := arciznos.ckatpodr;
+    _cisp     := arciznos.cisp;
+    _cPrSb    := arciznos.cPrSb;
+    _cgrup    := arciznos.cgrup;
+    _cSposob  := arciznos.cSposob;
+    _cvid     := arciznos.cvid;
+    _cgram    := arciznos.cgram;
+    _cco      := arciznos.cco;
+     if ThisRecordIsOK
+       {
+         ClearBuffer(#stOs);
+
+         stOs.cKatOs    := KatOs.NRec;
+         stOs.innum     := KatOs.innum;
+         stOs.nameos    := KatOs.nameos;
+         stOs.psnum     := KatOs.psnum;
+         stOs.regnum    := KatOs.REGNUM; // DOPINNUM;
+         stOs.zavnom    := KatOs.zavnom;
+
+         stOs.godv      := KatOs.godv;
+         stOs.datek     := KatOs.datek;
+         stOs.datok     := KatOs.datok;
+         stOs.datv      := KatOs.datv;
+//         stOs.fullprod  := KatOs.fullprod;
+
+         if getfirst katpodr = tsOk
+         {
+           stOs.spodr     := katpodr.name;
+           stOs.kpodr     := katpodr.kod;
+         }
+         if getfirst katmol = tsOk
+         {
+           stOs.smol      := katmol.name;
+           stOs.kmol      := katmol.kod;
+         }
+         if getfirst vidnorma = tsOk
+         {
+           stOs.svid      := vidnorma.name;
+           stOs.kvid      := vidnorma.kod;
+         }
+         if getfirst kodof = tsOk
+         {
+           stOs.skodof    := kodof.name_of;
+           stOs.kkodof    := kodof.kod_of;
+         }
+
+         if getfirst PrSb = tsOk
+           stOs.sPrSb     := PrSb.Name;
+
+         if getfirst Sposob = tsOk
+           stOs.sSposob   := Sposob.NameSb;
+
+         if getfirst klassos = tsOk
+         {
+         stOs.sgram     := klassos.name;
+         stOs.kgram     := klassos.kod;
+         }
+         if getfirst VIDNORMAval =tsOk
+         {
+           stOs.snorma    := vidnormaval.kod;
+           stOs.norma     := vidnormaval.norma;
+         }
+         if getfirst hozoper = tsok
+         {
+           stOs.shozoper  := hozoper.name1;
+           stOs.khozoper  := hozoper.code;
+         }
+         if getfirst OsAlg = tsOk
+         {
+           stOs.smetod    := osalg.name;
+         }
+         if getfirst ispos = tsOk
+         {
+           stOs.sisp      := ispos.nameis;
+           stOs.kisp      := ispos.prisp;
+         }
+         if getfirst gros = tsok
+         {
+           stOs.sgrup     := gros.namegr;
+           stOs.kgrup     := gros.kodgr;
+         }
+         if getfirst fpco = tsOk
+         {
+           stOs.sco       := fpco.name;
+           stOs.kco       := fpco.levelcode;
+         }
+
+         stOs.kol       := arciznos.kol;
+         stOs.srokisp   := arciznos.srokisp;
+         stOs.stoim     := arciznos.stoim*arciznos.kol;
+         stOs.sumizn    := arciznos.sumizn*arciznos.kol;
+         stOs.siznm     := arciznos.siznm*arciznos.kol;
+         stOs.stost     := (arciznos.stoim-arciznos.sumizn-arciznos.siznm)*arciznos.kol;
+         stOs.stoimps   := arciznos.stoimps * arciznos.kol;
+         stOs.IznosPS   := arciznos.IznosPS * KatOs.kol;
+         stOs.koofsm    := arciznos.koofsm;
+         stOs.ispcur    := arciznos.ispcur;
+         stOs.ispps     := spKatOs.ispps;  // !!! &&&&&&&&&&&&&&&&&&&
+         stOs.perstoim  := arciznos.perstoim*arciznos.kol;
+         stOs.persumizn := arciznos.persumizn*arciznos.kol;
+         stOs.dbreserv  := spKatOs.dbreserv;
+
+         if (KatOS.wReserv1 <> osfKatStroy) // !!! KatOS
+         {
+           _fcRecKatSopr := GetRefKatSopr(KatOS.cInSpOrder); // !!! KatOS
+           if getfirst KatSoprPost = tsOk
+           {
+             stOs.KatSoprNoDoc   := KatSoprPost.NSopr;
+             stOs.KatSoprDDoc    := KatSoprPost.DSopr;
+           }
+           if getfirst KatOrgPost = tsOk
+           {
+             stOs.KatSoprOrgName := KatOrgPost.Name;
+             stOs.KatSoprOrgINN  := KatOrgPost.UNN;
+           }
+           if getfirst DogovorPost = tsOk
+           {
+             stOs.DogovorNoDoc   := DogovorPost.NODOC_EXT;
+             stOs.DogovorDDoc    := DogovorPost.DDOC;
+           }
+         }
+         else
+           _fcRecKatSopr := 0;
+
+         #FillSKAUOrg(1)
+         #FillSKAU(2)
+         #FillSKAU14(14)
+         #FillSKAU(22)
+         #FillSKAU40(40)
+         #FillSKAU(43)
+         #FillSKAU(72)
+         #FillSKAU(50001)
+         _cRec := GetKauReffNRec('KatOs', KatOs.NRec, 5003);
+         if getfirst Marka where (( _cRec  == Marka.NRec )) = tsOk
+         {
+           stOs.sKau5003    := Marka.NM;
+           stOs.kKau5003    := Marka.KodMar
+         }
+         #FillSKAUOrg(50000)
+
+         #FillUKAU(20009)
+         #FillUKAU(20034)
+         #FillUKAU(20043)
+         #FillUKAU(20054)
+         #FillUKAU(20055)
+         #FillUKAU(20064)
+         #FillUKAU(20065)
+         #FillUKAU(20067)
+         #FillUKAU(20073)
+         #FillUKAU(20077)
+         #FillUKAU(20080)
+         #FillUKAU(20081)
+         #FillUKAU(20088)
+         #FillUKAU(20105)
+         #FillUKAU(20106)
+         #FillUKAU(20107)
+
+         #FillUKAU(50521)
+         #FillUKAU(50522)
+
+         var _Sum1, _Sum2, _Sum3, _Sum4, _CurSumL, _AllSumL   : double
+
+         iAmort.GetSumCalcAmortLgota(   KatOS.TiDk         // wTiDk      : word;
+                                      , KatOS.NRec         // In_cKatOs
+                                      , arciznos.cNastros   // In_cNastrOs: comp;
+                                      , _CurDate // In_dAmortOper      // дата операции начисления износа
+                                      , longint(0) // In_dBegOper        // начальная дата периода
+                                      , KatOs.OtchPer // In_dEndOper: date; // конечная дата периода
+                                      , 0 // wMode      : word; // 0 - без детализации,
+                                                                // 1 - по датам
+                                                                // 2 - операции изменения стоимости текущего периода
+                                      ,_Sum1, _Sum2, _Sum3, _Sum4, _CurSumL, _AllSumL // var _Sum1, _Sum2, _Sum3, _Sum4, _CurSumL, _AllSumL   : double
+                                     );
+
+         stOs.iAmort_Sum1      := _Sum1;
+         stOs.iAmort_Sum2      := _Sum2;
+         stOs.iAmort_Sum3      := _Sum3;
+         stOs.iAmort_Sum4      := _Sum4;
+         stOs.iAmort_CurSumL   := _CurSumL;
+         stOs.iAmort_AllSumL   := _AllSumL;
+
+         insert current stOs;
+         nextvisual;
+         n:=n+1;
+//        message('чета пишет');
+       }
+//message('лупит arciznos');
+   }
+   };
+//message('лупит KatOs');
+  }
+
+  StopVisual('', 0);
+  RescanPanel(#stOs);
+
+//   CloseInterface (cmRun);
+  };
+  else message('Заполните метод учета');
+
+}
+cmExcel:
+{
+  var i : byte;
+
+  sXLTFileName:=UserDeskRep.resname[1];
+  if (true)
+    Set sXLSFileName := pXL.CreateReport(sXLTFileName, True);
+  else
+    Set sXLSFileName := pXL.CreateXLT(sXLTFileName, True);
+
+  StartNewVisual (vtIndicatorVisual , vfTimer + vfBreak + vfConfirm,  'Выгрузка в Excel', n);
+
+  // Инициализация переменных
+  pXL.CreateVar(sXLSFileName);
+
+  // Выгрузка переменных
+
+  pXL.SetStringVar('sMetod', snastros);
+  pXL.SetStringVar('Date',   datetostr(wdate,'Month YYYY'));
+  pXL.SetStringVar('Filtr',  sfpco);
+
+  pXL.PublishVar;
+
+  // Выгрузка таблицы отчёта
+  pXL.CreateTbls(sXLSFileName);
+  // Определение таблицы отчёта (DBTbl Constructor)
+  pXL.CreateTbl('arciznos');
+
+  // Определение полей таблицы
+  pXL.CreateTblFld('innum');
+  pXL.CreateTblFld('nameos');
+  pXL.CreateTblFld('zavnom');
+  pXL.CreateTblFld('psnum');
+  pXL.CreateTblFld('regnum');
+
+  pXL.CreateTblFld('godv');
+  pXL.CreateTblFld('datek');
+  pXL.CreateTblFld('datok');
+  pXL.CreateTblFld('datv');
+  pXL.CreateTblFld('skodof');
+  pXL.CreateTblFld('kkodof');
+  pXL.CreateTblFld('kol');
+  pXL.CreateTblFld('srokisp');
+  pXL.CreateTblFld('stoim');
+  pXL.CreateTblFld('sumizn');
+  pXL.CreateTblFld('siznm');
+  pXL.CreateTblFld('stoimps');
+  pXL.CreateTblFld('IznosPS');
+  pXL.CreateTblFld('stost');
+  pXL.CreateTblFld('snorma');
+  pXL.CreateTblFld('norma');
+  pXL.CreateTblFld('shozoper');
+  pXL.CreateTblFld('khozoper');
+  pXL.CreateTblFld('smetod');
+  pXL.CreateTblFld('koofsm');
+  pXL.CreateTblFld('smol');
+  pXL.CreateTblFld('kmol');
+  pXL.CreateTblFld('spodr');
+  pXL.CreateTblFld('kpodr');
+  pXL.CreateTblFld('sisp');
+  pXL.CreateTblFld('kisp');
+  pXL.CreateTblFld('sPrSb');
+  pXL.CreateTblFld('sSposob');
+  pXL.CreateTblFld('ispcur');
+  pXL.CreateTblFld('ispps');
+  pXL.CreateTblFld('sgrup');
+  pXL.CreateTblFld('kgrup');
+  pXL.CreateTblFld('svid');
+  pXL.CreateTblFld('kvid');
+  pXL.CreateTblFld('sgram');
+  pXL.CreateTblFld('kgram');
+  pXL.CreateTblFld('sco');
+  pXL.CreateTblFld('kco');
+  pXL.CreateTblFld('perstoim');
+  pXL.CreateTblFld('persumizn');
+  pXL.CreateTblFld('dbreserv');
+//  pXL.CreateTblFld('fullprod');
+
+    pXL.CreateTblFld('KatSoprNoDoc');
+    pXL.CreateTblFld('KatSoprDDoc');
+    pXL.CreateTblFld('KatSoprOrgName');
+    pXL.CreateTblFld('KatSoprOrgINN');
+    pXL.CreateTblFld('DogovorNoDoc');
+    pXL.CreateTblFld('DogovorDDoc');
+
+
+    pXL.CreateTblFld('kKauNRec1');
+    pXL.CreateTblFld('kKauCode1');
+    pXL.CreateTblFld('kKauINN1');
+    pXL.CreateTblFld('kKauKPP1');
+    #CrtFldXLSUKAU(2)
+    pXL.CreateTblFld('dKau14');
+    pXL.CreateTblFld('kKau14' );
+    #CrtFldXLSUKAU(22)
+    #CrtFldXLSUKAU(40)
+
+    #CrtFldXLSUKAU(20009)
+    #CrtFldXLSUKAU(20043)
+    #CrtFldXLSUKAU(20054)
+    #CrtFldXLSUKAU(20055)
+    #CrtFldXLSUKAU(20057)
+    #CrtFldXLSUKAU(20064)
+    #CrtFldXLSUKAU(20065)
+    #CrtFldXLSUKAU(20067)
+    #CrtFldXLSUKAU(20073)
+    #CrtFldXLSUKAU(20077)
+    #CrtFldXLSUKAU(20080)
+    #CrtFldXLSUKAU(20081)
+    for(i:=1;i<=9;i++)
+    {
+      pXL.CreateTblFld('AS' + DoubleToStr(i,'77'));
+    }
+    pXL.CreateTblFld('AS02_10');
+    pXL.CreateTblFld('AS02_30');
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГИ ОБЩЕЕ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #CrtFldXLSUKAU(43)
+    pXL.CreateTblFld('kKauNRec50000');
+    pXL.CreateTblFld('kKauCode50000');
+    pXL.CreateTblFld('kKauINN50000');
+    pXL.CreateTblFld('kKauKPP50000');
+    #CrtFldXLSUKAU(50001)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГ НА ИМУЩЕСТВО
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #CrtFldXLSUKAU(72)
+    #CrtFldXLSUKAU(20034)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ТРАНСПОРТНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #CrtFldXLSUKAU(5003)
+    #CrtFldXLSUKAU(20088)
+    for(i:=1;i<=27;i++)
+    {
+      pXL.CreateTblFld('AT' + DoubleToStr(i,'77'));
+    }
+    pXL.CreateTblFld('AT04N');
+    pXL.CreateTblFld('AT04O');
+    pXL.CreateTblFld('AT12N');
+    pXL.CreateTblFld('AT12O');
+    pXL.CreateTblFld('AT20N');
+    pXL.CreateTblFld('AT20O');
+
+    pXL.CreateTblFld('EcoClass1');
+    pXL.CreateTblFld('EcoClass2');
+    pXL.CreateTblFld('EcoClass3');
+    pXL.CreateTblFld('DiffRate1');
+    pXL.CreateTblFld('DiffRate2');
+    pXL.CreateTblFld('DiffRate3');
+    pXL.CreateTblFld('LgotMonths');
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ЗЕМЕЛЬНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////    pXL.SetTblStringFldValue ( 'A10',   sTXOGetExtAttr ('KATOS', 'КадастровыйНомер', stOs.cKatOs));
+    #CrtFldXLSUKAU(20105)
+    #CrtFldXLSUKAU(20106)
+    #CrtFldXLSUKAU(20107)
+    for(i:=1;i<=16;i++)
+    {
+      pXL.CreateTblFld('AZ' + DoubleToStr(i,'77'));
+    }
+
+    pXL.CreateTblFld('iAmort_AllSumL');
+    #CrtFldXLSUKAU(50521)
+    #CrtFldXLSUKAU(50522)
+
+ _loop stOs
+ {
+    pXL.ClearTblBuffer;
+
+    pXL.SetTblStringFldValue('innum'     , stOs.innum);
+    pXL.SetTblStringFldValue('nameos'    , stOs.nameos);
+    pXL.SetTblStringFldValue('zavnom'    , stOs.zavnom);
+    pXL.SetTblStringFldValue('psnum'     , stOs.psnum);
+    pXL.SetTblStringFldValue('regnum'    , stOs.regnum);
+
+    pXL.SetTblDateFldValue  ('godv'      , stOs.godv);
+    pXL.SetTblDateFldValue  ('datek'     , stOs.datek);
+    pXL.SetTblDateFldValue  ('datok'     , stOs.datok);
+    pXL.SetTblDateFldValue  ('datv'      , stOs.datv);
+    pXL.SetTblStringFldValue('skodof'    , stOs.skodof);
+    pXL.SetTblStringFldValue('kkodof'    , stOs.kkodof);
+    pXL.SetTblNumberFldValue('kol'       , stOs.kol);
+    pXL.SetTblNumberFldValue('srokisp'   , stOs.srokisp);
+    pXL.SetTblNumberFldValue('stoim'     , stOs.stoim);
+    pXL.SetTblNumberFldValue('sumizn'    , stOs.sumizn);
+    pXL.SetTblNumberFldValue('siznm'     , stOs.siznm);
+    pXL.SetTblNumberFldValue('stoimps'   , stOs.stoimps);
+    pXL.SetTblNumberFldValue('IznosPS'   , stOs.IznosPS);
+    pXL.SetTblNumberFldValue('stost'     , stOs.stost);
+    pXL.SetTblStringFldValue('snorma'    , stOs.snorma);
+    pXL.SetTblNumberFldValue('norma'     , stOs.norma);
+    pXL.SetTblStringFldValue('shozoper'  , stOs.shozoper);
+    pXL.SetTblStringFldValue('khozoper'  , stOs.khozoper);
+    pXL.SetTblStringFldValue('smetod'    , stOs.smetod);
+    pXL.SetTblNumberFldValue('koofsm'    , stOs.koofsm);
+    pXL.SetTblStringFldValue('smol'      , stOs.smol);
+    pXL.SetTblStringFldValue('kmol'      , stOs.kmol);
+    pXL.SetTblStringFldValue('spodr'     , stOs.spodr);
+    pXL.SetTblStringFldValue('kpodr'     , stOs.kpodr);
+    pXL.SetTblStringFldValue('sisp'      , stOs.sisp);
+    pXL.SetTblStringFldValue('kisp'      , stOs.kisp);
+    pXL.SetTblStringFldValue('sPrSb'     , stOs.sPrSb);
+    pXL.SetTblStringFldValue('sSposob'  , stOs.sSposob);
+    pXL.SetTblNumberFldValue('ispcur'    , stOs.ispcur);
+    pXL.SetTblNumberFldValue('ispps'     , stOs.ispps);
+    pXL.SetTblStringFldValue('sgrup'     , stOs.sgrup);
+    pXL.SetTblStringFldValue('kgrup'     , stOs.kgrup);
+    pXL.SetTblStringFldValue('svid'      , stOs.svid);
+    pXL.SetTblStringFldValue('kvid'      , stOs.kvid);
+    pXL.SetTblStringFldValue('sgram'     , stOs.sgram);
+    pXL.SetTblStringFldValue('kgram'     , stOs.kgram);
+    pXL.SetTblStringFldValue('sco'       , stOs.sco);
+    pXL.SetTblStringFldValue('kco'       , stOs.kco);
+    pXL.SetTblNumberFldValue('perstoim'  , stOs.perstoim);
+    pXL.SetTblNumberFldValue('persumizn' , stOs.persumizn);
+
+    pXL.SetTblNumberFldValue('dbreserv'  , stOs.dbreserv);
+//    pXL.SetTblNumberFldValue('fullprod'  , stOs.fullprod);
+
+    pXL.SetTblStringFldValue('KatSoprNoDoc'    , stOs.KatSoprNoDoc);
+    pXL.SetTblDateFldValue  ('KatSoprDDoc'     , stOs.KatSoprDDoc);
+    pXL.SetTblStringFldValue('KatSoprOrgName'  , stOs.KatSoprOrgName);
+    pXL.SetTblStringFldValue('KatSoprOrgINN'   , stOs.KatSoprOrgINN);
+    pXL.SetTblStringFldValue('DogovorNoDoc'    , stOs.DogovorNoDoc);
+    pXL.SetTblDateFldValue  ('DogovorDDoc'     , stOs.DogovorDDoc);
+
+    pXL.SetTblStringFldValue('kKauNRec1', String(stOs.kKauNRec1,0,0));
+    pXL.SetTblStringFldValue('kKauNum1',  stOs.kKauNum1);
+    pXL.SetTblStringFldValue('kKauINN1',  stOs.kKauINN1);
+    pXL.SetTblStringFldValue('kKauKPP1',  stOs.kKauKPP1);
+    #SetXLSSKAU(2)
+    pXL.SetTblDateFldValue  ('dKau14'   , stOs.dKau14);
+    pXL.SetTblStringFldValue('kKau14'   , stOs.kKau14);
+    #SetXLSSKAU(22)
+    #SetXLSSKAU(40)
+
+    #SetXLSUKAU(20009)
+    #SetXLSUKAU(20043)
+    #SetXLSUKAU(20054)
+    #SetXLSUKAU(20055)
+    #SetXLSUKAU(20057)
+    #SetXLSUKAU(20064)
+    #SetXLSUKAU(20065)
+    #SetXLSUKAU(20067)
+    #SetXLSUKAU(20073)
+    #SetXLSUKAU(20077)
+    #SetXLSUKAU(20080)
+    #SetXLSUKAU(20081)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ОБЩИЕ ATРИБУТЫ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    pXL.SetTblNumberFldValue ( 'AS01',  doTXOGetExtAttr('KATOS', 'ПР к начислению', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS02_10',  doTXOGetExtAttr('KATOS', 'Амортизационная премия', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS02_30',  doTXOGetExtAttr('KATOS', 'Амортизационная премия 30', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS03',  doTXOGetExtAttr('KATOS', 'переоценка до Поступления', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS04',  doTXOGetExtAttr('KATOS', 'Сальдо 98', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS05',  doTXOGetExtAttr('KATOS', 'Сальдо 9802', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS06',  doTXOGetExtAttr('KATOS', 'Поступление 9801', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS07',  doTXOGetExtAttr('KATOS', 'Поступление 9802', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS08',  doTXOGetExtAttr('KATOS', 'Износ 9801', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AS09',  doTXOGetExtAttr('KATOS', 'Износ 9802', stOs.cKatOs));
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГИ ОБЩЕЕ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #SetXLSSKAU(43)
+    pXL.SetTblStringFldValue('kKauNRec50000', String(stOs.kKauNRec50000,0,0));
+    pXL.SetTblStringFldValue('kKauNum50000',  stOs.kKauNum50000);
+    pXL.SetTblStringFldValue('kKauINN50000',  stOs.kKauINN50000);
+    pXL.SetTblStringFldValue('kKauKPP50000',  stOs.kKauKPP50000);
+    #SetXLSSKAU(50001)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГ НА ИМУЩЕСТВО
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #SetXLSSKAU(72)
+    #SetXLSUKAU(20034)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ТРАНСПОРТНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #SetXLSSKAU(5003)
+    #SetXLSUKAU(20088)
+    pXL.SetTblStringFldValue ( 'AT01',  sTXOGetExtAttr ('KATOS', 'ЕдИзмОКЕИ', stOs.cKatOs));
+    pXL.SetTblDateFldValue   ( 'AT02',  dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_1', stOs.cKatOs));
+    pXL.SetTblDateFldValue   ( 'AT03',  dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_1', stOs.cKatOs));
+    // -
+    pXL.SetTblStringFldValue ( 'AT06',  sTXOGetExtAttr ('KATOS', 'ГосНомер_1', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AT07',  doTXOGetExtAttr('KATOS', 'МощностьДвигателя_1', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AT08',  doTXOGetExtAttr('KATOS', 'СтавкаНалога_1', stOs.cKatOs));
+    pXL.SetTblStringFldValue ( 'AT09',  sTXOGetExtAttr ('KATOS', 'ОписИзмПоТрансп_1', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'EcoClass1',  doTXOGetExtAttr ('KATOS', 'ЭкологическийКласс_1', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'DiffRate1',  doTXOGetExtAttr ('KATOS', 'Дифф.ставки_1', stOs.cKatOs));
+
+    pXL.SetTblDateFldValue   ( 'AT10',  dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_2', stOs.cKatOs));
+    pXL.SetTblDateFldValue   ( 'AT11',  dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_2', stOs.cKatOs));
+    // -
+    pXL.SetTblStringFldValue ( 'AT14',  sTXOGetExtAttr ('KATOS', 'ГосНомер_2', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AT15',  doTXOGetExtAttr('KATOS', 'МощностьДвигателя_2', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AT16',  doTXOGetExtAttr('KATOS', 'СтавкаНалога_2', stOs.cKatOs));
+    pXL.SetTblStringFldValue ( 'AT17',  sTXOGetExtAttr ('KATOS', 'ОписИзмПоТрансп_2', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'EcoClass2', doTXOGetExtAttr ('KATOS', 'ЭкологическийКласс_2', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'DiffRate2', doTXOGetExtAttr ('KATOS', 'Дифф.ставки_2', stOs.cKatOs));
+
+    pXL.SetTblDateFldValue   ( 'AT18',  dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_3', stOs.cKatOs));
+    pXL.SetTblDateFldValue   ( 'AT19',  dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_3', stOs.cKatOs));
+    // -
+    pXL.SetTblStringFldValue ( 'AT22',  sTXOGetExtAttr ('KATOS', 'ГосНомер_3', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AT23',  doTXOGetExtAttr('KATOS', 'МощностьДвигателя_3', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AT24',  doTXOGetExtAttr('KATOS', 'СтавкаНалога_3', stOs.cKatOs));
+    pXL.SetTblStringFldValue ( 'AT25',  sTXOGetExtAttr ('KATOS', 'ОписИзмПоТрансп_3', stOs.cKatOs));
+    pXL.SetTblStringFldValue ( 'AT26',  sTXOGetExtAttr ('KATOS', 'КодНалоговойЛьготы', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AT27',  doTXOGetExtAttr('KATOS', 'СуммаНалоговойЛьготы', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'EcoClass3',  doTXOGetExtAttr ('KATOS', 'ЭкологическийКласс_3', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'DiffRate3',  doTXOGetExtAttr ('KATOS', 'Дифф.ставки_3', stOs.cKatOs));
+
+    pXL.SetTblNumberFldValue ( 'LgotMonths',  doTXOGetExtAttr ('KATOS', 'КолМесяцЛьготы', stOs.cKatOs));
+
+    var _cRec : comp;
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'ОКАТОГИБДД', stOs.cKatOs);
+    if getfirst sterr where (( _cRec == sterr.NRec )) = tsOk
+    {
+      pXL.SetTblStringFldValue ( 'AT04N', sterr.sname);   // ! ссылочный атрибут // также используется для земельного налога
+      pXL.SetTblStringFldValue ( 'AT04O', sterr.SGNI_CODE);   // ! ссылочный атрибут // также используется для земельного налога
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'ОКАТОГИБДД_2', stOs.cKatOs);
+    if getfirst sterr where (( _cRec == sterr.NRec )) = tsOk
+    {
+      pXL.SetTblStringFldValue ( 'AT12N',  sterr.sname);
+      pXL.SetTblStringFldValue ( 'AT12O',  sterr.SGNI_CODE);
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'ОКАТОГИБДД_3', stOs.cKatOs);
+    if getfirst sterr where (( _cRec == sterr.NRec )) = tsOk
+    {
+      pXL.SetTblStringFldValue ( 'AT20N',  sterr.sname);
+      pXL.SetTblStringFldValue ( 'AT20O',  sterr.SGNI_CODE);
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'КПП_1', stOs.cKatOs);
+    if getfirst KatKod where (( _cRec == KatKod.NRec )) = tsOk
+    {
+      pXL.SetTblStringFldValue ( 'AT05',   KatKod.Kod);
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'КПП_2', stOs.cKatOs);
+    if getfirst KatKod where (( _cRec == KatKod.NRec )) = tsOk
+    {
+      pXL.SetTblStringFldValue ( 'AT13',   KatKod.Kod);
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'КПП_3', stOs.cKatOs);
+    if getfirst KatKod where (( _cRec == KatKod.NRec )) = tsOk
+    {
+      pXL.SetTblStringFldValue ( 'AT21',   KatKod.Kod);
+    }
+
+    // pXL.SetTblStringFldValue ( 'A16',   sTXOGetExtAttr ('KATOS', 'МаркаТС', stOs.cKatOs));
+    // pXL.SetTblStringFldValue ( 'A24',   sTXOGetExtAttr ('KATOS', 'Подразделение ГИБДД', stOs.cKatOs));
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ЗЕМЕЛЬНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////    pXL.SetTblStringFldValue ( 'A10',   sTXOGetExtAttr ('KATOS', 'КадастровыйНомер', stOs.cKatOs));
+    #SetXLSUKAU(20105)
+    #SetXLSUKAU(20106)
+    #SetXLSUKAU(20107)
+    pXL.SetTblStringFldValue ( 'AZ01',  sTXOGetExtAttr('KATOS', 'ДоляНалогоплательщикаЧислитель', stOs.cKatOs));     // !!! заведено как string
+    pXL.SetTblStringFldValue ( 'AZ02',  sTXOGetExtAttr('KATOS', 'ДоляНалогоплательщикаЗнаменатель', stOs.cKatOs));   // !!! заведено как string
+
+    pXL.SetTblStringFldValue ( 'AZ03',  sTXOGetExtAttr ('KATOS', 'ДоляНеоблагаемойПлощадиЧислитель', stOs.cKatOs));   // !!! заведено как string
+    pXL.SetTblStringFldValue ( 'AZ04',  sTXOGetExtAttr ('KATOS', 'ДоляНеоблагаемойПлощадиЗнаменатель', stOs.cKatOs)); // !!! заведено как string
+
+    pXL.SetTblNumberFldValue ( 'AZ05',  doTXOGetExtAttr('KATOS', 'КадастроваяСтоимость', stOs.cKatOs));
+    pXL.SetTblStringFldValue ( 'AZ06',  sTXOGetExtAttr ('KATOS', 'КадастровыйНомер', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AZ07',  doTXOGetExtAttr('KATOS', 'НалоговаяСтавкаЗемельный', stOs.cKatOs));
+
+    pXL.SetTblStringFldValue ( 'AZ08',  sTXOGetExtAttr ('KATOS', 'КодЛьготы1Земельный', stOs.cKatOs));
+    pXL.SetTblStringFldValue ( 'AZ09',  sTXOGetExtAttr ('KATOS', 'КодЛьготы2Земельный', stOs.cKatOs));
+    pXL.SetTblDateFldValue   ( 'AZ10',  dTXOGetExtAttr ('KATOS', 'НачалоЛьготы', stOs.cKatOs));
+    pXL.SetTblDateFldValue   ( 'AZ11',  dTXOGetExtAttr ('KATOS', 'ОкончаниеЛьготы', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AZ12',  doTXOGetExtAttr('KATOS', 'НеОблагаемаяНалогомСумма080', stOs.cKatOs));
+    pXL.SetTblNumberFldValue ( 'AZ13',  doTXOGetExtAttr('KATOS', 'СуммаНалоговойЛьготы250', stOs.cKatOs));
+    pXL.SetTblStringFldValue ( 'AZ14',  sTXOGetExtAttr ('KATOS', 'ПериодПроектирования', stOs.cKatOs)); // ???
+    pXL.SetTblDateFldValue   ( 'AZ15',  dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_1', stOs.cKatOs));
+    pXL.SetTblDateFldValue   ( 'AZ16',  dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_1', stOs.cKatOs));
+
+    // pXL.SetTblNumberFldValue ( 'AZ07',  doTXOGetExtAttr('KATOS', 'ДоляНалогоплательщика', stOs.cKatOs));
+    // pXL.SetTblStringFldValue ( 'A15',   dTXOGetExtAttr ('KATOS', 'КоличествоПолныхМесяцев', stOs.cKatOs));
+    // pXL.SetTblNumberFldValue ( 'A7',    doTXOGetExtAttr('KATOS', 'ДоляНеоблагаемойПлощади', stOs.cKatOs));
+    // pXL.SetTblNumberFldValue ( 'AZ07',  doTXOGetExtAttr('KATOS', 'КатегорияЗемель', stOs.cKatOs));
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ДОПОЛНИТЕЛЬНЫЕ ATРИБУТЫ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    pXL.SetTblStringFldValue ( 'INNUM_OLD',  sTXOGetExtAttr ('KATOS', 'Предыдущий инвентарный номер', stOs.cKatOs));
+    #SetXLSUKAU(50521)
+    #SetXLSUKAU(50522)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // Амортизационная премия
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    pXL.SetTblNumberFldValue ( 'iAmort_AllSumL',    stOs.iAmort_AllSumL);
+
+    pXL.InsTblRow;
+    if not NextVisual
+      break;
+ }
+  StopVisual(0,0);
+
+  pXL.PublishTbl('arciznos');
+  pXL.LoadReport(sXLSFileName);
+  pXL.DisConnectExcel;
+}
+
+cmDBF:
+{
+  var DBFHandle : longint;
+  var DBFPath   : string;
+
+    DBFPath   := GetStringParameter('Files','TmpFilesDirectory',0) + 'KatOs_ExtKAU.dbf';
+    DBFHandle := DBFOpen(DBFPath, stCreate);
+
+    StartNewVisual (vtIndicatorVisual , vfTimer,  'Выгрузка атрибутов картоеки ОС в DBF', n);
+
+    // Определение полей таблицы
+    DBFAddField(DBFHandle,'INNUM',  DbChar, 64, 0);
+    DBFAddField(DBFHandle,'COS',    DbChar, 20, 0);
+
+    DBFAddField(DBFHandle,'S1'    , DbChar, 20, 0);
+    DBFAddField(DBFHandle,'S1NREC', DbChar, 20, 0);
+    DBFAddField(DBFHandle,'S1INN' , DbChar, 20, 0);
+    DBFAddField(DBFHandle,'S1KPP' , DbChar, 20, 0);
+    #CrtFldDBFSKAU(2)
+    DBFAddField(DBFHandle,'S14N',   DbChar, 40, 0);
+    DBFAddField(DBFHandle,'S14D',   DbDate,  8, 0);
+    #CrtFldDBFSKAU(22)
+    DBFAddField(DBFHandle,'S40CODE',DbChar, 200, 0);
+    DBFAddField(DBFHandle,'S40NAME',DbDate, 200, 0);
+
+    #CrtFldDBFUKAU(20009)
+    #CrtFldDBFUKAU(20043)
+    #CrtFldDBFUKAU(20054)
+    #CrtFldDBFUKAU(20055)
+    #CrtFldDBFUKAU(20057)
+    #CrtFldDBFUKAU(20064)
+    #CrtFldDBFUKAU(20065)
+    #CrtFldDBFUKAU(20067)
+    #CrtFldDBFUKAU(20073)
+    #CrtFldDBFUKAU(20077)
+    #CrtFldDBFUKAU(20080)
+    #CrtFldDBFUKAU(20081)
+
+    DBFAddField(DBFHandle,'AS01', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS02_10', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS02_30', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS03', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS04', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS05', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS06', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS07', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS08', DbNum, 20, 8);
+    DBFAddField(DBFHandle,'AS09', DbNum, 20, 8);
+
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГИ ОБЩЕЕ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #CrtFldDBFSKAU(43)
+    DBFAddField(DBFHandle,'S50000'    , DbChar, 20, 0);
+    DBFAddField(DBFHandle,'S50000NREC', DbChar, 20, 0);
+    DBFAddField(DBFHandle,'S50000INN' , DbChar, 20, 0);
+    DBFAddField(DBFHandle,'S50000KPP' , DbChar, 20, 0);
+
+    DBFAddField(DBFHandle,'S50001N'   , DbChar, 60, 0);
+    DBFAddField(DBFHandle,'S50001O'   , DbChar, 20, 0);
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГ НА ИМУЩЕСТВО
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    DBFAddField(DBFHandle,'S72N'   , DbChar, 60, 0);
+    DBFAddField(DBFHandle,'S72O'   , DbChar, 20, 0);
+    #CrtFldDBFUKAU(20034)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ТРАНСПОРТНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    DBFAddField(DBFHandle,'S5003', DbChar,  80, 0);
+    #CrtFldDBFUKAU(20088)
+
+    DBFAddField(DBFHandle,'AT01',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT02',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AT03',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AT04N', DbChar,  64, 0);
+    DBFAddField(DBFHandle,'AT04O', DbChar,  20, 0);
+    DBFAddField(DBFHandle,'AT05',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT06',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT07',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AT08',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AT09',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT10',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AT11',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AT12N', DbChar,  64, 0);
+    DBFAddField(DBFHandle,'AT12O', DbChar,  20, 0);
+    DBFAddField(DBFHandle,'AT13',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT14',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT15',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AT16',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AT17',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT18',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AT19',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AT20N', DbChar,  64, 0);
+    DBFAddField(DBFHandle,'AT20O', DbChar,  20, 0);
+    DBFAddField(DBFHandle,'AT21',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT22',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT23',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AT24',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AT25',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT26',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AT27',  DbNum,   20, 8);
+
+    DBFAddField(DBFHandle,'EcoClass1', DbNum,   20, 8);
+    DBFAddField(DBFHandle,'EcoClass2', DbNum,   20, 8);
+    DBFAddField(DBFHandle,'EcoClass3', DbNum,   20, 8);
+    DBFAddField(DBFHandle,'DiffRate1', DbNum,   20, 8);
+    DBFAddField(DBFHandle,'DiffRate2', DbNum,   20, 8);
+    DBFAddField(DBFHandle,'DiffRate3', DbNum,   20, 8);
+    DBFAddField(DBFHandle,'LgotMonths', DbNum,   20, 8);
+
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ЗЕМЕЛЬНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////    pXL.SetTblStringFldValue ( 'A10',   sTXOGetExtAttr ('KATOS', 'КадастровыйНомер', stOs.cKatOs));
+    #CrtFldDBFUKAU(20105)
+    #CrtFldDBFUKAU(20106)
+    #CrtFldDBFUKAU(20107)
+
+    DBFAddField(DBFHandle,'AZ01',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ02',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ03',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ04',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ05',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AZ06',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ07',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AZ08',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ09',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ10',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AZ11',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AZ12',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AZ13',  DbNum,   20, 8);
+    DBFAddField(DBFHandle,'AZ14',  DbChar, 255, 0);
+    DBFAddField(DBFHandle,'AZ15',  DbDate,   8, 0);
+    DBFAddField(DBFHandle,'AZ16',  DbDate,   8, 0);
+
+    #CrtFldDBFUKAU(50521)
+    #CrtFldDBFUKAU(50522)
+    DBFAddField(DBFHandle,'iAmort_AllSumL',  DbNum,  20, 8);
+
+ _loop stOs
+ {
+    DBFClearBuffer (DBFHandle);
+
+    DBFPutFieldValue (DBFHandle,'INNUM',      stOs.innum);
+    DBFPutFieldValue (DBFHandle,'COS',        string(stOs.cKatOs,0,0));
+
+    DBFPutFieldValue (DBFHandle,'S1',         stOs.kKauNum1);
+    DBFPutFieldValue (DBFHandle,'S1NREC',     string(stOs.kKauNRec1,0,0));
+    DBFPutFieldValue (DBFHandle,'S1INN',      stOs.kKauINN1);
+    DBFPutFieldValue (DBFHandle,'S1KPP',      stOs.kKauKPP1);
+    #SetDBFSKAU(2)
+    DBFPutFieldValue (DBFHandle,'S14N'  ,     stOs.kKau14);
+    DBFPutFieldValue (DBFHandle,'S14D'  ,     DateToStr2(stOs.dKau14));
+    #SetDBFSKAU(22)
+    //#SetDBFSKAU(40)
+    DBFPutFieldValue (DBFHandle,'S40CODE'  ,     stOs.kKau40);
+    DBFPutFieldValue (DBFHandle,'S40NAME'  ,     stOs.sKau40);
+
+    #SetDBFUKAU(20009)
+    #SetDBFUKAU(20043)
+    #SetDBFUKAU(20054)
+    #SetDBFUKAU(20055)
+    #SetDBFUKAU(20057)
+    #SetDBFUKAU(20064)
+    #SetDBFUKAU(20065)
+    #SetDBFUKAU(20067)
+    #SetDBFUKAU(20073)
+    #SetDBFUKAU(20077)
+    #SetDBFUKAU(20080)
+    #SetDBFUKAU(20081)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ОБЩИЕ ATРИБУТЫ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    DBFPutFieldValue (DBFHandle, 'AS01',  ToStr(doTXOGetExtAttr('KATOS', 'ПР к начислению', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS02_10',  ToStr(doTXOGetExtAttr('KATOS', 'Амортизационная премия', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS02_30',  ToStr(doTXOGetExtAttr('KATOS', 'Амортизационная премия 30', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS03',  ToStr(doTXOGetExtAttr('KATOS', 'переоценка до Поступления', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS04',  ToStr(doTXOGetExtAttr('KATOS', 'Сальдо 98', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS05',  ToStr(doTXOGetExtAttr('KATOS', 'Сальдо 9802', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS06',  ToStr(doTXOGetExtAttr('KATOS', 'Поступление 9801', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS07',  ToStr(doTXOGetExtAttr('KATOS', 'Поступление 9802', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS08',  ToStr(doTXOGetExtAttr('KATOS', 'Износ 9801', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AS09',  ToStr(doTXOGetExtAttr('KATOS', 'Износ 9802', stOs.cKatOs)));
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГИ ОБЩЕЕ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #SetDBFSKAU(43)
+    DBFPutFieldValue(DBFHandle,'S50000NREC', string(stOs.kKauNRec50000,0,0));
+    DBFPutFieldValue(DBFHandle,'S50000',     stOs.kKauNum50000);
+    DBFPutFieldValue(DBFHandle,'S50000INN',  stOs.kKauINN50000);
+    DBFPutFieldValue(DBFHandle,'S50000KPP',  stOs.kKauKPP50000);
+
+    DBFPutFieldValue(DBFHandle,'S50001N',  stOs.sKau50001);
+    DBFPutFieldValue(DBFHandle,'S50001O',  stOs.kKau50001);
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // НАЛОГ НА ИМУЩЕСТВО
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    DBFPutFieldValue(DBFHandle,'S72N',  stOs.sKau72);
+    DBFPutFieldValue(DBFHandle,'S72O',  stOs.kKau72);
+    #SetDBFUKAU(20034)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ТРАНСПОРТНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    DBFPutFieldValue (DBFHandle, 'S5003', stOs.sKau5003);
+
+    #SetDBFUKAU(20088)
+    DBFPutFieldValue (DBFHandle, 'AT01',  sTXOGetExtAttr ('KATOS', 'ЕдИзмОКЕИ', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT02',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_1', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AT03',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_1', stOs.cKatOs)));
+
+    DBFPutFieldValue (DBFHandle, 'AT06',  sTXOGetExtAttr ('KATOS', 'ГосНомер_1', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT07',  doTXOGetExtAttr('KATOS', 'МощностьДвигателя_1', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT08',  doTXOGetExtAttr('KATOS', 'СтавкаНалога_1', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT09',  sTXOGetExtAttr ('KATOS', 'ОписИзмПоТрансп_1', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT10',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_2', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AT11',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_2', stOs.cKatOs)));
+
+    DBFPutFieldValue (DBFHandle, 'AT14',  sTXOGetExtAttr ('KATOS', 'ГосНомер_2', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT15',  doTXOGetExtAttr('KATOS', 'МощностьДвигателя_2', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT16',  doTXOGetExtAttr('KATOS', 'СтавкаНалога_2', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT17',  sTXOGetExtAttr ('KATOS', 'ОписИзмПоТрансп_2', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT18',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_3', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AT19',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_3', stOs.cKatOs)));
+
+    DBFPutFieldValue (DBFHandle, 'AT22',  sTXOGetExtAttr ('KATOS', 'ГосНомер_3', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT23',  doTXOGetExtAttr('KATOS', 'МощностьДвигателя_3', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT24',  doTXOGetExtAttr('KATOS', 'СтавкаНалога_3', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT25',  sTXOGetExtAttr ('KATOS', 'ОписИзмПоТрансп_3', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT26',  sTXOGetExtAttr ('KATOS', 'КодНалоговойЛьготы', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AT27',  doTXOGetExtAttr('KATOS', 'СуммаНалоговойЛьготы', stOs.cKatOs));
+
+    DBFPutFieldValue (DBFHandle, 'EcoClass1',  doTXOGetExtAttr('KATOS', 'ЭкологическийКласс_1', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'EcoClass2',  doTXOGetExtAttr('KATOS', 'ЭкологическийКласс_2', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'EcoClass3',  doTXOGetExtAttr('KATOS', 'ЭкологическийКласс_3', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'DiffRate1',  doTXOGetExtAttr('KATOS', 'Дифф.ставки_1', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'DiffRate2',  doTXOGetExtAttr('KATOS', 'Дифф.ставки_2', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'DiffRate3',  doTXOGetExtAttr('KATOS', 'Дифф.ставки_3', stOs.cKatOs));
+
+    DBFPutFieldValue (DBFHandle, 'LgotMonths',  doTXOGetExtAttr ('KATOS', 'КолМесяцЛьготы', stOs.cKatOs));
+
+    var _cRec : comp;
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'ОКАТОГИБДД', stOs.cKatOs);
+    if getfirst sterr where (( _cRec == sterr.NRec )) = tsOk
+    {
+      DBFPutFieldValue (DBFHandle, 'AT04N', sterr.sname);   // ! ссылочный атрибут // также используется для земельного налога
+      DBFPutFieldValue (DBFHandle, 'AT04O', sterr.SGNI_CODE);   // ! ссылочный атрибут // также используется для земельного налога
+    }
+    else
+    {
+      DBFPutFieldValue (DBFHandle, 'AT04N', '');
+      DBFPutFieldValue (DBFHandle, 'AT04O', '');
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'ОКАТОГИБДД_2', stOs.cKatOs);
+    if getfirst sterr where (( _cRec == sterr.NRec )) = tsOk
+    {
+      DBFPutFieldValue (DBFHandle, 'AT12N',  sterr.sname);
+      DBFPutFieldValue (DBFHandle, 'AT12O',  sterr.SGNI_CODE);
+    }
+    else
+    {
+      DBFPutFieldValue (DBFHandle, 'AT12N',  '');
+      DBFPutFieldValue (DBFHandle, 'AT12O',  '');
+    }
+
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'ОКАТОГИБДД_3', stOs.cKatOs);
+    if getfirst sterr where (( _cRec == sterr.NRec )) = tsOk
+    {
+      DBFPutFieldValue (DBFHandle, 'AT20N',  sterr.sname);
+      DBFPutFieldValue (DBFHandle, 'AT20O',  sterr.SGNI_CODE);
+    }
+    else
+    {
+      DBFPutFieldValue (DBFHandle, 'AT20N',  '');
+      DBFPutFieldValue (DBFHandle, 'AT20O',  '');
+    }
+
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'КПП_1', stOs.cKatOs);
+    if getfirst KatKod where (( _cRec == KatKod.NRec )) = tsOk
+    {
+      DBFPutFieldValue (DBFHandle, 'AT05',  KatKod.Kod);
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'КПП_2', stOs.cKatOs);
+    if getfirst KatKod where (( _cRec == KatKod.NRec )) = tsOk
+    {
+      DBFPutFieldValue (DBFHandle, 'AT13',  KatKod.Kod);
+    }
+
+    _cRec := 0;
+    _cRec := coTXOGetExtAttr ('KATOS', 'КПП_3', stOs.cKatOs);
+    if getfirst KatKod where (( _cRec == KatKod.NRec )) = tsOk
+    {
+      DBFPutFieldValue (DBFHandle, 'AT21',  KatKod.Kod);
+    }
+
+    // DBFPutFieldValue ( 'A16',   sTXOGetExtAttr ('KATOS', 'МаркаТС', stOs.cKatOs));
+    // DBFPutFieldValue ( 'A24',   sTXOGetExtAttr ('KATOS', 'Подразделение ГИБДД', stOs.cKatOs));
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // ЗЕМЕЛЬНЫЙ НАЛОГ
+    //////////////////////////////////////////////////////////////////////////////////////////////    DBFPutFieldValue ( 'A10',   sTXOGetExtAttr ('KATOS', 'КадастровыйНомер', stOs.cKatOs));
+    #SetDBFUKAU(20105)
+    #SetDBFUKAU(20106)
+    #SetDBFUKAU(20107)
+    DBFPutFieldValue (DBFHandle, 'AZ01',  sTXOGetExtAttr('KATOS', 'ДоляНалогоплательщикаЧислитель', stOs.cKatOs));     // !!! заведено как string
+    DBFPutFieldValue (DBFHandle, 'AZ02',  sTXOGetExtAttr('KATOS', 'ДоляНалогоплательщикаЗнаменатель', stOs.cKatOs));   // !!! заведено как string
+
+    DBFPutFieldValue (DBFHandle, 'AZ03',  sTXOGetExtAttr ('KATOS', 'ДоляНеоблагаемойПлощадиЧислитель', stOs.cKatOs));   // !!! заведено как string
+    DBFPutFieldValue (DBFHandle, 'AZ04',  sTXOGetExtAttr ('KATOS', 'ДоляНеоблагаемойПлощадиЗнаменатель', stOs.cKatOs)); // !!! заведено как string
+
+    DBFPutFieldValue (DBFHandle, 'AZ05',  doTXOGetExtAttr('KATOS', 'КадастроваяСтоимость', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AZ06',  sTXOGetExtAttr ('KATOS', 'КадастровыйНомер', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AZ07',  doTXOGetExtAttr('KATOS', 'НалоговаяСтавкаЗемельный', stOs.cKatOs));
+
+    DBFPutFieldValue (DBFHandle, 'AZ08',  sTXOGetExtAttr ('KATOS', 'КодЛьготы1Земельный', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AZ09',  sTXOGetExtAttr ('KATOS', 'КодЛьготы2Земельный', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AZ10',  DateToStr2(dTXOGetExtAttr ('KATOS', 'НачалоЛьготы', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AZ11',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ОкончаниеЛьготы', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AZ12',  doTXOGetExtAttr('KATOS', 'НеОблагаемаяНалогомСумма080', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AZ13',  doTXOGetExtAttr('KATOS', 'СуммаНалоговойЛьготы250', stOs.cKatOs));
+    DBFPutFieldValue (DBFHandle, 'AZ14',  sTXOGetExtAttr ('KATOS', 'ПериодПроектирования', stOs.cKatOs)); // ???
+    DBFPutFieldValue (DBFHandle, 'AZ15',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмНач_1', stOs.cKatOs)));
+    DBFPutFieldValue (DBFHandle, 'AZ16',  DateToStr2(dTXOGetExtAttr ('KATOS', 'ДатаИзмКон_1', stOs.cKatOs)));
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    #SetDBFUKAU(50521)
+    #SetDBFUKAU(50522)
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // Амортизационная премия
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    DBFPutFieldValue (DBFHandle, 'iAmort_AllSumL',  stOs.iAmort_AllSumL);
+
+    DBFInsertRecord(DBFHandle);
+    NextVisual;
+ }
+
+  DBFClose(DBFHandle);
+  stopvisual(0,0);
+  Message ('DBF-файл выгружен по пути ' + DBFPath);
+}
+cmCancel:
+{
+ CloseInterface (cmCancel);
+}
+end;
+end.

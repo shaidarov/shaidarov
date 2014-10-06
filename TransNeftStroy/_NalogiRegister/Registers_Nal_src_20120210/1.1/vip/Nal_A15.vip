@@ -1,0 +1,556 @@
+#include NalFunc.vih
+#include GetKau.vih            // Обьектный интерфес выбора КАУ
+// ==============================  Получение имени организации-налогоплательщика и ее ИНН =======================================
+Interface UserRep_NalA_15 'Карточка аналитического учета нематериальных активов';
+var
+  MyTidk: word;
+#include GetKau.var     // Переменная типа "Интерфеса выбора КАУ"
+create view  vA15
+var
+  KatOSNrec: comp;
+  DFrom, DTo: date;
+  SumAll: double;
+  Str1_24Dt: date;
+  Str1_25S: string;
+  iNalFunc: NalFunc;
+
+  Str1_11Db
+, Str1_26Db
+, Str1_27Db
+, Str1_28Db
+, Str1_29Db
+, Str1_30Db
+, Str1_31Db
+         :double;
+
+  Str1_33Dt
+, TmpDate
+         :date;
+
+from
+ KatOS
+ ,VidNorma
+ ,SpKatOS
+ ,KlassOS
+ ,OSAlg
+ ,KauReff KauReffSPA, SpKau SpKauSPA
+ ,KauReff KauReffGO, SpKau SpKauGO
+ ,KauReff KauReffBU, SpKau SpKauBU
+ ,KauReff KauReffRU, SpKau SpKauRU
+ ,KauReff KauReffVTS, SpKau SpKauVTS
+ ,KauReff KauReffSVA, SpKau SpKauSVA
+
+ ,AttrNam AttrNamDG, AttrVal AttrValDG
+ ,AttrNam AttrNamMD, AttrVal AttrValMD
+ ,AttrNam AttrNamOG, AttrVal AttrValOG
+ ,Sterr SterrOG
+ ,AttrNam AttrNamDGS, AttrVal AttrValDGS
+ ,AttrNam AttrNamNRK, AttrVal AttrValNRK
+ ,AttrNam AttrNamP, AttrVal AttrValP
+ ,KatPodr KatPodrP
+ ,OsRazn
+ ,NastrOS
+where
+((
+        KatOSNrec==KatOS.Nrec
+  and KatOS.cVid==VidNorma.Nrec
+  and KatOS.Nrec==SpKatOS.cKatOS
+  and SpKatOS.cMetod==OSAlg.Nrec
+  and SpKatOS.cGram==KlassOS.Nrec
+
+  //             and comp(0064000000000002h)==SpKatOS.cNastrOS(noindex)
+  and SpKatOS.cNastrOS/==NastrOS.Nrec
+  and 'Налоговый учет'==NASTROS.NAME(noindex)
+  and MyTidk==NastrOS.Tidk(noindex)
+
+
+  ///////////////////////////////////////////////////////////Внешние КАУ////////////////////////////////////////////////////////
+  //Способы поступления активов
+  and KatOS.Nrec==KauReffSPA.cRec
+  and coKatOS==KauReffSPA.coTable
+  and word(20067)==KauReffSPA.wKau
+  and KauReffSPA.cKau==SpKauSPA.Nrec
+
+  //Группы организаций
+  and KatOS.Nrec==KauReffGO.cRec
+  and coKatOS==KauReffGO.coTable
+  and word(68)==KauReffGO.wKau
+  and KauReffGO.cKau==SpKauGO.Nrec
+
+  //Счет БУ для начисления амортизации
+  and KatOS.Nrec==KauReffBU.cRec
+  and coKatOS==KauReffBU.coTable
+  and word(20077)==KauReffBU.wKau
+  and KauReffBU.cKau==SpKauBU.Nrec
+
+  //Виды продукции, работ, услуг
+  and KatOS.Nrec==KauReffRU.cRec
+  and coKatOS==KauReffRU.coTable
+  and word(20009)==KauReffRU.wKau
+  and KauReffRU.cKau==SpKauRU.Nrec
+
+  //Виды транспортных средств
+  and KatOS.Nrec==KauReffVTS.cRec
+  and coKatOS==KauReffVTS.coTable
+  and word(20088)==KauReffVTS.wKau
+  and KauReffVTS.cKau==SpKauVTS.Nrec
+
+  //Способы выбытия активов
+  and KatOS.Nrec==KauReffSVA.cRec
+  and coKatOS==KauReffSVA.coTable
+  and word(20068)==KauReffSVA.wKau
+  and KauReffSVA.cKau==SpKauSVA.Nrec
+
+  //**********************************************************************************************
+
+  ///////////////////////////////////////////////////////////Внешние атрибуты////////////////////////////////////////////////////////
+
+  //ДатаГИБДДПостановка
+  and 'ДатаГИБДДПостановка'==AttrNamDG.name
+  and coKatOS==AttrNamDG.wTable
+  and AttrNamDG.nrec==AttrValDG.cAttrNam
+  and KatOS.Nrec==AttrValDG.cRec(noindex)
+  and coKatOS==AttrValDG.wtable(noindex)
+
+  //Мощность двигателя
+  and 'МощностьДвигателя'==AttrNamMD.name
+  and coKatOS==AttrNamMD.wTable
+  and AttrNamMD.nrec==AttrValMD.cAttrNam
+  and KatOS.Nrec==AttrValMD.cRec(noindex)
+  and coKatOS==AttrValMD.wtable(noindex)
+
+  //ОКАТОГИБДД
+  and 'ОКАТОГИБДД'==AttrNamOG.name
+  and coKatOS==AttrNamOG.wTable
+  and AttrNamOG.nrec==AttrValOG.cAttrNam
+  and KatOS.Nrec==AttrValOG.cRec(noindex)
+  and coKatOS==AttrValOG.wtable(noindex)
+  and AttrValOG.vComp==STerrOG.Nrec
+
+  //Подразделения
+  and 'Подразделение ГИБДД'==AttrNamP.name
+  and coKatOS==AttrNamP.wTable
+  and AttrNamP.nrec==AttrValP.cAttrNam
+  and KatOS.Nrec==AttrValP.cRec(noindex)
+  and coKatOS==AttrValP.wtable(noindex)
+  //and AttrValOG.vComp==KatPodrP.Nrec
+
+  //ДатаГИБДДСнятие
+  and 'ДатаГИБДДСнятие'==AttrNamDGS.name
+  and coKatOS==AttrNamDGS.wTable
+  and AttrNamDGS.nrec==AttrValDGS.cAttrNam
+  and KatOS.Nrec==AttrValDGS.cRec(noindex)
+  and coKatOS==AttrValDGS.wtable(noindex)
+
+  //Номер решения комиссии
+  and 'Номер решения комиссии'==AttrNamNRK.name
+  and coKatOS==AttrNamNRK.wTable
+  and AttrNamNRK.nrec==AttrValNRK.cAttrNam
+  and KatOS.Nrec==AttrValNRK.cRec(noindex)
+  and coKatOS==AttrValNRK.wtable(noindex)
+
+  //**********************************************************************************************
+
+  and KatOs.Nrec==OsRazn.cDoc
+  and KatOS.Tidk==OsRazn.Tidk
+
+));
+create view vGetMr
+var
+  KatOSNrec: tNrec;
+from KatOS,
+        SpMoveOS SpMoveOSMR, MoveOS MoveOSMR, KlassOS KlassOSMR, SpMove SpMoveMR,
+        NastrOS NastrOSMR
+where
+((
+//   KatOSNrec==KatOS.Nrec
+  //////////////////////////////////////////////////////////Операции ОС///////////////////////////////////////////////////////////////
+  //Модернизация и реконструкция
+  vGetMr.KatOSNrec      == SpMoveOSMR.cKatOS(noindex)
+  and MyTidk            == SpMoveOSMR.TipDoc(noindex)
+  and SpMoveOSMR.cMoveOS== MoveOSMR.nrec
+  and MoveOSMR.cOsnov   == KlassOSMR.nrec
+  and SpMoveOSMR.cSpMove== SpMoveMR.nrec
+  and SPMoveMR.cNastrOS == NastrOSMR.nrec
+))
+  and word(3)=MoveOSMR.SysOper
+  and ('1'=KLASSOSMR.KOD or
+       '5'=KLASSOSMR.KOD or
+       '9'=KLASSOSMR.KOD
+       )
+  and 'Налоговый учет' = NASTROSMR.NAME
+  and MyTidk = NastrOSMR.Tidk
+;
+
+create view vGetVP
+var
+  KatOSNrec: comp;
+from
+  KatOS,
+        SpMoveOS SpMoveOSVP, MoveOS MoveOSVP, SpMove SpMoveVP,
+        NastrOS NastrOSVP
+
+where
+((
+//  KatOSNrec==KatOS.Nrec
+  //////////////////////////////////////////////////////////Операции ОС///////////////////////////////////////////////////////////////
+  //Внутреннее перемещение
+   vGetVP.KatOSNrec  == SpMoveOSVP.cKatOS(noindex)
+  and MyTidk            == SpMoveOSVP.TipDoc(noindex)
+  and SpMoveOSVP.cMoveOS== MoveOSVP.nrec
+  and SpMoveOSVP.cSpMove== SpMoveVP.nrec
+  and SPMoveVP.cNastrOS == NastrOSVP.nrec
+))
+  and word(2)=MoveOSVP.SysOper
+  and 'Налоговый учет'=NASTROSVP.NAME
+  and MyTidk=NastrOSVP.Tidk;
+
+function  GetMR(cNrec: comp; var Str1_24Dt: date; var Str1_25S: string;
+                var Str1_11Db: double; var Str1_26Db: double; var Str1_27Db: double;
+                var Str1_28Db: double; var Str1_29Db: double; var Str1_30Db: double;
+                var Str1_31Db: double): boolean;
+{
+  vGetMr.KatOSNrec := cNrec;
+  Str1_11Db:=0;
+  Str1_24Dt:=date(0,0,0);
+  Str1_25S:='';
+  Str1_26Db:=0;
+  Str1_27Db:=0;
+  Str1_28Db:=0;
+  Str1_29Db:=0;
+  Str1_30Db:=0;
+  Str1_31Db:=0;
+
+//  if (vGetMr.GetFirst KatOS = tsok and isValid(#vGetMr.MoveOSMR) and isValid(#vGetMr.SpMoveMR))
+//  {
+    if not (vGetMr.GetFirst MoveOSMR = tsok)
+      exit;
+    if not (vGetMr.GetFirst SpMoveOSMR = tsok)
+      exit;
+    Str1_24Dt := vGetMr.MOVEOSMR.DatOB;
+    Str1_25S := vGetMr.MOVEOSMR.NoDoc;
+
+    Str1_11Db := vGetMr.SpMoveMR.Rashod;
+    Str1_26Db := ABS(vGetMr.SPMoveMR.NewStoim-vGetMr.SPMoveMR.OldStoim);
+
+    Str1_27Db := if ('9'=vGetMr.KLASSOSMR.KOD, ABS(vGetMr.SPMoveMR.NewSumIzn - vGetMr.SPMoveMR.OldSumIzn), 0);
+
+    if ('1' = vGetMr.KLASSOSMR.KOD or '5' = vGetMr.KLASSOSMR.KOD)
+      Str1_28Db := ABS(vGetMr.SPMoveMR.NewSumIzn - vGetMr.SPMoveMR.OldSumIzn);
+    else
+      Str1_28Db:=0;
+    Str1_29Db := vGetMr.SpMoveMR.Rashod;
+    Str1_30Db := vGetMr.SPMOVEMR.OLDSUMIZN;
+    Str1_31Db := vGetMr.SpMoveMR.NewStoim;
+ // }
+}
+function GetVP(cNrec: comp; var Str1_33Dt:date): boolean;
+{
+  vGetVP.KatOSNrec := cNrec;
+  if (vGetVP.GetFirst MoveOSVP = tsok )
+    Str1_33Dt:=vGetVp.MoveOSVP.DatOB;
+  else
+    Str1_33Dt:=date(0,0,0);
+}
+procedure dPrintOneRow(var Row: word; sNum, sName: string; dVal: date);
+{
+  xlSTWriteToMatrix(Row, 1, sNum);/////////!!!!!!!!!!!!!!!!!!
+  xlSTWriteToMatrix(Row, 2, sName);
+  iNalFunc.WriteDate(Row, 3, dVal);
+  Row ++;
+}
+procedure sPrintOneRow(var Row: word; sNum, sName: string; sVal: string);
+{
+  xlSTWriteToMatrix(Row, 1, sNum);/////////!!!!!!!!!!!!!!!!!!
+  xlSTWriteToMatrix(Row, 2, sName);
+  if(trim(sVal) != '' )
+    xlSTWriteToMatrix(Row, 3, sVal);
+  Row ++;
+}
+procedure doPrintOneRow(var Row: word; sNum, sName: string; doVal: string);
+{
+  xlSTWriteToMatrix(Row, 1, sNum);/////////!!!!!!!!!!!!!!!!!!
+  xlSTWriteToMatrix(Row, 2, sName);
+  iNalFunc.WriteSum(Row, 3, doVal);
+  Row ++;
+}
+procedure nPrintOneRow(var Row: word; sNum, sName: string; nVal: string);
+{
+  xlSTWriteToMatrix(Row, 1, sNum);/////////!!!!!!!!!!!!!!!!!!
+  xlSTWriteToMatrix(Row, 2, sName);
+  xlSetNumberFormat ( '@', Row, 3, Row, 3 );
+  xlSTWriteToMatrix(Row,3, nVal);
+
+  Row ++;
+}
+
+procedure PrintReport;
+var
+  CurIndex
+ ,NPP, i: word;
+  Sum :double;
+  numCol: word;
+  OrgName, INN: string;
+  SchetK: string;
+  KatStroyNrec: tNrec;
+  Summ1, Summ21
+ ,XX, Summ01
+ ,Summ0899all, Summ0899
+ ,Summ3, Summ4
+ ,Summ22, Summ2
+ ,Summ8a, gr9new, gr9
+ ,itogo4, itogo5
+ ,itogo6, itogo7
+ ,itogo8a, itogoNalStoim
+ ,itogo9, itogo9new : double;
+{
+#declare _loopOsRazn(f, num)
+    Npp:=1;
+    _loop OSRazn
+    {
+      if (OsRazn.#f != 0)
+      {
+        doPrintOneRow(CurIndex, #num + string(Npp)+'.', 'В том числе за '+month(OSRazn.Data)+'.'+year(OSRazn.Data)+'г. (месяц, год)',
+                               OsRazn.#f);
+        Npp ++;
+        SumAll += OsRazn.#f;
+      }
+    }
+#end
+  //numCol := 13;
+
+  iNalFunc.GetOrgInfo(OrgName, INN);
+  xlCreateExcel('',true);
+  xlCreateMatrix(5000,3);
+
+
+  //xlSetColumnWidth(25,1,1,1,1);
+  //xlSetFontStyle(1,1,1,1,1);
+  //xlAlignCellsEx(3,2,1,1,1,1);
+  //xlMergeCells(CurIndex,2,CurIndex,3);
+  //xlSTWriteToMatrix(1,1,'Оплаченность отгрузок за период с '+dBeg+' по '+dEnd);
+
+
+  xlSetColumnWidth(7,1,1,1,1);
+  xlSetColumnWidth(58,1,2,1,2);
+  xlSetColumnWidth(19,1,3,1,3);
+
+  CurIndex:=1;
+
+// RunInterface(getOrgNP,OrgName,INN);
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'Наименование организации налогоплательщика: '+OrgName);
+  CurIndex:=CurIndex+1;
+
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'ИНН налогоплательщика: '+INN);
+  CurIndex:=CurIndex+2;
+
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'Дата составления "__" ___________200_г.');
+  CurIndex:=CurIndex+2;
+
+  xlMergeCells(CurIndex,1,CurIndex,3);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,3);
+  xlSetFontSize(12,1,1,2,1);
+  xlSTWriteToMatrix(CurIndex,1,'Регистр № A 1.5. Карточка аналитического учета нематериальных активов');
+  CurIndex:=CurIndex+1;
+
+  xlMergeCells(CurIndex,1,CurIndex,3);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,3);
+  //xlSetFontSize(12,1,1,1,1);
+  xlSTWriteToMatrix(CurIndex,1,'');
+  CurIndex ++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex + 1,3);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,3);
+  sPrintOneRow(CurIndex, '№ п/п', 'Показатель','Значение');
+  sPrintOneRow(CurIndex, '1', '2','3');
+
+  Npp:=1;
+  StartNewVisual(vtRotateVisual , vfTimer + vfBreak + vfConfirm, 'Формирование отчета', 0);
+  if (GetFirst KatOS=tsok)
+  {
+    xlAlignCellsEx(3,2,CurIndex,1,5000,1);
+    xlAlignCellsEx(2,2,CurIndex,2,5000,2);
+    xlAlignCellsEx(4,2,CurIndex,3,5000,3);
+
+    xlSetFontStyle(1,CurIndex,1,CurIndex,3);
+    sPrintOneRow(CurIndex, '1.', 'Общие сведения','');
+    sPrintOneRow(CurIndex, '1.а.', '№',''''+katos.innum);
+    sPrintOneRow(CurIndex, '1.б.', 'Наименование',katos.nameos);
+    dPrintOneRow(CurIndex, '1.1.', 'Дата постановки на учет', KATOS.DATEK);
+    dPrintOneRow(CurIndex, '1.2.', 'Дата начала начисления амортизации', date(1,month(Add_Months(KatOS.DateK,1)),year(Add_Months(KatOS.DateK,1))));
+    doPrintOneRow(CurIndex, '1.3.', 'Первоначальная стоимость', if(GetFirst SPKATOS = tsOk, SPKATOS.STOIM, 0));
+
+    GetMR(KatOS.Nrec, Str1_11Db, Str1_24Dt, Str1_25S, Str1_26Db, Str1_27Db, Str1_28Db, Str1_29Db, Str1_30Db, Str1_31Db);
+   //  RunInterface(GetMR,KatOS.Nrec, Str1_11Db, Str1_24Dt, Str1_25S, Str1_26Db, Str1_27Db, Str1_28Db, Str1_29Db, Str1_30Db, Str1_31Db);
+    sPrintOneRow(CurIndex, '1.4.', 'Срок полезного использования (в налоговом учете), месяцев', SpKatos.SrokIsp);
+    nPrintOneRow(CurIndex, '1.5.', 'Метод начисления амортизации', if(GetFirst OSALG = tsOk, OSALG.NAME, ''));
+    sPrintOneRow(CurIndex, '1.6.', 'Норма амортизации', DoubleToStr(round(100/SpKatos.SrokIsp,4), '[|-]3666666666.8888'));
+    doPrintOneRow(CurIndex, '1.7.', 'Сумма ежемесячно начисляемой амортизации', SPKATOS.SIZNM);
+    sPrintOneRow(CurIndex, '1.8.', 'Способ поступления', if(GetFirst SpKauSPA = tsOk, SpKauSPA.Name, ''));
+    sPrintOneRow(CurIndex, '1.9.', 'Признак получения от материнской (дочерней) компании с долей участия свыше 50% (да/нет)',
+                                    if(GetFirst SPKauGO = tsOk, SPKauGO.Name, ''));
+    nPrintOneRow(CurIndex, '1.10.', 'Счет НУ для начисления амортизации', '9' + if(GetFirst SPKauBU = tsOk, SPKauBU.Name, ''));
+    sPrintOneRow(CurIndex, '1.11.', 'КАУ по справочнику "Виды продукции, работ, услуг" (для счета 920, 923 и 929) и "Подразделения" (для счета 929',
+                                    if(GetFirst SpKauRU = tsOk, SpKauRU.Name, ''));
+    doPrintOneRow(CurIndex, '1.12.', 'Остаточная стоимость по состоянию на момент открытия карточки',
+                                     SPKATOS.STOIM - SPKATOS.SUMIZN - SPKATOS.SIZNM);
+    GetVP(KatOS.Nrec, Str1_33Dt);
+
+    dPrintOneRow(CurIndex, '1.13.', 'Дата исключения из состава амортизируемого имущества', Str1_33Dt);
+    sPrintOneRow(CurIndex, '1.14.', 'Способ выбытия', if(GetFirst SpKauSVA = tsOk, SpKauSVA.Name, ''));
+
+    xlSetFontStyle(1,CurIndex,1,CurIndex + 1,3);
+    sPrintOneRow(CurIndex, '2.', 'Сведения о накопленных и списанных постоянных и временных разницах', '');
+    sPrintOneRow(CurIndex, '2.1.', 'Сумма начисленных налогооблагаемых временных разниц', '');
+    SumAll:=0;
+    #_loopOsRazn(NVRNach, '2.1.')
+
+    xlSetFontStyle(1,CurIndex,1,CurIndex,3);
+    sPrintOneRow(CurIndex, '2.2.', 'Сумма погашенных налогооблагаемых временных разниц', '');
+    #_loopOsRazn(NVRPog, '2.2.')
+
+    xlSetFontStyle(1,CurIndex,1,CurIndex,3);
+    sPrintOneRow(CurIndex, '2.3.', 'Сумма начисленных вычитаемых временных разниц', '');
+    #_loopOsRazn(VVRNach, '2.3.')
+
+    xlSetFontStyle(1,CurIndex,1,CurIndex,3);
+    sPrintOneRow(CurIndex, '2.4.', 'Сумма погашенных вычитаемых временных разниц', '');
+    #_loopOsRazn(VVRPog, '2.4.')
+
+    xlSetFontStyle(1,CurIndex,1,CurIndex,3);
+    doPrintOneRow(CurIndex, '2.5.', 'Общая сумма сформированных постоянных разниц', SumAll);
+
+    xlSetFontStyle(1,CurIndex,1,CurIndex,3);
+    sPrintOneRow(CurIndex, '2.6.', 'Сумма списанных (признанных) постоянных разниц', '');
+    #_loopOsRazn(PR, '2.6.')
+  }
+
+  CurIndex --;
+  xlWrapText(3,1,CurIndex,3);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,3,1,CurIndex,3);
+
+  CurIndex += 2;
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+  CurIndex ++;
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  StopVisual('',0);
+}
+procedure Run;
+{
+//  MtClear(#TabVeksl, mfNormal);
+//  FillTable;
+  PrintReport;
+}
+HandleEvent
+cmInit:
+{
+  MyTidk := cgKau_NMA;
+  //iGetKau.GetCodeKau(cgiPick, MyTidk, KatOSNrec);
+  KatOSNrec := iNalFunc.RunTuneWKatOS(MyTidk);
+  if (KatOSNrec <> 0)
+    Run;
+}
+end;
+
+
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalA_15 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalA_15  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalA_15');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'А 1.5. Карточка аналитического учета нематериальных активов';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+    2 : GetGroupName := 'A';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

@@ -1,0 +1,645 @@
+//для склонения
+//#include odecl.vih - есть в проекте
+
+#include PodrFilterDef.Vih
+
+#component "F_USERREPORT"
+
+Interface PodrFilterDef ;
+var
+ tp_spr :word ;
+ marker :longint ;
+ namefilter :string ;
+ logfilekl :boolean;
+ logfilenm :string ;
+ shot_name :boolean ;
+parameters tp_spr , marker , namefilter ;
+table struct tmp_podrfilter
+( name :string ,
+  nrec :comp   ,
+  cparent : comp ,
+  code : string ,
+  pa :word ,
+  kolchild : longint
+) with index
+( tmp_podrfilter01 = nrec ,
+  tmp_podrfilter02 = cparent ,
+  tmp_podrfilter03 = pa+nrec
+) ;
+create view vGetPodrFilter
+var
+ wpodrfilter :comp ;
+ wpodr_hist:date ;
+ w_cfpco :comp ;
+as select catalogs.name
+from catalogs,catalogs catup
+,tmp_podrfilter(tmp_podrfilter01) ,tmp_podrfilter tmp_podrfilter1
+,katpodr ,katpodr katpodr_up ,Pick
+,fpco
+where ((
+  wpodrfilter == catalogs.nrec
+  and  tmp_podrfilter.nrec  == catup.cparent
+  and wpodrfilter == CATHIST.CCAT
+  and wpodr_hist >>=CATHIST.DAT1
+  and wpodrfilter == katpodr.nrec
+  and tmp_podrfilter.nrec  == katpodr_up.cpodr
+  and w_cfpco == fpco.nrec
+   ))
+  ;
+#include podr_zarflt.vpp
+
+Procedure SetLogFile (w :string) ;
+{
+  if w<>''
+  {  logfilenm:=w ;
+     logfilekl:=true ;
+  }
+  else
+   logfilekl:=false ;
+
+}
+procedure Mylog(w :string );
+{ if logfilekl
+    logstrtofile(logfilenm,w)
+  exit ;
+//  w:=w ;
+}
+#include attr_Func.Vpp
+//========================================
+Procedure SetShot_Name(w : boolean ) ;
+{ shot_name:=w ;
+}
+#include Marker_my.Vpp
+
+public Function GetPodrFilterName(wMarker :longint ):string  ;
+  var
+  i        : LongInt ;
+  Item     : Comp ;
+  MrkCount : LongInt ;
+  wwkl:boolean ;
+{
+//  message('1') ;
+  if fileexist('!pfier.log') deletefile('!pfier.log') ;
+  delete all tmp_podrfilter ;
+  GetPodrFilterName :=''
+  MrkCount := GetMarkerCount(wMarker) - 1 ;
+  if MrkCount=-1
+  { GetPodrFilterName:='нет выбранных подразделений'
+    exit ;
+
+  }
+  set wpodrfilter:=0 ;
+  if MrkCount=0
+  { if (GetMarker(wMarker, 0, Item))
+    { wpodrfilter:=Item ;
+      if getfirst catalogs=0
+      GetPodrFilterName:=catalogs.name
+    }
+    exit ;
+  }
+  wpodrfilter:=0 ;
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfconfirm,
+        ''#3'Определяем помеченность одной ветки', 0);
+  nextvisual ;
+//  message('2') ;
+  for (i := 0; i <= MrkCount; i := i + 1)
+  {  if (GetMarker(wMarker, i, Item))
+     { wpodrfilter:=Item ;
+      if getfirst catalogs=0
+      { tmp_podrfilter.nrec:=catalogs.nrec ;
+        tmp_podrfilter.cparent:=catalogs.cparent ;
+        tmp_podrfilter.name:=catalogs.name ;
+        tmp_podrfilter.code:=catalogs.code ;
+        tmp_podrfilter.pa:=0 ;
+        insert current tmp_podrfilter ;
+
+      }
+    }
+  }
+  i:=0 ;
+  wpodrfilter:=0 ;
+//  message('3') ;
+//mylog('========')
+  nextvisual ;
+  external _loop tmp_podrfilter
+  { inc(i)
+//mylog('01 '+tmp_podrfilter.pa+'/'+tmp_podrfilter.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter.cparent)
+    if i mod 10=0
+    { if not nextvisual then break ;
+    }
+    if i>100000 then
+    { message('Критическая ошибка проверки иерархии')
+      break ;
+    }
+    if getfirst tmp_podrfilter1 where ((
+      tmp_podrfilter.cparent == tmp_podrfilter1.nrec )) =0
+    { tmp_podrfilter.pa:=1 ;
+      update current tmp_podrfilter ;
+      tmp_podrfilter1.kolchild:=tmp_podrfilter1.kolchild+1 ;
+      update current tmp_podrfilter1 ;
+//mylog('02 '+tmp_podrfilter1.pa+'/'+tmp_podrfilter1.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter1.cparent)
+    }
+  }
+//  rereadrecord ;
+  if getfirst tmp_podrfilter1
+  where (( 0 == tmp_podrfilter1.pa))  =0
+  {
+//mylog('03 '+tmp_podrfilter1.pa+'/'+tmp_podrfilter1.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter1.cparent)
+    if getnext tmp_podrfilter1
+    where (( 0 == tmp_podrfilter1.pa))  =0
+    { // значится несколько веток пометили - пропускаем
+//mylog('04 '+tmp_podrfilter1.pa+'/'+tmp_podrfilter1.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter1.cparent)
+      GetPodrFilterName:='по '+string(GetMarkerCount(wMarker))+'подр.'
+    }
+    else // нужно еще проверить а все ли нижестоящие помечены
+    { wwkl:=true ;
+      _loop tmp_podrfilter
+      { inc(i)
+        if i mod 10=0 nextvisual ;
+        if i>100000 then
+        { message('Критическая ошибка проверки иерархии')
+          break ;
+        }
+        MrkCount:=0
+        _loop catup
+        { inc(MrkCount)
+
+        }
+        if MrkCount<>tmp_podrfilter.kolchild
+        {
+          GetPodrFilterName:='по '+string(GetMarkerCount(wMarker))+'подразд.'
+//          exit ;
+          wwkl:=false ;
+          break ;
+        }
+      }
+      if wwkl
+      { if getfirst tmp_podrfilter1
+        where (( 0 == tmp_podrfilter1.pa))  =0
+        {
+          set wpodrfilter:=tmp_podrfilter1.nrec ;
+          if getfirst catalogs=0
+           GetPodrFilterName:=catalogs.name+'.'
+        }
+      } //if wwkl
+    } // else
+  } else
+    GetPodrFilterName:='по '+string(GetMarkerCount(wMarker))+' подраздел.' ;
+//  message('4') ;
+
+  Stopvisual('',0)
+
+}
+public Function GetPodrFilterName1(wMarker :longint;wwhist:boolean;wdate_hist:date ):string  ;
+var wstr:string ;
+{ wstr:=GetPodrFilterName(wMarker) ;
+  if wwhist and wpodrfilter>0
+  { set wpodr_hist:=wdate_hist ;
+    if getlast cathist=0
+      wstr:=cathist.name+'.'
+  }
+  GetPodrFilterName1:=wstr ;
+}
+
+Function GetKatpodrNameF :string ;
+var wstr:string ;
+{ wstr:='' ;
+  if shot_name
+  {  //wstr:=sTXOGetExtAttr('KATPODR','Краткое наименование',katpodr.nrec) 
+    wstr:= GetAttr(coKatpodr,'Краткое наименование',katpodr.nrec)
+
+  }
+  if wstr='' then wstr:=katpodr.name
+  GetKatpodrNamef:=wstr ;
+}
+
+
+public Function GetKatPodrFilterName(wMarker :longint  ):string  ;
+  var
+  i        : LongInt ;
+  Item     : Comp ;
+  MrkCount : LongInt ;
+  wwkl:boolean ;
+{
+//  message('1') ;
+  if fileexist('!pfier.log') deletefile('!pfier.log') ;
+  delete all tmp_podrfilter ;
+  GetKatPodrFilterName :=''
+  MrkCount := GetMarkerCount(wMarker) - 1 ;
+  if MrkCount=-1
+  { GetKatPodrFilterName:='нет выбранных подразделений'
+    exit ;
+  
+  }
+  set wpodrfilter:=0 ;
+  if MrkCount=0
+  { if (GetMarker(wMarker, 0, Item))
+    { wpodrfilter:=Item ;
+      if getfirst katpodr=0
+      GetKatPodrFilterName:=katpodr.name     
+    }
+    exit ;
+  }
+  wpodrfilter:=0 ;
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfconfirm,
+        ''#3'Определяем помеченность одной ветки', 0);
+  nextvisual ;
+//  message('2') ;
+  for (i := 0; i <= MrkCount; i := i + 1)
+  {  if (GetMarker(wMarker, i, Item))
+     { set wpodrfilter:=Item ;
+       mylog('nrec = '+string(wpodrfilter) )
+      if getfirst katpodr=0 and KATPODR.SKLAD=0
+      { tmp_podrfilter.nrec:=katpodr.nrec ;
+        tmp_podrfilter.cparent:=katpodr.cpodr ;      
+        tmp_podrfilter.name:=GetKatpodrNameF ; //katpodr.name ;      
+        tmp_podrfilter.code:=katpodr.kod ;      
+        tmp_podrfilter.pa:=0 ;      
+        insert current tmp_podrfilter ;
+        mylog(tmp_podrfilter.name)
+      }
+    }  
+  }  
+  i:=0 ;
+  wpodrfilter:=0 ;
+//  message('3') ;
+mylog('========')  
+  nextvisual ;
+  external _loop tmp_podrfilter
+  { inc(i)
+mylog('01 '+tmp_podrfilter.pa+'/'+tmp_podrfilter.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter.cparent)  
+    if i mod 10=0
+    { if not nextvisual then break ;
+    }
+    if i>100000 then 
+    { message('Критическая ошибка проверки иерархии')
+      break ;
+    }
+    if getfirst tmp_podrfilter1 where ((
+      tmp_podrfilter.cparent == tmp_podrfilter1.nrec )) =0
+    { tmp_podrfilter.pa:=1 ;  
+      update current tmp_podrfilter ;
+      tmp_podrfilter1.kolchild:=tmp_podrfilter1.kolchild+1 ;
+      update current tmp_podrfilter1 ;
+mylog('02 '+tmp_podrfilter1.pa+'/'+tmp_podrfilter1.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter1.cparent)  
+    }  
+  }
+  rereadrecord(#tmp_podrfilter1) ;
+  if getfirst tmp_podrfilter1 
+  where (( 0 == tmp_podrfilter1.pa))  =0
+  { 
+mylog('03 '+tmp_podrfilter1.pa+'/'+tmp_podrfilter1.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter1.cparent)  
+    if getnext tmp_podrfilter1
+    where (( 0 == tmp_podrfilter1.pa))  =0
+    { // значится несколько веток пометили - пропускаем
+mylog('04 '+tmp_podrfilter1.pa+'/'+tmp_podrfilter1.name+'/'+tmp_podrfilter.nrec+'/'+tmp_podrfilter1.cparent)  
+      GetKatPodrFilterName:='по '+string(GetMarkerCount(wMarker))+'подр.'      
+    }
+    else // нужно еще проверить а все ли нижестоящие помечены
+    { wwkl:=true ;
+      _loop tmp_podrfilter
+      { inc(i)
+        if i mod 10=0 nextvisual ;
+        if i>100000 then 
+        { message('Критическая ошибка проверки иерархии')
+          break ;
+        }
+        MrkCount:=0
+        _loop katpodr_up
+        { if katpodr_up.sklad=0
+            inc(MrkCount)
+        
+        }
+        if MrkCount<>tmp_podrfilter.kolchild
+        { mylog('5 '+string(MrkCount)+'/'+string(tmp_podrfilter.kolchild)
+            +'/'+tmp_podrfilter.name)
+          GetKatPodrFilterName:='по '+string(GetMarkerCount(wMarker))+'подразд.'     
+//          exit ;
+          wwkl:=false ;
+          break ;
+        }
+      }
+      if wwkl
+      { if getfirst tmp_podrfilter1 
+        where (( 0 == tmp_podrfilter1.pa))  =0
+        {
+          set wpodrfilter:=tmp_podrfilter1.nrec ;
+          if getfirst katpodr=0
+           GetKatPodrFilterName:=GetKatpodrNameF //katpodr.name ;
+        }
+      } //if wwkl
+    } // else
+  } else
+    GetKatPodrFilterName:='по '+string(GetMarkerCount(wMarker))+' подраздел.' ;     
+//  message('4') ;
+  
+  Stopvisual('',0)
+   
+}
+//=======================================
+// получить свертку для уровня
+//=======================================
+create view vkatpodr
+var
+  wwwkod :longint ;
+  wwwnrec:comp ;
+  wwwpodr :string ;
+  podr_hist : boolean ;
+  podr_histdate :date ;
+from katpodr,tmp_podrier(tmp_podrier01) , katpodr katpodr_dop , fpco
+where
+((  wwwnrec == katpodr.nrec
+and wwwnrec == tmp_podrier.crec
+and wwwpodr == katpodr_dop.name
+AND 0 == FPCO.CMAIN
+and wwwpodr == fpco.name 
+)) ;
+! вернем код и наименование на заданном уровне
+var katpodr_dmnm : array [1..10] of string ;
+var  wdmc_podr:array [1..10] of comp ;
+//========================================
+/*
+Procedure katpodrGetLevelinit ;
+{  vkatpodr.resetbounds(vkatpodr.tntmp_podrier)
+   vkatpodr.delete all tmp_podrier ;
+   vkatpodr.setbounds(vkatpodr.tntmp_podrier)
+}
+*/
+Function GetKatpodrName :string ;
+var wstr:string ;
+{ wstr:='' ;
+  if shot_name
+  { //wstr:=sTXOGetExtAttr('KATPODR','Краткое наименование',vkatpodr.katpodr.nrec) 
+    wstr:= GetAttr(coKatpodr,'Краткое наименование',vkatpodr.katpodr.nrec)
+  }
+  if wstr='' 
+    wstr:=vkatpodr.katpodr.name
+  GetKatpodrName:=pad(vkatpodr.katpodr.kod,20)+wstr ;
+}
+// получить значение на уровне
+Function katpodrGetLevel(wwpodr:string;wcnrec : comp ;wlev :word ) :string ;
+var 
+  kkk:word ;
+  wstr:string ;
+  wtmpnrec :comp ;
+  katpodrlev_errchet :longint ;
+{ if wlev=0
+  { katpodrGetLevel:=pad('0000',20)+'Все предприятие' ;
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    {  katpodr_dmnm[kkk] :=pad('0000',20)+'Все предприятие' ; ;
+        wdmc_podr[kkk]:=0 ;
+    }  
+    exit ;
+  }
+  katpodrGetLevel:=wwpodr
+  if wwpodr='' and wcnrec=''
+  {  for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+     {  katpodr_dmnm[kkk] :='' ;
+        wdmc_podr[kkk]:=0 ;
+     }   
+     exit 
+  }
+  set vkatpodr.wwwpodr :=wwpodr
+  set vkatpodr.wwwnrec:=wcnrec
+  if wwpodr<>''
+  { if vkatpodr.getfirst katpodr_dop=0
+    { set vkatpodr.wwwnrec := vkatpodr.katpodr_dop.nrec ;
+      wcnrec:=vkatpodr.katpodr_dop.nrec ;
+    }
+  } 
+  wstr:=''
+  if vkatpodr.getfirst tmp_podrier=0 //fastfirstrow 
+  { 
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    { katpodr_dmnm[kkk] :=vkatpodr.tmp_podrier.dmpodrnm[kkk] ;
+      wdmc_podr[kkk]:=vkatpodr.tmp_podrier.dmpodr_c[kkk] ;
+      if logfilekl
+        wstr:=wstr+katpodr_dmnm[kkk]+'/'
+    }
+    if logfilekl mylog('!!!! '+katpodr_dmnm[wlev]+'=/='+wstr) ; 
+  }
+  else
+  { 
+    if (vkatpodr.Getfirst fastfirstrow katpodr<>0)
+    { katpodrGetLevel:=string(vkatpodr.wwwnrec)+wwpodr ;
+      for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+      { katpodr_dmnm[kkk] :='' ;
+        wdmc_podr[kkk]:=0 ;
+        if logfilekl
+         wstr:=wstr+katpodr_dmnm[kkk]+'/'
+      }
+      exit ;
+    }
+//    wstr:=pad(vkatpodr.katpodr.kod,20)+vkatpodr.katpodr.name ;
+    wstr:=GetKatpodrName
+    if (wlev>10) 
+    { 
+      katpodrGetLevel:=wstr ;
+      exit ;
+    }
+
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    { //katpodr_dmnm[kkk] :=pad(vkatpodr.katpodr.kod,20)+vkatpodr.katpodr.name ;
+      katpodr_dmnm[kkk] :=wstr ;
+      
+      wdmc_podr[kkk] :=wcnrec ;
+    }
+    katpodrlev_errchet:=0 ;  
+    do {
+      inc(katpodrlev_errchet) ;  // 100 уровней по дереву маловероятно
+      if katpodrlev_errchet>100 
+      { exit ;
+      } ;  
+
+      wtmpnrec:=vkatpodr.katpodr.cpodr
+      set vkatpodr.wwwnrec:=wtmpnrec ;
+      if vkatpodr.wwwnrec=0 then break ; // дошли до ручки
+      if (vkatpodr.wwwnrec<>0)
+      { if (vkatpodr.getfirst katpodr<>0) then break ;
+        for(kkk:=10 ; kkk>=2 ;kkk:=kkk-1)
+        {  katpodr_dmnm[kkk] := katpodr_dmnm[kkk-1]
+           wdmc_podr[kkk] :=wdmc_podr[kkk-1]
+        }
+//        katpodr_dmnm[1]:= pad(vkatpodr.katpodr.kod,20)+vkatpodr.katpodr.name ;
+        katpodr_dmnm[1]:= GetKatpodrName ;
+      } else break ;
+      if logfilekl mylog(pad(vkatpodr.katpodr.kod,10)+vkatpodr.katpodr.name) ;
+    } while true ;
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    {  vkatpodr.tmp_podrier.dmpodrnm[kkk]:=katpodr_dmnm[kkk]
+       vkatpodr.tmp_podrier.dmpodr_c[kkk]:=wdmc_podr[kkk]
+    }
+    vkatpodr.tmp_podrier.crec:=wcnrec  ;
+    vkatpodr.insert current tmp_podrier ;
+  }  
+  katpodrGetLevel:=katpodr_dmnm[wlev] ;
+  if logfilekl
+  { wstr:='' ;
+    for(kkk:=1 ; kkk<=wlev ;inc(kkk)) wstr:=wstr+katpodr_dmnm[kkk]+'/'
+    mylog(vkatpodr.katpodr.name+'/'+katpodr_dmnm[wlev]+'=/='+wstr) ; 
+  
+  }
+}
+// получить значение на уровне
+Function katpodrGetLevelName(wlev :word) :string ;
+{  katpodrGetLevelName:=katpodr_dmnm[wlev]
+
+}
+// получить значение на уровне nrec
+Function katpodrGetLevelNrec(wlev :word) :comp ;
+{  katpodrGetLevelNrec:=wdmc_podr[wlev]
+
+}
+// инициализация свертки до уровня
+Procedure katpodrGetLevelInit ;
+{
+ vkatpodr.resetbounds(vkatpodr.tntmp_podrier)
+ vkatpodr.delete all tmp_podrier ;
+ vkatpodr.setbounds(vkatpodr.tntmp_podrier)
+ Zar_InitFltPodr ;
+}
+// найти подразделение по наименованию центра ответсвенности 
+function FindKatPodrByFpco(wwpodr :string ) :comp ;
+{
+  FindKatPodrByFpco:=0 
+  set vkatpodr.wwwpodr :=wwpodr
+  if vkatpodr.getfirst fpco=0
+  { FindKatPodrByFpco:=vkatpodr.FPCO.CMEAN
+  }
+}
+//получить инициалы 
+Function MyGetInitial(w :string; fpoz:boolean):string; //Первые фамилия и инициалы
+var
+ wstr,wstr1,wstr2:string;
+ i:word;
+{
+ w:=trim(w) ;
+ MyGetInitial := w ;
+ if pos('.',w)>0 then exit ; // возмоэно уже с инициалами
+
+ i:=Pos(' ',w) ;
+ if (i=0) then exit ;
+ wstr1 := substr(w,1,i) ;
+ MyGetInitial := wstr1 ;
+if(fpoz){ //Инициалы в конце
+     wstr:=trim(substr(w,i+1,200)) ;
+     wstr1 := wstr1+' '+substr(wstr,1,1)+'.';
+     MyGetInitial := wstr1 ;
+     wstr:=trim(substr(w,i+1,200)) ;
+     i:=pos(' ',wstr) ;
+     if (i=0) then exit ;
+     wstr1 := wstr1+substr(wstr,i+1,1)+'.' ;
+    MyGetInitial := wstr1 ;
+  }
+  else{ //Инициалы в начале
+     wstr:=trim(substr(w,i+1,200)) ;
+     wstr2:=wstr1;
+//     wstr1 := wstr1+' '+substr(wstr,1,1)+'.';
+     wstr1 := substr(wstr,1,1)+'.';
+     MyGetInitial := wstr1 ;
+     wstr:=trim(substr(w,i+1,200)) ;
+     i:=pos(' ',wstr) ;
+     if (i=0) then exit ;
+     wstr1 := wstr1+substr(wstr,i+1,1)+'.' ;
+    MyGetInitial :=wstr1+' '+ wstr2;
+   }
+}
+//=============================
+//просклонять что угодно
+//=============================
+Function My_Sclonenie(odecl_w :string ;odecl_NCase: word ): string ;
+var 
+ odecl_w1,odecl_w2:string ;
+ odecl : declension ; // склонение фио
+ odecl_i:longint ;
+ odecl_w3:string ;
+  wkl_check_first : boolean ;
+{
+  odecl_w:=replace(odecl_w,'  ',' ')
+  if odecl_NCase>10
+  { odecl_NCase:=odecl_NCase mod 10 ;
+    wkl_check_first:=true ;
+  } 
+  else
+  { wkl_check_first:=false ;
+  }
+  odecl_w1:=''
+  odecl_i:=0
+  do {
+    odecl_i:=odecl_i+1
+    if odecl_i>20 then break ;
+    odecl_w3:=ExtractDelimitedWord(odecl_w,odecl_i,' ')
+//    if substr(odecl_w3,length(odecl_w3)-1,2)<>'ла'
+    odecl_w2:= odecl.SurNameDeclension(odecl_w3,0,odecl_NCase,1)
+    odecl_w1:=odecl_w1+odecl_w2+' '
+    if odecl_i=1  and wkl_check_first
+    { if pos(substr(odecl_w3,length(odecl_w3),1),'аеийояыюэ АЕИЙОЯЫЮЭ')= 0
+      { odecl_w1:=odecl_w1+substr(odecl_w,length(odecl_w3)+2,100) ;
+        break ;
+      }  
+    }
+    
+  } while odecl_w2<>''
+  odecl_w1:=replace(odecl_w1,'щом','щем');
+  My_Sclonenie:=trim(odecl_w1)
+}
+//=========================
+// Проверить подчиненость одного центра ответсвенносит другому
+//=========================
+Function CheckPodchinenieFPCO(w_Fpco_main :comp; w_Fpco_slave :comp):boolean;
+var w:comp;
+{ CheckPodchinenieFPCO:=false ;
+  w_cFpco:=w_fpco_slave
+  do {
+    if getfirst fpco<>0 then break;
+    if fpco.cnode=0 then break;
+    if fpco.cnode=w_fpco_main
+    { CheckPodchinenieFPCO:=true;
+      exit;
+    }
+    w:=fpco.cnode;
+    w_cfpco:=w
+  } while true
+}
+//=========================
+// Проверить подчиненость одного подразделения другому
+//=========================
+Function CheckPodchineniePodr(w_podr_main :comp; w_podr_slave :comp):boolean;
+var w:comp;
+{ CheckPodchineniePodr:=false ;
+  wpodrfilter:=w_podr_slave
+  do {
+    if getfirst katpodr<>0 then break;
+    if katpodr.cpodr=0 then break;
+    if katpodr.cpodr=w_podr_main
+    { CheckPodchineniePodr:=true;
+      exit;
+    }
+    w:=katpodr.cpodr;
+    wpodrfilter:=w
+  } while true
+}
+//==============================
+HandleEvent
+cmInit :
+{ katpodrGetLevelInit ;
+  case tp_spr of
+  0 : namefilter:=GetPodrFilterName(marker) ; // catalogs
+  1 : namefilter:=GetKatPodrFilterName(marker) ; // katpodr
+  end ;
+  closeinterface(cmDefault )
+  exit ;
+}
+cmOnVipLoad:
+{  katpodrGetLevelInit ;
+   shot_name:=false ;
+   katpodrGetLevelInit ;
+   logfilenm:='!pfier.log'
+   InitServTxo(0)
+   Zar_InitFltPodr ;
+}
+cmOnVipUnload :
+{ DoneServTxo ;
+}
+end ;
+end.

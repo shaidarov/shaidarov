@@ -1,0 +1,72 @@
+.var
+  iViplata_Info : Viplata_Info;
+  Tabn_Format   : word;
+.endvar
+.create view vvv
+var 
+ wtabn :longint;
+ wtabnstr :string
+as select lschet.nrec
+from lschet 
+where ((// wtabn == lschet.tabn 
+//and   wtabnstr == lschet.strtabn
+    comp(LschetNrec) == lschet.Nrec
+));
+.Function MyDouble(w:string):double;
+begin
+ MyDouble:=double(replace(w,chr(39),''))
+ end.
+.Function GetDate :date;
+begin
+ GetDate:=StrToDate(Mes+' '+God,'month YYYY')
+ end. 
+!====================
+!  ПИР 	180.5514 -  Информация по платежным документам в расчетных листках
+!==================== 
+.Function GetSaldoSum(var doSumma: double):string;
+begin
+  Tabn_Format:=wgettune('FORMATCLOCKNUMBER')
+  vvv.wtabn :=if(Tabn_Format=0,longint(tabn),0)
+  vvv.wtabnstr :=if(Tabn_Format=0,'',tabn)
+  if vvv.getfirst fastfirstrow lschet=0 
+  { //message(string(vvv.lschet.tabn)+'/'+vvv.lschet.strtabn)
+  }
+  //message(string(Mes)+'/'+string(God)+'/'+PeriodStr+'/'+DateTostr(StrToDate(PeriodStr,'за motnh месяц YYYY г.'),'DD-MM-YYYY'))
+  GetSaldoSum:=iViplata_Info.GetSaldoSum(vvv.lschet.nrec, month(GetDate), year(GetDate), doSumma);
+  //message(GetViplInfo);
+ end.                                                   
+.Function GetViplInfo :string;
+begin
+  Tabn_Format:=wgettune('FORMATCLOCKNUMBER')
+  vvv.wtabn :=if(Tabn_Format=0,longint(tabn),0)
+  vvv.wtabnstr :=if(Tabn_Format=0,'',tabn)
+  if vvv.getfirst fastfirstrow lschet=0 
+  { //message(string(vvv.lschet.tabn)+'/'+vvv.lschet.strtabn)
+  }
+  //message(string(Mes)+'/'+string(God)+'/'+PeriodStr+'/'+DateTostr(StrToDate(PeriodStr,'за motnh месяц YYYY г.'),'DD-MM-YYYY'))
+  GetViplInfo:=iViplata_Info.GetViplataInfo(vvv.lschet.nrec, GetDate, word(Kodud), mydouble(Summaud))
+  //message(GetViplInfo);
+ end.                                                   
+.Function GetViplInfo1 :string;
+begin
+  Tabn_Format:=wgettune('FORMATCLOCKNUMBER')
+  vvv.wtabn :=if(Tabn_Format=0,longint(tabn),0)
+  vvv.wtabnstr :=if(Tabn_Format=0,'',tabn)
+  if vvv.getfirst fastfirstrow lschet=0 
+  { // message(string(vvv.lschet.tabn)+'/'+vvv.lschet.strtabn)
+  }
+  GetViplInfo1:='';
+  if mydouble(Dolg1)>0
+    GetViplInfo1:=iViplata_Info.GetViplataInfo(vvv.lschet.nrec, GetDate, 0, mydouble(Dolg1))
+ end. 
+.Function GetViplFirst :string;
+begin
+  GetViplFirst:=''
+  Tabn_Format:=wgettune('FORMATCLOCKNUMBER')
+  vvv.wtabn :=if(Tabn_Format=0,longint(tabn),0)
+  vvv.wtabnstr :=if(Tabn_Format=0,'',tabn)
+  if vvv.getfirst fastfirstrow lschet=0 
+  { //message(string(vvv.lschet.tabn)+'/'+vvv.lschet.strtabn)
+    GetViplFirst:=iViplata_Info.GetViplataFirst(vvv.lschet.nrec, GetDate)
+  }
+ end.

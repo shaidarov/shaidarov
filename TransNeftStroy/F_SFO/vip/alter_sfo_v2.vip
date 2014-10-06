@@ -1,0 +1,1916 @@
+#component "F_SFO"
+
+alter interface EDREQSFO;    // требование на выдачу
+
+var
+name_kau : string;
+nrec_kau,nrec_kau_skl : comp;
+sr_ok : integer;
+spReqSFO_nrec  : comp;
+
+
+Create view
+from
+  attrnam,
+  attrval
+;
+
+
+Create view t1
+from
+  attrnam,
+  attrval,
+  mbpin mbpin1,
+  SPREQSFO,
+  perssfo,
+  persspec,
+  mbpout
+  where ((
+              SPReqSFO_nrec     == perssfo.CSPREQSFO
+          and perssfo.cpersspec == persspec.nrec
+          and perssfo.CDOCMBPIN == mbpin.nrec
+          and mbpin.CMBPOUT     == mbpout.nrec
+          and mbpout.CMBPIN     == mbpin1.nrec
+          and word(2001)        == AttrNam.wTable
+          and 'Процент износа'  == AttrNam.Name
+          and word(2001)        == AttrVal.wTable
+          and mbpin1.nrec       == AttrVal.cRec
+          and AttrNam.Nrec      == AttrVal.cAttrNam
+        ))
+;
+
+
+HandleEvent
+
+cmVALUE1:     // формирование документа на ввод в эксплуатацию из требования
+  {
+
+       if (inherited::handleEvent (cmVALUE1) = heAbort )
+       Abort;
+
+
+       _loop SPREQSFO where (( ReqSFO.nrec == SPREQSFO.CREQSFO ))
+         {
+         if getfirst perssfo where (( SPREQSFO.nrec == perssfo.CSPREQSFO )) = tsok
+          {
+          if getfirst mbpin where (( perssfo.CDOCMBPIN == mbpin.nrec )) = tsok
+           {
+        nrec_kau:=0; name_kau:='';
+
+       if Months_Between(mbpin.DATEEKSP,mbpin.DATEEND)>0
+        {
+
+         if Months_Between(mbpin.DATEEKSP,mbpin.DATEEND)>12
+          {
+            nrec_kau := 00D3000020002EA5h;
+            name_kau   := 'Балансовый'   ;
+          }
+          else
+           {
+             nrec_kau := 00D3000020002EA6h;
+             name_kau   := 'Забалансовый' ;
+           }
+        }
+
+       nrec_kau_skl:=0;
+       if getfirst attrnam where ((     word(2001)      == AttrNam.wTable
+                                     and 'Признак счета на складе' == AttrNam.Name
+                                  )) = tsok
+        {
+        if getfirst attrval where ((    word(2001)   == AttrVal.wTable
+                                     and mbpin.nrec   == AttrVal.cRec
+                                     and AttrNam.Nrec == AttrVal.cAttrNam
+                                   )) = tsok
+          {
+           if attrval.vcomp = 00D3000020002EA6h
+           {
+             nrec_kau := 00D3000020002EA6h;
+             name_kau   := 'Забалансовый' ;
+           }
+           else
+            {
+            nrec_kau := 00D3000020002EA5h;
+            name_kau   := 'Балансовый'   ;
+            }
+          }
+        }
+
+
+       if getfirst attrnam where ((     word(2001)      == AttrNam.wTable
+                                     and 'Признак счета' == AttrNam.Name
+                                  )) = tsok
+        {
+        if getfirst attrval where ((    word(2001)   == AttrVal.wTable
+                                     and mbpin.nrec   == AttrVal.cRec
+                                     and AttrNam.Nrec == AttrVal.cAttrNam
+                                   )) <> tsok
+
+         {
+            ClearBuffer(#attrval);
+            attrval.WTABLE   := word(2001);
+            attrval.CREC     := mbpin.nrec;
+            attrval.CATTRNAM := attrnam.nrec;
+            attrval.VSTRING  := name_kau;
+            attrval.VCOMP    := nrec_kau;
+            if insert current attrval = tsok {}
+
+         }
+         else
+          {
+          if (attrval.VCOMP <> nrec_kau)
+           {
+            attrval.VSTRING  := name_kau;
+            attrval.VCOMP    := nrec_kau;
+            if update current attrval = tsok {}
+           }
+
+          }
+        }
+
+           }
+          }
+
+          SPReqSFO_nrec  := spReqSFO.nrec;
+          sr_ok:=0;
+          if t1.getfirst perssfo = tsok
+          if t1.getfirst persspec = tsok
+           {
+          if t1.persspec.srok <> word(65535)
+           {
+          if t1.getfirst mbpin   = tsok
+          if t1.getfirst mbpout  = tsok
+          if t1.getfirst mbpin1  = tsok
+          if t1.getfirst attrnam = tsok
+          if t1.getfirst attrval = tsok
+           {
+           if Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND) = t1.persspec.srok/t1.persspec.kol
+            {
+             sr_ok:= t1.persspec.srok/t1.persspec.kol-round((t1.persspec.srok/t1.persspec.kol*t1.attrval.vdouble)/100,0);
+             if sr_ok<1
+              {
+               sr_ok:=0;
+              }
+             t1.mbpin.DATEEND := add_months(t1.mbpin.DATEEKSP,sr_ok);
+             if t1.update current mbpin = tsok {}
+             t1.perssfo.ENDDATE := t1.mbpin.DATEEND;
+             t1.perssfo.srok := sr_ok;
+             if t1.update current perssfo = tsok {}
+            }
+           }
+           }
+           }
+         }
+
+
+  }
+
+end;
+
+end.
+
+
+#component "F_MBP"
+
+alter interface MOVE_MBP;         // документ на ввод в эксплуатацию
+
+var
+name_kau : string;
+nrec_kau, nrec_kau_skl : comp;
+mbpmove_nrec  : comp;
+sr_ok : integer;
+y:boolean;
+
+
+Create view t1
+from
+  attrnam,
+  attrval,
+  mbpin mbpin1,
+  attrnam attrnam1,
+  attrval attrval1,
+  attrnam attrnam2,
+  attrval attrval2
+   where ((
+              mbpmove_nrec      == mbpin.csopr
+          and word(1)           == mbpin.INEKSPL (noindex)
+          and mbpin.CMBPOUT     == mbpout.nrec
+          and mbpout.CMBPIN     == mbpin1.nrec
+          and word(2001)        == AttrNam.wTable
+          and 'Процент износа'  == AttrNam.Name
+          and word(2001)        == AttrVal.wTable
+          and mbpin1.nrec       == AttrVal.cRec
+          and AttrNam.Nrec      == AttrVal.cAttrNam
+          and mbpin.nrec        == PERSSFO.CCURMBPIN (noindex)
+          and perssfo.cpersspec == persspec.nrec
+          and word(2001)        == AttrNam1.wTable
+          and 'Признак счета на складе' == AttrNam1.Name
+          and word(2001)        == AttrVal1.wTable
+          and mbpin.nrec        == AttrVal1.cRec
+          and AttrNam1.Nrec     == AttrVal1.cAttrNam
+          and word(2001)        == AttrNam2.wTable
+          and 'Признак счета'   == AttrNam2.Name
+          and word(2001)        == AttrVal2.wTable
+          and mbpin.nrec        == AttrVal2.cRec
+          and AttrNam2.Nrec     == AttrVal2.cAttrNam
+          ))
+;
+
+
+OverloadFormats scMbpExpl;
+
+
+
+window WORKMOVEMBPWINDOW
+
+TabbedSheet bottom Info;
+  Show at (, 21,,);
+
+// закладка "информация" для документа "Ввод в эксплуатацию"
+Screen  scMbpExpl 'Информация' (, hcMBPVvodEksplExtInf, sci178Esc);
+  Show at (,,, ) Fixed_Y;
+  Table MBPIn;
+Fields
+  Persons.FIO      ('Работник, в пользование которому выдаются предметы',, sci1378Esc)                    : Protect;
+  Persspec.srok*MBPIn.KolDoc/Persspec.kol    ('Срок службы по норме')                                    : [3],   NoProtect;
+  MBPIn.DateEksp   ('Дата ввода предметов в эксплуатацию')                                                : ['DD/MM/YYYY'], Skip;
+  SrokExpl         ('Срок службы введенных в эксплуатацию предметов в месяцах')                           : [3],   NoProtect;
+  MBPIn.DateEnd    ('Дата окончания срока службы предметов')                                              : ['DD/MM/YYYY'];
+  MBPIn.Price      ('Цена предмета')                                                                      : [8.2], Skip;
+  MBPOut.tKol      ('Количество, имевшееся в данном разрезе до передачи в эксплуатацию')                  : [8.3], Skip;
+  WorkEd           ('Используемая единица измерения')                                                     :        Skip;
+  MBPIn.KolDoc     ('Количество предметов, введенное в эксплуатацию')                                     : [8.3], NoProtect,
+     {Font = {BackColor = if (Abs(MBPIn.KolDoc) < 0.000001, ColorNeed, 0)}};
+  OnOutSum         ('Балансовая стоимость предметов, имевшихся в данном разрезе до ввода в эксплуатацию') : [8.2], Skip;
+  InDocSum         ('Балансовая стоимость введенных в эксплуатацию предметов')                            : [8.2], NoProtect;
+  MBPOut.tPercent  ('Процент износа предметов на момент ввода в эксплуатацию')                            : [8.2], Skip;
+  MBPOut.tSummaIsn ('Сумма износа предметов, имевшихся в данном разрезе до ввода в эксплуатацию')         : [8.2], Skip;
+  MBPIn.SummaIsnP  ('Сумма износа предметов, переданных в новый разрез')                                  : [8.2], Skip;
+  MBPIn.PercNach   ('Процент износа, начисленный при вводе в эксплуатацию')                               : [8.2], NoProtect;
+  MBPIn.SummaIsnN  ('Сумма износа, начисленная при вводе в эксплуатацию')                                 : [8.2], NoProtect;
+  if (isValid(#NormSFO), 'Норма выдачи', '')                                                  : Skip,
+    {Font = {Color = ColorSysBlack}};
+  if (isValid(#NormSFO), NormSFO.Kod + ' (' + NormSFO.Name + ')', '')                         : Skip;
+  if (isValid(#GroupSFO), 'Спецификация', '')                                                 : Skip,
+    {Font = {Color = ColorSysBlack}};
+  if (isValid(#GroupSFO), GroupSFO.Kod + ' (' + GroupSFO.Name + ')', '')                      : Skip;
+<<
+  Операция ввода в эксплуатацию
+ `Работник`           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Срок службы по норме`.@@@@@ мес.
+ `Дата ввода в экспл.`.@@@@@@@@@@@    `Срок службы`.@@@@@ мес. `Дата окончания`.@@@@@@@@@@@
+  На момент ввода цена                .@@@@@@@@@@@@@@@@@@                   `Введено`
+    Количество                        .@@@@@@@@@@@@@@@@@@ .@@@@@@@@     .@@@@@@@@@@@@@@@@@@
+    Стоимость                         .@@@@@@@@@@@@@@@@@@               .@@@@@@@@@@@@@@@@@@
+    Износ             .@@@@@@@ %      .@@@@@@@@@@@@@@@@@@               .@@@@@@@@@@@@@@@@@@
+ `Начислен износ`     .@@@@@@@ %      .@@@@@@@@@@@@@@@@@@
+   .@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   .@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+End; // screen
+
+End;
+
+HandleEvent
+
+cmMakeOrder:     // формирование ордеров в документе на ввод в эксплуатацию
+  {
+  y:=true;
+
+  mbpmove_nrec := mbpmove.nrec;
+
+  t1._loop mbpin
+   {
+    if mbpin.DATEEND = to_date(0,0,0)
+     {
+      y:=false;
+     }
+   }
+
+  if y=false
+   {
+    if Message('В некоторых позициях не указан срок носки, им будет проставлен срок "До износа", будете вводить в эксплуатацию?', YesNo) = cmYes
+   {
+    y:=true;
+   }
+   }
+
+  if y
+   {
+    if (inherited::handleEvent (cmMakeOrder) = heAbort )
+    Abort;
+
+    mbpmove_nrec := mbpmove.nrec;
+
+     t1._loop mbpin
+      {
+
+        nrec_kau:=0; name_kau:='';
+
+       if Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)>0
+        {
+
+         if Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)>12
+          {
+            nrec_kau := 00D3000020002EA5h;
+            name_kau   := 'Балансовый'   ;
+          }
+          else
+           {
+             nrec_kau := 00D3000020002EA6h;
+             name_kau   := 'Забалансовый' ;
+           }
+        }
+
+       nrec_kau_skl:=0;
+       if t1.getfirst attrnam1 = tsok
+        {
+        if t1.getfirst attrval1 = tsok
+          {
+           if t1.attrval1.vcomp = 00D3000020002EA6h
+           {
+             nrec_kau := 00D3000020002EA6h;
+             name_kau   := 'Забалансовый' ;
+           }
+           else
+            {
+            nrec_kau := 00D3000020002EA5h;
+            name_kau   := 'Балансовый'   ;
+            }
+          }
+        }
+
+
+       if t1.getfirst attrnam2 = tsok
+        {
+        if t1.getfirst attrval2 <> tsok
+         {
+            ClearBuffer(t1.tnattrval);
+            t1.attrval2.WTABLE   := word(2001);
+            t1.attrval2.CREC     := t1.mbpin.nrec;
+            t1.attrval2.CATTRNAM := t1.attrnam2.nrec;
+            t1.attrval2.VSTRING  := name_kau;
+            t1.attrval2.VCOMP    := nrec_kau;
+            if t1.insert current attrval2 = tsok {}
+         }
+         else
+          {
+          if (t1.attrval2.VCOMP <> nrec_kau)
+           {
+            t1.attrval2.VSTRING  := name_kau;
+            t1.attrval2.VCOMP    := nrec_kau;
+            if t1.update current attrval2 = tsok {}
+           }
+          }
+        }
+
+          if nrec_kau = 00D3000020002EA5h
+          {
+          sr_ok:=0;
+          if t1.getfirst mbpout  = tsok
+          if t1.getfirst mbpin1  = tsok
+          if t1.getfirst attrnam = tsok
+          if t1.getfirst attrval = tsok
+           {
+          if t1.getfirst perssfo = tsok
+           {
+          if t1.getfirst persspec = tsok
+           {
+           if t1.persspec.srok <> word(65535)
+            {
+           if Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND) = t1.persspec.srok/t1.persspec.kol
+            {
+             sr_ok:= t1.persspec.srok/t1.persspec.kol-round((t1.persspec.srok/t1.persspec.kol*t1.attrval.vdouble)/100,0);
+             if sr_ok<1
+              {
+               sr_ok:=0;
+              }
+
+             t1.mbpin.DATEEND := add_months(t1.mbpin.DATEEKSP,sr_ok);
+             if t1.update current mbpin = tsok {}
+             t1.perssfo.ENDDATE := t1.mbpin.DATEEND;
+             t1.perssfo.srok :=  sr_ok;
+             if t1.update current perssfo = tsok {}
+            }
+            }
+           }
+           else
+            {
+            if t1.mbpin.DATEEND<>to_date(0,0,0)
+             {
+              sr_ok:= Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)-round((Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)*t1.attrval.vdouble)/100,0);
+              if sr_ok<1
+              {
+               sr_ok:=0;
+              }
+
+              t1.mbpin.DATEEND := add_months(t1.mbpin.DATEEKSP,sr_ok);
+              if t1.update current mbpin = tsok {}
+              t1.perssfo.ENDDATE := t1.mbpin.DATEEND;
+              t1.perssfo.srok := sr_ok;
+              if t1.update current perssfo = tsok {}
+             }
+            }
+           }
+           else
+            {
+            if t1.mbpin.DATEEND<>to_date(0,0,0)
+             {
+              sr_ok:=Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)-round((Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)*t1.attrval.vdouble)/100,0);
+              if sr_ok<1
+               {
+                sr_ok:=0;
+               }
+
+              t1.mbpin.DATEEND := add_months(t1.mbpin.DATEEKSP,sr_ok);
+              if t1.update current mbpin = tsok {}
+             }
+            }
+           }
+         }
+      }
+   }
+  }
+/*
+cmDone:        // выход из документов на ввод в эксплуатацию
+  {
+    if (inherited::handleEvent (cmDone) = heAbort )
+    Abort;
+
+    mbpmove_nrec := mbpmove.nrec;
+
+     t1._loop mbpin
+      {
+
+      if mbpin.DATEEKSP >= to_date(01,01,2012)
+       {
+        nrec_kau:=0; name_kau:='';
+
+       if Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)>0
+        {
+
+         if Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND)>12
+          {
+            nrec_kau := 00D3000020002EA5h;
+            name_kau   := 'Балансовый'   ;
+          }
+          else
+           {
+             nrec_kau := 00D3000020002EA6h;
+             name_kau   := 'Забалансовый' ;
+           }
+        }
+
+       nrec_kau_skl:=0;
+       if t1.getfirst attrnam1 = tsok
+        {
+        if t1.getfirst attrval1 = tsok
+          {
+           if t1.attrval1.vcomp = 00D3000020002EA6h
+           {
+             nrec_kau := 00D3000020002EA6h;
+             name_kau   := 'Забалансовый' ;
+           }
+           else
+            {
+            nrec_kau := 00D3000020002EA5h;
+            name_kau   := 'Балансовый'   ;
+            }
+          }
+        }
+
+
+       if t1.getfirst attrnam2 = tsok
+        {
+        if t1.getfirst attrval2 <> tsok
+         {
+            ClearBuffer(t1.tnattrval2);
+            t1.attrval2.WTABLE   := word(2001);
+            t1.attrval2.CREC     := t1.mbpin.nrec;
+            t1.attrval2.CATTRNAM := t1.attrnam2.nrec;
+            t1.attrval2.VSTRING  := name_kau;
+            t1.attrval2.VCOMP    := nrec_kau;
+            if t1.insert current attrval2 = tsok {}
+         }
+         else
+          {
+          if (t1.attrval2.VCOMP <> nrec_kau)
+           {
+            t1.attrval2.VSTRING  := name_kau;
+            t1.attrval2.VCOMP    := nrec_kau;
+            if t1.update current attrval2 = tsok {}
+           }
+          }
+        }
+
+          sr_ok:=0;
+          if t1.getfirst mbpout  = tsok
+          if t1.getfirst mbpin1  = tsok
+          if t1.getfirst attrnam = tsok
+          if t1.getfirst attrval = tsok
+           {
+          if t1.getfirst perssfo = tsok
+           {
+          if t1.getfirst persspec = tsok
+           {
+           if t1.persspec.srok <> word(65535)
+            {
+           if Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND) = t1.persspec.srok/t1.persspec.kol
+            {
+             sr_ok:= t1.persspec.srok/t1.persspec.kol-round((t1.persspec.srok/t1.persspec.kol*t1.attrval.vdouble)/100,0);
+             if sr_ok<1
+              {
+               sr_ok:=0;
+              }
+
+             t1.mbpin.DATEEND := add_months(t1.mbpin.DATEEKSP,sr_ok);
+             if t1.update current mbpin = tsok {}
+             t1.perssfo.ENDDATE := t1.mbpin.DATEEND;
+             t1.perssfo.srok :=  sr_ok;
+             if t1.update current perssfo = tsok {}
+            }
+            }
+           }
+           }
+           }
+      }
+    }
+
+  }
+*/
+end;
+end;
+end.
+
+
+#component "F_SFO"
+
+alter interface SFOACTOFOUT;      // возврат из использования
+
+var
+reqsfo_nrec : comp;
+proc_iznos, sr_ok  : double;
+nrec_spkau : comp;
+name_spkau : string;
+
+Create view t1
+from
+REQSFO,
+perssfo,
+mbpin,
+mbpin mbpin2,
+mbpin mbpin3,
+attrval,
+attrval attrval1,
+attrval attrval2,
+attrval attrval3,
+attrval attrval4,
+attrnam,
+attrnam attrnam1,
+attrnam attrnam2,
+attrnam attrnam3,
+attrnam attrnam4
+
+where ((
+             reqsfo_nrec            == reqsfo.nrec
+         and reqsfo.nrec            == perssfo.CMBPMOVE
+         and perssfo.CDOPREC        == mbpin.nrec
+         and perssfo.cperscard      == perscard.nrec
+         and perscard.clschet       == lschet.nrec
+         and lschet.tperson         == persons.nrec
+         and word(2001)             == AttrNam.wTable
+         and 'Предыдущий работник'  == AttrNam.Name
+         and word(2001)             == AttrVal.wTable
+         and mbpin.nrec             == AttrVal.cRec
+         and AttrNam.Nrec           == AttrVal.cAttrNam
+         and word(2001)             == AttrNam1.wTable
+         and 'Процент износа'       == AttrNam1.Name
+         and word(2001)             == AttrVal1.wTable
+         and mbpin.nrec             == AttrVal1.cRec
+         and AttrNam1.Nrec          == AttrVal1.cAttrNam
+         and word(2001)             == AttrNam2.wTable
+         and 'Процент износа'       == AttrNam2.Name
+         and word(2001)             == AttrVal2.wTable
+         and perssfo.CDOCMBPIN      == mbpin3.nrec
+         and mbpin3.nrec            == AttrVal2.cRec
+         and AttrNam2.Nrec          == AttrVal2.cAttrNam
+
+         and word(2001)             == AttrNam3.wTable
+         and 'Признак счета на складе'  == AttrNam3.Name
+         and word(2001)             == AttrVal3.wTable
+         and mbpin.nrec             == AttrVal3.cRec
+         and AttrNam3.Nrec          == AttrVal3.cAttrNam
+
+         and perssfo.CCURMBPIN      == mbpin2.nrec
+
+         and word(2001)             == AttrNam4.wTable
+         and 'Признак счета'        == AttrNam4.Name
+         and word(2001)             == AttrVal4.wTable
+         and mbpin2.nrec            == AttrVal4.cRec
+         and AttrNam4.Nrec          == AttrVal4.cAttrNam
+
+       ))
+;
+
+window SFODOCWINDOW
+
+HandleEvent
+
+cmDone:               // выход из документа на возврат из использования
+  {
+   if (inherited::handleEvent (cmDone) = heAbort )
+   Abort;
+   reqsfo_nrec := reqsfo.nrec;
+   if t1.getfirst reqsfo = tsok
+    {
+     if t1.reqsfo.FRMDATE >= to_date(01,01,2012)
+      {
+     t1._loop perssfo
+      {
+       if t1.getfirst mbpin = tsok
+        {
+
+         if t1.getfirst perscard = tsok
+         if t1.getfirst lschet = tsok
+         if t1.getfirst persons = tsok
+         if t1.getfirst attrnam = tsok
+          {
+           if t1.getfirst attrval = tsok
+            {
+             if t1.attrval.vcomp <> t1.persons.nrec
+              {
+               t1.attrval.vcomp := t1.persons.nrec;
+               t1.attrval.vstring := t1.persons.tabnmb+', '+t1.persons.fio;
+               if t1.update current attrval = tsok {}
+              }
+            }
+            else
+             {
+              t1.ClearBuffer(t1.tnattrval);
+              t1.AttrVal.wTable    := word(2001);
+              t1.AttrVal.cRec      := t1.mbpin.nrec
+              t1.AttrVal.cAttrNam  := t1.attrnam.nrec;
+              t1.AttrVal.Vcomp     := t1.persons.nrec;
+              t1.attrval.vstring   := t1.persons.tabnmb+', '+t1.persons.fio;
+              t1.insert current attrval;
+             }
+          }
+
+          nrec_spkau := 0;
+          name_spkau := '';
+
+
+         if t1.getfirst mbpin2 = tsok
+          {
+           if Months_Between(t1.mbpin2.DATEEKSP,t1.mbpin2.DATEEND)<=12
+            {
+             nrec_spkau := 00D3000020002EA6h; // забалансовый;
+             name_spkau := 'Забалансовый';
+            }
+            else
+             {
+              nrec_spkau := 00D3000020002EA5h; // балансовый;
+              name_spkau := 'Балансовый';
+             }
+
+           if t1.getfirst attrnam4 = tsok
+            {
+            if t1.getfirst attrval4 = tsok
+             {
+             if t1.attrval4.vcomp = 00D3000020002EA6h
+              {
+               nrec_spkau := 00D3000020002EA6h; // забалансовый;
+               name_spkau := 'Забалансовый';
+              }
+             else
+              {
+               nrec_spkau := 00D3000020002EA5h; // балансовый;
+               name_spkau := 'Балансовый';
+              }
+             }
+            }
+          }
+
+           proc_iznos:=0;
+
+          if  nrec_spkau = 00D3000020002EA5h
+           {
+           proc_iznos:=t1.mbpin.tpercent;
+           }
+          else
+           {
+           if t1.getfirst mbpin3 = tsok
+            {
+             proc_iznos:=(Months_Between(t1.mbpin3.DATEEKSP,t1.mbpin3.DATESPIS)*100)/Months_Between(t1.mbpin3.DATEEKSP,t1.mbpin3.DATEEND);
+            }
+           }
+
+           if t1.getfirst attrnam1 = tsok
+            {
+           if t1.getfirst attrval1 = tsok
+            {
+             if nrec_spkau = 00D3000020002EA6h
+              {
+             if t1.getfirst attrnam2 = tsok
+              {
+             if t1.getfirst attrval2 = tsok
+              {
+               if t1.attrval2.vdouble<>0
+                {
+                proc_iznos:= t1.attrval2.vdouble + proc_iznos*(100-t1.attrval2.vdouble)/100;
+                }
+              }
+              }
+              }
+             if t1.attrval1.vdouble <> proc_iznos
+              {
+               t1.attrval1.vdouble := proc_iznos;
+               if t1.update current attrval1 = tsok {}
+              }
+            }
+            else
+             {
+             if nrec_spkau = 00D3000020002EA6h
+              {
+             if t1.getfirst attrnam2 = tsok
+              {
+             if t1.getfirst attrval2 = tsok
+              {
+               if t1.attrval2.vdouble<>0
+                {
+                proc_iznos:= t1.attrval2.vdouble + proc_iznos*(100-t1.attrval2.vdouble)/100;
+                }
+              }
+              }
+              }
+              t1.ClearBuffer(t1.tnattrval1);
+              t1.AttrVal1.wTable    := word(2001);
+              t1.AttrVal1.cRec      := t1.mbpin.nrec
+              t1.AttrVal1.cAttrNam  := t1.attrnam1.nrec;
+              t1.AttrVal1.Vdouble   := proc_iznos;
+              t1.insert current attrval1;
+             }
+            }
+
+         if t1.getfirst attrnam3 = tsok
+          {
+           if t1.getfirst attrval3 <> tsok
+            {
+              t1.ClearBuffer(t1.tnattrval3);
+              t1.AttrVal3.wTable    := word(2001);
+              t1.AttrVal3.cRec      := t1.mbpin.nrec
+              t1.AttrVal3.cAttrNam  := t1.attrnam3.nrec;
+              t1.AttrVal3.Vcomp     := nrec_spkau;
+              t1.attrval3.vstring   := name_spkau;
+              t1.insert current attrval3;
+            }
+            else
+             {
+              if t1.AttrVal3.Vcomp <> nrec_spkau
+               {
+                t1.AttrVal3.Vcomp     := nrec_spkau;
+                t1.attrval3.vstring   := name_spkau;
+                t1.update current attrval3;
+               }
+             }
+          }
+        }
+      }
+    }
+    }
+  }
+
+end;
+end;
+end.
+
+#component "F_SFO"
+
+Getdatedoc dialog
+fields
+  vdat    : date [,'DD/MM/YYYY'];
+  edat    : date [,'DD/MM/YYYY'];
+buttons
+  cmOk,,,'Ввод';
+<< 'Ввод интервала дат'
+
+       `Дата возврата             :` .@@@@@@@@@@@
+       `Дата ввода в эксплуатацию :` .@@@@@@@@@@@
+
+                 <. Ввод .>
+                                                     >>
+
+
+#component "F_SFO"
+
+interface vozv_vvod;
+
+var
+  vdat      : date;
+  edat      : date;
+  k         : LongInt;
+  nrec_pers : comp;
+  last_num  : string;
+  podr_pr   : comp;
+  mol_pr    : comp;
+  reqsfo_nrec : comp;
+  proc_iznos, sr_ok  : double;
+  nrec_spkau : comp;
+  name_spkau : string;
+  name_kau : string;
+  nrec_kau, nrec_kau_skl : comp;
+  mbpmove_nrec  : comp;
+
+
+table struct T2
+(
+NREC       : comp,
+CPARTYF    : comp,
+PRICE      : double,
+KOLFACT    : double,
+TPERCENT   : double,
+SUMFACT    : double,
+SUMISNF    : double,
+CMBP       : comp,
+CPODR      : comp,
+CMOL       : comp,
+CPERS      : comp,
+DATEEKSP   : date,
+ENDDATE    : date,
+CPERSSPEC  : comp,
+CGROUPSFO  : comp,
+CPERSSFO   : comp,
+SROK       : word,
+nrecnew    : comp,
+priznos    : double,
+nrec_schet : comp,
+name_schet : string,
+nrec_prrab : comp
+)
+with index
+(
+  IndDt = cpodr+cmol
+)
+;
+
+
+create view
+as select
+ mbpin.nrec
+ from
+ mbpin,
+ mbpin mbpin1,
+ mbpin mbpin3,
+ mbpin mbpin4,
+ t2,
+ REQSFO,
+ mbpout,
+ soprhoz,
+ mbpmove,
+ attrnam attrnam1,
+ attrval attrval1,
+ attrnam attrnam2,
+ attrval attrval2,
+ attrnam attrnam3,
+ attrval attrval3,
+ persons,
+ attrval,
+ attrnam
+;
+
+Parameters
+nrec_pers,
+vdat,
+edat
+;
+
+
+HandleEvent
+
+cmInit :
+{
+
+// создание временной таблицы
+
+   _loop mbpin where ((nrec_pers == mbpin.cpers)) and mbpin.kolfact <>0
+     {
+       if mbpin.DATEEKSP < vdat
+        {
+       if mbpin.DATEEND>vdat or mbpin.DATEEND=to_date(0,0,0)
+        {
+         ClearBuffer(#T2);
+         t2.NREC       := mbpin.nrec;
+         t2.CPARTYF    := mbpin.CPARTYF;
+         t2.PRICE      := mbpin.PRICE;
+         t2.KOLFACT    := mbpin.KOLFACT;
+         t2.TPERCENT   := mbpin.TPERCENT;
+         t2.SUMFACT    := mbpin.SUMFACT;
+         t2.SUMISNF    := mbpin.SUMISNF;
+         t2.CMBP       := mbpin.CMBP;
+         t2.CPODR      := mbpin.CPODR;
+         t2.CMOL       := mbpin.CMOL;
+         t2.CPERS      := mbpin.CPERS;
+         t2.DATEEKSP   := mbpin.DATEEKSP;
+         t2.ENDDATE    := mbpin.DATEEND;
+
+         if getfirst perscard where ((mbpin.cpers == perscard.nrec))= tsok
+         if getfirst lschet where ((perscard.clschet == lschet.nrec))= tsok
+         if getfirst persons where ((lschet.tperson == persons.nrec))= tsok
+          {
+           t2.nrec_prrab := persons.nrec;
+          }
+
+          nrec_spkau := 0;
+          name_spkau := '';
+
+
+           if Months_Between(mbpin.DATEEKSP,mbpin.DATEEND)<=12
+            {
+             nrec_spkau := 00D3000020002EA6h; // забалансовый;
+             name_spkau := 'Забалансовый';
+            }
+            else
+             {
+              nrec_spkau := 00D3000020002EA5h; // балансовый;
+              name_spkau := 'Балансовый';
+             }
+
+           if getfirst attrnam3 where ((
+                                           word(2001)             == AttrNam3.wTable
+                                       and 'Признак счета'        == AttrNam3.Name
+                                      ))= tsok
+            {
+            if getfirst attrval3 where ((
+                                            word(2001)             == AttrVal3.wTable
+                                        and mbpin.nrec             == AttrVal3.cRec
+                                        and AttrNam3.Nrec          == AttrVal3.cAttrNam
+                                       ))= tsok
+             {
+             if attrval3.vcomp = 00D3000020002EA6h
+              {
+               nrec_spkau := 00D3000020002EA6h; // забалансовый;
+               name_spkau := 'Забалансовый';
+              }
+             else
+              {
+               nrec_spkau := 00D3000020002EA5h; // балансовый;
+               name_spkau := 'Балансовый';
+              }
+             }
+            }
+
+         t2.nrec_schet := nrec_spkau;
+         t2.name_schet := name_spkau;
+
+        if getfirst perssfo where (( mbpin.nrec ==  perssfo.CCURMBPIN )) = tsok
+         {
+         t2.CPERSSPEC  := perssfo.CPERSSPEC;
+         t2.CGROUPSFO  := perssfo.CGROUPSFO;
+         t2.CPERSSFO   := perssfo.CPERSSFO;
+         t2.SROK       := perssfo.SROK;
+         t2.CPERSSFO   := perssfo.nrec;
+
+
+           proc_iznos:=0;
+
+         if nrec_spkau = 00D3000020002EA5h
+          {
+           proc_iznos:=mbpin.TPERCENT;
+          }
+          else
+           {
+           if getfirst mbpin3 where ((perssfo.CDOCMBPIN == mbpin3.nrec  ))= tsok
+            {
+             proc_iznos:=(Months_Between(mbpin3.DATEEKSP,vdat)*100)/Months_Between(mbpin3.DATEEKSP,mbpin3.DATEEND);
+
+           if getfirst attrnam1 where ((
+
+                                             word(2001)             == AttrNam1.wTable
+                                         and 'Процент износа'       == AttrNam1.Name
+                                      )) = tsok
+            {
+           if getfirst attrval1  where ((
+
+                                           word(2001)             == AttrVal1.wTable
+                                       and mbpin.nrec             == AttrVal1.cRec
+                                       and AttrNam1.Nrec          == AttrVal1.cAttrNam
+                                        ))  = tsok
+            {
+             if getfirst attrnam2 where ((
+
+                                             word(2001)             == AttrNam2.wTable
+                                         and 'Процент износа'       == AttrNam2.Name
+                                         )) = tsok
+              {
+             if getfirst attrval2 where ((
+                                             word(2001)             == AttrVal2.wTable
+                                         and mbpin3.nrec            == AttrVal2.cRec
+                                         and AttrNam2.Nrec          == AttrVal2.cAttrNam
+                                        )) = tsok
+              {
+               if attrval2.vdouble<>0
+                {
+                proc_iznos:= attrval2.vdouble + proc_iznos*(100-attrval2.vdouble)/100;
+                }
+              }
+              }
+            }
+            }
+           }
+         }
+          t2.priznos := proc_iznos;
+         }
+         if insert current t2 = tsok {}
+        }
+       else
+        {
+         if getfirst perscard where ((nrec_pers == perscard.nrec)) = tsok {}
+         if getfirst katmbp where ((mbpin.cmbp == katmbp.nrec)) = tsok {}
+         LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','В личной карточке '+ perscard.cardnom+' существует спецодежда '+ katmbp.nnumber+ ', которая должна быть списана  '+mbpin.dateend+', по данной матценности операции не проводились.');
+        }
+        }
+     }
+
+
+// создание документа на возврат
+
+      if getfirst lastnumd where ((word(1804) == lastnumd.LNDTYPE)) = tsok
+       {
+        last_num:=NextNumStr(lastnumd.LNDNUM);
+        lastnumd.LNDNUM := last_num;
+        if update current lastnumd = tsok {}
+       }
+
+       ClearBuffer(#REQSFO);
+       REQSFO.REQNOM    := last_num ;
+       REQSFO.FRMDATE   := vdat;
+       REQSFO.CPERSCARD := nrec_pers;
+       if getfirst perscard where ((nrec_pers == perscard.nrec)) = tsok
+        {
+         REQSFO.CLSCHET   :=  perscard.clschet;
+         REQSFO.CPODR     :=  perscard.cpodr;
+         REQSFO.CMOL      :=  perscard.cmol;
+        }
+       REQSFO.OUTREASON := word(1);
+       REQSFO.STATUS    := word(4);
+       REQSFO.DESCR     := sgettune ('USER.DESCR');
+       REQSFO.DESGR     := sgettune ('USER.DESGR') ;
+       if insert current REQSFO = tsok
+        {
+         if getfirst perscard where ((nrec_pers == perscard.nrec)) = tsok {}
+         LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','Создан документ на возврат из использования №'+last_num+' от '+ vdat +'г. по Личной карточке: '+perscard.cardnom);
+        }
+
+    _loop t2
+      {
+        if getfirst perssfo where (( t2.nrec ==  perssfo.CCURMBPIN )) = tsok
+         {
+          perssfo.CURKOL   := 0;
+          perssfo.ZEROKOL  := 0;
+          perssfo.SPISDATE := vdat;
+          if update current perssfo = tsok {}
+         }
+
+        if getfirst persspec where ((perssfo.cpersspec == persspec.nrec )) = tsok
+         {
+          persspec.spiskol := t2.kolfact;
+          if update current persspec = tsok {}
+         }
+
+        ClearBuffer(#mbpout);
+        mbpout.NOM        := last_num;
+        mbpout.STATUS     := word(4);
+        mbpout.DOUT       := vdat;
+        mbpout.TKOL       := t2.kolfact;
+        mbpout.TPERCENT   := t2.TPERCENT;
+        mbpout.TSUMMA     := t2.SUMFACT;
+        mbpout.TSUMMAISN  := t2.SUMISNF;
+        mbpout.KOL        := t2.kolfact;
+        mbpout.SUMMA      := t2.SUMFACT;
+        mbpout.SUMMAISN   := t2.SUMISNF;
+        mbpout.CMBPIN     := t2.nrec;
+        if insert current mbpout = tsok {}
+
+        ClearBuffer(#Soprhoz);
+        Soprhoz.DATOB      := vdat;
+        Soprhoz.CSOPRDOC   := mbpout.nrec;
+        Soprhoz.TIPDOC     := word(19);
+        Soprhoz.TIDKGAL    := word(19);
+        Soprhoz.NODOC      := last_num;
+        Soprhoz.DESCR      := sgettune ('USER.DESCR');
+        Soprhoz.DESGR      := sgettune ('USER.DESGR') ;
+        Soprhoz.NAMESHO    := 'Списание '+t2.kolfact+' ед. по цене '+t2.price+' (ранее нач.износ: '+t2.TPERCENT+'%)'
+        Soprhoz.SUMMA      := t2.SUMFACT;
+        Soprhoz.DIRECT     := word(2);
+        Soprhoz.VHSUMHOZ   := '+';
+        if insert current Soprhoz = tsok {}
+
+
+        ClearBuffer(#mbpin);
+        mbpin.NOM           := last_num;
+        mbpin.DIN           := vdat;
+        mbpin.CPODRF        := t2.cpodr;
+        mbpin.CMOLF         := t2.cmol;
+        mbpin.CPARTYF       := t2.cpartyf;
+        mbpin.PRICE         := t2.price;
+        mbpin.KOLDOC        := t2.kolfact;
+        mbpin.PERCNACH      := t2.TPERCENT;
+        mbpin.SUMMA         := t2.SUMFACT;
+        mbpin.SUMMAISNN     := t2.SUMISNF;
+        mbpin.KOLFACT       := t2.kolfact;
+        mbpin.TPERCENT      := t2.TPERCENT;
+        mbpin.SUMFACT       := t2.SUMFACT;
+        mbpin.SUMISNF       := t2.SUMISNF;
+        mbpin.INSTATE       := word(1);
+        mbpin.CMBP          := t2.cmbp;
+        mbpin.CPODR         := perscard.cpodr;
+        mbpin.CMOL          := perscard.cmol;
+        mbpin.CMBPOUT       := mbpout.nrec;
+        mbpin.STATUS        := word(1);
+        mbpin.DATEZERO      := to_date(31,12,2050);
+        if insert current mbpin = tsok
+         {
+           t2.nrecnew := mbpin.nrec;
+           if update current t2 = tsok {}
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Признак счета на складе'  == AttrNam.Name
+                                    ))= tsok
+          {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vcomp     := t2.nrec_schet;
+              attrval.vstring   := t2.name_schet;
+              insert current attrval;
+          }
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Признак счета'  == AttrNam.Name
+                                    ))= tsok
+          {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vcomp     := t2.nrec_schet;
+              attrval.vstring   := t2.name_schet;
+              insert current attrval;
+          }
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Предыдущий работник'  == AttrNam.Name
+                                   )) = tsok
+          {
+            if getfirst persons where ((t2.nrec_prrab == persons.nrec)) = tsok
+             {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vcomp     := persons.nrec;
+              attrval.vstring   := persons.tabnmb+', '+persons.fio;
+              insert current attrval;
+             }
+          }
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Процент износа'       == AttrNam.Name
+                                   )) = tsok
+          {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vdouble   := t2.priznos;
+              insert current attrval;
+          }
+         }
+
+        ClearBuffer(#Soprhoz);
+        Soprhoz.DATOB      := vdat;
+        Soprhoz.CSOPRDOC   := mbpin.nrec;
+        Soprhoz.TIPDOC     := word(12);
+        Soprhoz.TIDKGAL    := word(12);
+        Soprhoz.NODOC      := last_num;
+        Soprhoz.DESCR      := sgettune ('USER.DESCR');
+        Soprhoz.DESGR      := sgettune ('USER.DESGR') ;
+        Soprhoz.NAMESHO    := 'Возврат из экспл '+ t2.kolfact + ' ед. по цене '+t2.price+' (ранее нач.износ: '+t2.TPERCENT+'%)'
+        Soprhoz.SUMMA      := t2.SUMFACT;
+        Soprhoz.DIRECT     := word(1);
+        Soprhoz.VHSUMHOZ   := '+';
+        if insert current Soprhoz = tsok {}
+
+        ClearBuffer(#perssfo);
+        perssfo.CPERSCARD   := t2.cpers;
+        perssfo.CPERSSPEC   := t2.CPERSSPEC;
+        perssfo.CDOCMBPIN   := t2.nrec;
+        perssfo.CCURMBPIN   := t2.nrec;
+        perssfo.CMBPOUT     := mbpout.nrec;
+        perssfo.CMBPMOVE    := REQSFO.nrec;
+        perssfo.CGROUPSFO   := t2.CGROUPSFO;
+        perssfo.CKATMBP     := t2.cmbp;
+        perssfo.CPERSSFO    := t2.CPERSSFO;
+        perssfo.GIVEDATE    := t2.DATEEKSP;
+        perssfo.OPERDATE    := vdat;
+        perssfo.GIVENOM     := last_num;
+        perssfo.EXPLDATE    := t2.DATEEKSP;
+        perssfo.SROK        := t2.srok;
+        perssfo.DOCKOL      := t2.kolfact;
+        perssfo.CURKOL      := t2.kolfact;
+        if t2.srok <> word(65535)
+        {
+        perssfo.ENDDATE     := t2.ENDDATE;
+        }
+        perssfo.SPISDATE    := vdat;
+        perssfo.SPISNOM     := last_num;
+        perssfo.SPECFLAG    := word(1);
+        perssfo.STATUS      := word(1);
+        perssfo.ZEROKOL     := word(1);
+        perssfo.CDOPREC     := mbpin.nrec;
+        if insert current perssfo = tsok {}
+
+        if getfirst mbpin where ((t2.nrec == mbpin.nrec)) = tsok
+         {
+          mbpin.KOLFACT  := 0;
+          mbpin.SUMFACT  := 0;
+          mbpin.SUMISNF  := 0;
+          mbpin.STATUS   := 0;
+          mbpin.DATESPIS := vdat;
+          mbpin.DATEZERO := vdat;
+          if update current mbpin = tsok {}
+         }
+     }
+
+
+// создание документа на ввод в эксплуатацию
+   _loop t2
+    {
+
+     if t2.cpodr<>podr_pr or t2.cmol<>mol_pr
+      {
+       if getfirst lastnumd where ((word(1704) == lastnumd.LNDTYPE)) = tsok
+       {
+        last_num:=NextNumStr(lastnumd.LNDNUM);
+        lastnumd.LNDNUM := last_num;
+        if update current lastnumd = tsok {}
+       }
+
+       ClearBuffer(#mbpmove);
+       mbpmove.NOM       := last_num;
+       mbpmove.DMOVE     := edat;
+       mbpmove.CPODRF    := perscard.cpodr;
+       mbpmove.CMOLF     := perscard.cmol;
+       mbpmove.CPODRT    := t2.cpodr;
+       mbpmove.CMOLT     := t2.cmol
+       mbpmove.CVALOLD   := To_Days(edat);
+       mbpmove.STATUS    := word(4);
+       mbpmove.DESCR     := sgettune ('USER.DESCR');
+       mbpmove.DESGR     := sgettune ('USER.DESGR');
+       mbpmove.CRECS[2]  := t2.cpers;
+       if insert current mbpmove = tsok
+        {
+         if getfirst perscard where ((nrec_pers == perscard.nrec)) = tsok {}
+         LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','Создан документ на ввод в эксплуатацию №'+last_num+' от '+ vdat +'г. по Личной карточке: '+perscard.cardnom);
+        }
+     }
+
+       mbpmove.SUMMA     := mbpmove.SUMMA + t2.SUMFACT;
+       mbpmove.SUMMAISN  := mbpmove.SUMMAISN + t2.SUMISNF;
+       if update current mbpmove = tsok {}
+
+     podr_pr := t2.cpodr;
+     mol_pr  := t2.cmol;
+
+     ClearBuffer(#mbpout);
+     mbpout.NOM        := last_num;
+     mbpout.STATUS     := word(2);
+     mbpout.DOUT       := edat;
+     mbpout.TKOL       := t2.kolfact;
+     mbpout.TPERCENT   := t2.TPERCENT;
+     mbpout.TSUMMA     := t2.SUMFACT;
+     mbpout.TSUMMAISN  := t2.SUMISNF;
+     mbpout.KOL        := t2.kolfact;
+     mbpout.SUMMA      := t2.SUMFACT;
+     mbpout.SUMMAISN   := t2.SUMISNF;
+     mbpout.CMOVE      := mbpmove.nrec;
+     mbpout.CMBPIN     := t2.nrecnew;
+     mbpout.EXTMOD     := word(1);
+     if insert current mbpout = tsok {}
+
+
+     ClearBuffer(#mbpin);
+     mbpin.NOM           := last_num;
+     mbpin.DIN           := edat;
+     mbpin.CPODRF        := perscard.cpodr;
+     mbpin.CMOLF         := perscard.cmol;
+     mbpin.CPARTYF       := t2.cpartyf;
+     mbpin.PRICE         := t2.price;
+     mbpin.KOLDOC        := t2.kolfact;
+     mbpin.PERCDOC       := t2.TPERCENT;
+     mbpin.SUMMA         := t2.SUMFACT;
+     mbpin.SUMMAISNP     := t2.SUMISNF;
+     mbpin.KOLFACT       := t2.kolfact;
+     mbpin.TPERCENT      := t2.TPERCENT;
+     mbpin.SUMFACT       := t2.SUMFACT;
+     mbpin.SUMISNF       := t2.SUMISNF;
+     mbpin.INSTATE       := word(4);
+     mbpin.CMBP          := t2.cmbp;
+     mbpin.CPODR         := t2.cpodr;
+     mbpin.CMOL          := t2.cmol;
+     mbpin.CSOPR         := mbpmove.nrec;
+     mbpin.ORDDOC        := word(1);
+     mbpin.CMBPOUT       := mbpout.nrec;
+     mbpin.STATUS        := word(1);
+     mbpin.DATEZERO      := to_date(31,12,2050);
+     mbpin.INEKSPL       := word(1);
+     mbpin.DATEEKSP      := edat;
+     if t2.srok <> word(65535)
+     {
+     mbpin.DATEEND       := Add_Months(edat,t2.srok);
+     }
+     mbpin.STATAVTO      := word(1);
+     mbpin.CPERS         := t2.cpers;
+     if insert current mbpin = tsok
+      {
+
+      }
+
+     ClearBuffer(#Soprhoz);
+     Soprhoz.DATOB      := edat;
+     Soprhoz.CSOPRDOC   := mbpin.nrec;
+     Soprhoz.TIPDOC     := word(12);
+     Soprhoz.TIDKGAL    := word(12);
+     Soprhoz.NODOC      := last_num;
+     Soprhoz.DESCR      := sgettune ('USER.DESCR');
+     Soprhoz.DESGR      := sgettune ('USER.DESGR') ;
+     Soprhoz.NAMESHO    := 'Ввод в эксплуатацию ' +  t2.kolfact + ' ед. по цене '+t2.price;
+     Soprhoz.SUMMA      := t2.SUMFACT;
+     Soprhoz.DIRECT     := word(1);
+     Soprhoz.VHSUMHOZ   := '+';
+     if insert current Soprhoz = tsok {}
+
+     ClearBuffer(#perssfo);
+     perssfo.CPERSCARD   := t2.cpers;
+     perssfo.CPERSSPEC   := t2.CPERSSPEC;
+     perssfo.CDOCMBPIN   := mbpin.nrec;
+     perssfo.CCURMBPIN   := mbpin.nrec;
+     perssfo.CMBPMOVE    := REQSFO.nrec;
+     perssfo.CGROUPSFO   := t2.CGROUPSFO;
+     perssfo.CKATMBP     := t2.cmbp;
+     perssfo.GIVEDATE    := edat;
+     perssfo.OPERDATE    := edat;
+     perssfo.GIVENOM     := last_num;
+     perssfo.EXPLDATE    := edat;
+     perssfo.SROK        := t2.srok;
+     if t2.srok <> word(65535)
+     {
+     perssfo.ENDDATE     := Add_Months(edat,t2.srok);
+     }
+     perssfo.DOCKOL      := t2.kolfact;
+     perssfo.CURKOL      := t2.kolfact;
+     perssfo.SPECFLAG    := word(1);
+     perssfo.ZEROKOL     := word(1);
+     if insert current perssfo = tsok {}
+
+     if getfirst persspec where ((perssfo.cpersspec == persspec.nrec )) = tsok
+      {
+       persspec.GIVKOL := persspec.GIVKOL + t2.kolfact;
+       if update current persspec = tsok {}
+
+          sr_ok:=0;
+
+       if persspec.srok <> word(65535)
+        {
+         sr_ok:= persspec.srok/persspec.kol-round((persspec.srok/persspec.kol*t2.priznos)/100,0);
+         if sr_ok<1
+          {
+           sr_ok:=0;
+          }
+
+         mbpin.DATEEND := add_months(mbpin.DATEEKSP,sr_ok);
+         if update current mbpin = tsok {}
+         perssfo.ENDDATE := mbpin.DATEEND;
+         perssfo.srok :=  sr_ok;
+         if update current perssfo = tsok {}
+        }
+      }
+        else
+         {
+         if mbpin.DATEEND<>to_date(0,0,0)
+          {
+           sr_ok:= Months_Between(t2.DATEEKSP,t2.ENDDATE)-round((Months_Between(t2.DATEEKSP,t2.ENDDATE)*t2.priznos)/100,0);
+
+           if sr_ok<1
+           {
+            sr_ok:=0;
+           }
+           mbpin.DATEEND := add_months(mbpin.DATEEKSP,sr_ok);
+           if update current mbpin = tsok {}
+           perssfo.ENDDATE := mbpin.DATEEND;
+           perssfo.srok := sr_ok;
+           if update current perssfo = tsok {}
+          }
+         }
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Признак счета на складе'  == AttrNam.Name
+                                    ))= tsok
+          {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vcomp     := t2.nrec_schet;
+              attrval.vstring   := t2.name_schet;
+              insert current attrval;
+          }
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Признак счета'  == AttrNam.Name
+                                    ))= tsok
+          {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vcomp     := t2.nrec_schet;
+              attrval.vstring   := t2.name_schet;
+              insert current attrval;
+          }
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Предыдущий работник'  == AttrNam.Name
+                                   )) = tsok
+          {
+            if getfirst persons where ((t2.nrec_prrab == persons.nrec)) = tsok
+             {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vcomp     := persons.nrec;
+              attrval.vstring   := persons.tabnmb+', '+persons.fio;
+              insert current attrval;
+             }
+          }
+
+         if getfirst attrnam where ((
+                                         word(2001)             == AttrNam.wTable
+                                     and 'Процент износа'       == AttrNam.Name
+                                   )) = tsok
+          {
+              ClearBuffer(#attrval);
+              AttrVal.wTable    := word(2001);
+              AttrVal.cRec      := mbpin.nrec
+              AttrVal.cAttrNam  := attrnam.nrec;
+              AttrVal.Vdouble   := t2.priznos;
+              insert current attrval;
+          }
+
+
+     if getfirst mbpin where ((t2.nrecnew == mbpin.nrec)) = tsok
+      {
+       mbpin.KOLFACT  := 0;
+       mbpin.SUMFACT  := 0;
+       mbpin.SUMISNF  := 0;
+       mbpin.STATUS   := 0;
+       mbpin.DATESPIS := edat;
+       mbpin.DATEZERO := edat;
+       if update current mbpin = tsok {}
+      }
+
+    }
+
+    CloseInterFace(cmdefault);
+}
+end;
+end.
+
+
+#component "F_SFO"
+
+alter interface GETPERSCARD;
+var
+y : boolean;
+cardnom_perscard : string;
+
+#include ExtAttr.Vih;
+
+create view
+var piExtAttr: iExtAttr;
+
+as select
+(SHPERSSPEC.SROK/SHPERSSPEC.KOL*shPersSFO.curKol) (Fieldname = srok_norm),
+(if(shMbpin.tpercent<>0,shMbpin.tpercent,piExtAttr.doGetAttr(2001,shMbpin.nrec,'Процент износа'))) (Fieldname = pr_izn)
+;
+
+OverloadFormats brPersSFO;
+
+Window EDITPERSCARD
+
+
+Browse brPersSFO ('Выдачи специальной (форменной) одежды по карточке',, sciSFO189Esc);
+  Show At(, 19,,);
+  Table shPersSFO;
+Fields
+  {Font = { Italic = (shPersSFO.cExtOper <> 0); Color = GetColorPersSFO; }};
+  IsMaterial         #3'Ф'            ('Признак наличия знаков различия и фурнитуры') : [2],      Protect, noAutoSize;
+  shKatMBP.NNumber   #3'Номенкл №'    ('Номенклатурный номер предметов СФО') : [10],              Protect, noAutoSize;
+  shKatMBP.Name      #3'Наименование' ('Название предметов СФО')             : [19],              Protect;
+  shKatEd.Name       #3'Ед.'          ('Единица измерения')                  : [4],               Protect, noAutoSize;
+  shPersSFO.giveDate #3'Выдано'       ('Дата выдачи предметов')              : [10,'DD/MM/YYYY'], Protect, noAutoSize;
+  shPersSFO.explDate #3'Экспл.'       ('Дата отсчета срока эксплуатации')    : [10,'DD/MM/YYYY'], Protect, noAutoSize;
+  shPersSFO.curKol   #3'Кол'          ('Количество единиц')                  : [3],               Protect, noAutoSize;
+  srok_norm          #3'Срок из нормы'('Срок службы предметов СФО по норме') : [9],               Protect, noAutoSize;
+  shSrok             #3'Срок'         ('Срок службы предметов СФО')          : [9],               Protect, noAutoSize;
+  shSFOSumma         #3'Стоимость'    ('Первоначальная стоимость предметов') : [11.2],            Protect, noAutoSize;
+  pr_izn             #3'Процент износа'    ('Процент износа') : [11.2],            Protect, noAutoSize;
+  SFOStatBr          'С'              ('Состояние предметов : "Н"-носится, "В"-возвращено, "У"-утеряно, "С"-списано') : [1], Protect, noAutoSize;
+  SFOBalans          'Б'              ('"+" - числится на балансе, "-" - списано с баланса') : [1], Protect, noAutoSize,
+    {Font = {BackColor = if ((shPersSFO.cSpReqSFO <> 0) and (SFOBalans = '?'), ColorError, 0);
+             Color = if (isValid( #shMBPIn) and ((shMBPIn.cPodr <> PersCard.cPodr) or (shMBPIn.cMol <> PersCard.cMol)),
+                            ColorMark, 0)}
+    };
+  isByNorm           'Н'              ('"+" - выдано по нормам, "-" - вне норм') : [1], Protect, noAutoSize;
+end;
+
+
+HandleEvent
+
+cmDone:
+  {
+
+  y:=false;
+  cardnom_perscard := '';
+
+  if getfirst lschet where (( perscard.clschet == lschet.nrec )) = tsok
+   {
+    cardnom_perscard := lschet.tabn;
+
+  if getfirst katpodr where (( lschet.cex == katpodr.nrec )) = tsok
+   {
+    if length(trim(katpodr.kod))=1
+     {
+      y:=true;
+      cardnom_perscard := substr(katpodr.kod,1,1)+'-'+lschet.tabn;
+     }
+    else
+     {
+      if substr(trim(katpodr.kod),2,1) = '.'
+       {
+        y:=true;
+        cardnom_perscard := substr(katpodr.kod,1,1)+'-'+lschet.tabn;
+       }
+     }
+
+   if perscard.cardnom <> cardnom_perscard
+    {
+     perscard.cardnom := cardnom_perscard;
+     update current perscard;
+    }
+   }
+   }
+   if (inherited::handleEvent (cmDone) = heAbort )
+   Abort;
+  }
+
+end;
+end;
+
+
+HandleEvent
+   cmHotKeys:
+      {
+       var MenuStr: string;
+       MenuStr := #AddComp('F_SFO') + 'SFO_CARDLIST_HOTKEYS' +';Separator;' + #AddComp('F_SFO') +'mnuSFO_my';// Стандартная менюшка + мои пункты
+       PutHotCommand(RunDynMenu(MenuStr));
+      }
+   cmValue31:
+    {
+ LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log',CommonFormHeader                                );
+ LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','                                              ');
+ LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','Протокол формирования документов по спецодежде');
+ LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','----------------------------------------------');
+
+  StoreMarker(CardMarker, 'PersCdPr_CardMarker');
+
+  var MarkCount : longint;
+
+    MarkCount := GetMarkerCount(CardMarker);
+
+  if MarkCount>0
+   {
+    var   vdat  : date;
+    var   edat  : date;
+    vdat := cur_date;
+    edat := cur_date;
+
+    if RunDialog('Getdatedoc',vdat,edat) = cmCancel
+    {
+     exit;
+    }
+    else
+     {
+      if vdat>=edat
+       {
+        message ('Дата ввода в эксплуатацию должна быть больше даты возврата!')
+        exit;
+       }
+     }
+
+   StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Формирование документов',MarkCount);
+
+    var cCard : comp;
+    var i : longint;
+
+    for (i := 0; i < MarkCount; i := i + 1)
+    {
+     NextVisual();
+     SetVisualHeader('Формирование документов');
+
+      GetMarker(CardMarker, i, cCard);
+
+      if (GetFirst PersCard where (( cCard == PersCard.nRec )) = tsOk)
+       {
+        RunInterface('vozv_vvod', PersCard.nRec, vdat, edat);
+        LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------');
+       }
+    }
+
+   }
+   else
+    {
+     message ('Нужно пометить Личные карточки!');
+    }
+     LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','----------------------------------------------');
+     LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log','Формирование документов завершено');
+
+     StopVisual('',0);
+
+     ProcessText(GetStringParameter('Files','TmpFilesDirectory',0)+'protokol_sfo.log',vfRunModal Or vfNewTitle Or vfToErase Or vfMacroSize,'Протокол формирования документов по спецодежде');
+    }
+
+   cmValue32: //  ***   Копирование внешних аттрибутов   ***
+   {
+     StoreMarker(CardMarker, 'ATRV_PersCard_Marker');
+
+     var MarkCount : longint;
+      MarkCount := GetMarkerCount(CardMarker);
+    if MarkCount>0
+    {
+     var vnRecPersCard :comp;
+     var v1_cmp,v2_cmp,v3_cmp,v4_cmp,v5_cmp,v6_cmp,v7_cmp,v8_cmp : comp;
+     var v1_str,v2_str,v3_str,v4_str,v5_str,v6_str,v7_str,v8_str : string;
+     v1_cmp := 0; v2_cmp := 0; v3_cmp := 0; v4_cmp := 0;
+     v5_cmp := 0; v6_cmp := 0; v7_cmp := 0; v8_cmp := 0;
+     v1_str := '';v2_str := '';v3_str := '';v4_str := '';
+     v5_str := '';v6_str := '';v7_str := '';v8_str := '';
+     vnRecPersCard := 0;
+     vnRecPersCard := PersCard.nRec;
+!     if getfirst attrnam where ((    word(4005)      == AttrNam.wTable
+!                                 and 'Признак счета на складе' == AttrNam.Name
+!                                  )) = tsok
+!        {
+     // 1.Виды продукции, работ, услуг  == AttrNam.Name
+     if getfirst AttrVal where (( word(4005)        == AttrVal.wTable
+                              and vnRecPersCard     == AttrVal.cRec
+                              and 006400000000025Eh == AttrVal.cAttrNam
+                            )) = tsok
+          {
+            v1_cmp := AttrVal.vComp; 
+            v1_str := AttrVal.VSTRING;
+          }
+     // 2.Объекты строительства  == AttrNam.Name
+     if getfirst AttrVal where (( word(4005)        == AttrVal.wTable
+                              and vnRecPersCard     == AttrVal.cRec
+                              and 0064000000000299h == AttrVal.cAttrNam
+                            )) = tsok
+          {
+            v2_cmp := AttrVal.vComp; 
+            v2_str := AttrVal.VSTRING;
+          }
+     // 3. Подразделение отнесения затрат  == AttrNam.Name
+     if getfirst AttrVal where (( word(4005)        == AttrVal.wTable
+                              and vnRecPersCard     == AttrVal.cRec
+                              and 006400000000027bh == AttrVal.cAttrNam
+                            )) = tsok
+          {
+            v3_cmp := AttrVal.vComp; 
+            v3_str := AttrVal.VSTRING;
+          }
+     // 4. Статьи затрат   
+     if getfirst AttrVal where (( word(4005)        == AttrVal.wTable
+                              and vnRecPersCard     == AttrVal.cRec
+                              and 00640000000001E2h == AttrVal.cAttrNam
+                               )) = tsok
+          {
+            v4_cmp := AttrVal.vComp; 
+            v4_str := AttrVal.VSTRING;
+          }
+     // 5. Счет отнесения затрат   
+     if getfirst AttrVal where (( word(4005)        == AttrVal.wTable
+                              and vnRecPersCard     == AttrVal.cRec
+                              and 006400000000025Dh == AttrVal.cAttrNam
+                               )) = tsok
+          {
+            v5_cmp := AttrVal.vComp; 
+            v5_str := AttrVal.VSTRING;
+          }
+     // 6. Центры ответственности 
+     if getfirst AttrVal where (( word(4005)        == AttrVal.wTable
+                              and vnRecPersCard     == AttrVal.cRec
+                              and 00640000000001E3h == AttrVal.cAttrNam
+                               )) = tsok
+          {
+            v6_cmp := AttrVal.vComp; 
+            v6_str := AttrVal.VSTRING;
+          }
+     // 7. Элементы затрат
+     if getfirst AttrVal where (( word(4005)        == AttrVal.wTable
+                              and vnRecPersCard     == AttrVal.cRec
+                              and 006400000000025Fh == AttrVal.cAttrNam
+                               )) = tsok
+          {
+            v7_cmp := AttrVal.vComp; 
+            v7_str := AttrVal.VSTRING;
+          }
+
+     
+    if Message('Установить внешние атрибуты из ЛК № '+PersCard.CARDNOM+' в помеченные '+MarkCount+' карточки',YesNo) = Yes
+    {
+
+    StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Копирование внешних аттрибутов',MarkCount);
+
+    var cCard : comp;
+    var i : longint;
+
+    for (i := 0; i < MarkCount; i := i + 1)
+    {
+     NextVisual();
+     SetVisualHeader('Выполнение операции');
+
+     GetMarker(CardMarker, i, cCard);
+     if (cCard <> vnRecPersCard)
+      if (GetFirst PersCard where (( cCard == PersCard.nRec )) = tsOk)
+       {
+!        Message( PersCard.nRec+' '+PERSCARD.CARDNOM );
+        // 1.Виды продукции, работ, услуг    
+        if GetFirst AttrVal where ((word(4005) == AttrVal.wTable
+                                and cCard      == AttrVal.cRec
+                         and 006400000000025Eh == AttrVal.cAttrNam
+                                )) = tsok
+          {
+           AttrVal.vComp := v1_cmp; set AttrVal.vString := v1_str;
+           Update current AttrVal;
+          }
+        else
+         {
+            ClearBuffer(#AttrVal);
+            attrval.WTABLE   := word(4005);
+            attrval.CREC     := cCard;
+            attrval.CATTRNAM := 006400000000025Eh;
+            attrval.VSTRING  := v1_str;
+            attrval.VCOMP    := v1_cmp;
+            if insert current attrval = tsok {}
+         }
+        // 2.Объекты строительства
+        if getfirst AttrVal where ((word(4005) == AttrVal.wTable
+                                   and cCard   == AttrVal.cRec
+                         and 0064000000000299h == AttrVal.cAttrNam
+                                  )) = tsok
+          {
+           AttrVal.vComp := v2_cmp; set AttrVal.vString:= v2_str;
+           Update current AttrVal;
+          }
+        else
+         {
+            ClearBuffer(#AttrVal);
+            attrval.WTABLE   := word(4005);
+            attrval.CREC     := cCard;
+            attrval.CATTRNAM := 0064000000000299h;
+            attrval.VSTRING  := v2_str;
+            attrval.VCOMP    := v2_cmp;
+            if insert current attrval = tsok {}
+         }
+        // 3. Подразделение отнесения затрат
+        if getfirst AttrVal where ((word(4005) == AttrVal.wTable
+                                     and cCard == AttrVal.cRec
+                         and 006400000000027Bh == AttrVal.cAttrNam
+                                  )) = tsok
+          {
+           AttrVal.vComp := v3_cmp; set AttrVal.vString := v3_str;
+           Update current AttrVal;
+          }
+        else
+         {
+            ClearBuffer(#AttrVal);
+            attrval.WTABLE   := word(4005);
+            attrval.CREC     := cCard;
+            attrval.CATTRNAM := 006400000000027Bh;
+            attrval.VSTRING  := v3_str;
+            attrval.VCOMP    := v3_cmp;
+            if insert current attrval = tsok {}
+         }
+        // 4. Статьи затрат   
+        if getfirst AttrVal where ((word(4005) == AttrVal.wTable
+                                     and cCard == AttrVal.cRec
+                         and 00640000000001E2h == AttrVal.cAttrNam
+                                  )) = tsok
+          {
+           AttrVal.vComp := v4_cmp; set AttrVal.vString := v4_str;
+           Update current AttrVal;
+          }
+        else
+         {
+            ClearBuffer(#AttrVal);
+            attrval.WTABLE   := word(4005);
+            attrval.CREC     := cCard;
+            attrval.CATTRNAM := 00640000000001E2h;
+            attrval.VSTRING  := v4_str;
+            attrval.VCOMP    := v4_cmp;
+            if insert current attrval = tsok {}
+         }
+        // 5. Счет отнесения затрат    
+        if getfirst AttrVal where ((word(4005) == AttrVal.wTable
+                                     and cCard == AttrVal.cRec
+                         and 006400000000025Dh == AttrVal.cAttrNam
+                                  )) = tsok
+          {
+           AttrVal.vComp := v5_cmp; set AttrVal.vString := v5_str;
+           Update current AttrVal;
+          }
+        else
+         {
+            ClearBuffer(#AttrVal);
+            attrval.WTABLE   := word(4005);
+            attrval.CREC     := cCard;
+            attrval.CATTRNAM := 006400000000025Dh;
+            attrval.VSTRING  := v5_str;
+            attrval.VCOMP    := v5_cmp;
+            if insert current attrval = tsok {}
+         }
+        // 6. Центры ответственности     
+        if getfirst AttrVal where ((word(4005) == AttrVal.wTable
+                                     and cCard == AttrVal.cRec
+                         and 00640000000001E3h == AttrVal.cAttrNam
+                                  )) = tsok
+          {
+           AttrVal.vComp := v6_cmp; set AttrVal.vString := v6_str;
+           Update current AttrVal;
+          }
+        else
+         {
+            ClearBuffer(#AttrVal);
+            attrval.WTABLE   := word(4005);
+            attrval.CREC     := cCard;
+            attrval.CATTRNAM := 00640000000001E3h;
+            attrval.VSTRING  := v6_str;
+            attrval.VCOMP    := v6_cmp;
+            if insert current attrval = tsok {}
+         }
+        // 7.  Элементы затрат
+        if getfirst AttrVal where ((word(4005) == AttrVal.wTable
+                                     and cCard == AttrVal.cRec
+                         and 006400000000025Fh == AttrVal.cAttrNam
+                                  )) = tsok
+          {
+           AttrVal.vComp := v7_cmp; set AttrVal.vString := v7_str;
+           Update current AttrVal;
+          }
+        else
+         {
+            ClearBuffer(#AttrVal);
+            attrval.WTABLE   := word(4005);
+            attrval.CREC     := cCard;
+            attrval.CATTRNAM := 006400000000025Fh;
+            attrval.VSTRING  := v7_str;
+            attrval.VCOMP    := v7_cmp;
+            if insert current attrval = tsok {}
+         }
+       }
+    }
+     StopVisual('',0);
+     Message ('Внешние аттрибуты скопированы  '+MarkCount);
+    }
+!     DoneMarker(CardMarker, 'ATRV_PersCard_Marker');
+    }
+   else
+    {
+     message ('Необходимо пометить Личные карточки!');
+    }
+   }
+    
+end;
+end.
+mnuSFO_my Menu
+{
+- 'Возврат и ввод в эксплуатацию (ТНС)'  , cmValue31,,,,, sci1Esc;
+- 'Замена внешних аттрибутов'  , cmValue32,,,,, sci1Esc;
+}

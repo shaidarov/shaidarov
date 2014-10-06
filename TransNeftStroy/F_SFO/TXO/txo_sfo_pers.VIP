@@ -1,0 +1,276 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface txo_sfo_pers implements ObjTxoIdentPlugin; 
+
+Interface txo_sfo_pers;
+var
+  CurSoprHoz, nrec_4, nrec_5, nrec_6, nrec_7 : comp  ;
+  pay,konv,CurTipDoc : word  ;
+
+create view
+as select
+soprhoz.nrec
+from
+  SoprHoz,
+  mbpin,
+  perssfo,
+  mbpout,
+  mbpout mbpout5,
+  mbpin mbpin1,
+  mbpin mbpin2,
+  mbpin mbpin5,
+  perssfo perssfo3,
+  perssfo perssfo4,
+  perscard,
+  perscard perscard2,
+  perscard perscard3,
+  perscard perscard5,
+  movelsc,
+  movelsc movelsc2,
+  movelsc movelsc3,
+  movelsc movelsc5,
+  persons,
+  persons persons2,
+  persons persons3,
+  persons persons5,
+  persons persons2_,
+  persons persons3_,
+  persons persons5_,
+  persons persons_,
+  lschet,
+  lschet lschet2,
+  lschet lschet5,
+  lschet lschet3
+
+
+where ((
+         CurSoprHoz         == SoprHoz.Nrec
+    and  SoprHoz.cSoprDoc   == mbpin.nrec
+    and  mbpin.cpers        == perscard2.nrec
+    and  perscard2.clschet  == lschet2.nrec
+    and  lschet2.nrec       == MOVELSC2.CLSCHET
+    and  SoprHoz.datob      >>= MOVELSC2.datpos
+    and  SoprHoz.datob      <<= MOVELSC2.datuv (noindex)
+    and  MOVELSC2.tperson   == persons2.nrec
+    and  lschet2.tperson    == persons2_.nrec 
+
+    and  SoprHoz.cSoprDoc   == mbpout.nrec
+    and  mbpout.cmbpin      == mbpin1.nrec
+    and  mbpin1.cpers       == perscard3.nrec
+    and  perscard3.clschet  == lschet3.nrec
+    and  lschet3.nrec       == MOVELSC3.CLSCHET
+    and  SoprHoz.datob      >>= MOVELSC3.datpos
+    and  SoprHoz.datob      <<= MOVELSC3.datuv (noindex)
+    and  MOVELSC3.tperson   == persons3.nrec
+    and  lschet3.tperson    == persons3_.nrec 
+
+
+    and  mbpin.nrec         == PERSSFO3.CDOPREC
+    and  perssfo3.cperssfo  == perssfo4.nrec
+    and  PERSSFO4.CCURMBPIN == mbpin2.nrec 
+    and  mbpin2.cpers       == perscard.nrec
+    and  perscard.clschet   == lschet.nrec
+    and  lschet.nrec        == MOVELSC.CLSCHET
+    and  SoprHoz.datob      >>= MOVELSC.datpos
+    and  SoprHoz.datob      <<= MOVELSC.datuv   (noindex)
+    and  MOVELSC.tperson    == persons.nrec
+    and  lschet.tperson     == persons_.nrec 
+
+    and  mbpin.cmbpout      ==  mbpout5.nrec
+    and  mbpout5.cmbpin     ==  mbpin5.nrec
+    and  mbpin5.cpers       ==  perscard5.nrec
+    and  perscard5.clschet  ==  lschet5.nrec
+    and  lschet5.nrec       ==  MOVELSC5.CLSCHET
+    and  SoprHoz.datob      >>= MOVELSC5.datpos
+    and  SoprHoz.datob      <<= MOVELSC5.datuv (noindex)
+    and  MOVELSC5.tperson   ==  persons5.nrec
+    and  lschet5.tperson    ==  persons5_.nrec 
+
+      ))
+
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := 'ТХО для СФО';
+}
+
+
+
+Window wParam 'Задайте параметры идентификатора &VIP[Obj:"txo_sfo_tnf"]' (,,) EscClose;
+  Show at (2,12,60,20);
+    Screen scParam (,,);
+
+      Fields
+
+        Konv        : noprotect;
+
+<<
+
+          `          Параметры расчета:                           `
+
+           (.) MBPIN                                              `
+           (.) MBPOUT                                             `
+           (.) MBPVOZV                                            `
+           (.) MBPMOV                                             `
+
+>>
+
+End;
+
+
+HandleEvent // window
+ cmInit : 
+         {
+           konv    := 0;
+         }
+ cmDefault : CloseWindow(wParam);
+End;  // HandlEvent
+End;  // window
+
+function ParamMaster : string;
+{
+   RunWindow(wParam);
+   PackFields;
+   case konv of
+     0  : ParamMaster := '[MBPIN:]';
+     1  : ParamMaster := '[MBPOUT:]';
+     2  : ParamMaster := '[MBPVOZV:]';
+     3  : ParamMaster := '[MBPMOV:]';
+
+   end;
+
+}
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+
+   TxoAllowRecallStoreCycles(hTxo);
+   CurSoprHoz := buf.cSoprHoz;   
+
+     case TxoParamName(hTxo,1) of
+      'MBPIN'       : {pay:=word(1);}
+      'MBPOUT'      : {pay:=word(2);}
+      'MBPVOZV'     : {pay:=word(3);}
+      'MBPMOV'      : {pay:=word(4);}
+      end;
+                  
+   TXOBodyClear (hTXO);
+
+   if (pay=word(1))
+    {
+    nrec_4 := 0;
+    if getfirst soprhoz   = tsok
+    if getfirst mbpin     = tsok
+    if getfirst perscard2 = tsok
+    if getfirst lschet2   = tsok
+     {
+      if getfirst persons2_  = tsok
+       {
+//        message ('Режим 4_1 ---'+persons2_.nrec);
+        nrec_4 := persons2_.nrec;
+       }
+      if getfirst movelsc2  = tsok
+      if getfirst persons2  = tsok
+       {
+//        message ('Режим 4_2 ---'+persons2.nrec);
+        nrec_4 := persons2.nrec;
+       }
+      }
+
+       TxoHeadAddKau(hTxo, wflkau_mode4, 3, nrec_4);
+       TxoBodySetSum(hTxo, 1, 1, 1);
+       TxoBodyInsert(hTxo);
+     }
+
+   if (pay=word(2))
+    {
+     nrec_5 := 0;
+     if getfirst soprhoz   = tsok
+     if getfirst mbpout    = tsok
+     if getfirst mbpin1    = tsok
+     if getfirst perscard3 = tsok
+     if getfirst lschet3   = tsok
+      {
+      if getfirst persons3_  = tsok
+       {
+//        message ('Режим 5_1 ---'+persons3_.nrec);
+        nrec_5 := persons3_.nrec;
+       }
+      if getfirst movelsc3  = tsok
+      if getfirst persons3  = tsok
+       {
+//        message ('Режим 5_2 ---'+persons3.nrec);
+        TxoHeadAddKau(hTxo, wflkau_mode5, 3, persons3.nrec);
+        nrec_5 := persons3.nrec;
+       }
+      }
+       TxoHeadAddKau(hTxo, wflkau_mode5, 3, nrec_5);
+       TxoBodySetSum(hTxo, 1, 1, 1);
+       TxoBodyInsert(hTxo);
+     }
+
+   if (pay=word(3))
+    {
+     nrec_6 := 0;
+     if getfirst soprhoz   = tsok
+     if getfirst mbpin     = tsok
+     if getfirst perssfo3  = tsok
+     if getfirst perssfo4  = tsok
+     if getfirst mbpin2    = tsok 
+     if getfirst perscard  = tsok
+     if getfirst lschet    = tsok
+      {
+      if getfirst persons_  = tsok
+       {
+//        message ('Режим 6_1 ---'+persons_.nrec);
+        nrec_6 := persons_.nrec;
+       }
+      if getfirst movelsc   = tsok
+      if getfirst persons   = tsok
+       {
+//        message ('Режим 6_2 ---'+persons.nrec);
+        nrec_6 := persons.nrec;
+       }
+      }
+       TxoHeadAddKau(hTxo, wflkau_mode6, 3, nrec_6);
+       TxoBodySetSum(hTxo, 1, 1, 1);
+       TxoBodyInsert(hTxo);
+     }
+
+
+   if (pay=word(4))
+    {
+    nrec_7 := 0;
+    if getfirst soprhoz   = tsok
+    if getfirst mbpin     = tsok
+    if getfirst mbpout5   = tsok
+    if getfirst mbpin5    = tsok
+    if getfirst perscard5 = tsok
+    if getfirst lschet5   = tsok
+     {
+      if getfirst persons5_  = tsok
+       {
+//        message ('Режим 7_1 ---'+persons5_.nrec);
+        nrec_7 := persons5_.nrec;
+       }
+      if getfirst movelsc5  = tsok
+      if getfirst persons5  = tsok
+       {
+//        message ('Режим 7_2 ---'+persons5.nrec);
+        nrec_7 := persons5.nrec;
+       }
+      }
+
+       TxoHeadAddKau(hTxo, wflkau_mode7, 3, nrec_7);
+       TxoBodySetSum(hTxo, 1, 1, 1);
+       TxoBodyInsert(hTxo);
+     }
+
+}
+
+handleevent
+end;
+
+end.

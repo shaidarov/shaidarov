@@ -1,0 +1,403 @@
+// ==============================  Получение имени организации-налогоплательщика и ее ИНН =======================================
+Interface a11_getOrgNP AlwaysReturn;
+create view
+var
+  OrgName
+, INN
+        :string;
+
+from KatOrg
+where ((
+             coGetTune('MYORG')==KatOrg.Nrec
+           ));
+
+parameters
+  OrgName,INN;
+
+  HandleEvent
+    cmInit:{
+      if (GetFirst  KatOrg = tsok){
+        OrgName:=KatOrg.Name;
+        INN:=KatOrg.Unn;
+      } else {
+        OrgName:='';
+        INN:='';
+      }
+      abort;
+    }
+  end;
+end.
+
+// ==============================   Сумма по графе 5 =======================================
+Interface GetSum1 AlwaysReturn;
+create view
+var
+  KatOSNrec
+         :comp;
+
+  Summ
+         :double;
+
+  date1,date2
+         :date;
+
+  SchetKredit
+	:string;
+
+from Oborot
+where
+     ((     15         == oborot.tblos[5]
+	      and KatOSNrec /== oborot.kauos[5]  ))
+
+    and   (oborot.scheto='T01'  or oborot.scheto='T03')
+    and   oborot.schetk='T08'
+    and   (oborot.subschk='20' or oborot.subschk='99')
+    and  oborot.datob<=date2 and oborot.datob>=date1;
+
+//ВНИМАНИЕ!!! Работаютдаты date1,date2. Даты dFrom1,dVfr
+
+parameters
+  date1,date2,KatOSNrec,Summ,SchetKredit;
+
+  HandleEvent
+  cmInit:
+  {
+     Summ:=0;
+     SchetKredit:='';
+
+    if (GetFirst Oborot =tsok)
+    {
+      _loop Oborot
+      {
+        Summ:=Summ+Oborot.SumOb;
+		    if (oborot.subschk='20' and SchetKredit='  08.99  ') then SchetKredit:='08.20, 08.99' else
+			   { if oborot.subschk='20' then SchetKredit:='  08.20  '; }
+		    if (oborot.subschk='99' and SchetKredit='  08.20  ') then SchetKredit:='08.20, 08.99' else
+			   { if oborot.subschk='99' then SchetKredit:='  08.99  '; }
+	    }
+    }
+      abort;
+  }
+  end;
+end.
+
+// ==============================   Сумма по графе 6 (Summ21) - по обороту 01-08.10,20=======================================
+
+Interface GetSum21 AlwaysReturn;
+create view
+var
+  KatOSNrec
+         :comp;
+
+  Summ
+         :double;
+
+  date1,date2
+         :date;
+
+from Oborot, Spkau
+where
+               ((     15==oborot.tblos[5]
+	      and KatOSNrec/==oborot.kauos[5]
+               and oborot.kauks[3]/==spkau.nrec
+	   ))
+
+    and   (oborot.scheto='T01'  or oborot.scheto='T03')
+    and   oborot.schetk='T08'
+    and   (oborot.subschk='20')
+    and   (spkau.code='002008' or spkau.code='002009')
+
+    and  oborot.datob<=date2 and oborot.datob>=date1;
+
+parameters
+  date1,date2,KatOSNrec,Summ;
+
+  HandleEvent
+    cmInit:{
+     Summ:=0;
+          if (GetFirst Oborot !=tsok) abort;
+      _loop Oborot{
+            Summ:=Summ+Oborot.SumOb;
+      }
+      abort;
+    }
+  end;
+end.
+
+// ==============================   Сумма по графе 6 - обороты 01-08.99=======================================
+
+Interface GetSum01 AlwaysReturn;
+create view
+var
+  KatOSNrec
+         :comp;
+
+  KatStroyNrec
+         :comp;
+
+  Summ
+         :double;
+
+  date1,date2
+         :date;
+
+
+
+from Oborot
+where  ((
+       	word(15)  == oborot.tblos[5]
+   and  KatOSNrec == oborot.kauos[5]
+       ))
+    and   oborot.scheto='T01'
+
+    and   oborot.schetk='T08'
+    and   oborot.subschk='99'
+
+    and  oborot.datob<=date2 and oborot.datob>=date1;
+
+parameters
+  date1,date2,KatOSNrec,KatStroyNrec,Summ;
+
+  HandleEvent
+    cmInit:{
+     Summ:=0;
+          if (GetFirst Oborot !=tsok) abort;
+      _loop Oborot{
+            Summ:=Summ+Oborot.SumOb;
+	KatStroyNrec:=oborot.kauks[1];
+      }
+      abort;
+    }
+  end;
+
+end.
+
+// ==============================  Для получения суммы 08.99 - 08.30,50 ( с аналитикой) по конкретному Капвложению =======================================
+
+Interface GetSum0899 AlwaysReturn;
+create view
+var
+  KatStroyNrec
+         :comp;
+
+  Summ
+         :double;
+
+  date1,date2
+         :date;
+
+from Oborot, Spkau
+where
+               ((     40==oborot.tblos[1]
+         and   KatStroyNrec/==Oborot.Kauos[1]
+         and   oborot.kauks[3]==spkau.nrec
+	and  (oborot.tblks[1]=40
+         and   oborot.kauks[1]=KatStroyNrec)   ))
+
+    and   oborot.scheto='T08'
+    and   oborot.subossch='99'
+
+    and   oborot.schetk='T08'
+    and   (oborot.subschk='30' or  oborot.subschk='50')
+
+    and   spkau.code='005012'
+    and  oborot.datob<=date2
+;
+
+parameters
+  date1,date2,KatStroyNrec,Summ;
+
+  HandleEvent
+    cmInit:{
+     Summ:=0;
+          if (GetFirst Oborot !=tsok) abort;
+      _loop Oborot{
+            Summ:=Summ+Oborot.SumOb;
+      }
+      abort;
+    }
+  end;
+end.
+
+// ==============================  Для получения суммы 08.99 - 08.30,50 (весь) по конкретному Капвложению =======================================
+
+Interface GetSum0899all AlwaysReturn;
+create view
+var
+  KatStroyNrec
+         :comp;
+
+  Summ
+         :double;
+
+  date1,date2
+         :date;
+
+from Oborot
+where
+               ((   40==oborot.tblos[1]
+
+		and   KatStroyNrec/==Oborot.Kauos[1]
+		and   (oborot.tblks[1]=40
+		and   oborot.kauks[1]=KatStroyNrec)
+ ))
+
+
+//	          and   oborot.kauks[1]==oborot.kauos[1]      ))
+    and   oborot.scheto='T08'
+    and   oborot.subossch='99'
+
+    and   oborot.schetk='T08'
+    and   (oborot.subschk='30' or  oborot.subschk='50')
+    and  oborot.datob<=date2
+;
+
+parameters
+  date1,date2,KatStroyNrec,Summ;
+
+  HandleEvent
+    cmInit:{
+     Summ:=0;
+          if (GetFirst Oborot !=tsok) abort;
+      _loop Oborot{
+            Summ:=Summ+Oborot.SumOb;
+      }
+      abort;
+    }
+  end;
+end.
+
+
+// ==============================   Сумма по графе 7 =======================================
+
+Interface GetSum3 AlwaysReturn;
+create view
+var
+  KatOSNrec
+         :comp;
+
+  Summ
+         :double;
+
+  date1,date2
+         :date;
+
+from Oborot, Spkau
+where ((
+		15==oborot.tblos[5]
+             and KatOSNrec/==oborot.kauos[5]
+             and oborot.kauks[3]/==spkau.nrec
+           ))
+    and   (oborot.scheto='T01' or oborot.scheto='T03')
+    and   oborot.schetk='T08'
+    and   (oborot.subschk='20')
+    and   (spkau.code='002010003002' or spkau.code='002010003004')
+    and  oborot.datob<=date2 and oborot.datob>=date1;
+
+
+parameters
+  date1,date2,KatOSNrec,Summ;
+
+  HandleEvent
+    cmInit:{
+     Summ:=0;
+          if (GetFirst Oborot !=tsok) abort;
+      _loop Oborot{
+        Summ:=Summ+Oborot.SumOb;
+      }
+      abort;
+    }
+  end;
+end.
+
+// ==============================   Сумма по графе 8 =======================================
+
+Interface GetSum4 AlwaysReturn;
+create view
+var
+  KatOSNrec
+         :comp;
+
+  Summ
+         :double;
+
+ date1,date2
+         :date;
+
+from Oborot, Spkau
+where ((
+	               15         == oborot.tblos[5]
+             and KatOSNrec /== oborot.kauos[5]
+             and oborot.kauks[3] /== spkau.nrec
+           ))
+    and   (oborot.scheto='T01' or oborot.scheto='T03')
+    and   oborot.schetk='T08'
+    and   (oborot.subschk='20')
+    and   (spkau.code='002010008002' or spkau.code='003002')
+    and  oborot.datob<=date2 and oborot.datob>=date1;
+
+parameters
+  date1,date2,KatOSNrec,Summ;
+
+  HandleEvent
+    cmInit:{
+     Summ:=0;
+     if (GetFirst Oborot !=tsok) abort;
+      _loop Oborot{
+        Summ:=Summ+Oborot.SumOb;
+      }
+      abort;
+    }
+  end;
+end.
+
+// ==============================   Налоговая стоимость ОС =======================================
+
+Interface GetNStoim AlwaysReturn;
+
+create view
+var
+	KatOSNrec: comp;
+	X, NStoim: double;
+	dFrom, dTo: date;
+
+from Oborot, synonym oborot oborotK
+where  ((
+       	word(15)  == oborot.tblos[5]
+   and  KatOSNrec == oborot.kauos[5]
+   and 	word(15)  == oborotk.tblks[5]
+   and  KatOSNrec == oborotk.kauks[5]
+       ))
+
+    and  oborot.scheto = 'N901'
+    and  oborot.kauos[2] = comp(0064000000000063h)
+    and  oborot.datob<=dTo
+
+    and  oborotk.schetk = 'N901'
+    and  oborotk.kauks[2] = comp(0064000000000063h)
+    and  oborotk.datob<=dTo;
+
+parameters
+	X, dFrom, dTo, KatosNrec, NStoim;
+
+HandleEvent
+    cmInit:{
+    NStoim := 0;
+	  X:=0;
+    if (GetFirst Oborot !=tsok) abort;
+      _loop Oborot
+      {
+        if oborot.datob >= Dfrom
+	       X:=X+oborot.sumob
+         else NStoim := NStoim + oborot.sumob;
+      }
+      _loop OborotK
+      {
+        if oborotk.datob >= Dfrom
+	       X:=X-oborotk.sumob
+         else NStoim := NStoim - oborotk.sumob;
+      }
+      abort;
+    }
+  end;
+end.

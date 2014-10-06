@@ -1,0 +1,603 @@
+interface analiz_soprhoz 'Анализ хозопераций без ТХО';
+show at ( 1, 1, 55, 10);
+
+var
+  k,kol_pr
+            : longint;
+  xx
+, pos_x
+            : integer;
+  FBasName
+, fmacros
+, fmacros2
+, name_desgr
+, kod_desgr
+            : string;
+  bdat
+, edat
+            : date;
+  nrec_desgr
+            : comp;
+  y
+            :boolean ;
+
+table struct T1
+(
+  desgr      : string,
+  descr      : string,
+  TIDKGAL    : word,
+  csoprdoc   : comp,
+  nrec       : comp,
+  hoz        : double,
+  pr         : double,
+  nodoc      : string,
+  datob      : date,
+  summa      : double
+)
+with index
+(
+  IndDt = desgr+tidkgal+csoprdoc
+)
+;
+
+table struct T2
+(
+  desgr       : string
+, TIDKGAL     : word
+, kol         : comp
+, kolhoz      : comp
+, kolpr       : double
+)
+with index
+(
+  IndDt = desgr+tidkgal
+)
+;
+
+Table Struct tGrupDoc (
+    TipGrupDoc  : word
+  , nRecGrupDoc : comp      // ссылка на групповой документ (для Агрегации) - исп. напр. в МБП
+) with index (
+    idx01 = TipGrupDoc + nRecGrupDoc
+);
+
+Table struct T1_GupDoc = T1;
+
+
+  create view
+    as select soprhoz.nrec
+  from
+    soprhoz
+  , katdoc
+  , t1
+  , grdescr
+  , t2
+  , BookPrZk
+  , MBPin
+  , MBPout
+  , PersSFO
+  , ReqSFO
+  ;
+
+
+screen SrcAkt ('Данные для формирования отчета',,sci13Esc);
+ Show At (,,,);
+  fields
+
+   bdat ('Дата начисления',,):[10, 'DD/MM/YYYY'], noprotect;
+
+   edat ('Дата документа',,):[10, 'DD/MM/YYYY'], noprotect;
+
+   name_desgr ('Выбор группы дескрипторов'      ,,sci13Esc):protect,pickbutton;
+
+  Buttons
+  cmOK ,Default,,'Сформировать отчёт',,;
+  cmCancel ,,,'Отменить',,;
+<<
+
+  За период с .@@@@@@@@@@  по  .@@@@@@@@@@
+
+  Группа дескрипторов .@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+     <. Сформировать .>  <. Отменить .>
+>>
+end;
+
+Function isExistGrupDoc: boolean;
+{
+var
+  _cGrupDoc : comp;
+
+  Result    := false;
+  _cGrupDoc := 0;
+
+  if (  t1.TIDKGAL = 12     // Приход, ввод в эксплуатацию спецоснастки
+     or t1.TIDKGAL = 20     // Внутреннее перемещение спецоснастки
+     ) {
+        if GetFirst MBPin where (( t1.csoprdoc == MBPin.nRec)) = tsOK {
+          _cGrupDoc := MBPin.cSopr;
+          }
+       }
+
+  if (  t1.TIDKGAL = 19     // Списание спецоснастки
+     or t1.TIDKGAL = 13     // Начисление износа спецоснастки
+     ) {
+        if GetFirst MBPout where (( t1.csoprdoc == MBPout.nRec)) = tsOK {
+          _cGrupDoc := MBPout.cMove;
+          }
+       }
+
+  if (_cGrupDoc = 0) {Exit;}
+
+  if getfirst tGrupDoc where (( t1.TIDKGAL == tGrupDoc.TipGrupDoc
+                            and _cGrupDoc  == tGrupDoc.nRecGrupDoc
+                             )) <> tsOK {
+    ClearBuffer(#tGrupDoc);
+    tGrupDoc.TipGrupDoc   := t1.TIDKGAL ;
+    tGrupDoc.nRecGrupDoc  := _cGrupDoc  ;
+    Insert current tGrupDoc;
+    } else {
+      Result := true;
+      }
+}
+
+
+HandleEvent
+
+cmInit :
+{
+ bdat := date(01,month(cur_date),year(cur_date));
+ edat := cur_date;
+}
+
+cmPick :
+{
+ if CurField = fnname_desgr
+ {
+ if (RunInterface('C_COMMON::GETGRDESCR',kod_desgr,false,false,nrec_desgr) <> cmCancel)
+ {
+  if getfirst GRDESCR where ((nrec_desgr == GRDESCR.nrec))  = tsok
+   {
+    set name_desgr := GRDESCR.NAME;
+   }
+ }
+ }
+}
+
+cmOk :
+{
+
+   StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Подготовка данных',recordsintable(tnsoprhoz));
+
+    _loop soprhoz where ((     bdat <<= soprhoz.datob
+                           and edat >>= soprhoz.datob
+                         ))
+
+      {
+         NextVisual();
+         k:=k+1;
+         SetVisualHeader('Этап I : ' + k);
+
+      y:=false;
+      if
+        (
+            soprhoz.tidkgal <> word(10)        // Бухгалтерская справка
+        and soprhoz.tidkgal <> word(23)        // Платежная ведомость
+        and soprhoz.tidkgal <> word(24)        // Ведомость депонирования
+        and soprhoz.tidkgal <> word(41)        // Основание на закупку
+        and soprhoz.tidkgal <> word(43)        // Основание на предоплату закупок
+        and soprhoz.tidkgal <> word(51)        // Основание на предоплату закупок
+        and soprhoz.tidkgal <> word(53)        // Основание на предоплату продаж
+        and soprhoz.tidkgal <> word(71)        // Акт взаимозачета (спецификация)
+        and soprhoz.tidkgal <> word(72)        // Счет-фактура наша
+        and soprhoz.tidkgal <> word(73)        // Счет-фактура поставщика
+        and soprhoz.tidkgal <> word(74)        // Запись в книге продаж
+        and soprhoz.tidkgal <> word(150)       // Приходный складской ордер
+        and soprhoz.tidkgal <> word(161)       // Приходный ордер УКС
+        and soprhoz.tidkgal <> word(250)       // Расходный складской ордер
+        and soprhoz.tidkgal <> word(261)       // Расходный ордер УКС
+        and soprhoz.tidkgal <> word(400)       // Договор
+        and soprhoz.tidkgal <> word(401)       // Соглашение к договору
+        and soprhoz.tidkgal <> word(420)       // Распоряжение на внутреннее перемещение МТР
+        and soprhoz.tidkgal <> word(447)       // Распоряжение на внутреннее перемещение и отпуск МТР
+        and soprhoz.tidkgal <> word(601)       // Накладная на передачу МЦ в ОС
+        and soprhoz.tidkgal <> word(605)       // Накладная на передачу МЦ в НМА
+        and soprhoz.tidkgal <> word(629)       // Отчет по форме М-29
+        and soprhoz.tidkgal <> word(722)       // Распоряжение на внутреннее перемещение спецоснастки
+        and soprhoz.tidkgal <> word(1050)      // Убытки от реализации амортизируемого имущества
+        and soprhoz.tidkgal <> word(1562)      // Распоряжение на внутреннее перемещение ОС
+
+        )
+
+        {
+         y:=true;
+        }
+
+       // Хоз.операции к налоговому методу учета для РБП не проводятся, НУ не ведется
+       if soprhoz.tidkgal = word(16)           // Операция нематериальных активов
+        {
+         if getfirst SpMove where ((soprhoz.csoprdoc == SpMove.NRec)) = tsok
+           {
+             if getfirst NastrOS where (( SpMove.cNastrOS  == NastrOS.NRec )) = tsok
+              {
+                if InStr('Налоговый', NastrOS.Name) > 0
+                  y := false;
+              }
+           }
+        }
+
+       if soprhoz.tidkgal = word(19)           // Списание спецоснастки
+        {
+         if getfirst mbpout where ((soprhoz.csoprdoc == mbpout.nrec)) = tsok
+          {
+           if mbpout.status = word(4)
+            {
+              if (GetFirst PersSFO where (( MBPOut.cMBPin == PersSFO.cCurMBPIn
+                                       and (MBPOut.nRec    = PersSFO.cMBPOut)  )) = tsOk) {
+                    if (GetFirst ReqSFO where (( PersSFO.cMBPMove == ReqSFO.nRec
+                                             and 4                == ReqSFO.Status (noIndex) )) = tsOk) {                    // По возврату спецодежды делается Хозоперация и на Приход, и на Расход
+                    y:=false;
+                    }
+              }
+            }
+          }
+        }
+
+      if SoprHoz.TiDkGal = word(75) {          // Книга покупок
+         if GetFirst BookPrZk  where (( SoprHoz.cSoprDoc == BookPrZk.NRec )) = tsOK {
+           if ( word(7429) = BookPrZk.TipUser   // Корректировочная запись, уменьшение закупки, для такого типа создаются две Хозоперации, эта  - Техническая
+             or word(7520) = BookPrZk.TipUser   // Оплата СФ поставщика (нерегистрируемая, МУО)
+             or 1          = BookPrZk.RegDoc    // все нерегистрируемые - обычно технические записи, к которым не вяжут проводки
+              ) {
+               y := false;
+           }
+         }
+        }
+
+       if y
+         {
+         if nrec_desgr= 0 or (nrec_desgr<>0 and soprhoz.desgr=kod_desgr)
+         {
+         if getfirst t1 where ((
+                                 soprhoz.desgr    == t1.desgr
+                             and soprhoz.TIDKGAL  == t1.TIDKGAL
+                             and soprhoz.csoprdoc == t1.csoprdoc
+                              ))
+                              <> tsok
+           {
+            ClearBuffer(#T1);
+            t1.desgr      := soprhoz.desgr ;
+            t1.descr      := soprhoz.descr ;
+            t1.TIDKGAL    := soprhoz.TIDKGAL;
+            t1.nrec       := soprhoz.nrec;
+            t1.csoprdoc   := soprhoz.csoprdoc;
+            t1.nodoc      := soprhoz.nodoc;
+            t1.datob      := soprhoz.datob;
+            t1.summa      := soprhoz.summa;
+
+            if insert current t1 = tsok
+             {
+              if soprhoz.CHOZOPER <> 0
+               {
+                t1.hoz := 1;
+                if update current t1 = tsok {}
+               }
+             }
+           }
+           else
+             {
+              if soprhoz.CHOZOPER <> 0
+               {
+                t1.hoz := 1;
+                if update current t1 = tsok {}
+               }
+             }
+         }
+
+         }
+      }
+    StopVisual('',0);
+
+   k:=0;
+
+   StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Подготовка данных',recordsintable(tnt1));
+
+   _loop t1
+    {
+     NextVisual();
+     k:=k+1;
+     SetVisualHeader('Этап II : ' + k);
+
+     _loop soprhoz where ((
+                            t1.TIDKGAL  == soprhoz.TIDKGAL
+                       and  t1.csoprdoc == soprhoz.csoprdoc
+                       and  t1.desgr    == soprhoz.desgr     (noindex)
+                         ))
+                       and (t1.hoz = 0)
+      {
+       if soprhoz.CHOZOPER <> 0
+        {
+         t1.hoz := 1;
+         if update current t1 = tsok {}
+        }
+      }
+
+    }
+    StopVisual('',0);
+
+     k:=0;
+    StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Выгрузка реестра',recordsintable(tnt1));
+
+    _loop t1
+      {
+         NextVisual();
+         k:=k+1;
+         SetVisualHeader('Этап III : ' + k);
+
+       if getfirst t2 where ((
+                             t1.desgr   == t2.desgr
+                         and t1.TIDKGAL == t2.TIDKGAL
+                            ))
+                             <> tsok
+       {
+          isExistGrupDoc;                 // Запишем nRec если это Групповой документ
+
+          ClearBuffer(#T2);
+          t2.desgr      := t1.desgr ;
+          t2.TIDKGAL    := t1.TIDKGAL;
+          t2.kol        := 1;
+          if t1.hoz = 0
+           {
+           t2.kolhoz := 1;
+           }
+          if insert current t2 = tsok  {}
+       }
+       else
+       {
+        if not isExistGrupDoc {
+            t2.kol  := t2.kol+1;
+            if t1.hoz = 0
+             {
+             t2.kolhoz := t2.kolhoz+1;
+             }
+            if update current t2 = tsok {}
+         }
+       }
+      }
+    StopVisual('',0);
+
+   k:=0;
+
+FBasName := GetStringParameter('Files','TmpFilesDirectory',0)+'soprhoz.xls';
+fmacros  := GetStringParameter('Files','TmpFilesDirectory',0)+'macros.bas';
+fmacros2 := GetStringParameter('Files','TmpFilesDirectory',0)+'macros2.bas';
+
+DeleteFile(FBasName);
+xlCreateExcel(FBasName,true);
+xlSetActiveWorkBookByName('soprhoz');
+   xlGetSheetsCount(xx);
+   while xx > 1
+    do
+     {
+       xlSetActiveSheet(xx);
+       xlDeleteSheet(xx);
+       xlGetSheetsCount(xx);
+     }
+   xlSetSheetName(1,'Реестр');
+   xlSetActiveSheet(1);
+   pos_x:=1;
+
+     xlSetCellStringValue('Реестр непроведенных документов', pos_x, 1, pos_x, 1);
+     xlSetFontSize(12, pos_x, 1, pos_x, 6);
+     xlMergeCells( pos_x, 1, pos_x, 6);
+     xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 6);
+     xlSetFontStyle( 1, pos_x, 1, pos_x, 6);
+     pos_x:=pos_x+2;
+
+     xlSetCellStringValue('Филиал'            , pos_x, 1, pos_x, 1);
+     xlSetCellStringValue('Тип документа'     , pos_x, 2, pos_x, 2);
+     xlSetCellStringValue('Дескриптор'        , pos_x, 3, pos_x, 3);
+     xlSetCellStringValue('Номер документа'   , pos_x, 4, pos_x, 4);
+     xlSetCellStringValue('Дата хозоперации'  , pos_x, 5, pos_x, 5);
+     xlSetCellStringValue('Сумма хозоперации' , pos_x, 6, pos_x, 6);
+
+     xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 6);
+     xlSetFontStyle( 1, pos_x, 1, pos_x, 6);
+
+     xlSetColumnWidth(30,  pos_x, 1, pos_x, 1);
+     xlSetColumnWidth(50,  pos_x, 2, pos_x, 2);
+     xlSetColumnWidth(20,  pos_x, 3, pos_x, 3);
+     xlSetColumnWidth(15,  pos_x, 4, pos_x, 4);
+     xlSetColumnWidth(15,  pos_x, 5, pos_x, 5);
+     xlSetColumnWidth(15,  pos_x, 6, pos_x, 6);
+
+     xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+     xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+     xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+     xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+     xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+     xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+
+     xlWrapText(pos_x, 1, pos_x, 6);
+     pos_x:=pos_x+1;
+
+    StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Выгрузка реестра',recordsintable(tnt1));
+
+//  сгруппируем документы
+
+
+    _loop t1
+      {
+         NextVisual();
+         k:=k+1;
+         SetVisualHeader('Этап IV : ' + k);
+
+       if t1.hoz = 0
+        {
+
+         if getfirst GRDESCR where ((t1.desgr == GRDESCR.DESGR)) = tsok
+          {
+           xlSetCellStringValue(chr(39)+GRDESCR.name    , pos_x, 1, pos_x, 1);
+          }
+
+         if getfirst katdoc where ((t1.TIDKGAL == katdoc.TIDKGAL)) = tsok
+          {
+           xlSetCellStringValue(chr(39)+katdoc.name    , pos_x, 2, pos_x, 2);
+          }
+           xlSetCellStringValue(chr(39)+t1.descr , pos_x, 3, pos_x, 3);
+           xlSetCellStringValue(chr(39)+t1.nodoc , pos_x, 4, pos_x, 4);
+           xlSetCellStringValue(chr(39)+t1.datob , pos_x, 5, pos_x, 5);
+           xlSetCellStringValue(t1.summa , pos_x, 6, pos_x, 6);
+
+         xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 2);
+         xlAlignCellsEx( 3, 2, pos_x, 3, pos_x, 5);
+         xlAlignCellsEx( 4, 2, pos_x, 6, pos_x, 6);
+
+         xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+         xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+         xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+         xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+         xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+         xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+
+         xlWrapText(pos_x, 1, pos_x, 6);
+         pos_x:=pos_x+1;
+        }
+
+
+      }
+    StopVisual('',0);
+
+ DeleteFile(Fmacros);
+ if not LogStrToFile(Fmacros, 'Sub macros()') message('Ошибка записи файла макроса '+fmacros);
+ LogStrToFile(Fmacros, '    With ActiveSheet.PageSetup                                        ');
+ LogStrToFile(Fmacros, '    Columns("D:D").NumberFormat = "#,##0.00"                          ');
+ LogStrToFile(Fmacros, '    Rows("3:3").Select                  ');
+ LogStrToFile(Fmacros, '    Selection.AutoFilter                ');
+ LogStrToFile(Fmacros, '    Rows("4:4").Select                  ');
+ LogStrToFile(Fmacros, '    ActiveWindow.FreezePanes = True     ');
+ LogStrToFile(Fmacros, '    End With                                                          ');
+ LogStrToFile(Fmacros, 'End Sub                                                               ');
+ if not xlImportModule(Fmacros) message ('Ошибка загрузки макроса');
+ if not xlRunMacro('macros') message('Ошибка запуска макроса');
+ DeleteFile(Fmacros);
+
+
+     xlAddSheet
+     xlSetSheetName(1,'Отчет');
+     pos_x:=1;
+     k:=0;
+
+   xlSetCellStringValue(CommonFormHeader, pos_x, 1, pos_x, 1);
+   xlSetFontSize(8, pos_x, 1, pos_x, 5);
+   xlMergeCells( pos_x, 1, pos_x, 5);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('Отчет по состоянию обработки документов ', pos_x, 1, pos_x, 1);
+   xlSetFontSize(14, pos_x, 1, pos_x, 5);
+   xlMergeCells( pos_x, 1, pos_x, 5);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 5);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 5);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('за период с '+bdat+' по '+edat, pos_x, 1, pos_x, 1);
+   xlSetFontSize(12, pos_x, 1, pos_x, 5);
+   xlMergeCells( pos_x, 1, pos_x, 5);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 5);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 5);
+   pos_x:=pos_x+2;
+
+   xlSetCellStringValue('Филиал'                              , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Тип документа'                       , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Количество документов'               , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('Количество проведенных'              , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue('Количество непроведенных'            , pos_x, 5, pos_x, 5);
+
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 5);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 5);
+
+   xlSetColumnWidth(30,  pos_x, 1, pos_x, 1);
+   xlSetColumnWidth(50,  pos_x, 2, pos_x, 2);
+   xlSetColumnWidth(20,  pos_x, 3, pos_x, 3);
+   xlSetColumnWidth(20,  pos_x, 4, pos_x, 4);
+   xlSetColumnWidth(20,  pos_x, 5, pos_x, 5);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+
+   xlWrapText(pos_x, 1, pos_x, 5);
+   pos_x:=pos_x+1;
+
+   StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Выгрузка данных',recordsintable(tnt2));
+
+    _loop t2
+      {
+         NextVisual();
+         k:=k+1;
+         SetVisualHeader('Этап V : ' + k);
+
+         if getfirst GRDESCR where ((t2.desgr == GRDESCR.DESGR)) = tsok
+          {
+           xlSetCellStringValue(chr(39)+GRDESCR.name    , pos_x, 1, pos_x, 1);
+          }
+
+         if getfirst katdoc where ((t2.TIDKGAL == katdoc.TIDKGAL)) = tsok
+          {
+           xlSetCellStringValue(chr(39)+katdoc.name    , pos_x, 2, pos_x, 2);
+          }
+         if t2.kol<>0
+          {
+           xlSetCellStringValue(t2.kol    , pos_x, 3, pos_x, 3);
+          }
+         if t2.kol-t2.kolhoz<>0
+          {
+           xlSetCellStringValue(t2.kol-t2.kolhoz  , pos_x, 4, pos_x, 4);
+          }
+         if t2.kolhoz<>0
+          {
+           xlSetCellStringValue(t2.kolhoz    , pos_x, 5, pos_x, 5);
+          }
+
+         xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 2);
+         xlAlignCellsEx( 4, 2, pos_x, 3, pos_x, 5);
+         xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+         xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+         xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+         xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+         xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+         xlWrapText(pos_x, 1, pos_x, 5);
+         pos_x:=pos_x+1;
+
+      }
+    StopVisual('',0);
+
+ DeleteFile(Fmacros2);
+ if not LogStrToFile(Fmacros2, 'Sub macros2()') message('Ошибка записи файла макроса '+fmacros2);
+ LogStrToFile(Fmacros2, '    With ActiveSheet.PageSetup                                        ');
+ LogStrToFile(Fmacros2, '    Rows("7:7").Select                  ');
+ LogStrToFile(Fmacros2, '    Selection.AutoFilter                ');
+ LogStrToFile(Fmacros2, '    Rows("8:8").Select                  ');
+ LogStrToFile(Fmacros2, '    ActiveWindow.FreezePanes = True     ');
+ LogStrToFile(Fmacros2, '    End With                                                          ');
+ LogStrToFile(Fmacros2, 'End Sub                                                               ');
+ if not xlImportModule(Fmacros2) message ('Ошибка загрузки макроса');
+ if not xlRunMacro('macros2') message('Ошибка запуска макроса');
+ DeleteFile(Fmacros2);
+
+    xlKillExcel;
+    CloseInterFace(cmdefault);
+}
+end;
+end.
+
+.Form 'Отчет по состоянию обработки документов'
+.Ard
+.F 'Nul'
+
+
+.begin
+        RunInterface ('analiz_soprhoz');
+end.
+.endform

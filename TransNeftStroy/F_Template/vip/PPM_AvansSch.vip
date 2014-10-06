@@ -1,0 +1,123 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.80 - модуль "Макросы назначения"
+// макрос для 5.Аванс по счету (Macros API)
+//------------------------------------------------------------------------------
+
+#include PPMacros.vih  
+
+VipInterface PPM_AvansSch implements ObjPPMacros #Licensed_Free;
+
+#doc
+ макрос для 5.Аванс по счету (Macros API)
+#end
+
+Interface PPM_AvansSch;
+
+Table Struct PPMDocInfo
+(
+  ProcDoc : string,
+  NumDoc1 : string,
+  NumDoc  : string,
+  dDoc1   : date,
+  dDoc    : date
+)
+With Index
+(
+  PPMDocInfo01 = dDoc + NumDoc+dDoc1 + NumDoc1
+);
+
+Create view MaView
+var
+  curTiDkUser : word;
+  curTiDkGal  : word;
+  curSoprDoc  : comp;
+
+  PFormat     : word;
+  PList       : word;
+As select *
+From
+  PlPor,
+  SoprHoz,
+  basedoc,
+  PPMDocInfo (PPMDocInfo01)
+Where ((
+      CurSoprDoc       == PlPor.Nrec
+  and CurTiDkUser      == SoprHoz.TipDoc
+  and CurSoprDoc       == SoprHoz.cSoprDoc
+  and SoprHoz.cPredoplDO == BaseDoc.Nrec
+
+))
+;
+
+Function GetInfo: string;
+{
+  GetInfo := 'Макрос для формирования назначения "Аванс по счету"';
+}
+
+
+
+Function ParamMaster: string;
+{
+  // вызов окошка, чтобы помочь пользователю заполнить строку дополнительных параметров идентификатора
+  ParamMaster := '';
+}
+
+Function DocHandle: string;
+{
+  DocHandle := '';
+  var LYear, FrazaOt: string[3];
+  var Data: string;
+
+  Data := if(PPMDocInfo.dDoc1<>date(0,0,0),string(PPMDocInfo.dDoc1),'');
+  Data := Replace(Data, '/', '.');
+  DocHandle := DocHandle+if(PPMDocInfo.NumDoc1<>'',' по счету №'+PPMDocInfo.NumDoc1+
+     if(Data<>'',' от ' + Data+ 'г.','') 
+        ,'') ;
+  DocHandle := if(PPMDocInfo.ProcDoc<>'',PPMDocInfo.ProcDoc+'% ','')+DocHandle;
+}
+
+Function Culc(TiDkGal, TiDkUser: word; cSoprDoc: comp; PpmServer: ObjPPTemplate; 
+              isSyntaxCheck: boolean; var ErrDescr: string): string;
+{
+  Culc        := '';
+  curTiDkGal  := TiDkGal;
+  curSoprDoc  := cSoprDoc;
+  curTiDkUser := TiDkUser;
+
+  // //////////////////////////
+  if isSyntaxCheck
+    exit; // если проверка синтаксиса, то не надо запускать все расчеты (на выход), иначе -- надо
+  // //////////////////////////
+  delete all PPMDocInfo;
+  _loop SoprHoz
+  {
+      if (GetFirst BaseDoc = tsOk)
+      {
+        PPMDocInfo.NumDoc1  := BaseDoc.NoDoc;
+        PPMDocInfo.dDoc1    := BaseDoc.dDoc; 
+        PPMDocInfo.ProcDoc := if(BASEDOC.PROCOPL<>0,string(BASEDOC.PROCOPL,0,2),'');
+//????  PPMDocInfo.ProcDoc := Replace(PPMDocInfo.ProcDoc, '.', ',');//????
+
+        insert current PPMDocInfo;
+        break;
+      }
+  }//_loop SoprHoz
+
+  if (GetFirst PPMDocInfo = tsOK)
+    if length(Culc) + length(DocHandle) <= 248
+      Culc := Culc + DocHandle + '; ';
+  Culc := rTrim(Trim(Culc), ';');
+}
+
+HandleEvent // Interface
+
+cmOnVipLoad:
+{
+}
+
+cmOnVipUnload:
+{
+}
+End;
+End.

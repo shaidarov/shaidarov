@@ -1,0 +1,241 @@
+#ifdef ComponentVersion
+#component "C_Partner"
+#end
+
+#include PickBuh.vih
+#include PickBuhNew.vih
+#include GetKau.vih
+#include PSManager.vih
+
+#include OfpMacro.vpp
+#include xlReport.Vih
+
+const
+	Intername = 'MF_AnObjGet';
+
+	lKAU_Podr = 1;
+	lKAU_MOL  = 2;
+	lKAU_MC   = 3;
+ 	lKAU_Obj  = 4;
+ 	lKAU_Dog  = 5;
+
+	lKAU_Count = 5;
+
+
+	btTRSaldoIn  = 1;
+	btTROborot   = 2;
+	btTRSaldoOut = 4;
+end;
+
+var lMarkers: Array[1..lKAU_Count] of LongInt;
+
+
+interface MF_AnObjGet_TNS 'Аналитический отчет по документам в разрезе Объектов' EscClose, Gray;
+show at (,,85,15);
+
+#include ObjGet_Fltf.vpp
+
+#include PickBuh.var
+#include PickBuhNew.var
+#include GetKau.var
+#include PSManager.var
+
+create view
+var
+	D1: Date;
+	D2: Date;
+	cPlansSch: Comp;
+	wTypeRep: Word;
+as select
+	GetFltSchSubName(cgPick_Schet)                   (fieldname = SchName)  ,
+	GetFltSchSubName(cgPick_SubSch)                  (fieldname = SubName)  ,
+	GetKauNames(lMarkers[lKAU_Podr], cgKau_KatPodr)  (fieldname = PodrName) ,
+	GetKauNames(lMarkers[lKAU_MOL] , cgKau_KatMOL)   (fieldname = MOLName)  ,
+	GetKauNames(lMarkers[lKAU_MC]  , cgKau_KatMC)    (fieldname = MCName)   ,
+	GetKauNames(lMarkers[lKAU_Obj] , cgKau_ObjBuild) (fieldname = ObjName)  ,
+	GetKauNames(lMarkers[lKAU_Dog] , cgKau_Dogovor)  (fieldname = DogName)
+;
+
+screen scrMain 'Фильтр на данные' (,,sci1Esc);
+show at (,,,);
+notablenavigation;
+fields
+	D1 ('Дата начала периода'): NoProtect;
+	D2 ('Дата окончания периода'): NoProtect,
+		{Font = {Color = if (D1 > D2, ColorSysRed, 0)}};
+	SchName ('Фильтр по счету',,sci13Esc): Protect, PickButton, QuickChoice,
+		{Font = {BackColor = if (SchName = '', ColorNeed, 0)}};
+	SubName ('Фильтр по субсчету',,sci13Esc): Protect, PickButton, QuickChoice;
+	PodrName ('Фильтр по подразделениям',,sci13Esc): Protect, PickButton, QuickChoice;
+	MOLName ('Фильтр по материально-ответственным лицам',,sci13Esc): Protect, PickButton, QuickChoice;
+	MCName ('Фильтр по материальным ценностям',,sci13Esc): Protect, PickButton, QuickChoice;
+	ObjName ('Фильтр по объектам строительства',,sci13Esc): Protect, PickButton, QuickChoice;
+	DogName ('Фильтр по Договорам',,sci13Esc): Protect, PickButton, QuickChoice;
+	wTypeRep ('Формировать в отчете данные'): NoProtect;
+buttons
+  cmOK,default,, 'Сформировать';
+  cmCancel,,,'Отмена';
+<<
+
+ `За период`          с .@@@@@@@@@@ `по` .@@@@@@@@@@
+ `Счет`                 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Субсчет`              .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Подразделение`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `МОЛ`                  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Материальная ценность`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Объект строительства` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Договор`              .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ `Формировать данные`   [.] сальдо входящее `
+                        [.] проводки        `
+                        [.] сальдо исходящее`
+
+                    <. Сформировать .>       <.    Отмена    .>
+
+>>
+end;
+
+#include ObjGet_Flt.vpp
+#include ObjGet.vpp
+
+
+HandleEvent
+cmInit:
+{
+	if not InitInterface
+	{
+		Message('Ошибка инициализации', Error);
+		Abort;
+		Exit;
+	}
+}
+cmPick:
+{
+	case CurField of
+		fnSchName:
+		{
+			if PickSchSubFlt(cPlansSch) RescanPanel(tnNoTable);
+		}
+		fnSubName:
+		{
+			if PickSchSubFlt(cPlansSch) RescanPanel(tnNoTable);
+		}
+		fnPodrName:
+		{
+			if PickKauFlt(lMarkers[lKAU_Podr], cgKau_KatPodr) RescanPanel(tnNoTable);
+		}
+		fnMOLName:
+		{
+			if PickKauFlt(lMarkers[lKAU_MOL], cgKau_KatMOL) RescanPanel(tnNoTable);
+		}
+		fnMCName:
+		{
+			if PickKauFlt(lMarkers[lKAU_MC], cgKau_KatMC) RescanPanel(tnNoTable);
+		}
+		fnObjName:
+		{
+			if PickKauFlt(lMarkers[lKAU_Obj], cgKau_ObjBuild) RescanPanel(tnNoTable);
+		}
+		fnDogName:
+		{
+			if PickKauFlt(lMarkers[lKAU_Dog], cgKau_Dogovor) RescanPanel(tnNoTable);
+		}
+	end;
+}
+cmOpenSearch:
+{
+	ProcessCommand(cmPick);
+}
+cmDelOnProtect:
+{
+	case CurField of
+		fnSchName:
+		{
+			DelSchSubFlt(cgPick_Schet);
+			RescanPanel(tnNoTable);
+		}
+		fnSubName:
+		{
+			DelSchSubFlt(cgPick_SubSch);
+			RescanPanel(tnNoTable);
+		}
+		fnPodrName:
+		{
+			DelKauFlt(lMarkers[lKAU_Podr]);
+			RescanPanel(tnNoTable);
+		}
+		fnMOLName:
+		{
+			DelKauFlt(lMarkers[lKAU_MOL]);
+			RescanPanel(tnNoTable);
+		}
+    	fnMCName:
+		{
+			DelKauFlt(lMarkers[lKAU_MC]);
+			RescanPanel(tnNoTable);
+		}
+		fnObjName:
+		{
+			DelKauFlt(lMarkers[lKAU_Obj]);
+			RescanPanel(tnNoTable);
+		}
+		fnDogName:
+		{
+			DelKauFlt(lMarkers[lKAU_Dog]);
+			RescanPanel(tnNoTable);
+		}
+	end;
+}
+cmHotKeys:
+{
+	OnHotKeys;
+}
+cmPlansNo:
+{
+	OnPickPlansSch;
+}
+cmOK:
+{
+var bErr: Boolean;
+
+	bErr := false;
+	if wTypeRep = 0
+	{
+		Message('Не заданы данные для вывода в отчет.'#13 +
+				'Выберите данные в поле "Формировать данные"', Error);
+	  	bErr := true;
+	}
+	if (D1 > D2)
+	{
+		Message('Дата начала превышает дату окончания периода формирования отчета.'#13 +
+				'Проверьте заполнение полей "За период с ... по ..."', Error);
+	  	bErr := true;
+	}
+	if SchName = ''
+	{
+		Message('Не выполнен выбор счета(ов) для поиск данных.'#13 +
+				'Заполните необходимые значения в полях "Счет", "Субсчет"', Error);
+	  	bErr := true;
+	}
+
+	if bErr
+	{
+		Abort;
+		Exit;
+	}
+	if ReportGet
+	{
+		ReportView;
+	}
+}
+cmDone:
+{
+	DoneInterface;
+}
+end;
+
+end.
+MF_ObjGetMenu Menu
+{
+  - '~С~мена плана счетов', cmPlansNo, 'Смена текущего плана счетов', hcKonsM1PlanSch, 'Alt-P', kbAltP, sci1Esc;
+}

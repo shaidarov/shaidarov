@@ -1,0 +1,106 @@
+
+
+/*
+&@rbb_1521_3         =  СК60_03[5:"|002"][П:@"Подр"]+СК60_04[5:"|002"][П:@"Подр"]+СК76_101[П:@"Подр"]+СК76_15[4:"|002"][П:@"Подр"]+СК76_19[4:"|002"][П:@"Подр"]+СК76_22[6:"|002"][П:@"Подр"]
+&@rbb_1521_4         =  С[Период:ГП]К60_03[5:"|002"][П:@"Подр"]+С[Период:ГП]К60_04[5:"|002"][П:@"Подр"]+С[Период:ГП]К76_101[П:@"Подр"]+С[Период:ГП]К76_15[4:"|002"][П:@"Подр"]+С[Период:ГП]К76_19[4:"|002"][П:@"Подр"]+С[Период:ГП]К76_22[6:"|002"][П:@"Подр"]
+&@rbb_1521_5         =  С[Период:ГП2]К60_03[5:"|002"][П:@"Подр"]+С[Период:ГП2]К60_04[5:"|002"][П:@"Подр"]+С[Период:ГП2]К76_101[П:@"Подр"]+С[Период:ГП2]К76_15[4:"|002"][П:@"Подр"]+&@rbb_1521_5_fil
+&@rbb_1521_5_fil     =  С[Период:ГП2]К76_19[4:"|002"][П:@"Подр"]+С[Период:ГП2]К76_22[6:"|002"][П:@"Подр"]
+*/
+
+#include Query.vih
+
+interface DateVoznZadolzhPAT;
+var
+   i_dog     : byte   ;
+   schSaldo  : string ;
+   dateSaldo : date   ;
+
+table struct tsSaldoUp (
+   schet   : string
+ , dogovor : comp
+ , summa   : double
+) with index (
+  indx01 = schet + dogovor
+);
+
+table struct tsDolgStrokaPAT (
+   stroka  : string
+ , srok    : string
+ , dogovor : string
+ , sum     : double
+);
+
+create view
+as select * from
+   tsSaldoUp
+, SaldMoun
+;
+
+//      , Sum(SaldMoun.SumS) as summa
+//group by SaldMoun.KauOS[1]
+
+sql query UpSaldo as
+ select SaldMoun.KauOS[1]      as dogovor
+ from SaldMoun
+ where (     :dateSaldo  = SaldMoun.DateSal
+         and 'T62'       = SaldMoun.SchetO
+       )
+;
+
+
+HandleEvent
+cmInit: {
+  i_dog     := 1;
+  schSaldo  := 'Т62';
+  dateSaldo := date(01, 09, 2012);
+
+
+      var QM      : IQueryManager(vipQueryManager);
+      var Q       : IQuery;
+      var RS      : IResultSet;
+      var ResRow  : IResultRow;
+
+      Q := QM.CreateQuery(UpSaldo);
+//      Q.SetParam('i_dog'    , i_dog     );
+      Q.SetParam('dateSaldo', dateSaldo );
+//      Q.SetParam('schSaldo' , schSaldo  );
+      RS := Q.getResultSet;
+
+      if RS.Count > 0 {
+        var NavigFlag : boolean;
+        for ( NavigFlag := (RS.getFirst = tsOk); NavigFlag; NavigFlag  := (RS.getNext = tsOk) )
+        {
+          ResRow := RS.Row;
+
+          ClearBuffer(#tsSaldoUp);
+          tsSaldoUp.schet   := schSaldo              ;
+          tsSaldoUp.dogovor := ResRow.val('dogovor') ;
+          tsSaldoUp.summa   := ResRow.val('summa')   ;
+          insert current tsSaldoUp;
+        }
+      }
+
+ _Loop tsSaldoUp {
+ LogStrToFile('C:\1.txt', tsSaldoUp.Dogovor + '~' + tsSaldoUp.summa );
+ }
+
+
+}
+end;
+
+
+/*
+_loop строки баланса  {
+  передать условия выборки
+  СК60_03[5:"|002"][П:@"Подр"]
+
+  наполнить временную таблицу результатом выборки: Срок задолженности, Договора, Сумма по каждой стоке Баланса
+  }
+
+
+  построить FR-отчёт с отдельными Бендами для каждой таблицы в памяти
+*/
+end.
+
+
+

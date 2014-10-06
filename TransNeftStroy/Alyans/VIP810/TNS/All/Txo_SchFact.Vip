@@ -1,0 +1,699 @@
+/*
+возмажна следующая схема работы
+в первой проводке [ЭТАП:"НАЧ"]
+в последующей     [ЭТАП:"СЛЕД"]
+в последней [ЭТАП:"КОН"] (без фильтров)
+тогда все что не отобралось в предыдущих проводках попадет в последнюю
+&VIP_[Obj:"SCHFACT"][ТИП:"ВКЛ"][АТТР:"4612130662701380473"][АТТРФЛТ:"DDD"][СУМ:НДС][ЭТАП:"НАЧ"]
+&VIP_[Obj:"SCHFACT"][ТИП:"ВКЛ"][СУМ:НДС][ЭТАП:"КОН"]
+
+описание изменений
+//20080425 - отключена проверка по партии и отпускной един.измерения
+
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                     TEST_txoapi_sCHfACT                                                        │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│Регистр учета: План счетов 2001г. (в ред. Приказа Минфина РФ от 07.05.2003 №38н)                                                │
+├────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────┬───┬────────┤
+│ No │ Корреспонденция                                                                                              │Вх.│ Процент│
+├────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────┼───┼────────┤
+│   1│ ДЕБЕТ : 19.02                                                                                                │ + │100.0000│
+│    │ КАУ 1 : <авто - Организации>                                                                                 │   │        │
+│    │ КАУ 2 : <авто - Материальные ценности>                                                                       │   │        │
+│    │ КАУ 3 : <авто - Документы-основания>                                                                         │   │        │
+│    │ КАУ 4 : <авто - Центры ответственности>                                                                      │   │        │
+│    │ Подразделение: <авто - Подразделения>                                                                        │   │        │
+│    ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤   │        │
+│    │ КРЕДИТ: 68.03                                                                                                │   │        │
+│    │ Подразделение: <авто - Подразделения>                                                                        │   │        │
+│    ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤   │        │
+│    │ Дата проводки: <авто - дата>                                                                                 │   │        │
+│    │ Содержание проводки:                                                                                         │   │        │
+│    │ Алгоритм в НДЕ     : &VIP_[Obj:"SCHFACT"][ТИП:ВКЛ][СУМ:НДС]                                                  │   │        │
+│    │ Алгоритм в валюте <по настройке>:                                                                            │   │        │
+│    │ Алгоритм количество:                                                                                         │   │        │
+│    │ Вычисление формул  : Вычислять все формулы по списку                                                         │   │        │
+│    │ Фильтр для циклической обработки:                                                                            │   │        │
+│    │ Циклическая обработка: <Организации> <Подразделения> <Материальные ценности> <Документы-основания> <Центры   │   │        │
+│    │                        ответственности>                                                                      │   │        │
+│    │ Результат: положительная, при смене знака изменить корреспонденцию счетов                                    │   │        │
+│    │ Сумму в проводке: не конвертировать                                                                          │   │        │
+│    │ Внешняя классификация:                                                                                       │   │        │
+└────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────┴───┴────────┘
+
+
+*/
+
+#ifdef ComponentVersion
+#Component "F_TxoApi"
+#end
+
+#include TxoApi.vih
+
+VipInterface Txo_SchFact implements ObjTxoIdentPlugin
+#ifdef ATL51
+ licensed (FREE) 
+#endif 
+
+;
+
+Interface Txo_SchFact cacheable;
+
+create view  vTxo_SchFact
+var
+  CurSoprHoz : comp;
+  CurSoprDoc : comp;
+  CurDatOb : date;
+  curTidk :longint  ;
+  MyPlansNo:comp ;
+  klfilter:boolean ;
+  tp_filtr :word ; // логическое условие
+  tp_filtr_mcusl :word ; // тип фильтра по мц услугам
+  filtr_mcusl: string ; // фильтр по МЦ
+  filtr_arrtval : string ; // фильтр по внешнему атрибуту  
+  filtr_attrnam :comp ;
+  tp_deist : word ; //для сохранения пометки записей отобранных для проводок 
+                    //0 - нет, 1 - старт,2 - продолжение, 3 - последняя
+  marker_deist :longint ;
+  tp_summ :word ; // 0 - вся сумма, 1 без ндс, 2 ндс
+  marker_spsopr,IndexNoOt,marker_vib :longint ;
+  wnrec :comp ;
+  W_CKAELEM:comp ;
+  wattr_table :word ; // для вывода атрибутов по таблице
+  wattr_nrec : comp ;
+  w_cfpco :comp ;
+  wsch_tp,wsch_tpm:word ;
+  wcpodr,wcpodrm :comp ; // для поиска счета сбусчета
+  w_corg : comp ;
+as select katsopr.nrec 
+from
+  BOOKPRZK,KATSOPR,schfact,spsopr,spschf
+,attrnam ,attrval 
+,attrnam attrnamk,attrval attrvalk
+//,attrnam attrnams,attrval attrvals
+,stepdoc , basedoc
+, katmc,groupmc,katusl , groupusl  
+,fpco,fpco fpco1
+,specmtr
+,katorg
+where
+((
+  CurSoprDoc == BOOKPRZK.Nrec   
+// and BOOKPRZK.CSOPR == KATSOPR.NREC
+ and BOOKPRZK.cschfact == schfact.nrec
+ and schfact.nrec == spschf.cschfact
+ and schfact.nrec == KATSOPR.cschfact
+ AND katsopr.nrec == spsopr.csopr
+ AND katsopr.cstepdoc== stepdoc.nrec
+ and stepdoc.cbasedoc == basedoc.nrec
+ and spschf.prmc == spsopr.prmc
+ and spschf.cmcusl == spsopr.cmcusl
+//20080425 and spschf.cparty == spsopr.cparty(noindex)
+//20080425 and spschf.cotped == spsopr.cotped (noindex)
+ and w_corg == katorg.nrec // организация
+
+ and filtr_attrnam == attrnam.nrec
+ and cospsopr == attrval.wtable
+ and filtr_attrnam ==attrval.cattrnam
+ and spsopr.nrec == attrval.crec
+ and spschf.cmcusl ==katmc.nrec
+ and katmc.cgroupmc == groupmc.nrec
+ and spschf.cmcusl ==katusl.nrec
+ and katusl.cgroupusl == groupusl.nrec
+ // для вывода анешних атрибутов по таблицам
+ and wattr_table == attrnamk.wtable
+ and wattr_table == attrvalk.wtable
+ and attrnamk.nrec ==attrvalk.cattrnam
+ and wattr_nrec == attrvalk.crec
+// ЦУ
+ and cospsopr     == SpecMTR.coTable  
+ and spsopr.nrec  == SpecMTR.cSpec
+ // для поиска центров ответственности
+ and w_cfpco  == fpco.nrec
+ and fpco.cnode == fpco1.nrec
+ 
+// and SPSCHF.PRNONDS ==spsopr.price 
+// and SPSCHF.PRICE   ==SPSOPR.PRICE 
+));
+Const
+  idVipInfo        = '&VIP[Obj:"SchFact"]';
+  idVipTag         = 'SchFact';
+end;
+//**************************Наименование интерфейса
+function GetInfo : string;
+{
+  GetInfo := 'Формирование проводок по книге покупок';
+}
+//**************************выбор параметров
+function ParamGen : string;
+{  var s : String;
+   s:='' ;
+   s :='['+'ТИП:'+chr(34)+if(tp_filtr=0,'ВКЛ','ИСКЛ')+chr(34)+']';
+   if tp_filtr_mcusl>0
+   { s :=s+'['+'ТИПМЦУСЛ:'+chr(34)+string(tp_filtr_mcusl)+chr(34)+']';
+     s :=s+'['+'ФЛТМЦУСЛ:'+chr(34)+filtr_mcusl+chr(34)+']';
+   }
+   if filtr_attrnam>0
+   {  s :=s+'['+'АТТР:'+chr(34)+string(filtr_attrnam)+chr(34)+']';
+      s :=s+'['+'АТТРФЛТ:'+chr(34)+string(filtr_arrtval)+chr(34)+']';
+   }
+   if tp_summ>0
+   { s:=s+chr(91)+'СУМ:' //[
+        +if(tp_summ=1,'"НДС"'
+          ,if(tp_summ=2,'"БЕЗНДС"'
+           ,'"NREC"'))
+        +chr(93) ;//']';    
+   }
+   case tp_deist of
+   1: s:=s+'[ЭТАП:"НАЧ"]';
+   2: s:=s+'[ЭТАП:"СЛЕД"]';
+   3: s:=s+'[ЭТАП:"КОН"]';
+   end ;
+   ParamGen := s;
+}
+//**************************Разбор параметров при обработке в ТХО
+procedure ParamParser(hTxo : longint);
+var 
+!   s : String;
+    i : Longint;
+{  tp_filtr :=0 ;tp_filtr_mcusl:=0 ;filtr_mcusl:='' ; 
+   filtr_attrnam:=0 ;filtr_arrtval:='' ;tp_summ:=0 ;
+   for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   { 
+     case TxoParamName(hTxo,i) of
+     'ТИП'      : tp_filtr :=if(TxoParamValue(hTxo,i)='ИСКЛ',1,0) ;
+     'ТИПМЦУСЛ' : tp_filtr_mcusl:=word(TxoParamValue(hTxo,i))   ;
+     'ФЛТМЦУСЛ' : set filtr_mcusl:=TxoParamValue(hTxo,i)        ;
+     'АТТР'     : set filtr_attrnam:=comp(TxoParamValue(hTxo,i));
+     'АТТРФЛТ'  : set filtr_arrtval:=TxoParamValue(hTxo,i)      ;
+     'СУМ'      : set tp_summ:=if(TxoParamValue(hTxo,i)='НДС',1,if(TxoParamValue(hTxo,i)='БЕЗНДС',2,3)) ;
+     'ЭТАП' :
+     { case TxoParamValue(hTxo,i) of
+       'НАЧ' : tp_deist:=1;
+       'СЛЕД': tp_deist:=2;
+       'КОН' : tp_deist:=3;
+       end ;
+     }
+     end ;
+   }
+   Rereadrecord ;
+
+} //procedure ParamParser(hTxo : longint);
+
+//**************************Окно Фейса
+Window winParam 'Параметры идентификатора' (,,sci13Esc) EscClose, DoAccept;
+Show at (10,1,90,28);
+Screen scInfo 'Информация';
+table attrnam;
+Fields
+ tp_filtr : noprotect ;
+ tp_filtr_mcusl: noprotect ;
+ filtr_mcusl : noprotect,pickbutton ;
+ tp_deist ('служит для пометки записей,чтобы предотвратить дальнейшее формирование') : [list 0 'Общий','Начало пометки','Продолжение','Конец'],protect ;
+ Attrnam.name : protect ,pickbutton ;
+ filtr_arrtval : noprotect ;
+ tp_summ : [list 0 'Вся сумма','НДС','БЕЗ НДС','NREC'],protect ;
+   buttons
+        cmOk, default,, '',,;
+        cmCancel,,, '',,;
+<<
+ Установка параметров
+ Вид фильтра по спецификации    'Режим 0'
+ (.) входит в фильтр   `        'подр.,мол куда'
+ (.) не входит в фильтр`        'объект строит.из спец.'
+ Фильтровать по МЦ/Услугам
+ (.) Нет       `                'Режим 1'
+ (.) Только МЦ `                'по вн.атриб.к спец.'  
+ (.) По заданой МЦ`             'Режим 2'
+ (.) По заданой Группе МЦ`      'по вн.атриб.к накл.'  
+ (.) Только Услуги`             'Режим 9 код 9999'
+ (.) По заданой Услуге`         'spsopr.nrec'
+ (.) По заданой Группе Услуг`
+ Значение фильтра
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   Тип работы
+ Фильтр по атрибуту спец. накладной   .@@@@@@@@@@@@@@
+ Атрибут  .@@@@@@@@@@@@@@@@@@@@@@@@@
+ Значение .@@@@@@@@@@@@@@@@@@@@@@@@@
+ Тип суммы.@@@@@@@@@@@@@@@@@@@@@@@@@ 
+   <.~П~родолжить.>                             <.Отмена.>
+>>
+End;
+
+HandleEvent
+  cmCheckField :
+  { case curfield of
+    #tp_filtr_mcusl :filtr_mcusl:='' ;
+    end ;
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+    RescanPanel(#attrnam) ;
+
+  } //cmCheckField :
+  cmIdle:
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  cmInit :
+    {
+      SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+      RescanPanel(#attrnam) ;
+      MyPlansNo:=0 ;
+      // так то все подкэшируется
+      tp_filtr :=0 ;tp_filtr_mcusl:=0 ;filtr_mcusl:='' ; 
+      filtr_attrnam:=0 ;filtr_arrtval:='' ;tp_summ:=0 ;
+   
+    }
+  cmPick:
+  { case curfield of
+    #filtr_mcusl: 
+    { wnrec:=0 ;
+/*      
+Parameters
+   wIntMode  // Режим выбора  1 - один.выбор
+  ,wKatKau   // Исходная выбираемая аналитика (Например, Код синонима)
+  ,cKau      // Выбранная запись
+  ,Markers   // Рабочий маркер - надо инициализировать
+  #ifdef AddKauParameters
+    #AddKauParameters
+  #end
+*/      
+      marker_vib:=InitMarker('marker_vib', 8, 200, 10) 
+      ClearMarker(marker_vib) ;
+      case tp_filtr_mcusl of
+      2 : 
+      { runinterface(F_GETAN::GTCGKAU_KATMC,1,4,wnrec,marker_vib)
+        if getfirst katmc where (( wnrec == katmc.nrec ))=0 then filtr_mcusl:=katmc.barkod
+      }
+      3: {
+        runinterface(F_GETAN::GTCGKAU_GroupMc,1,8,wnrec,marker_vib)
+        if getfirst GroupMc where (( wnrec == groupmc.nrec ))=0 then filtr_mcusl:=groupmc.kod
+      }
+      5: {
+        runinterface(F_GETAN::GTCGKAU_KATUSL,1,5,wnrec,marker_vib)
+        if getfirst katUSL where (( wnrec == katusl.nrec ))=0 then filtr_mcusl:=katusl.kod
+      }
+      6:{
+        runinterface(F_GETAN::GTCGKAU_Groupusl,1,9,wnrec,marker_vib)
+        if getfirst GroupuSL where (( wnrec == groupusl.nrec ))=0 then filtr_mcusl:=groupusl.kod
+      }
+      end ; //case tp_filtr_mcusl of
+      ClearMarker(marker_vib) ;
+      DoneMarker(marker_vib, 'marker_vib') ;
+    } //#filtr_mcusl: {
+    #Attrnam.name : 
+    {
+      runinterface(C_EXTCLASS::PICKATTRNAM, filtr_attrnam , coSpSopr ) ;
+    }  //#Attrnam.name : {
+    end;
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+    RescanPanel(#attrnam) ;
+  } //cmPick:
+  cmDelOnProtect :
+  { message('1') ;
+    case curfield of
+    #filtr_mcusl:{SET  filtr_mcusl:='' ;}
+    #Attrnam.name :
+    { SET filtr_attrnam:=0 ;
+      message('2 '+string(filtr_attrnam)) ;
+    }
+    end ;
+    RescanPanel(#attrnam) ;
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  }  //cmDelOnProtect :
+  cmOk :
+  { MyPlansNo:=1
+    closewindow(winParam) ;
+  }
+End;
+End;
+
+//**************************Мастер параметров
+function ParamMaster : string;
+{  ParamMaster := '';
+   if( RunWindowModal(winParam)=cmDefault ) or MyPlansNo=1
+   {  //PackFields;
+      ParamMaster := ParamGen;
+   }
+}
+
+//************ для вывода аналитик по внешним атрибутам
+Procedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+{ set wAttr_table :=wwtable ;
+  set wAttr_nrec  :=wwnrec ;
+  _loop fullcache attrnamk
+  { if attrnamk.AttrType=5 and isvalid(#attrvalk)
+    { if attrvalk.vcomp>0
+      { if attrnamk.ROBJECT=5017 and w_CKAELEM=0 then w_CKAELEM:=attrvalk.vcomp ; // элемент затрат
+        TxoBodyAddKau(hTxo, wwFlKau_Mode, attrnamk.ROBJECT, attrvalk.vcomp)        
+        TxoDebugMsg(hTxo, 'TXO_KatSopr','аналитика к таблице '+string(wAttr_table)+',значение='+attrvalk.vstring+',режим='+string(wwFlKau_Mode)+'/'+string(attrnamk.ROBJECT)+'/'+string(attrvalk.vcomp))
+      }  
+    } //if attrnamk.AttrType=5 and isvalid(#attrvalk)
+  } //_loop attrnamk
+} //Proccedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+
+//**************************ОСНОВНАЯ ПРОЦЕДУРА ОБРАБОТКИ ТХО
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+var 
+   wstr:string ;
+   wkoef_main : double ;
+   wkoef_pos  : double ;
+   wsu :double  ;
+   wsuval:double ;
+{
+  set CurSoprDoc := buf.cSoprDoc;
+  set CurSoprHoz := buf.cSoprHoz;
+  set CurDatOb := buf.DatOb;
+  set CurTidk := buf.TidkGal;
+  set MyPlansNo:= buf.cplanssch ;
+  ParamParser(hTxo);
+  TxoAllowRecallStoreCycles(hTxo);
+  
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT','tp_filtr='+string(tp_filtr))
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT','tp_filtr_mcusl='+string(tp_filtr_mcusl))
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT','filtr_mcusl='+filtr_mcusl)
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT','tp_deist='+string(tp_deist))
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT','filtr_attrnam='+string(filtr_attrnam))
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT','filtr_arrtval='+filtr_arrtval)
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT','tp_summ='+string(tp_summ))
+  
+  if CurTidk<>75 // покупки
+  and CurTidk<>74 //продажи
+  { wstr:='Не тот тип документа '+string(CurTidk)
+    TxoDebugMsg(hTxo, 'TXO_SCHFACT-',wstr)    
+    message(wstr)
+    exit ; 
+  }
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT-','1 ');
+  if getfirst bookprzk<>0
+  { wstr:=('Не нашли документ '+string(CurTidk))
+    TxoDebugMsg(hTxo, 'TXO_SCHFACT-',wstr)    
+    message(wstr)
+    exit ;
+  }
+  if getfirst schfact<>0
+  { wstr:=('Не нашли СФ '+string(CurTidk))
+    TxoDebugMsg(hTxo, 'TXO_SCHFACT-',wstr)    
+    message(wstr)
+    exit ;  
+  }  
+  //              18%            10%                0%            без ндс
+  wkoef_main:=(BOOKPRZK.SUM[3]+BOOKPRZK.SUM[4]+BOOKPRZK.SUM[23]+BOOKPRZK.SUM[7]) /(SCHFACT.SUM[3]+SCHFACT.SUM[4]+SCHFACT.SUM[7]+SCHFACT.SUM[23])
+  TxoDebugMsg(hTxo, 'TXO_SCHFACT-','  главный коэф.='+string(wkoef_main))
+  marker_spsopr:=InitMarker('', 8, 200, 10) 
+  marker_deist:=InitMarker('deist', 8, 200, 10) 
+  case tp_deist of
+  1: ClearMarker(marker_deist) ;
+  end ;
+  ClearMarker(marker_spsopr) ;
+  DoneMarker(marker_spsopr,'') ;
+  marker_spsopr:=InitMarker('', 8, 200, 10) 
+    TxoDebugMsg(hTxo, 'TXO_SCHFACT-','2');
+  IndexNoOt:=0 ;  
+  _Loop SpSchf
+  { wkoef_pos:=0 ;
+    IndexNoOt:=0 ;  
+    TxoDebugMsg(hTxo, 'TXO_SCHFACT-','Позиция='+if(SpSchf.prmc=1,katmc.name,katusl.name)
+          +',сумма='+string(SPSCHF.SUM+SPSCHF.NDS)+','+string(SpSchf.cmcusl))
+    if tp_filtr_mcusl>0// отработаем фильтр по мц
+    { klfilter:=false
+      wstr:='' ;
+      case tp_filtr_mcusl of
+       1  : { klfilter:=SpSchf.prmc=1 }
+       2  : 
+       { if SpSchf.prmc=1 and katmc.barkod=filtr_mcusl then klfilter:=true ;
+         wstr:='МЦ '+katmc.name+'/'+katmc.barkod ;
+       }
+       3  : 
+       { if SpSchf.prmc=1 and substr(groupmc.kod,1,length(filtr_mcusl))=filtr_mcusl then klfilter:=true ; 
+         wstr:='Гр.МЦ '+groupmc.name+'/'+groupmc.kod ;
+       }
+       4  : { klfilter:=SpSchf.prmc<>1 }
+       5  : 
+       { if SpSchf.prmc<>1 and katusl.kod=filtr_mcusl then klfilter:=true ; 
+         wstr:='Усл. '+katusl.name+'/'+katusl.kod ;
+       }
+       6  : 
+       { if SpSchf.prmc<>1 and groupusl.kod=filtr_mcusl then klfilter:=true ; 
+          wstr:='Гр.Усл '+groupusl.name+'/'+groupusl.kod ;
+       }
+      end ;
+      if tp_filtr<>0 klfilter:=not klfilter ;
+      if not klfilter then
+      { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','  не прошла по фильтру,тип '+string(SpSchf.prmc)+','+wstr)
+        continue ;
+      }
+    }  //if tp_filtr_mcusl>0
+
+
+    _Loop katsopr // ищем коэфицент по позиции
+    { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','Накладная '+katsopr.nsopr+DatetoStr(katsopr.dsopr,' от DD/MM/YYYY'))
+//======= подразделение по ЦО
+ w_cfpco :=katsopr.cotvpodr ;
+  wcpodr:=0 ;
+  if getfirst fastfirstrow fpco=0 
+  { case fpco.COTABLE of
+    2 :
+    { set wcpodr:=fpco.CMEAN  
+      wsch_tpm:=0 ;
+      wcpodr:=fpco.CMEAN  
+      TxoDebugMsg(hTxo, 'TXO_KatSopr-','Нашли центр ответсвенности '+fpco.name)
+    }
+    3: // сотрудники 
+    { wsch_tpm:=1
+      if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+    }
+    1: 
+    { // организация
+      wsch_tpm:=2 ;
+      if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+      TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Katorg, fpco.CMEAN)
+    }
+    end ;
+  } // if getfirst fpco=0 
+  else
+  { 
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-','Не нашли центр ответсвенности !!!')
+    if katsopr.cpodrto>0
+    { wcpodr:=katsopr.cpodrto ;
+    }
+  }  
+  if (wcpodr=0 or katsopr.vidsopr=201) and katsopr.cpodrfrom>0 and katsopr.cotvpodr=0
+  { wcpodr:=katsopr.cpodrfrom ;
+  }
+//-- Added by Childinov S.M., 04.06.2008 --
+  if (katsopr.vidsopr=501 and katsopr.cpodrto>0) // Для накладной на отпуск в производство
+  { wcpodr:=katsopr.cpodrto; 
+  }
+//-----------------------------------------
+  wcpodrm:=wcpodr ;
+      _loop spsopr
+      { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','Позиция='+spsopr.npp) ; 
+        if SearchMarker(marker_spsopr,spsopr.nrec,IndexNoOt) then 
+        { continue ;
+        }
+        TxoDebugMsg(hTxo, 'TXO_SCHFACT-','----') ; 
+        wkoef_pos:=wkoef_pos+spsopr.price*spsopr.kolfact+if(katsopr.vhodnal=1,0,SpSopr.SumNds) 
+      } //_loop spsopr
+    } //_Loop katsopr
+    wkoef_pos:=(SPSCHF.SUM+SPSCHF.NDS)/wkoef_pos
+    TxoDebugMsg(hTxo, 'TXO_SCHFACT-','  wkoef_pos='+string(wkoef_pos))
+    
+    _Loop katsopr // ищем коэфицент по позиции
+    { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','Накладная '+katsopr.nsopr+DatetoStr(katsopr.dsopr,' от DD/MM/YYYY'))
+      _loop spsopr
+      { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','Позиция='+spsopr.npp) ; 
+        if SearchMarker(marker_spsopr,spsopr.nrec,IndexNoOt) then continue ;
+        TxoDebugMsg(hTxo, 'TXO_SCHFACT-','----') ; 
+        InsertMarker(marker_spsopr,spsopr.nrec);
+        TxoDebugMsg(hTxo, 'TXO_SCHFACT-',' позиция накладной '+string(spsopr.cmcusl)
+          +',цена*кол-во='+string(spsopr.price*spsopr.kolfact)
+          +',ндс '+string(spsopr.sumnds))
+        TxoBodyClear(hTxo);
+
+        if filtr_attrnam>0
+        { klfilter:=false ;
+          if isvalid(tnattrval) 
+          { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','атрибут= '+attrval.vstring)
+            if upcase(substr(attrval.vstring,1,length(filtr_arrtval)))=upcase(filtr_arrtval)
+            { 
+              klfilter:=true ;
+            }
+            if ATTRNAM.ATTRTYPE=5 
+            { wstr:=if(GetAnyKau(word(0),ATTRNAM.ROBJECT,attrval.vcomp),GivenAnName(2),'') 
+              if upcase(substr(wstr,1,length(filtr_arrtval)))=upcase(filtr_arrtval) then klfilter:=true 
+              else
+                if attrval.vcomp=comp(filtr_arrtval) then klfilter:=true ;
+              TxoDebugMsg(hTxo, 'TXO_SCHFACT-','код атрибут= '+wstr)  
+            } 
+          }
+          if tp_filtr<>0 klfilter:=not klfilter ;
+          if not klfilter then
+          { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','  не прошла по фильтру на внешний атрибут')
+           continue ;
+          }
+        } //if filtr_attrnam>0
+        if tp_deist>0
+        { if SearchMarker(marker_deist,spsopr.nrec,IndexNoOt) then
+          { TxoDebugMsg(hTxo, 'TXO_SCHFACT-',' обработана в предыдущих проводках ')
+            continue ;
+          } 
+          InsertMarker(marker_deist,spsopr.nrec);
+        }
+
+        case tp_summ of
+        0 : { 
+          wsu:=spsopr.price*spsopr.kolfact+if(katsopr.vhodnal=1,0,SpSopr.SumNds) 
+          wsuval:=spsopr.vprice*spsopr.kolfact+if(katsopr.vhodnal=1,0,SpSopr.SumVNds) 
+        }
+        1 : {
+          wsu:=SpSopr.SumNds 
+          wsuval:=SpSopr.SumVNds 
+        }
+        2: {
+          wsu:=spsopr.price*spsopr.kolfact-if(katsopr.vhodnal<>1,0,SpSopr.SumNds) 
+          wsuval:=spsopr.vprice*spsopr.kolfact-if(katsopr.vhodnal<>1,0,SpSopr.SumVNds) 
+        }
+        end ; //case tp_sum of
+        // на коэф по позиции умножать не надо ! можно конечно еще по цене проверку добавить
+        wsu:=wsu*wkoef_main ; //*wkoef_pos ;
+        wsuval:=wsuval*wkoef_main; //*wkoef_pos ;
+        if tp_summ=3
+        { wsu:=spsopr.nrec ; wsuval:=0 ;
+        } //if tp_sum=3
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatOrg, katsopr.corg)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Basedoc, stepdoc.cbasedoc)        
+        if spsopr.prmc=1
+        { TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatMC, spsopr.cmcusl)        
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_GroupMC, katmc.cgroupmc)        
+        } else
+        { TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatUsl, spsopr.cmcusl)        
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_GroupUsl, katusl.cgroupusl)        
+        }
+        if isvalid(#SpecMtr)
+        { TxoDebugMsg(hTxo, 'TXO_SCHFACT-','нашли объект строительства '+string(SpecMtr.cobj)+'/'+string(cgKau_ObjBuild))
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_ObjBuild, SpecMtr.cobj)        
+          TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_ObjBuild, SpecMtr.cobj)        
+          //'400093017AAC5E2Fh' ,
+          //'400093017AAC5E2Fh', 
+          //'400093017AAC5E2Fh' 
+          //'400093017AAC5E2Fh'
+        }
+        else
+         TxoDebugMsg(hTxo, 'TXO_SCHFACT-',' не нашли объект строительства !!!')
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatParty, spsopr.cparty)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_SchFact, schfact.nrec)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Katsopr, katsopr.nrec)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Dogovor, 
+          if(katsopr.cappdogovor>0,katsopr.cappdogovor , katsopr.cdogovor) )        
+//        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Dogovor, katsopr.cdogovor)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_FPCO, KatSopr.cOtvPodr)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, 5022, katsopr.ccalplan)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_katmol, katsopr.cmolfrom)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_katpodr, katsopr.cpodrfrom)
+        TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_katmol, katsopr.cmolto)        
+        TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_katpodr, katsopr.cpodrto)        
+        TxoBodyAddKau(hTxo, wFlKau_Mode9, 9999, spsopr.nrec)        
+        
+                w_CKAELEM:=0 ;   
+        // заполняем по аналитике
+        Attr_Analitik(hTxo, wFlKau_Mode2,coBasedoc,basedoc.nrec )
+        Attr_Analitik(hTxo, wFlKau_Mode2,coKatsopr,katsopr.nrec )
+        Attr_Analitik(hTxo, wFlKau_Mode1,coSpsopr,spsopr.nrec )
+        
+        // Эдуард просил - из кау справочника с большим приоритетом
+        if spsopr.prmc=1 // А может и не надо !
+          Attr_Analitik(hTxo, wFlKau_Mode1,coKatmc,spsopr.cmcusl )
+        else
+          Attr_Analitik(hTxo, wFlKau_Mode1,coKatusl,spsopr.cmcusl )
+
+        if w_CKAELEM=0
+        { w_CKAELEM:=if(spsopr.prmc=1,katmc.CKAELEM,katusl.CKAELEM) ;
+        }
+        TxoDebugMsg(hTxo, 'TXO_KatSopr-','Элемент затрат='+string(w_CKAELEM) )       
+        TxoBodyAddKau(hTxo, wFlKau_Auto, 5017, w_CKAELEM)
+        TxoBodyAddKau(hTxo, wFlKau_Mode0, 5017, w_CKAELEM)
+//==============
+        w_cfpco:=0 ; //KatSopr.cOtvPodr ;
+        if isvalid(#SpecMtr)
+        { TxoDebugMsg(hTxo, 'TXO_KatSopr-','нашли объект строительства '+string(SpecMtr.cobj)+'/'+string(cgKau_ObjBuild))
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_ObjBuild, SpecMtr.cobj)        
+          TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_ObjBuild, SpecMtr.cobj)        
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_FPCO , SpecMtr.ckau[1])        
+          set w_cfpco:=SpecMtr.ckau[1] ;           
+           wsch_tp:=wsch_tpm ;
+          if getfirst fastfirstrow fpco=0 
+          { TxoDebugMsg(hTxo, 'TXO_KatSopr-','Нашли центр ответсвенности '+fpco.name)
+            case fpco.COTABLE of
+            2 :
+            { set wcpodr:=fpco.CMEAN  
+              wsch_tp:=0 ;
+//              TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_katpodr, fpco.CMEAN)
+              TxoBodyAddKau(hTxo, wFlKau_mode1, cgKau_katpodr, fpco.CMEAN)
+            }
+            3: // сотрудники 
+            { wsch_tp:=1
+              TxoBodyAddKau(hTxo, wFlKau_mode2, cgKau_Persons, fpco.CMEAN)
+              if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+            }
+            1: 
+            { // организация
+              wsch_tp:=2 ;
+              TxoBodyAddKau(hTxo, wFlKau_mode2, cgKau_Katorg, fpco.CMEAN)
+              set w_corg:=fpco.CMEAN ;
+              if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+              if isvalid(#katorg)
+              { TxoDebugMsg(hTxo, 'TXO_KatSopr-',' организация='+katorg.name)
+//                if isvalid(#KatOrgDescr)
+//                { TxoBodyAddKau(hTxo, wFlKau_mode2, 68, KatOrgDescr.cgroup)        
+//                }
+              }  
+
+            }
+            end ;
+          }
+          //'400093017AAC5E2Fh' ,
+          //'400093017AAC5E2Fh', 
+          //'400093017AAC5E2Fh' 
+          //'400093017AAC5E2Fh'
+        }
+        else
+         TxoDebugMsg(hTxo, 'TXO_KatSopr-',' не нашли объект строительства !!!')
+        if w_cfpco=0 and KatSopr.cOtvPodr>0
+        { TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_FPCO, KatSopr.cOtvPodr)        
+          
+        }
+        if wcpodr=0
+        { wcpodr:=wcpodrm ; 
+        }
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_katpodr, wcpodr)
+        TxoBodyAddKau(hTxo, wFlKau_mode3, cgKau_katpodr, wcpodrm)
+
+
+//===============        
+
+        TxoBodySetSum(hTxo,wsu,wsuval,spsopr.kolfact);
+        TxoBodyInsert(hTxo);
+      } //_loop spsopr
+    } //_Loop katsopr
+    
+  }  //_Loop SpSchf
+  ClearMarker(marker_spsopr) ;
+  DoneMarker(marker_spsopr, '') ;
+  case tp_deist of
+  3: ClearMarker(marker_deist) ;
+  end ;
+  DoneMarker(marker_deist, 'deist') ;
+
+} //procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+
+HandleEvent
+cmCheckField : 
+{
+  SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  RescanPanel(#attrnam) ;
+
+}
+cmIdle:
+{ SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  RescanPanel(#attrnam) ;
+}
+end ;
+end. //Конец основной процедуры
+

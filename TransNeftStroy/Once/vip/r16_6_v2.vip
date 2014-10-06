@@ -1,0 +1,572 @@
+#doc
+  Расшифровка 16_6
+#end
+
+#include G_Tun_EF.inc
+#include FPCO.vih
+#include galnet.inc end;
+#include glovars.inc
+const
+end;
+#include excelfun.inc
+#include c_common.vil
+
+#include showkau.vpp
+
+interface RASSH_16_6_v2;
+var
+  dBeg, dEnd: date;
+  ckatos : comp;
+  table struct T2
+(
+  innum                  : string, /*инвентарный номер*/
+  amort_gr               : string,   /*амортизационная группа код*/
+  amort_gr_name          : string, /*амортизационная группа наименование*/
+  co                     : string, /*центр ответственности - наименование*/
+  perv_stoim             : double, /*первоначальная стоимость*/
+  nak_amort              : double,
+  ost_stoim              : double,  /*остаточная стоимость*/
+  all_Pvs                : double,  /*всего первоначальная стоимость*/
+  all_Amort              : double,  /*всего накопленная амортизация*/
+  all_OstSt              : double,  /*всего остаточная стоимость*/
+  metod                  : string,    /*ссылка на метод учета*/
+  ZachislOS              : double,  /*графа 9*/
+  ReconstrOs             : double,  /*графа 10*/
+  ZachislOsInv           : double,  /*графа 10а*/
+  PerevPrizn             : double,  /*графа 10б*/
+  PostupPVS              : double,  /*графа 11*/
+  PostupNakAmort         : double,  /*графа 12*/
+  PostupOstSt            : double,  /*графа 13*/
+  VsPVS                  : double,  /*графа 14*/
+  VsNakAmort             : double,  /*графа 15*/
+  VsOstSt                : double   /*графа 16*/
+)
+with index (t2_am_gr = amort_gr+co);
+create view
+  as select * from katos, spkatos, saldmoun, oborot, t2 where
+                                        ((katos.nrec == spkatos.ckatos
+                                        and spkatos.cgram == klassos.nrec))
+!                                        and comp('0064000000000002') == spkatos.cnastros))
+                                      /*  and (katos.innum = '600000036865'
+                                             or katos.innum = '200000010128'
+                                             or katos.innum = '200000009322'
+                                             or katos.innum = '200000009322'
+                                             or katos.innum = '200000010398'
+                                             or katos.innum = '100000018069'
+                                             or katos.innum = '500000000120'
+                                             or katos.innum = '200000009350'
+                                             or katos.innum = '400000000782'
+                                             or katos.innum = '100000005521'
+                                             or katos.innum = '300000000140'
+                                             )*/
+                                        and katos.tidk = 15
+bounds _bDate = 'N901' == oborot.scheto
+                and dBeg <<= oborot.datob
+                and dEnd >>= oborot.datob
+                and 'N900' == oborot.schetk
+bounds _bZachOsInv = 'N901' == oborot.scheto
+                and dBeg <<= oborot.datob
+                and dEnd >>= oborot.datob
+                and 'N991' == oborot.schetk
+bounds _bSaldo901 = 'N901' == saldmoun.scheto
+!                    and ckatos == saldmoun.kauos[5]
+                    and dBeg == saldmoun.datesal
+bounds _bSaldo902 = 'N902' == saldmoun.scheto
+                    and ckatos == saldmoun.kauos[5]
+                    and dBeg == saldmoun.datesal
+bounds _bPerevPrizn = 'N901' == oborot.scheto
+                and dBeg <<= oborot.datob
+                and dEnd >>= oborot.datob
+                and 'N901' == oborot.schetk
+
+bounds _bPostupNakAmort = 'N902' == oborot.scheto
+                and dBeg <<= oborot.datob
+                and dEnd >>= oborot.datob
+                and 'N903' == oborot.schetk
+bounds _bPvsNakAmort = 'N902' == oborot.scheto
+                and dBeg <<= oborot.datob
+                and dEnd >>= oborot.datob
+                and 'N902' == oborot.schetk
+
+                ;
+
+                 ;
+Function f_Amort_GR(_ckatos : comp): string;
+  begin
+    result := 0;
+     if getfirst fastfirstrow spkatos
+      where ((
+                  _ckatos == spkatos.ckatos
+              and 28147497671065602 == spkatos.cnastros
+              and spkatos.cgram     == klassos.nrec
+
+            )) = tsOk
+      result := klassos.kod;
+
+end;
+Function f_katos_co(_ckatos :comp): string;
+  begin
+    result := 0;
+    if getfirst fastfirstrow katos
+      where
+            ((
+              _ckatos == katos.nrec
+            )) = tsOk
+        if getfirst fastfirstrow fpco
+          where
+                ((
+                  katos.cco == fpco.nrec
+                )) = tsOk
+      result := fpco.name;
+  end;
+
+Procedure Saldo901;    /*графа 3*/
+  {
+    dBeg := date(01,01,2012);
+    pushBounds(tb_bSaldo901);
+    startnewvisual(vtNumericVisual,vfTimer, 'Сальдо 901.',0);
+    message('saldo901');
+    _loop saldmoun
+      {
+!        message('loop saldmoun');
+        if /*saldmoun.kauos[2] <> 28147497671065734*/
+            (28147497671065699 = saldmoun.kauos[2]    /*Признак использования 81*/
+            or 28147497671065701 = saldmoun.kauos[2]  /*Признак использования 82*/
+            or 28147497671065703 = saldmoun.kauos[2]) /*Признак использования 83*/
+!          { message('saldmoun.kauos[2] <> 28147497671065734');
+            if getfirst fastfirstrow t2
+              where
+                ((
+                      f_amort_gr(saldmoun.kauos[5]) == t2.amort_gr
+                  and f_katos_co(saldmoun.kauos[5]) == t2.co)) = tsOk
+              {
+                update current t2
+                  set
+                    t2.perv_stoim := t2.perv_stoim + saldmoun.sums;
+                nextvisual;
+              }
+              else
+                {
+                  ClearBuffer(#t2);
+                  t2.amort_gr := f_amort_gr(saldmoun.kauos[5]);
+                  t2.perv_stoim := saldmoun.sums;
+                  t2.co         := f_katos_co(saldmoun.kauos[5]);
+                  insert current t2;
+                  nextvisual;
+!                  message('insert');
+                };
+          }
+
+    popBounds(tb_bSaldo901);
+
+/*    if getfirst fastfirstrow saldmoun where ((_date == saldmoun.datesal and 'N901' == saldmoun.scheto
+                                              and _ckatos == saldmoun.kauos[5] (noindex)
+                                              )) = tsOk
+
+      result := saldmoun.sums;*/
+      message('Конец!!!');
+      StopVisual('',0);
+      RunInterFace('F_FPCATALOG::GETCO',0,0,0,0);
+
+
+  };
+
+Function Saldo902(_ckatos : comp; _date : date) : comp;    /*графа 4*/
+  begin
+    result := 0;
+    ckatos := _ckatos;
+    pushBounds(tb_bSaldo902);
+    _loop saldmoun
+      {
+        if saldmoun.kauos[3] <> 28147497671065734
+          result += saldmoun.sums;
+      }
+    popBounds(tb_bSaldo902);
+  end;
+
+
+Function ZachislOS(_ckatos : comp; dBeg : date; dEnd : date) : comp;    /*графа 9*/
+  begin
+    result := 0;
+    _loop oborot
+      {
+        if _ckatos = oborot.kauos[5]
+          if instr('Операция ОС: Поступление', GetSodrDocX(oborot.cSoprHoz)) > 0
+            result := result+ oborot.sumob;
+
+      }
+  end;
+
+Function ReconstrOS(_ckatos : comp ) : comp;    /*графа 10*/
+  begin
+    result := 0;
+    _loop oborot
+      {
+        if _ckatos = oborot.kauos[5]
+          if instr('Операция ОС: Поступление', GetSodrDocX(oborot.cSoprHoz)) = 0
+        {result := result+ oborot.sumob;
+!        message(#ShowKau(oborot.tblos[5],oborot.kauos[5]));
+!        message(GetSodrDocX(oborot.cSoprHoz));
+        }
+      }
+  end;
+
+Function ZachislOsInv(_ckatos : comp ) : comp;    /*графа 10а*/
+  begin
+    result := 0;
+    PopBounds(tb_bDate);
+    pushBounds(tb_bZachOsInv);
+    _loop oborot
+      {
+
+          if _ckatos = oborot.kauos[5]
+          result := result+ oborot.sumob;
+
+      }
+    popBounds(tb_bZachOsInv);
+    PushBounds(tb_bDate);
+  end;
+
+Function PerevPrizn(_ckatos : comp ) : comp;    /*графа 10б*/
+  begin
+    result := 0;
+    PopBounds(tb_bDate);
+    pushBounds(tb_bPerevPrizn);
+    _loop oborot
+      {
+
+          if _ckatos = oborot.kauos[5]
+            and
+            (28147497671065699 = oborot.kauos[2]    /*Признак использования 81*/
+            or 28147497671065701 = oborot.kauos[2]  /*Признак использования 82*/
+            or 28147497671065703 = oborot.kauos[2]) /*Признак использования 83*/
+            and 28147497671065734 = oborot.kauks[2] /*Признак использования 88*/
+          result := result+ oborot.sumob;
+
+      }
+    popBounds(tb_bPerevPrizn);
+    PushBounds(tb_bDate);
+  end;
+
+
+Function PostupPVS(_ckatos : comp ) : comp;    /*графа 11*/
+  begin
+    result := 0;
+    PopBounds(tb_bDate);
+    pushBounds(tb_bPerevPrizn);
+    _loop oborot
+      {
+
+          if _ckatos = oborot.kauos[5]
+            and
+            (28147497671065699 = oborot.kauos[2]    /*Признак использования 81*/
+            or 28147497671065701 = oborot.kauos[2]  /*Признак использования 82*/
+            or 28147497671065703 = oborot.kauos[2]) /*Признак использования 83*/
+            and 28147497671065606 = oborot.kauks[2] /*Признак использования 56*/
+          result := result+ oborot.sumob;
+
+      }
+    popBounds(tb_bPerevPrizn);
+    PushBounds(tb_bDate);
+  end;
+
+Function PostupNakAmort(_ckatos : comp ) : comp;    /*графа 11*/
+  begin
+    result := 0;
+    PopBounds(tb_bDate);
+    pushBounds(tb_bPostupNakAmort);
+    _loop oborot
+      {
+
+          if _ckatos = oborot.kauos[5]
+            and 28147497671065606 = oborot.kauos[3] /*Признак использования 56*/
+            and
+            (28147497671065699 = oborot.kauks[3]    /*Признак использования 81*/
+            or 28147497671065701 = oborot.kauks[3]  /*Признак использования 82*/
+            or 28147497671065703 = oborot.kauks[3]) /*Признак использования 83*/
+
+          result := result+ oborot.sumob;
+
+      }
+    popBounds(tb_bPostupNakAmort);
+    PushBounds(tb_bDate);
+  end;
+
+Function VsPVS(_ckatos : comp ) : comp;    /*графа 14*/
+  begin
+    result := 0;
+    PopBounds(tb_bDate);
+    pushBounds(tb_bPerevPrizn);
+    _loop oborot
+      {
+
+          if _ckatos = oborot.kauos[5]
+            and
+              (
+                   57702370227169095 = oborot.kodspk       /* Подразделение 0000000310*/
+                or 57702370227169096 = oborot.kodspk       /* Подразделение 0000000311*/
+                or 57702370227169097 = oborot.kodspk       /* Подразделение 0000000312*/
+                or 57702370227169098 = oborot.kodspk       /* Подразделение 0000000313*/
+                or 57702370227169099 = oborot.kodspk       /* Подразделение 0000000314*/
+                or 57702370227169100 = oborot.kodspk       /* Подразделение 0000000315*/
+              )
+
+          result := result+ oborot.sumob;
+
+      }
+    popBounds(tb_bPerevPrizn);
+    PushBounds(tb_bDate);
+  end;
+
+Function VsNakAmort(_ckatos : comp ) : comp;    /*графа 15*/
+  begin
+    result := 0;
+    PopBounds(tb_bDate);
+    pushBounds(tb_bPvsNakAmort);
+    _loop oborot
+      {
+
+          if _ckatos = oborot.kauos[5]
+            and
+              (
+                   57702370227169095 = oborot.kodspo       /* Подразделение 0000000310*/
+                or 57702370227169096 = oborot.kodspo       /* Подразделение 0000000311*/
+                or 57702370227169097 = oborot.kodspo       /* Подразделение 0000000312*/
+                or 57702370227169098 = oborot.kodspo       /* Подразделение 0000000313*/
+                or 57702370227169099 = oborot.kodspo       /* Подразделение 0000000314*/
+                or 57702370227169100 = oborot.kodspo       /* Подразделение 0000000315*/
+              )
+
+          result := result+ oborot.sumob;
+
+      }
+    popBounds(tb_bPvsNakAmort);
+    PushBounds(tb_bDate);
+  end;
+
+
+procedure fill_rassh_16_6;
+  var a: integer;
+  {
+  dBeg := date(01,01,2012);
+  dEnd := date(30,06,2012);
+  PushBounds(tb_bDate);
+! startnewvisual(vtNumericVisual,vfTimer, 'Просмотр таблиц.',0);
+
+!  a:=0;
+/*  _loop katos
+  {
+
+    _loop spkatos
+      {
+         if spkatos.cnastros = 28147497671065602          /*Налоговый метод учета*/
+/*         {
+           a++;
+!           if getfirst fastfirstrow t2 where ((klassos.name == t2.amort_gr_name)) = tsOk
+!                                                    t2.amort_gr == klassos.kod
+
+
+              update current t2 set
+                    t2.innum                 := katos.innum,
+                    t2.amort_gr              := klassos.kod,
+                    t2.amort_gr_name         := klassos.name,
+                    t2.perv_stoim            := t2.perv_stoim + Saldo901(katos.nrec, dBeg),
+                    t2.nak_amort             := t2.nak_amort + Saldo902(katos.nrec, dBeg),
+                    t2.ost_stoim             := t2.ost_stoim + (t2.perv_stoim - t2.nak_amort),
+                    t2.metod                 := t2.metod + spkatos.cnastros,
+                    t2.ZachislOs             := t2.ZachislOs + ZachislOS(katos.nrec, dBeg, dEnd),
+                    t2.ReconstrOs            := t2.ReconstrOs + ReconstrOs(Katos.nrec),
+                    t2.ZachislOsInv          := t2.ZachislOsInv + ZachislOsInv(Katos.nrec),
+                    t2.PerevPrizn            := t2.PerevPrizn + PerevPrizn(katos.nrec),
+                    t2.PostupPVS             := t2.PostupPVS + PostupPVS(katos.nrec),
+                    t2.PostupNakAmort        := t2.PostupNakAmort + PostupNakAmort(katos.nrec),
+                    t2.PostupOstSt           := t2.PostupOstSt + (t2.PostupPVS - t2.PostupNakAmort),
+                    t2.VsPVS                 := t2.VsPVS + VsPVS(katos.nrec),
+                    t2.VsNakAmort            := t2.VsNakAmort + VsNakAmort(katos.nrec),
+                    t2.VsOstSt               := t2.VsOstSt + (t2.VsPvs - t2.VsNakAmort),
+                    t2.all_Pvs               := t2.all_Pvs + (t2.zachislos
+                                                + t2.ReconstrOs
+                                                + t2.ZachislOsInv
+                                                + t2.PerevPrizn
+                                                + t2.VsPVS),
+                    t2.all_Amort             :=  t2.all_Amort + (t2.PostupNakAmort
+                                                + t2.PostupNakAmort
+                                                + t2.VsNakAmort),
+                    t2.all_OstSt             := t2.all_OstSt + (t2.all_Pvs - t2.all_Amort)
+
+
+                else
+
+!           message('Нашлось!!!№ '+a+' ,'+katos.nrec+', '+spkatos.nrec);
+{           ClearBuffer(#t2);
+           t2.innum                 := katos.innum;
+           t2.amort_gr              := klassos.kod;
+           t2.amort_gr_name         := klassos.name;
+           t2.perv_stoim            := Saldo901(katos.nrec, dBeg);
+           t2.nak_amort             := Saldo902(katos.nrec, dBeg);
+           t2.ost_stoim             := t2.perv_stoim - t2.nak_amort;
+           t2.metod                 := spkatos.cnastros;
+           t2.ZachislOs             := ZachislOS(katos.nrec, dBeg, dEnd);
+           t2.ReconstrOs            := ReconstrOs(Katos.nrec);
+           t2.ZachislOsInv          := ZachislOsInv(Katos.nrec);
+           t2.PerevPrizn            := PerevPrizn(katos.nrec);
+           t2.PostupPVS             := PostupPVS(katos.nrec);
+           t2.PostupNakAmort        :=  PostupNakAmort(katos.nrec);
+           t2.PostupOstSt           := t2.PostupPVS - t2.PostupNakAmort;
+           t2.VsPVS                 := VsPVS(katos.nrec);
+           t2.VsNakAmort            := VsNakAmort(katos.nrec);
+           t2.VsOstSt               := t2.VsPvs - t2.VsNakAmort;
+           t2.all_Pvs               := t2.zachislos
+                                        + t2.ReconstrOs
+                                        + t2.ZachislOsInv
+                                        + t2.PerevPrizn
+                                        + t2.VsPVS;
+           t2.all_Amort             := t2.PostupNakAmort
+                                        + t2.PostupNakAmort
+                                        + t2.VsNakAmort;
+           t2.all_OstSt             := t2.all_Pvs - t2.all_Amort;
+
+           insert current t2;};
+         }
+         nextvisual;
+      }
+   }
+  */
+
+!  StopVisual('',0);
+  message('Конец!!!');
+  PopBounds(tb_bDate);
+};
+procedure PrintReport;
+var
+  count_zag,          /*количество строк в шапке*/
+  count_podn,         /*количество строк в подножии*/
+  max_col,            /*количество столбцов отчета*/
+  count_r,            /*количество записей в таблице*/
+  num_col,            /*текущий столбец*/
+  num_row: integer;   /*текущая строка*/
+  vir,                /*сумма выручки*/
+  seb,                /*сумма себестоимости*/
+  fin_r: double;      /*сумма финансового результата*/
+{
+xlCreateExcel('Rassh.xls',true);
+xlPageSetupSetOrientation(2);
+count_r := RecordsInTable(tnt2)+1;
+max_col := 26;
+count_zag := 1;
+count_podn := 0;
+num_row :=0;
+num_col :=1;
+xlCreateMatrix (count_r+count_zag+count_podn, max_col);
+num_row :=1;
+num_col := 1;
+  xlSTWriteToMatrix(num_row,num_col,'Инв номер');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'1');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'2');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'3');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'4');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'5');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'6');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'7');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'8');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'9');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'10');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'10а');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'10б');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'11');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'12');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'13');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'14');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'15');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'16');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'16а');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'16б');
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'16в');
+
+_loop t2
+{
+  num_row++;
+  num_col :=1;
+  xlSTWriteToMatrix(num_row,num_col,t2.innum);
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.amort_gr);       // 1
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.amort_gr_name);  // 2
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.co);             // ЦО
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.perv_stoim);     // 3
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.nak_amort);      // 4
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.ost_stoim);  // 5
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.all_Pvs);              // 6
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.all_Amort);              // 7
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.all_OstSt);              // 8
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.zachislos);             // 9
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.ReconstrOs);            // 10
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.ZachislOsInv);            // 10а
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.PerevPrizn);            // 10б
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.PostupPVS);            // 11
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.PostupNakAmort);            // 12
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.PostupOstSt);            // 13
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.VsPVS);            // 14
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.VsNakAmort);            // 15
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,t2.VsOstSt);            // 16
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'заполнить');            // 16а
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'заполнить');            // 16б
+  num_col++;
+  xlSTWriteToMatrix(num_row,num_col,'заполнить');            // 16в
+
+}
+xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+};
+
+
+HandleEvent
+cmInit:
+{
+!fill_rassh_16_6;
+Saldo901;
+PrintReport;
+}
+end;
+end.

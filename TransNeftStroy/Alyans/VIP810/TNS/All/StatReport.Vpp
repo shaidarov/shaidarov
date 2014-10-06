@@ -1,0 +1,1162 @@
+Procedure MakeOb(new_kod:string;old_kod:string;  ww_row:word; ww_znak : double;ww_tp:word);
+var kk :word;
+{
+  LogSql(' MakeOb new_kod= '+new_kod+', old_kod= '+old_kod+', знак= '+string(ww_znak))
+  if getfirst tmp_row where (( old_kod == tmp_row.kod ))<>0 then exit;
+  LogSql(' MakeOb=true')
+  if getfirst tmp_row_m where (( new_kod == tmp_row_m.kod))<>0
+  {
+    clearbuffer(#tmp_row_m)
+    tmp_row_m.tp :=ww_tp;
+    tmp_row_m.kod:=new_kod;
+    tmp_row_m.row:=ww_row;
+    insert current tmp_row_m;
+  
+  } 
+  for(kk:=1;kk<=20;kk++)
+  {  tmp_row_m.su[kk]:=tmp_row_m.su[kk] +tmp_row.su[kk]*ww_znak
+  
+  }
+  update current tmp_row_m;
+  LogSql(' MakeOb='+string(tmp_row_m.su[3])+'/'+string(tmp_row_m.row))
+
+}
+
+
+Function _UpCase(const ww:string):string;
+{ _UpCase:=upcase(ww)
+  //_UpCase:=ww;
+}
+
+
+
+//==============
+// сбор ланных 01 бухсправки
+//==============
+Function AddBuhSpr :boolean ;
+var jj,kk: word
+    ww_direct:word;
+    ww_row_beg:word;
+    ww_kod:string;
+{ AddBuhSpr:=False;
+   if (tp_option and 8)=0 then
+   { AddBuhSpr:=true; exit;
+   }
+
+  for(jj:=1;jj<=2;inc(jj))
+  { case jj of
+    1:
+    { ww_direct :=1024   ;
+      ww_row_beg:=9;
+      ww_kod:='1.1'
+    }
+    2:
+    { ww_direct :=2048   ;
+     ww_row_beg:=17;
+     ww_kod:='1.2'
+   }
+    end;
+//1.1 Количество первичных документов по доходам за отчетный период, поступивших в оригинале после 5-го числа месяца,
+//    следующего за отчетным (или после иной даты представления, установленной по согласованию с ТНФ):
+    ins_tmp_row(1,ww_kod,ww_row_beg+1)
+    LogSql('бух.спр.  строка '+tmp_row.kod)
+    for(kk:=1;kk<=4;inc(kk))
+    { if wdm_dt[kk*3-2]=0 then continue;
+      ClearQuery(vliSQLCommand);
+      delete all tmp_ob;
+      PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'p.NODOK',' '' '' ')+', '' '' ')
+      PrepareSQLQuery('from plpor p')
+      PrepareSQLQuery('inner join katnotes kn on kn.nrec = p.CCLASSBUH')
+      PrepareSQLQuery('      and kn.name='+chr(39)+_UpCase('специальный')+chr(39) )
+      PrepareSQLQuery('  where p.tidkgal=10 and p.MODEDOC='+string(ww_direct)+'  ')
+      PrepareSQLQuery(' and p.DATOB>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+      PrepareSQLQuery(' and p.DATOB<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+      if((tp_option and 16)>0)
+        PrepareSQLQuery('group by p.NODOK')
+      stmt := sqlAllocStmt;
+      ExecDSQLex(tntmp_ob)
+      ClearQuery(vliSQLCommand);
+      //if stmt<>0 sqlFreeStmt(stmt);
+      _loop tmp_ob
+      { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+        if((tp_option and 16)>0)
+          insert into tmp_protokol set tmp_protokol.tidk:=10,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su ;
+      }
+    } //for(kk:=1;kk<=4;inc(kk))
+    update current tmp_row;
+//================================================
+//1.1.2.
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+// статус которых установлен "полный" (KATSORP.CNOTE), при этом в истории изменения статусов присутствует 
+// запись изменения статуса  из "копия"\"неполный"\ "специальный" в "полный" и дата установки статуса "копия", 
+// "неполный" или "специальный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+   if not nextvisual then exit;
+   ins_tmp_row(1,ww_kod+'.2',ww_row_beg+3)
+   LogSql('бух.спр.  строка '+tmp_row.kod)
+   //if false // в 1.1.3 уже добавлено
+    for(kk:=1;kk<=4;inc(kk))
+    { if wdm_dt[kk*3-2]=0 then continue;
+      ClearQuery(vliSQLCommand);
+      delete all tmp_ob;
+      PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'p.NODOK',' '' '' ')+', '' '' ')
+      PrepareSQLQuery('from plpor p')
+      PrepareSQLQuery('inner join katnotes kn on kn.nrec = p.CCLASSBUH')
+      PrepareSQLQuery('      and kn.name='+chr(39)+_UpCase('специальный')+chr(39) )
+      PrepareSQLQuery('  where p.tidkgal=10 and p.MODEDOC='+string(ww_direct)+'  ')
+      PrepareSQLQuery(' and p.DATOB>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+      PrepareSQLQuery(' and p.DATOB<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+      if((tp_option and 16)>0)
+        PrepareSQLQuery('group by p.NODOK')
+      stmt := sqlAllocStmt;
+      ExecDSQLex(tntmp_ob)
+      ClearQuery(vliSQLCommand);
+      //if stmt<>0 sqlFreeStmt(stmt);
+      _loop tmp_ob
+      { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+        if((tp_option and 16)>0)
+          insert into tmp_protokol set tmp_protokol.tidk:=10,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+      }
+    } //for(kk:=1;kk<=4;inc(kk))
+//=======================================================================
+//1.1.2в.
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) статус которых установлен "полный" (KATSORP.CNOTE),
+// при этом в истории изменения статусов присутствует запись изменения статуса  из "неполный" в "полный" (STATLOG.LASTUSER (копия)-> STATLOG.LASTUSER (полный)) 
+// и дата установки статуса "специальный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+    if not nextvisual then exit;
+    ins_tmp_row(1,ww_kod+'.2в',ww_row_beg+6)
+    LogSql('бух.спр.  строка '+tmp_row.kod)
+    for(kk:=1;kk<=4;inc(kk))
+    { if wdm_dt[kk*3-2]=0 then continue;
+      ClearQuery(vliSQLCommand);
+      delete all tmp_ob;
+      PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'p.NODOK',' '' '' ')+', '' '' ')
+      PrepareSQLQuery('from plpor p')
+      PrepareSQLQuery('inner join katnotes kn on kn.nrec = p.CCLASSBUH')
+      PrepareSQLQuery('      and kn.name='+chr(39)+_UpCase('специальный')+chr(39) )
+      PrepareSQLQuery('  where p.tidkgal=10 and p.MODEDOC='+string(ww_direct)+'  ')
+      PrepareSQLQuery(' and p.DATOB>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+      PrepareSQLQuery(' and p.DATOB<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+      if((tp_option and 16)>0)
+        PrepareSQLQuery('group by p.NODOK')
+      stmt := sqlAllocStmt;
+      ExecDSQLex(tntmp_ob)
+      ClearQuery(vliSQLCommand);
+      //if stmt<>0 sqlFreeStmt(stmt);
+      _loop tmp_ob
+      { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+        if((tp_option and 16)>0)
+          insert into tmp_protokol set tmp_protokol.tidk:=10,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+      }
+    } //for(kk:=1;kk<=4;inc(kk))
+
+
+
+//  1.1.3
+//  СПРАВОЧНО. Количество актов (на доходы) о выполнении работ, оказании услуг (оригиналов, копий, неполных и специальных документов) 
+//  за отчетный месяц, переданных в ТНФ до 5-го числа (или иной даты, установленной по согласованию с ТНФ)
+//  Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR='+string(ww_vidsopr)+' ) 
+//  статус которых установлен "полный", "копия", "неполный", "специальный" (KATSORP.CNOTE) и дата установки статуса 
+//  (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//  меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы) 
+//  и попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы). 
+//  Документы в статусе "исполняемый" обрабатываются по полю <Выписан> (KATSOPR.DSOPR). 
+//  Дата выписки должна попадать в отчетный период формирования отчетной формы.
+    if not nextvisual then exit;
+    ins_tmp_row(1,ww_kod+'.3',ww_row_beg+7)
+    LogSql('бух.спр.  строка '+tmp_row.kod)
+    for(kk:=1;kk<=4;inc(kk))
+    { if wdm_dt[kk*3-2]=0 then continue;
+      ClearQuery(vliSQLCommand);
+      delete all tmp_ob;
+      PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'p.NODOK',' '' '' ')+', '' '' ')
+      PrepareSQLQuery('from plpor p')
+      PrepareSQLQuery('inner join katnotes kn on kn.nrec = p.CCLASSBUH')
+      PrepareSQLQuery('      and kn.name='+chr(39)+_UpCase('специальный')+chr(39) )
+      PrepareSQLQuery('  where p.tidkgal=10 and p.MODEDOC='+string(ww_direct)+'  ')
+      PrepareSQLQuery(' and p.DATOB>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+      PrepareSQLQuery(' and p.DATOB<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+      if((tp_option and 16)>0)
+        PrepareSQLQuery('group by p.NODOK')
+      stmt := sqlAllocStmt;
+      ExecDSQLex(tntmp_ob)
+      ClearQuery(vliSQLCommand);
+      //if stmt<>0 sqlFreeStmt(stmt);
+      _loop tmp_ob
+      { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+        if((tp_option and 16)>0)
+          insert into tmp_protokol set tmp_protokol.tidk:=10,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+      }
+    } //for(kk:=1;kk<=4;inc(kk))
+    
+  } //for(jj:=1;jj<=2;inc(jj))
+  AddBuhSpr:=True;
+} //Procedure AddBuhSpr ;
+
+
+
+//==============
+// сбор ланных 01
+//==============
+Function SborData01 :boolean;
+var jj,kk: word
+    ww_vidsopr:word;
+    ww_row_beg:word;
+    ww_kod:string;
+    
+{ SborData01:=False
+  LogSql('===SborData01====')
+
+ for(jj:=1;jj<=5;inc(jj))
+ { case jj of
+   1: //Акты на оказание услуг
+   { ww_vidsopr:=211;
+     ww_row_beg:=9;
+     ww_kod:='1.1'
+     if (tp_option and 4)>0 then continue;
+   }
+   2: // Акты на приобретение услуг
+   { ww_vidsopr:=111;
+     ww_row_beg:=17;
+     ww_kod:='1.2'
+     if (tp_option and 4)>0 then continue;
+   }
+   3: //Накладные на продажу
+   { ww_vidsopr:=201;
+     ww_row_beg:=9;
+     ww_kod:='1.1'
+     if (tp_option and 2)>0 then continue;
+   }
+   4: // Акты на приобретение услуг
+   { ww_vidsopr:=101;
+     ww_row_beg:=17;
+     ww_kod:='1.2'
+     if (tp_option and 2)>0 then continue;
+   }
+   5:
+   { if (tp_option and 8)=0 then continue;
+     AddBuhSpr;
+     continue;
+   }
+   end;
+   LogSql('  jj='+string(jj)+', '+ww_kod+', '+string(ww_vidsopr))
+   
+//1.1 Количество первичных документов по доходам за отчетный период, поступивших в оригинале после 5-го числа месяца,
+//    следующего за отчетным (или после иной даты представления, установленной по согласованию с ТНФ):
+//
+//    ===НОВОЕ===
+//    Кол-во записей из таблицы KATSOPR с видом документа 211, 201 (KATSOPR.VIDSOPR=211, 201) последний статус 
+//    которых установлен лкопия╗ и/или лполный╗ (KATSORP.CNOTE) и дата установки статуса 
+//    (внешний атрибут к таблице STATLOG Ц лДата установки статуса╗) меньше даты окончания периода сопоставления 
+//    (устанавливается пользователем при настройке интерфейса получения отчетной формы) и попадает в отчетный период 
+//    формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+//    Сюда необходимо подтягивать значение из п. 1.1.1
+
+  if not nextvisual then exit;
+  ins_tmp_row(1,ww_kod,ww_row_beg+1)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery('  where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    if (tp_option and 1)   =0
+      PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase('полный')+chr(39))
+    else
+      PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and (sl_kn.name='+chr(39)+_UpCase('полный')+chr(39)
+                                                                               +' or sl_kn.name='+chr(39)+_UpCase('копия' )+chr(39)+ ') ' )
+    if wkl_Attrnam
+    { PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )  
+      if (tp_option and 1)   =0
+      { PrepareSQLQuery('  where  sl_a.vDate>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    ')
+        PrepareSQLQuery('                 and sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')    ' )       
+      }
+      else  //
+      { PrepareSQLQuery('  where  sl_a.vDate>#date('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2]) ), 'DD,MM,YYYY')+   ')    ')
+        PrepareSQLQuery('                 and sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')     ' )       
+      }
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                 and sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   '   )  ' )       
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+     PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+   LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+    
+    
+  } //for(kk:=1;kk<=4;inc(kk))
+  update current tmp_row;
+
+
+//================================================
+//1.1.1.
+// в т.ч.: по которым до 5-го числа  документы начисления переданы не были
+// Кол-во записей из таблицы KATSOPR с видом документа '+string(ww_vidsopr)+'  (KATSOPR.VIDSOPR=211) статус которых установлен "полный" 
+// (KATSORP.CNOTE), при этом в истории изменения статусов (STATLOG) содержится только одна запись изменения статуса на "полный" 
+// и дата установки статуса (внешний атрибут к таблице STATLOG Ц лДата установки статуса┐) 
+// больше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения 
+// отчетной формы) но меньше даты окончания периода сопоставления (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+  if not nextvisual then exit;
+  ins_tmp_row(1,ww_kod+'.1',ww_row_beg+2)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+
+
+  if (tp_option and 1)   =0// по упрощеной схеме это не смотрим
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery('  where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase('полный')+chr(39))
+    PrepareSQLQuery('   left outer join StatLog sl1 on sl1.DOCTYPE='+string(100)+'  and sl1.CDOC=sl.CDOC ')
+    PrepareSQLQuery('   inner join katnotes sl_kn1 on sl_kn1.nrec = sl1.CNEWNOTE ')
+    PrepareSQLQuery('   and ( sl_kn1.name='+chr(39)+_UpCase('копия')+chr(39)
+                       +' or sl_kn1.name='+chr(39)+_UpCase('неполный')+chr(39)+' or sl_kn1.name='+chr(39)+_UpCase('специальный')+ chr(39)+')    ' )
+    
+    if wkl_Attrnam
+    { PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      PrepareSQLQuery('  inner join attrval sl_a1 on sl_a1.crec = sl1.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a1.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('                               and sl_a1.vDate >=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    '   )     
+      else
+        PrepareSQLQuery('                               and sl_a1.vDate <=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')    '   )     
+      //if (tp_option and 1)   =0
+      //  PrepareSQLQuery('  where (sl_a.vDate>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')     ')
+      //else  
+      PrepareSQLQuery('  where sl_a.vDate>#date('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')     ')
+      //PrepareSQLQuery('                 and sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')   ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                 and sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    ' )       
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery(' and (sl1.DOCTYPE is Null)')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+  update current tmp_row;
+
+
+//================================================
+//1.1.2.
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+// статус которых установлен "полный" (KATSORP.CNOTE), при этом в истории изменения статусов присутствует 
+// запись изменения статуса  из "копия"\"неполный"\ "специальный" в "полный" и дата установки статуса "копия", 
+// "неполный" или "специальный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+  if not nextvisual then exit;
+  ins_tmp_row(1,ww_kod+'.2',ww_row_beg+3)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+
+  if (tp_option and 1)   =0 // здесь вообще не будет при упрощенном подсчете
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery('  where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase('полный')+chr(39))
+    PrepareSQLQuery('   inner join StatLog sl1 on sl1.DOCTYPE='+string(100)+'  and sl1.CDOC=sl.CDOC')
+    PrepareSQLQuery('   inner join katnotes sl_kn1 on sl_kn1.nrec = sl1.CNEWNOTE ')
+    if (tp_option and 1)   =0 // если упрощеный(1), то все в копии
+       PrepareSQLQuery('   and ( sl_kn1.name='+chr(39)+_UpCase('копия')+chr(39)
+                       +' or sl_kn1.name='+chr(39)+_UpCase('неполный')+chr(39)+' or sl_kn1.name='+chr(39)+_UpCase('специальный')+ chr(39)+')    ' )
+    
+    if wkl_Attrnam
+    { PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      PrepareSQLQuery('  inner join attrval sl_a1 on sl_a1.crec = sl1.Nrec and sl_a1.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a1.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('                               and sl_a1.vDate <#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    '   )     
+      else   
+        PrepareSQLQuery('                               and sl_a1.vDate <#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')    '   )     
+      PrepareSQLQuery('  where sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+ ')        ')
+      //PrepareSQLQuery('                 and sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')   ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                 and sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    ' )       
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+  update current tmp_row;
+
+
+//================================================
+//1.1.2a.
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) статус которых установлен "полный" (KATSORP.CNOTE), 
+// при этом в истории изменения статусов присутствует запись изменения статуса  из "копия" в "полный" (STATLOG.LASTUSER (копия)-> STATLOG.LASTUSER (полный)) 
+// и дата установки статуса "копия" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+  if not nextvisual then exit;
+  ins_tmp_row(1,ww_kod+'.2а',ww_row_beg+4)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+
+
+  if (tp_option and 1)   =0 // здесь вообще не будет при упрощенном подсчете
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery('  where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase('полный')+chr(39))
+    PrepareSQLQuery('   inner join StatLog sl1 on sl1.DOCTYPE='+string(100)+'  and sl1.CDOC=sl.CDOC')
+    PrepareSQLQuery('   inner join katnotes sl_kn1 on sl_kn1.nrec = sl1.CNEWNOTE ')
+    if (tp_option and 1)   =0 // если упрощеный(1), то все в копии
+      PrepareSQLQuery('   and ( sl_kn1.name='+chr(39)+_UpCase('копия')+chr(39) + ')    ' )
+    
+    if wkl_Attrnam
+    { 
+      PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )
+      PrepareSQLQuery('  inner join attrval sl_a1 on sl_a1.crec = sl1.Nrec and sl_a1.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a1.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('                               and sl_a1.vDate <#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    '   )     
+      else
+        PrepareSQLQuery('                               and sl_a1.vDate <=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')    '   )     
+      PrepareSQLQuery('  where sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')        ')
+      //PrepareSQLQuery('                 and sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')   ) ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                 and sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    ' )       
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+
+
+
+//================================================
+//1.1.2б.
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) статус которых установлен "полный" (KATSORP.CNOTE), 
+// при этом в истории изменения статусов присутствует запись изменения статуса  из "неполный" в "полный" (STATLOG.LASTUSER (копия)-> STATLOG.LASTUSER (полный)) 
+// и дата установки статуса "копия" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+  if not nextvisual then exit;
+  ins_tmp_row(1,ww_kod+'.2б',ww_row_beg+5)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+
+
+  if (tp_option and 1)   =0 // здесь вообще не будет при упрощенном подсчете
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery('  where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase('полный')+chr(39))
+    PrepareSQLQuery('   inner join StatLog sl1 on sl1.DOCTYPE='+string(100)+'  and sl1.CDOC=sl.CDOC')
+    PrepareSQLQuery('   inner join katnotes sl_kn1 on sl_kn1.nrec = sl1.CNEWNOTE ')
+    PrepareSQLQuery('   and ( sl_kn1.name='+chr(39)+_UpCase('неполный')+chr(39) + ')    ' )
+    
+    if wkl_Attrnam
+    { 
+      PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      PrepareSQLQuery('  inner join attrval sl_a1 on sl_a1.crec = sl1.Nrec and sl_a1.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a1.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('                               and sl_a1.vDate <#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    '   )     
+      else  
+        PrepareSQLQuery('                               and sl_a1.vDate <#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')    '   )     
+      PrepareSQLQuery('  where sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')        ')
+      //PrepareSQLQuery('                 and sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')     ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                 and sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    ' )       
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+
+  
+  
+//=======================================================================
+//1.1.2в.
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) статус которых установлен "полный" (KATSORP.CNOTE),
+// при этом в истории изменения статусов присутствует запись изменения статуса  из "неполный" в "полный" (STATLOG.LASTUSER (копия)-> STATLOG.LASTUSER (полный)) 
+// и дата установки статуса "специальный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+  if not nextvisual then exit;
+  ins_tmp_row(1,ww_kod+'.2в',ww_row_beg+6)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+ 
+ 
+  if (tp_option and 1)   =0 // здесь вообще не будет при упрощенном подсчете
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery('  where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase('полный')+chr(39))
+    PrepareSQLQuery('   inner join StatLog sl1 on sl1.DOCTYPE='+string(100)+'  and sl1.CDOC=sl.CDOC')
+    PrepareSQLQuery('   inner join katnotes sl_kn1 on sl_kn1.nrec = sl1.CNEWNOTE ')
+    PrepareSQLQuery('   and ( sl_kn1.name='+chr(39)+_UpCase('специальный')+chr(39) + ')    ' )
+    
+    if wkl_Attrnam
+    { 
+      PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      PrepareSQLQuery('  inner join attrval sl_a1 on sl_a1.crec = sl1.Nrec and sl_a1.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a1.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('                               and sl_a1.vDate <#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    '   )     
+      else  
+        PrepareSQLQuery('                               and sl_a1.vDate <#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')    '   )     
+      PrepareSQLQuery('  where sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')        ')
+      //PrepareSQLQuery('                 and sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')   ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                 and sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')    ' )       
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery('  )  )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+
+//  1.1.3
+//  СПРАВОЧНО. Количество актов (на доходы) о выполнении работ, оказании услуг (оригиналов, копий, неполных и специальных документов) 
+//  за отчетный месяц, переданных в ТНФ до 5-го числа (или иной даты, установленной по согласованию с ТНФ)
+//  Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR='+string(ww_vidsopr)+' ) 
+//  статус которых установлен "полный", "копия", "неполный", "специальный" (KATSORP.CNOTE) и дата установки статуса 
+//  (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//  меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы) 
+//  и попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы). 
+//  Документы в статусе "исполняемый" обрабатываются по полю <Выписан> (KATSOPR.DSOPR). 
+//  Дата выписки должна попадать в отчетный период формирования отчетной формы.
+  if not nextvisual then exit;
+  ins_tmp_row(1,ww_kod+'.3',ww_row_beg+7)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery('  where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    if (tp_option and 1)   =0
+    { PrepareSQLQuery(' and (kn.name='+chr(39)+_UpCase('исполняемый')+chr(39)+' or EXISTS (SELECT 1 ')
+      PrepareSQLQuery('   from StatLog sl ')
+  
+      PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE ')
+    
+      PrepareSQLQuery('   and ( sl_kn.name='+chr(39)+_UpCase('копия')+chr(39)
+                         +' or sl_kn.name='+chr(39)+_UpCase('неполный')+chr(39)+' or sl_kn.name='+chr(39)+_UpCase('специальный')+ chr(39)+
+                         +' or sl_kn.name='+chr(39)+_UpCase('исполняемый')+chr(39)+'  )    ' )
+      if wkl_Attrnam
+      { 
+        PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+        PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+        PrepareSQLQuery('  where (sl_a.vDate<#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+        PrepareSQLQuery('                       ) ' )       
+      }
+      else
+      { PrepareSQLQuery('  where sl.DOPER>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+        PrepareSQLQuery('                 and sl.DOPER<=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   '   )  ' )       
+      }  
+      PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+      PrepareSQLQuery('    ) )')  //and EXIST
+    }  
+    else
+    {     PrepareSQLQuery(' and k.chozoper>#comp(0)' )
+
+    }
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+ } //for(jj:=1;jj<=4;inc(jj))
+  
+
+
+ if (tp_option and 1)   <>0
+ { 
+   MakeOb('1.1.2' , '1.1'    ,12, 1,1)
+   MakeOb('1.1.2' , '1.1.2в' ,12,-1,1)
+   MakeOb('1.1.2а', '1.1.2'  ,13, 1,1)
+   MakeOb('1.1.2а', '1.1.2в' ,13,-1,1)
+ 
+   MakeOb('1.2.2' , '1.2' ,20,1,1)
+   MakeOb('1.2.2' , '1.2.2в'  ,20,-1,1)
+   MakeOb('1.2.2а', '1.2.2'  ,21, 1,1)
+   MakeOb('1.2.2а', '1.2.2в' ,21,-1,1)
+
+
+ 
+ }
+  
+//=======================================================================
+
+  SborData01:=True;
+} //Function SborData01 :boolean;
+
+
+
+
+//==============
+// сбор ланных 02
+//==============
+Function SborData02 :boolean;
+var jj,kk:word;
+    ww_vidsopr:word;
+    ww_row_beg:word;
+    ww_kod:string;
+    ww_status:string;
+{ SborData02:=False
+ if (tp_option and 1)   <>0
+ { MakeOb('2.1'   , '1.1.2а', 54,1,2)
+   MakeOb('2.1.1' , '2.1'   , 55,1,2)
+   MakeOb('2.2'   , '1.2.2а', 57,1,2)
+   MakeOb('2.2.1' , '2.2'   , 58,1,2)
+   
+   MakeOb('2.5'  , '1.1.2в', 66,1,2)
+   MakeOb('2.5.1', '1.1.2в', 67,1,2)
+
+   MakeOb('2.6'  , '1.2.2в', 69,1,2)
+   MakeOb('2.6.1', '1.2.2в', 70,1,2)
+ 
+   SborData02:=true
+   exit;
+ }
+ for(jj:=1;jj<=12;inc(jj))
+ { if jj>6
+    if (tp_option and 2)>0 then continue;
+   if jj<=6
+    if (tp_option and 4)>0 then continue;
+   case jj of
+   1,7:
+   { ww_vidsopr:=if(jj<7,211,201);
+     ww_row_beg:=53//28;
+     ww_kod:='2.1'
+     ww_status:='копия'
+   }
+   2,8:
+   { ww_vidsopr:=if(jj<7,111,101);
+     ww_row_beg:=56//32;
+     ww_kod:='2.2'
+     ww_status:='копия'
+   }
+   3,9:
+   { ww_vidsopr:=if(jj<7,211,201);
+     ww_row_beg:=59//36;
+     ww_kod:='2.3'
+     ww_status:='неполный'
+   }
+   4,10:
+   { ww_vidsopr:=if(jj<7,111,101);
+     ww_row_beg:=62//40;
+     ww_kod:='2.4'
+     ww_status:='неполный'
+   }
+   5,11:
+   { ww_vidsopr:=if(jj<7,211,201);
+     ww_row_beg:=65 //44;
+     ww_kod:='2.5'
+     ww_status:='специальный'
+   }
+   6,12:
+   { ww_vidsopr:=if(jj<7,111,101);
+     ww_row_beg:=68 //48;
+     ww_kod:='2.6'
+     ww_status:='специальный'
+   }
+   end;
+
+//  2.1 Введено документов по доходам со статусом "копия" до 5-го числа 
+//  (здесь и далее: под 5-ым числом понимается также и иная дата представления по отдельным документам, установленная по согласованию с ТНФ)	
+//  Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) и дата установки статуса  <копия> 
+//  (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//  меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+//  Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+  if not nextvisual then exit;
+  ins_tmp_row(2,ww_kod,ww_row_beg+1)
+  LogSql('jj='+string(jj)+'  строка '+tmp_row.kod)
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery(' where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase(ww_status)+chr(39))
+    
+    if wkl_Attrnam
+    { PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('  where sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      else  
+        PrepareSQLQuery('  where sl_a.vDate<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                   ) ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER<#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+ LogSql('8\'+string(tmp_ob.su,0,2)+'('+row+'\'+kk     +')'    +'\'+string(tmp_row.su[kk],0,2))
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+
+
+
+//=========================================================================
+// 2.1.1  из них: заменено на оригинал	
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+// статус которых установлен "полный" (KATSORP.CNOTE), при этом в истории изменения статусов присутствует 
+// запись изменения статуса  из "копия" в "полный" (STATLOG.LASTUSER (копия)-> STATLOG.LASTUSER (полный)) 
+// и дата установки статуса "полный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты окончания периода сопоставления (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+  if not nextvisual then exit;
+  ins_tmp_row(2,ww_kod+'.1',ww_row_beg+2)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery(' where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase(ww_status)+chr(39))
+    PrepareSQLQuery('   inner join StatLog sl1 on sl1.DOCTYPE='+string(100)+'  and sl1.CDOC=sl.CDOC ')
+    PrepareSQLQuery('   inner join katnotes sl_kn1 on sl_kn1.nrec = sl1.CNEWNOTE  and sl_kn1.name='+chr(39)+_UpCase('полный')+chr(39))
+    
+    if wkl_Attrnam
+    { PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      PrepareSQLQuery('  inner join attrval sl_a1 on sl_a1.crec = sl1.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a1.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      PrepareSQLQuery('                               and sl_a1.vDate <= #date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')    '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('  where (sl_a.vDate>=#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      else  
+        PrepareSQLQuery('  where (sl_a.vDate>=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                   ) ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER<#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('  and sl1.DOPER<=#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')        ')
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+
+
+// 2.1.2 не заменено на оригинал
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+// статус которых установлен "копия" (KATSORP.CNOTE) и дата установки статуса  <копия> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы).
+// Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+  if not nextvisual then exit;
+  ins_tmp_row(2,ww_kod,ww_row_beg+1)
+  LogSql('vidsopr='+string(ww_vidsopr)+',  строка '+tmp_row.kod)
+  for(kk:=1;kk<=4;inc(kk))
+  { if wdm_dt[kk*3-2]=0 then continue;
+    ClearQuery(vliSQLCommand);
+    delete all tmp_ob;
+    PrepareSQLQuery('select count(*),0.00,'+if((tp_option and 16)>0,'k.nsopr, k.USERFIELD',' '' '' , '' '' '))
+    PrepareSQLQuery('from katsopr k')
+    PrepareSQLQuery('inner join katnotes kn on kn.nrec = k.cnote')
+    PrepareSQLQuery(' where  k.vidsopr='+string(ww_vidsopr)+'  ')
+    PrepareSQLQuery(' and k.dsopr>=#date'+    '('+DateToStr(date(1,month(wdm_dt[kk*3-2]),year(wdm_dt[kk*3-2])), 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and k.dsopr<=#date'+    '('+DateToStr(wdm_dt[kk*3-2], 'DD,MM,YYYY')+   ')' )
+    PrepareSQLQuery(' and EXISTS (SELECT 1 ')
+    PrepareSQLQuery('   from StatLog sl ')
+    PrepareSQLQuery('   inner join katnotes sl_kn on sl_kn.nrec = sl.CNEWNOTE and sl_kn.name='+chr(39)+_UpCase(ww_status)+chr(39) )
+    
+    if wkl_Attrnam
+    { PrepareSQLQuery('  left outer join attrval sl_a on sl_a.crec = sl.Nrec and sl_a.wtable='+string(coStatLog)  )
+      PrepareSQLQuery('                               and sl_a.cAttrNam = #comp('+AttrNam.Nrec+')     '   )     
+      if (tp_option and 1)   =0
+        PrepareSQLQuery('  where (sl_a.vDate<#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+      else  
+        PrepareSQLQuery('  where (sl_a.vDate<#date('+DateToStr(wdm_dt[kk*3], 'DD,MM,YYYY')+   ')        ')
+      PrepareSQLQuery('                  ) ' )       
+    }
+    else
+    { PrepareSQLQuery('  where sl.DOPER<#date('+DateToStr(wdm_dt[kk*3-1], 'DD,MM,YYYY')+   ')        ')
+    }  
+    PrepareSQLQuery(' and sl.DOCTYPE='+string(100)+'  and sl.CDOC=k.nrec and sl.CNEWNOTE=k.cNote')
+    PrepareSQLQuery('    )')  //and EXIST
+    if((tp_option and 16)>0)
+      PrepareSQLQuery('group by k.nsopr, k.USERFIELD')
+    LogSql('    1 ')
+    stmt := sqlAllocStmt;
+    LogSql('    2 ')
+    ExecDSQLex(tntmp_ob)
+    LogSql('    3 ')
+    ClearQuery(vliSQLCommand);
+    LogSql('    4 ')
+    //if stmt<>0 sqlFreeStmt(stmt);
+    LogSql('    5 ')
+    _loop tmp_ob
+    { update current tmp_row set tmp_row.su[kk]:=tmp_row.su[kk]+tmp_ob.su
+      if((tp_option and 16)>0)
+        insert into tmp_protokol set tmp_protokol.tidk:=ww_vidsopr,tmp_protokol.row:=tmp_row.kod,tmp_protokol.col:=kk, tmp_protokol.nodok:= tmp_ob.key+'/'+tmp_ob.key2, tmp_protokol.kol:= tmp_ob.su;
+    }
+  } //for(kk:=1;kk<=4;inc(kk))
+
+
+//== дальше все повтор
+// 2.2 введено документов по расходам со статусом "копия" до 5-го числа	Кол-во записей из таблицы KATSOPR с видом документа 111 (KATSOPR.VIDSOPR=111)
+// и дата установки статуса  <копия> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+// Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+// 2.2.1 из них: заменено на оригинал	
+// Кол-во записей из таблицы KATSOPR с видом документа 111 (KATSOPR.VIDSOPR=211) 
+// статус которых установлен "полный" (KATSORP.CNOTE), при этом в истории изменения статусов присутствует
+// запись изменения статуса  из "копия" в "полный" (STATLOG.LASTUSER (копия)-> STATLOG.LASTUSER (полный)) 
+// и дата установки статуса "полный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты окончания периода сопоставления (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+// 2.2.2 не заменено на оригинал	
+// Кол-во записей из таблицы KATSOPR с видом документа 111 (KATSOPR.VIDSOPR=111) 
+// статус которых установлен "копия" (KATSORP.CNOTE)и дата установки статуса  <копия> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+// Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+// 2.3	введено документов по доходам со статусом "неполный" до 5-го числа	
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+// и дата установки статуса  <неполный> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+// Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+// 2.3.1	из них: заменено на оригинал
+// Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+// статус которых установлен "полный" (KATSORP.CNOTE), при этом в истории изменения статусов присутствует 
+// запись изменения статуса  из "неполный" в "полный" (STATLOG.LASTUSER (неполный)-> STATLOG.LASTUSER (полный)) 
+// и дата установки статуса "полный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+// меньше даты окончания периода сопоставления (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.3.2	не заменено на оригинал	
+//Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) статус которых установлен "неполный" (KATSORP.CNOTE) 
+//и дата установки статуса  <неполный> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+//Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.4	введено документов по расходам со статусом "неполный" до 5-го числа	
+//Кол-во записей из таблицы KATSOPR с видом документа 111 (KATSOPR.VIDSOPR=111) и дата установки статуса  <неполный> 
+//(внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+//Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.4.1	из них: заменено на оригинал	
+//Кол-во записей из таблицы KATSOPR с видом документа 111 (KATSOPR.VIDSOPR=111) статус которых установлен "полный" (KATSORP.CNOTE),
+//при этом в истории изменения статусов присутствует запись изменения статуса  из "неполный" в "полный" 
+//(STATLOG.LASTUSER (неполный)-> STATLOG.LASTUSER (полный)) и дата установки статуса "полный" 
+//(внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты окончания периода сопоставления (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.4.2	не заменено на оригинал	Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+//статус которых установлен "неполный" (KATSORP.CNOTE)и дата установки статуса  <неполный> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы).
+//Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.5	введено документов по доходам со статусом "специальный" до 5-го числа	
+//Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+//и дата установки статуса  <специальный> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+//Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.5.1	из них: заменено на оригинал	
+//Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+//статус которых установлен "полный" (KATSORP.CNOTE), при этом в истории изменения статусов присутствует 
+//запись изменения статуса  из "специальный" в "полный" (STATLOG.LASTUSER (специальный)-> STATLOG.LASTUSER (полный)) 
+//и дата установки статуса "полный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты окончания периода сопоставления (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.5.2	не заменено на оригинал	Кол-во записей из таблицы KATSOPR с видом документа 211 (KATSOPR.VIDSOPR=211) 
+//статус которых установлен "специальный" (KATSORP.CNOTE)и дата установки статуса  <специальный> (внешний атрибут к таблице STATLOG - <Дата установки статуса>)
+//меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.6	введено документов по расходам со статусом "специальный" до 5-го числа	
+//Кол-во записей из таблицы KATSOPR с видом документа 111 (KATSOPR.VIDSOPR=111) 
+//и дата установки статуса  <специальный> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+//Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.6.1	из них: заменено на оригинал	
+//Кол-во записей из таблицы KATSOPR с видом документа 111 (KATSOPR.VIDSOPR=111) 
+//статус которых установлен "полный" (KATSORP.CNOTE), при этом в истории изменения статусов присутствует 
+//запись изменения статуса  из "специальный" в "полный" (STATLOG.LASTUSER (специальный)-> STATLOG.LASTUSER (полный)) 
+//и дата установки статуса "полный" (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты окончания периода сопоставления (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+//2.6.2	не заменено на оригинал	Кол-во записей из таблицы KATSOPR с видом документа 111 
+//(KATSOPR.VIDSOPR=111) статус которых установлен "специальный" (KATSORP.CNOTE)и дата установки статуса  
+//<специальный> (внешний атрибут к таблице STATLOG - <Дата установки статуса>) 
+//меньше даты закрытия месяца (устанавливается пользователем при настройке интерфейса получения отчетной формы). 
+//Документ попадает в отчетный период формирования отчетной формы (устанавливается пользователем при настройке интерфейса формирования отчетной формы).
+
+
+ } //for(jj:=1;jj<=6;inc(jj))
+ SborData02:=True;
+} //Function SborData02 :boolean;
+
+
+//==============
+// печать ланных 01
+//==============
+Function PrintData01 :boolean;
+var kk: word;
+{ PrintData01:=False
+  xlSetActiveSheetByName('Форма "Контроль ТНФ"')
+  
+  // шапка
+  wexrow:=6; wexcol:=1;
+  MyPutExcel(sGetTune('MYORG'),0,0,-1,-1) 
+  wexrow:=8; wexcol:=3;
+  for(kk:=1;kk<=4; inc(kk))
+    MyPutExcel(chr(39)+DateToStr(wdm_dt[kk*3],'DD.MM.YYYY')  ,0,0,-1,-1) 
+  wexrow:=9 ; wexcol:=3;
+  for(kk:=1;kk<=4; inc(kk))
+    MyPutExcel(chr(39)+DateToStr(wdm_dt[kk*3]-2,'month')  ,0,0,-1,-1) 
+  wexrow:=26; wexcol:=3;
+  for(kk:=1;kk<=4; inc(kk))
+    MyPutExcel(chr(39)+DateToStr(wdm_dt[kk*3]-2,'month')  ,0,0,-1,-1) 
+  _loop tmp_row where (( 1 == tmp_row.tp ))
+  {  wexrow:=tmp_row.row
+     wexcol:=3;
+     for(kk:=1;kk<=4; inc(kk))
+       MyPutExcelNumber(tmp_row.su[kk],0  ,0,0,-1,-1) 
+  }
+  PrintData01:=True;
+}
+
+
+
+
+//==============
+// печать ланных 02
+//==============
+Function PrintData02 :boolean;
+var kk :word;
+{ PrintData02:=False
+  xlSetActiveSheetByName('Форма "Контроль ТНФ"')
+  
+  // шапка
+  wexrow:=6; wexcol:=1;
+  MyPutExcel(sGetTune('MYORG'),0,0,-1,-1) 
+  wexrow:=8; wexcol:=3;
+  for(kk:=1;kk<=4; inc(kk))
+    MyPutExcel(chr(39)+DateToStr(wdm_dt[kk*3],'DD.MM.YYYY')  ,0,0,-1,-1)
+  wexrow:=9 ; wexcol:=3;
+  for(kk:=1;kk<=4; inc(kk))
+    MyPutExcel(chr(39)+DateToStr(wdm_dt[kk*3-2],'month')  ,0,0,-1,-1)
+  wexrow:=26; wexcol:=3;
+  for(kk:=1;kk<=4; inc(kk))
+    MyPutExcel(chr(39)+DateToStr(wdm_dt[kk*3-2],'month')  ,0,0,-1,-1)
+  _loop tmp_row where (( 2 == tmp_row.tp ))
+  {  wexrow:=tmp_row.row
+     wexcol:=3;
+     for(kk:=1;kk<=4; inc(kk))
+       MyPutExcelNumber(tmp_row.su[kk],0  ,0,0,-1,-1)
+  }
+
+  PrintData02:=True;
+}

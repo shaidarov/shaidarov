@@ -1,0 +1,133 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) Корпорация ГАЛАКТИКА                              ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Модуль        : Учет ОС                                                   ║
+ ║ Версия        : 8.10                                                      ║
+ ║ Клиент        : ООО "ТрансНефть-Финанс"                                   ║
+ ║ Назначение    : Утилита конвертации внешних атрибутов ОКАТОГИБДД к        ║
+ ║                 карточкам ОС в атрибут ОКТМОГИБДД                         ║
+ ║ Ответственный : Викторович Владимир Анатольевич                           ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include ATDServices.vih
+#include ExtAttr.vih
+#include ShowAnalytics.vih
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface Os_OKATO_OKTMO;
+  Show At ( , , , 7);
+
+  var
+    pATDSerices  : IATDServices;
+    piExtAttr    : iExtAttr;
+    iShAn        : ShowAnalytics;
+
+    MsgCount     : longint;
+    LogFilePath  : string;
+    _sAttrName   : string;
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  create view
+
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  from
+    AttrNam
+  , AttrVal
+  , KatOS
+  where
+  ((  // для ускорения будет отталкиваться от AttrVal
+      coKatOS          == AttrNam.wTable
+  and _sAttrName       == AttrNam.Name
+
+  and AttrNam.NRec     == AttrVal.cAttrNam
+
+  and AttrVal.cRec     == KatOS.NRec
+      and (15           = KatOS.TiDk)
+  ))
+  ;
+
+    screen scMainScreen;
+      Show At ( , , , 6);
+      fields
+    <<
+     Назначение    : Утилита конвертации внешних атрибутов ОКАТОГИБДД к
+                     карточкам ОС в атрибут ОКТМОГИБДД
+
+     После окончания операции закройте это окно.
+    >>
+
+    end; // screen
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  procedure Logging(Msg : string);
+  {
+    LogStrToFile(LogFilePath, Msg);
+    MsgCount++;
+  }
+
+  procedure ConvertAttr(OKATOAttrName : string; OKTMOAttrName : string);
+  {
+    var cOKATO : comp;
+    var cOKTMO : comp;
+
+    if piExtAttr.AttrID ( coKatOS, OKATOAttrName ) <> 0
+    {
+      if piExtAttr.AttrID ( coKatOS, OKTMOAttrName ) <> 0
+      {
+        _sAttrName := OKATOAttrName;
+
+        if getfirst AttrNam = tsOk
+          _loop AttrVal
+          {
+            _loop KatOS
+            {
+              NextVisual;
+
+              cOKATO := piExtAttr.coGetAttr(coKatOS, KatOS.nRec, OKATOAttrName);
+              if cOKATO > 0
+              {
+                cOKTMO := pATDSerices.GetOKTMOnRecbyOKATOnRec(cOKATO);
+                if cOKTMO <> 0
+                { piExtAttr.coSetAttr(coKatOS, KatOS.nRec, OKTMOAttrName, cOKTMO, iShAn.ShowKau(72, cOKTMO)); }
+                else
+                { Logging(KatOS.Innum + ' ' + KatOS.NameOS +' ошибка:' + pATDSerices.GetLastError + ' Внешний КАУ АТД:' + iShAn.ShowKau(72, cOKTMO) ) ; }
+              }
+            }
+          }
+      }
+      else
+        Logging('Отсутствует внешний атрибут ОКТМО ' + OKTMOAttrName + ' к KatOS');
+    }
+    else
+      Logging('Отсутствует внешний атрибут ОКАТО ' + OKATOAttrName + ' к KatOS');
+  }
+
+  procedure Main;
+  {
+    StartNewVisual(vtRotateVisual, vfTimer, 'Идет операция конвертации ОКАТО-ОКТМО карточк ОС', 0);
+    ConvertAttr('ОКАТОГИБДД',   'ОКТМОГИБДД_1');
+    ConvertAttr('ОКАТОГИБДД_2', 'ОКТМОГИБДД_2');
+    ConvertAttr('ОКАТОГИБДД_3', 'ОКТМОГИБДД_3');
+    StopVisual('', 0);
+
+    message('Операция конвертации атрибутов карточки ОС завершена!');
+  }
+
+  HandleEvent
+    cmInit:
+    {
+      LogFilePath := GetPathParameter('Files', 'OutputFilesDirectory', 0);
+      LogFilePath := LogFilePath + '\Os_OKATO_OKTMO.out';
+
+      MsgCount := 0;
+      if ExistFile(LogFilePath)
+        DeleteFile(LogFilePath);
+
+      Main;
+
+      if MsgCount > 0
+        ProcessText(LogFilePath, vfRunModal + vfNewTitle, 'Протокол работы интерфейса');
+    }
+  End;
+
+End.

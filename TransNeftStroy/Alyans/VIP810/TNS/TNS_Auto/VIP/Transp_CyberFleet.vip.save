@@ -1,0 +1,338 @@
+#include getkau.vih
+
+#include CU_MyFunc.vih
+
+#include CyberFleet.vih
+
+Interface Transp_CyberFleet 'Выгрузка из CyberFleet' EscClose ;
+
+table struct transp_fleet
+(   sortname : string,
+    Transp_nrec       : Comp   , //Nrec ТС
+    Transp_nomer :string(50),
+    Transp_garnom :string(50),
+    Transp_innum :string(50),
+    Total_Fuel :double,
+    Total_KM :double,
+    Total_FuelKM :double
+)
+with index
+(  index1 = sortname
+  ,index2 = Transp_nrec
+) ;
+
+var igetkau : getkau;
+#include excel_var.vpp
+
+create view
+var
+ tp_report :word ;
+//для фильтров
+  filtr_type :word ;
+  filtr_podr:string ;
+  filtr_auto:string ;
+  field_type:word;
+  ext_rep:word;
+  wdbeg, wdend : datetime;
+  Marker_podr, Marker_auto, IndexNoOt : longint ;
+as select transp_fleet.transp_nrec
+from transp_fleet,
+transp,
+katpodr,
+morale,
+autodoc autodoc1,
+waydoc waydoc1,
+marka,
+tiptex,
+markomp,
+autodoc autodoc2,
+waydoc waydoc2,
+katorg,
+marcomp,
+pick
+where ((
+transp.cpodr == katpodr.nrec
+and transp.klassif5 == morale.nrec
+and transp.nrec == autodoc1.cvehicle
+and waydoc1.nrec == autodoc1.cwaydoc (noindex)
+and 0 == waydoc1.whatis
+and 'СВР' == waydoc1.code
+and transp.nrec == autodoc2.cvehicle
+and waydoc2.nrec == autodoc2.cwaydoc (noindex)
+and 0 == waydoc2.whatis
+and 'ОДБ' == waydoc2.code
+and transp.cmarka == marka.nrec
+and transp.ctiptex == tiptex.nrec
+and transp.cmarakk == markomp.nrec
+and transp.izgnrec == katorg.nrec
+and transp.cnomdvig == marcomp.nrec
+));
+
+#include excel_fun.vpp
+#include marker_my.vpp
+
+//==================================
+// сохранение параметров
+//==================================
+Procedure SaveParam ;
+{ SaveMyDsk(filtr_podr,'podr_fleet_filtr')
+  SaveMyDsk(filtr_auto,'Avto_fleet_filtr')
+} //Procedure SaveParam ;
+//==================================
+// чтение параметров
+//==================================
+Procedure ReadParam ;
+var wwkl :boolean ;
+{ if Not ReadMyDsk(filtr_podr,'podr_fleet_filtr',wwkl) filtr_type:=0 ;
+  if Not ReadMyDsk(filtr_auto,'Avto_fleet_filtr',wwkl) filtr_type:=0 ;
+} //Procedure ReadParam ;
+
+Procedure calcTranspFleet();
+{
+  XLRUNMACRO('CalcCyberFleetFuel')
+}
+//==================================
+// печать
+//==================================
+Function PrintDoc : boolean ;
+var werr:word ;
+    wstr,wpodr:string ; 
+    wnpp :longint ;
+    wkol :double;
+{ PrintDoc:=false ;
+  if ext_rep > 0
+  {
+    nmtemplate:='Avto_Fleet_ext.xls';
+  }
+  else
+  {
+    nmtemplate:='Avto_Fleet.xls';
+  }
+  if getfirst transp<>0
+  { message('не нашли подходящих транспортных средств')
+    exit ;
+  }
+  werr:=ExcelInit(nmtemplate,true,2009);
+  if werr>0
+  { message('Ошибка инициализации Excel по шаблону '+nmtemplate) ;
+    exit ;
+  }
+  
+  //вывод данных
+  HeaderStrCount :=2 ;
+  wnpp:=0;
+  wkol:=0;
+  wexrow:=1;
+  wexcol:=1;
+  MyPutExcel(_DateTimeToStr(wdbeg,'DD.MM.YYYY HH:NN:SS'),8,0,-1,-1);//1     //№ п/п
+  MyPutExcel(_DateTimeToStr(wdend, 'DD.MM.YYYY HH:NN:SS'),8,0,-1,-1);//1     //№ п/п
+  MyPutExcel(if(field_type=0,'Инвентарный номер','Гаражный номер'),8,0,-1,-1);//1     //№ п/п
+  wexcol:=4;
+  MyPutExcel('gis01-tns.tns.transneft.ru',8,0,-1,-1);//1     //№ п/п
+  MyPutExcel('BN',8,0,-1,-1);//1     //№ п/п
+  MyPutExcel('sa',8,0,-1,-1);//1     //№ п/п
+  MyPutExcel('sql',8,0,-1,-1);//1     //№ п/п
+  wexrow:=HeaderStrCount+1 ;
+//  MyXlCreaMatrix(10000,100)
+  wexrow:=wexrow-1;
+  _loop transp_fleet ordered by index Index1
+  {  if not nextvisual then exit;
+     mylogwrite(false,' '+transp_fleet.transp_nomer)
+     wexrow:=wexrow+1;wexcol:=1 ;
+     wnpp:=wnpp+1;
+     MyPutExcelNumber(wnpp,0,8,0,-1,-1);//1     //№ п/п
+     MyPutExcel(transp_fleet.transp_nomer,8,0,-1,-1);//гос номер
+     MyPutExcel(transp_fleet.transp_garnom,8,0,-1,-1);//гос номер
+     MyPutExcel(transp_fleet.transp_innum,8,0,-1,-1);//гос номер
+     MyPutExcelNumber(transp_fleet.total_fuel,0,8,0,-1,-1);
+     MyPutExcelNumber(transp_fleet.total_km,0,8,0,-1,-1);
+     MyPutExcelNumber(transp_fleet.total_fuelkm,0,8,0,-1,-1);
+  } //_loop My_WorkGsm where (( 1 == My_WorkGsm.pa))  ordered by index Index4
+  wexrow:=wexrow+1 ;
+  if ext_rep > 0
+  {
+    CalcTranspFleet();
+  }
+
+//  MyxlWriteMatrix(wexrow);
+//  xlFreeMatrix;
+  matrixkl:=False;
+  // вывод итогов
+
+  MyXlEnd ;
+  XLKillExcel ;
+  PrintDoc:=true ;
+
+} //Function PrintDoc : boolean ;
+
+// отбор данных
+//==================================
+//▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+Function getTransp:boolean;
+var
+    wtotal_fuel, wtotal_km, wtotal_fuelkm:double;
+    fleet: ICyberFleet(CyberFleet);
+    rst: integer;
+{ getTransp:=false
+  _loop transp
+  {
+    if NullVipRef(fleet)
+    {
+      if not LoadVipRef(fleet, 'M_TRANSP::CyberFleet')
+      {
+        Message('Не загружен интерфейс связи с системой CyberFleet! Обратитесь к администратору')
+        exit;
+      }
+    }
+    if (filtr_type and 1)>0
+    {  if not SearchMarker(Marker_podr,transp.cpodr,IndexNoOt) then continue;
+    }
+    if (filtr_type and 2)>0
+    {  if not SearchMarker(Marker_auto,transp.nrec,IndexNoOt) then continue;
+    }
+    if not nextvisual then exit ;
+    if ext_rep = 0
+    {
+      wtotal_fuel := 0;
+      wtotal_km := 0;
+      wtotal_fuelkm := 0;
+      fleet.CyberFleet_TripListInfo(transp.garnom, wdbeg, wdend, wtotal_fuel, wtotal_km, wtotal_fuelkm);
+    }
+    insert into  transp_fleet set
+            transp_fleet.sortname := transp.nomer,
+            transp_fleet.Transp_Nomer := transp.nomer,
+            transp_fleet.Transp_garNom := transp.garnom,
+            transp_fleet.Transp_innum := transp.innum,
+            transp_fleet.Transp_nrec := transp.nrec, //Nrec ТС
+            transp_fleet.total_fuel := wtotal_fuel,
+            transp_fleet.total_km := wtotal_km,
+            transp_fleet.total_fuelkm := wtotal_fuelkm;
+       MyLogWrite(false,'   транспорт= '+transp_fleet.transp_nomer );
+  } //
+  getTransp:=true;
+} //SborPostav
+
+Function FormDoc : boolean ;
+{ FormDoc:=false ;
+  SaveParam ;
+  if GetTransp
+  {
+    FormDoc:=PrintDoc ;
+  };
+} //Function FormDoc : boolean ;
+//==================================
+// экранная форма задания параметров
+//==================================
+screen scrmain ;
+table transp ;
+fields
+ tp_report : [list 1 'Данные из CyberFlett'] , protect ;
+ logfilekl : noprotect ;
+  wdbeg : noprotect;
+  wdend : noprotect;
+  filtr_type :noprotect ;
+  filtr_podr ('Подразделение') : protect , pickbutton ;
+  filtr_auto ('Автомобиль') : protect , pickbutton ;
+  field_type :noprotect;
+  ext_rep :noprotect;
+buttons
+  cmOk, Default;
+  cmCancel;
+<<
+  `Тип отчета`   .@@@@@@@@@@@@@@@@@@@@@@@@@@ [.] отладка`
+  `Дата начала`      .@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Дата окончания`   .@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Фильтры`
+  [.] По подразделению`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] По автомобилю`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  (.)  По Инвентарному номеру`
+  (.)  По агражному номеру`         [.] Расширенный отчет`
+
+ <. Отчет .>  <. Отмена .>
+>>
+end;
+Procedure MakeFiltr;
+var
+  MrkCount : LongInt ;
+  Item     : Comp ;
+{ //===============
+  MrkCount := GetMarkerCount(Marker_podr) ;
+  filtr_podr:='не задано'
+  if MrkCount=1
+  { if (GetMarker(Marker_podr, 0, Item))
+     if getfirst katpodr where ((Item == katpodr.nrec ))=0
+     { filtr_podr:=katpodr.name ;
+     }
+  }
+  else
+  if MrkCount>1
+  { filtr_podr:='выбрано '+string(MrkCount)+' записей'
+  }
+  MrkCount := GetMarkerCount(Marker_auto) ;
+  filtr_auto:='не задано'
+  if MrkCount=1
+  { if (GetMarker(Marker_auto, 0, Item))
+     if getfirst transp where ((Item == transp.nrec ))=0
+     { filtr_auto:=transp.nomer ;
+     }
+  }
+  else
+  if MrkCount>1
+  { filtr_auto:='выбрано '+string(MrkCount)+' записей'
+  }
+  //===============
+  rescanpanel(#transp)
+}
+//==================================
+// обработчик событий
+//==================================
+HandleEvent
+cmInit :
+{ ReadParam ;
+  Marker_podr:=InitMarker('Marker_podr', 8, 200, 10) ;
+  Marker_auto:=InitMarker('Marker_auto', 8, 200, 10) ;
+  MakeFiltr
+}
+cmDone:
+{
+  DoneMarker(Marker_podr,'Marker_podr')
+  DoneMarker(Marker_auto,'Marker_auto')
+}
+cmPick:
+{ var wnrec:comp ;
+  wnrec:=0 ;
+  var MarkerKauName:string ;
+  var Marker:string ;
+  case curfield of
+  #filtr_podr:
+  {  MarkerKauName := iGetKau.GetMarkerName(2 );
+     MarkCopyMyToCat(Marker_podr,MarkerKauName)
+     iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,2,wnrec);
+     MarkCopyCatToMy(Marker_podr,MarkerKauName)
+  }
+  #filtr_auto:
+  {  MarkerKauName := iGetKau.GetMarkerName(5013 );
+     MarkCopyMyToCat(Marker_auto,MarkerKauName)
+     iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,5013,wnrec);
+     MarkCopyCatToMy(Marker_auto,MarkerKauName)
+  }
+  end ;
+  MakeFiltr
+}
+cmOk :
+{ SaveParam ;
+  StartNewVisual( vtNumericVisual, vfTimer+vfBreak, 'Сбор данных', 1);
+  if fileexist(logfilenm) deletefile(logfilenm)
+  InitServTxo(0)
+  FormDoc ;
+  DoneServTxo
+  StopVisual('',0)
+  if fileexist(logfilenm)
+  {  ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+      logfilenm+' Протокол формирования');
+  }
+  CloseInterface(cmDone)
+} //cmOk:
+end ;
+end.

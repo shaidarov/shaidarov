@@ -1,0 +1,173 @@
+.LinkForm 'NAL_ALL_SPEC_NDEwerwerw' Prototype is 'NAL_ALL'
+.Group '000'
+.NameInList 'ВЕДОМОСТЬ НАЛИЧИЯ (ТНС)'
+.F 'Nul'
+.var
+pos_x,x:integer
+FBasName:string
+.endvar
+.Create view t1
+ as select
+ katmc.barkod
+ from
+ katmc
+ where
+  ((
+        nRecMC            == katmc.nrec
+    and nRecParty         == katparty.nrec
+    and Podr              == katpodr.name
+    and MOL               == katmol.name
+    and word(0)           == sporder.sp
+    and katmc.nrec        == sporder.cmc
+    and katpodr.nrec      == sporder.ccpodr
+    and katmol.nrec       == sporder.ccmol
+    and katparty.nrec     == sporder.cparty
+    and word(0)           == sporder.vidorder  (NOINDEX)
+    and sporder.csklorder == sklorder.nrec
+    and sklorder.csopr    == katsopr.nrec
+    and KatSopr.VidSopr   == KatDoc.TiDkGal
+    and katsopr.cdogovor  == dogovor.nrec
+
+  ))
+   ;
+.fields
+.endfields
+.begin
+FBasName := GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_otchet.xls';
+DeleteFile(FBasName);
+xlCreateExcel(FBasName,true);  // создание Excel
+xlSetActiveWorkBookByName('saldo_otchet');  // книга активна
+   xlGetSheetsCount(x);
+   while x > 1
+    do
+     {
+       xlSetActiveSheet(x);
+       xlDeleteSheet(x);
+       xlGetSheetsCount(x);
+     }
+   xlSetSheetName(1,'отчет');        // имя первого листа
+   xlSetActiveSheet(1);              // активен первый лист
+   pos_x:=1;
+   xlSetCellStringValue(CommonFormHeader, pos_x, 1, pos_x, 1);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('НАЛИЧИЕ ТОВАРНО-МАТЕРИАЛЬНЫХ ЦЕННОСТЕЙ', pos_x, 1, pos_x, 1);
+   xlSetFontStyle( 1, pos_x, 1, pos_x,14);
+   xlMergeCells( pos_x, 1, pos_x,14);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('на '+DateToStr(dDate,'DD mon YYYY'), pos_x, 1, pos_x, 1);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 1);
+   xlMergeCells( pos_x, 1, pos_x,14);
+   pos_x:=pos_x+2;
+   xlSetColumnWidth(30,  pos_x, 1, pos_x, 1);
+   xlSetColumnWidth(10,  pos_x, 2, pos_x, 2);
+   xlSetColumnWidth(10,  pos_x, 3, pos_x, 3);
+   xlSetColumnWidth(10,  pos_x, 4, pos_x, 4);
+   xlSetColumnWidth(10,  pos_x, 5, pos_x, 5);
+   xlSetColumnWidth(15,  pos_x, 6, pos_x, 6);
+   xlSetColumnWidth(20,  pos_x, 7, pos_x, 7);
+   xlSetColumnWidth(20,  pos_x, 8, pos_x, 8);
+   xlSetColumnWidth(20,  pos_x, 9, pos_x, 9);
+   xlSetColumnWidth(20,  pos_x,10, pos_x,10);
+   xlSetColumnWidth(20,  pos_x,11, pos_x,11);
+   xlSetColumnWidth(20,  pos_x,12, pos_x,12);
+   xlSetColumnWidth(20,  pos_x,13, pos_x,13);
+   xlSetColumnWidth(12,  pos_x,14, pos_x,14);
+
+   xlSetCellStringValue('Наименование'           , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Код'                    , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Ед.изм.'                , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('Кол-во'                 , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue('Цена'                   , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue('Стоимость'              , pos_x, 6, pos_x, 6);
+   xlSetCellStringValue('Подразделение'          , pos_x, 7, pos_x, 7);
+   xlSetCellStringValue('МОЛ'                    , pos_x, 8, pos_x, 8);
+   xlSetCellStringValue('Партия'                 , pos_x, 9, pos_x, 9);
+   xlSetCellStringValue('Номер и дата ордера'    , pos_x,10, pos_x,10);
+   xlSetCellStringValue('Вид накладной'          , pos_x,11, pos_x,11);
+   xlSetCellStringValue('Номер и дата накладной' , pos_x,12, pos_x,12);
+   xlSetCellStringValue('Договор'                , pos_x,13, pos_x,13);
+   xlSetCellStringValue('Дескриптор'             , pos_x,14, pos_x,14);
+
+   xlSetFontStyle( 1, pos_x, 1, pos_x,14);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x,14);          // центровка по горизонтали - 3, по вертикали - 2
+   xlWrapText(pos_x, 1, pos_x,14);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x,10, pos_x,10);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x,11, pos_x,11);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x,12, pos_x,12);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x,13, pos_x,13);          //обрамление  15-вокруг
+   xlFrameCells(15,2,7,0,pos_x,14, pos_x,14);          //обрамление  15-вокруг
+
+   pos_x:=pos_x+1;
+end.
+.{
+.}
+.{
+.{CheckEnter 
+.begin
+if substr(NameMC,1,8) <> 'Итого по'
+{
+xlSetCellStringValue(chr(39)+NameMC, pos_x, 1, pos_x, 1);
+xlSetCellStringValue(chr(39)+CodeMC, pos_x, 2, pos_x, 2);
+xlSetCellStringValue(chr(39)+NameEd, pos_x, 3, pos_x, 3);
+xlSetCellStringValue(chr(39)+DoubleToStr(Kol    ,'[|-]36`666`666`666`666.888'), pos_x, 4, pos_x, 4);
+xlSetCellStringValue(chr(39)+DoubleToStr(Price1 ,'[|-]36`666`666`666`666.88') , pos_x, 5, pos_x, 5);
+xlSetCellStringValue(chr(39)+DoubleToStr(Summa1 ,'[|-]36`666`666`666`666.88') , pos_x, 6, pos_x, 6);
+xlSetCellStringValue(chr(39)+Podr  , pos_x, 7, pos_x, 7);
+xlSetCellStringValue(chr(39)+Mol   , pos_x, 8, pos_x, 8);
+xlSetCellStringValue(chr(39)+Party , pos_x, 9, pos_x, 9);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 3);
+xlAlignCellsEx( 4, 2, pos_x, 4, pos_x, 6);
+xlAlignCellsEx( 2, 2, pos_x, 7, pos_x,14);
+xlWrapText(pos_x, 1, pos_x,14);
+xlSetFontSize(8, pos_x, 1, pos_x,14);
+if t1.getfirst katmc = tsok    {}
+if t1.getfirst katparty = tsok {}
+if t1.getfirst katpodr = tsok  {}
+if t1.getfirst katmol = tsok   {}
+t1._loop sporder
+ {
+  if t1.getfirst sklorder = tsok {}
+  if t1.getfirst katsopr  = tsok {}
+  if t1.getfirst katdoc   = tsok {}
+  if t1.getfirst dogovor  = tsok {}
+xlSetCellStringValue(chr(39)+' №'+t1.sklorder.NORDER + ' от ' + t1.sklorder.dord , pos_x,10, pos_x,10);
+xlSetCellStringValue(chr(39)+t1.katdoc.name , pos_x,11, pos_x,11);
+xlSetCellStringValue(chr(39)+' №'+t1.katsopr.nsopr  + ' от ' + t1.katsopr.dsopr  , pos_x,12, pos_x,12);
+xlSetCellStringValue(chr(39)+t1.dogovor.NODOC_EXT , pos_x,13, pos_x,13);
+xlSetCellStringValue(chr(39)+t1.katsopr.descr , pos_x,14, pos_x,14);
+xlAlignCellsEx( 2, 2, pos_x,10, pos_x,14);
+xlWrapText(pos_x, 1, pos_x,14);
+xlSetFontSize(8, pos_x, 1, pos_x,14);
+pos_x:=pos_x+1;
+ }
+}
+end.
+.}
+.}
+.begin
+pos_x:=pos_x+1;
+xlSetCellStringValue('ИТОГО', pos_x, 1, pos_x, 1);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+xlSetCellStringValue(chr(39)+DoubleToStr(Itogo1,'[|-]36`666`666`666`666.88'), pos_x, 6, pos_x, 6);
+xlAlignCellsEx( 4, 2, pos_x, 6, pos_x, 6);
+xlSetFontSize(10, pos_x, 1, pos_x,14);
+xlSetFontStyle( 1, pos_x, 1, pos_x,14);
+xlMergeCells( pos_x, 1, pos_x, 5);
+xlMergeCells( pos_x,7, pos_x,14);
+pos_x:=pos_x+3;
+xlSetCellStringValue('Исполнитель  _________________________________', pos_x, 1, pos_x, 1);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+xlMergeCells( pos_x-2, 1, pos_x,14);
+xlKillExcel;
+end.
+.endform
+

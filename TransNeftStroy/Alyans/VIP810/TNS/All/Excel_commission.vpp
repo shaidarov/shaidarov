@@ -1,0 +1,139 @@
+// коммисси
+var iCommission : Commission;
+var sCommission:string ;
+
+create view vcommis
+var
+  wwfio :string ;
+as select persons.fio
+from persons,appointments,catalogs
+where (( 'С' == persons.ISEMPLOYEE and wwfio == Persons.Fio
+  and persons.appointcur ==appointments.nrec
+  and appointments.post == catalogs.nrec
+)) ;
+
+Function XL_GetDolByFio (wfio :string ) :string ;
+{ XL_GetDolByFio:='' ;
+  set vcommis.wwfio:=wfio ;
+  if vcommis.getfirst persons=0
+    if vcommis.getfirst appointments=0
+        if vcommis.getfirst catalogs=0
+          XL_GetDolByFio:=vcommis.catalogs.name ;
+
+}
+
+Procedure XL_Prn_Podp(comm_chlen :string; comm_dolg :string ; comm_fio :string ;
+ wrow: longint; column1:longint ;  column2:longint ;  column3:longint ; column4 :longint
+ ) ;
+{  
+   if comm_chlen<>''
+   { xlSetCellStringValue(comm_chlen, wrow, Column1, wrow, Column1)
+     xlMergecells(wrow, Column1, wrow+1, Column2-1)
+   }  
+   xlSetCellStringValue(comm_dolg, wrow, Column2, wrow, Column2)
+   xlMergecells(wrow, Column2, wrow+1, Column3-1)
+   xlWrapText(wrow, Column2, wrow+1, Column3-1)
+
+   xlSetCellStringValue('_________________ '+comm_fio, wrow+1, Column3, wrow+1, Column3)
+   xlMergecells(wrow+1, Column3, wrow+1, Column4)
+   xlSetCellStringValue('подпись', wrow+2, Column3, wrow+2, Column3)
+   xlMergecells(wrow+2, Column3, wrow+2, Column4)
+  
+} //Procedure Prn_Podp(comm_zagolovok:string ; comm_dolg :string ; comm_fio :string ) ;
+
+Procedure XL_Prn_Podp_Transp(comm_chlen :string; comm_dolg :string ; comm_fio :string ;
+ wrow: longint; column1:longint ;  column2:longint ;  column3:longint 
+ ) ;
+{  
+   if comm_chlen<>''
+   { xlSetCellStringValue(comm_chlen, wrow, Column1, wrow, Column1)
+   }  
+   xlSetCellStringValue(comm_dolg, wrow, Column2, wrow, Column2)
+   xlSetCellStringValue('_________________ '+comm_fio, wrow, Column3, wrow, Column3)
+   xlSetCellStringValue('подпись', wrow+1, Column3, wrow+1, Column3)
+} //Procedure Prn_Podp(comm_zagolovok:string ; comm_dolg :string ; comm_fio :string ) ;
+
+
+Function XL_Print_commission ( wrow: longint; // строка
+   column1:longint ; // наименование члена коммисии 
+   column2:longint ; // должность 
+   column3:longint ; // фио
+   column4 :longint  // последняя колонка
+   ) :longint ; // номер строки после подписей
+var wwfio :string ;   
+{ XL_Print_commission:=0 ;
+  if wrow=0 then exit ;
+  if sCommission='Комиссия не установлена!'
+  { XL_Prn_Podp('Председатель комиссии','Заместитель начальника управления по соцразвитию и общ.вопросам' ,'_________________ ФИО'
+         ,wrow,column1,column2,column3,column4  )
+    wrow:=wrow+3     
+    xlSetCellStringValue('Члены комиссии:', wrow, Column1, wrow, Column1)
+    xlMergecells(wrow, Column1, wrow+1, Column2-2)
+    XL_Prn_Podp('','Начальник Цеха' ,'_________________ ФИО'
+         ,wrow,column1,column2,column3,column4  )
+    wrow:=wrow+3     
+    XL_Prn_Podp('','Начальник отдела' ,'_________________ ФИО'
+         ,wrow,column1,column2,column3,column4  )
+    wrow  := wrow +3
+   }
+   else
+   {
+     if (iCommission.GetCommissionChairMan)
+     { XL_Prn_Podp('Председатель комиссии',iCommission.GetComponentPost(0) ,iCommission.GetComponentFIO(0)
+         ,wrow,column1,column2,column3,column4  )
+       wrow :=wrow +3
+     }
+     xlSetCellStringValue('Члены комиссии:', wrow, Column1, wrow, Column1)
+     xlMergecells(wrow, Column1, wrow+1, Column2-1)
+     wrow:=wrow+2
+     var wCommissionNum : word;
+     var wCommissionCount : word;
+     wCommissionCount := iCommission.GetComponentsCount;
+     For (wCommissionNum := 1; wCommissionNum <= wCommissionCount; wCommissionNum := wCommissionNum + 1)
+     {  XL_Prn_Podp('',iCommission.GetComponentPost(wCommissionNum) ,iCommission.GetComponentFIO (wCommissionNum)
+              ,wrow,column1,column2,column3,column4  )
+        wrow:=wrow+3
+     }
+   } //if sCommission='Комиссия не установлена!' else
+   wwfio:=sGetTune('USER.FIO') ;
+//   GetDolByFio(wwfio)
+   XL_Prn_Podp('Материально ответственное лицо',XL_GetDolByFio(wwfio) ,wwfio
+              ,wrow,column1,column2,column3,column4  )
+   wrow:=wrow+3;
+  XL_Print_commission:=wrow ;
+}
+
+Function XL_Print_commission_Transp ( wrow: longint; // строка
+   column1:longint ; // наименование члена коммисии 
+   column2:longint ; // должность 
+   column3:longint
+   ) :longint ; // номер строки после подписей
+var wwfio :string ;   
+{ XL_Print_commission_Transp:=0 ;
+  if wrow=0 then exit ;
+  if sCommission='Комиссия не установлена!'
+  { wrow:=wrow+2
+    XL_Prn_Podp_Transp('','Начальник' ,'_________________ ФИО',wrow,column1,column2,column3  );
+    wrow:=wrow+3;     
+    XL_Prn_Podp_Transp('','Механик' ,'_________________ ФИО',wrow,column1,column2,column3  );
+    wrow:=wrow+3;     
+    XL_Prn_Podp_Transp('','Таксировщик' ,'_________________ ФИО',wrow,column1,column2,column3  );
+    wrow  := wrow +3;
+   }
+   else
+   {
+     wrow:=wrow+2
+     var wCommissionNum : word;
+     var wCommissionCount : word;
+     wCommissionCount := iCommission.GetComponentsCount;
+     For (wCommissionNum := 0; wCommissionNum <= wCommissionCount; wCommissionNum := wCommissionNum + 1)
+     {  XL_Prn_Podp_Transp('',iCommission.GetComponentPost(wCommissionNum) ,iCommission.GetComponentFIO (wCommissionNum)
+              ,wrow,column1,column2,column3 );
+        wrow:=wrow+3
+     }
+   } //if sCommission='Комиссия не установлена!' else
+   wwfio:=sGetTune('USER.FIO') ;
+//   GetDolByFio(wwfio)
+   wrow:=wrow+3;
+  XL_Print_commission_Transp:=wrow ;
+}

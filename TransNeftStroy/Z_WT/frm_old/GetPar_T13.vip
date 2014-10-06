@@ -1,0 +1,133 @@
+// Auth. Perevoz S.A.
+#include Z_Zar.VIl
+
+interface GetPar_T13 'Параметры печатной формы табеля';
+show at (5,1,82,14);
+Create View
+var
+  PersFIORuk,PersFIOotl,PersFIOrukp,PersFIOks,PersFIOotiz:string;
+  PersNrec:comp;
+  DolRuk,Dolotl,Dolrukp,Dolks,Dolotiz:string;
+as select * from Persons, APPOINTMENTS, Catalogs
+where ((PersNrec==Persons.nrec and
+        Persons.APPOINTCUR==APPOINTMENTS.nrec and
+        APPOINTMENTS.POST==Catalogs.nrec))
+;
+
+Screen S1;
+Fields
+  PersFIORuk: noprotect, PickButton;
+  DolRuk: noprotect;
+  PersFIOotl: noprotect, PickButton;
+  Dolotl: noprotect;
+  PersFIOrukp: noprotect, PickButton;
+  Dolrukp: noprotect;
+  PersFIOks: noprotect, PickButton;
+  Dolks: noprotect;
+  PersFIOotiz: noprotect, PickButton;
+  Dolotiz: noprotect;
+buttons
+  cmOk, Default;
+<<
+ `Руководитель предприятия:`       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Должность руководителя:`         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Ответственное лицо:`             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Должность ответственного лица:`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Рук. подразделения:`             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Должность рук. подразделения:`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Работник кадровой службы:`       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Должность раб. кадровой службы:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Работник ПЭО или ООТиЗ:`         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Должность раб. ПЭО или ООТиЗ:`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                              <.   ОК   .>
+>>
+End;
+
+//=========================
+Procedure SaveParam ;
+{ SaveMyDsk(PersFIORuk,'T13_PersFIORuk')
+  SaveMyDsk(dolRuk,'T13_dolRuk')
+  SaveMyDsk(PersFIOotl,'T13_PersFIOotl')
+  SaveMyDsk(Dolotl,'T13_Dolotl')
+  SaveMyDsk(PersFIOrukp,'T13_PersFIOrukp')
+  SaveMyDsk(Dolrukp,'T13_Dolrukp')
+  SaveMyDsk(PersFIOks,'T13_PersFIOks')
+  SaveMyDsk(Dolks,'T13_Dolks')
+  SaveMyDsk(PersFIOotiz,'T13_PersFIOotiz')
+  SaveMyDsk(Dolotiz,'T13_Dolotiz')
+}
+//=========================
+Procedure ReadParam ;
+{ ReadMyDsk(PersFIORuk,'T13_PersFIORuk',false)
+  ReadMyDsk(dolRuk,'T13_dolRuk',false)
+  ReadMyDsk(PersFIOotl,'T13_PersFIOotl',false)
+  ReadMyDsk(Dolotl,'T13_Dolotl',false)
+  ReadMyDsk(PersFIOrukp,'T13_PersFIOrukp',false)
+  ReadMyDsk(Dolrukp,'T13_Dolrukp',false)
+  ReadMyDsk(PersFIOks,'T13_PersFIOks',false)
+  ReadMyDsk(Dolks,'T13_Dolks',false)
+  ReadMyDsk(PersFIOotiz,'T13_PersFIOotiz',false)
+  ReadMyDsk(Dolotiz,'T13_Dolotiz',false)
+}
+//=========================
+handleevent
+   cmInit:
+   {
+     ReadParam;
+     if PersFIORuk=''
+     {
+       PersFIORuk:=sgettune('BOSS');
+       PersNrec:=cogettune('BOSS');
+       if (getfirst fastfirstrow persons=tsok)
+       if (getfirst fastfirstrow catalogs=tsok) {DolRuk:=catalogs.name;}
+     }
+     if PersFIOotl=''
+     {
+       PersFIOotl:=sgettune('USER.FIO');
+     }
+     RereadRecord;
+   }
+   cmPick:
+   {
+     case curField of
+     #PersFIORuk:
+     {
+        runinterface('PickFioM', 0, 0, PersNrec,0, 0);
+        if (getfirst fastfirstrow persons=tsok) {PersFIORuk:=persons.fio;}
+        if (getfirst fastfirstrow catalogs=tsok) {DolRuk:=catalogs.name;}
+     }
+     #PersFIOotl:
+     {
+        runinterface('PickFioM', 0, 0, PersNrec,0, 0);
+        if (getfirst fastfirstrow persons=tsok) {PersFIOotl:=persons.fio;}
+        if (getfirst fastfirstrow catalogs=tsok) {Dolotl:=catalogs.name;}
+     }
+     #PersFIOrukp:
+     {
+        runinterface('PickFioM', 0, 0, PersNrec,0, 0);
+        if (getfirst fastfirstrow persons=tsok) {PersFIOrukp:=persons.fio;}
+        if (getfirst fastfirstrow catalogs=tsok) {Dolrukp:=catalogs.name;}
+     }
+     #PersFIOks:
+     {
+        runinterface('PickFioM', 0, 0, PersNrec,0, 0);
+        if (getfirst fastfirstrow persons=tsok) {PersFIOks:=persons.fio;}
+        if (getfirst fastfirstrow catalogs=tsok) {Dolks:=catalogs.name;}
+     }
+     #PersFIOotiz:
+     {
+        runinterface('PickFioM', 0, 0, PersNrec,0, 0);
+        if (getfirst fastfirstrow persons=tsok) {PersFIOotiz:=persons.fio;}
+        if (getfirst fastfirstrow catalogs=tsok) {Dolotiz:=catalogs.name;}
+     }
+     end;
+     RereadRecord;
+   }
+   cmOk:
+   {
+     SaveParam ;
+     CloseInterface(1);
+   }
+end;
+End.

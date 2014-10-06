@@ -1,0 +1,1034 @@
+Interface saldo_76_test 'Закачка сальдо по счету 76_test' (,,) , DoAccept; // наимнование интерфейса
+
+var
+  Handle, Handle2, Handle3        : longint;
+  _path         : string ;
+  y             : boolean;
+  kod_desgr, nom_doc, nom_sf, napr_rash_name, sterr_name, sroch_name, vpru_name, vs_name, prfl_name,prul_name : string ;
+  nrec_fil      : comp   ;
+  nrec_bank_fil : comp   ;
+  nrec_co       : comp   ;
+  k             : integer;
+  vid_saldo     : string ;
+  data_doc, data_sf      : date   ;
+  sum_saldo     : double ;
+  dogovor_ID  : comp   ;
+  katorg_ID, napr_rash_ID, sroch_ID, katorgdescr_ID   : comp   ;
+  grup1 : word;
+  strnalisb_ID   : comp;
+  persons_ID     : comp;
+  prfl_ID        : comp;
+  sterr_ID       : comp;
+  vpru_ID        : comp;
+  vrp_ID         : comp;
+  vs_ID          : comp;
+  prul_ID        : comp;
+  basedoc_ID     : comp;
+  schfact_ID     : comp;
+  data_sf1       : string;
+
+Create view
+ as select *
+ from
+      basedoc,
+      stepdoc,
+      spstep,
+      spdocnal,
+      soprhoz,
+      katorg,
+      katorgdescr,
+      katbank,
+      dogovor,
+      spkau,
+      plpor,
+      attrnam,
+      attrval,
+      basefin
+;
+
+HandleEvent
+
+  CmInit:
+{
+  y := false;
+
+
+  if RunDialog('Getgr_tnf',grup1) = cmOk
+   {
+    if grup1 = 0
+    {
+     kod_desgr     := 'ОМК';
+     nrec_fil      := 013F000000000029h;
+     nrec_bank_fil := 013F000000000005h;
+     nrec_co       := 013E00000000011Dh;
+    }
+
+    if grup1 = 1
+     {
+     kod_desgr     := 'ТМН';
+     nrec_fil      := 00640000000047B3h;
+     nrec_bank_fil := 0064000000044D6Eh;
+     nrec_co       := 013E00000000011Bh;
+     }
+
+    if grup1 = 2
+     {
+     kod_desgr     := 'БРН';
+     nrec_fil      := 0064000000000031h;
+     nrec_bank_fil := 006400000004E2B7h;
+     nrec_co       := 013E00000000011Fh;
+     }
+   }
+
+
+
+     set _path := GetDirName('Выбери папку');
+
+      if Message('Загружаем ?', YesNo) = cmYes
+   {
+    y:=true;
+   }
+
+    Handle  := DBFOpen(_path+'\saldmoun.dbf',stOpen);
+    Handle3 := DBFOpen(_path+'\basedoc.dbf', stOpen);
+
+    StartNewVisual(vtRotateVisual, vfTimer,'Подождите...идет анализ данных', 0);
+
+     if (DBFGetFirst(Handle) = tsok)
+
+     do
+      {
+       NextVisual();
+       k:=k+1;
+       SetVisualHeader('Просмотрено: ' + String(k));
+
+       dogovor_ID     := 0;
+       katorg_ID      := 0;
+       napr_rash_ID   := 0;
+       sroch_ID       := 0;
+       katorgdescr_ID := 0;
+
+       strnalisb_ID   := 0;
+       persons_ID     := 0;
+       prfl_ID        := 0;
+       sterr_ID       := 0;
+       vpru_ID        := 0;
+       vrp_ID         := 0;
+       vs_ID          := 0;
+       prul_ID        := 0;
+       basedoc_ID     := 0;
+       schfact_ID     := 0;
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '01'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         vpru_ID        := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '04'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         vs_ID          := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '06'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         vrp_ID         := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+         sroch_ID       := comp(DBFGetFieldValue(Handle,'KAUOS[5]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '07'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '11'
+        {
+         persons_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '12'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         persons_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '16'
+        {
+         persons_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         prfl_ID         := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '17'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         prul_ID        := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+         sroch_ID       := comp(DBFGetFieldValue(Handle,'KAUOS[5]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '18'
+        {
+         strnalisb_ID   := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         sterr_ID       := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '19'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         sroch_ID       := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '20'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '21'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         vpru_ID        := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '22'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         sterr_ID       := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+         napr_rash_ID   := comp(DBFGetFieldValue(Handle,'KAUOS[5]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '23'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         napr_rash_ID   := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+         sroch_ID       := comp(DBFGetFieldValue(Handle,'KAUOS[5]'));
+         schfact_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[6]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '24'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         vpru_ID        := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '101'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         napr_rash_ID   := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+         basedoc_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[5]'));
+        }
+
+       if string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '102'
+        {
+         katorg_ID      := comp(DBFGetFieldValue(Handle,'KAUOS[1]'));
+         katorgdescr_ID := comp(DBFGetFieldValue(Handle,'KAUOS[2]'));
+         vpru_ID        := comp(DBFGetFieldValue(Handle,'KAUOS[3]'));
+         dogovor_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[4]'));
+         basedoc_ID     := comp(DBFGetFieldValue(Handle,'KAUOS[5]'));
+        }
+
+!-----------katorg-------------------
+
+         if katorg_ID <> 0
+          {
+          if getfirst katorg where ((katorg_ID == katorg.nrec )) = tsok
+           {
+            katorg_ID  := katorg.nrec;
+           }
+           else
+            {
+             LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Контрагент|нрек|'+katorg_ID);
+             katorg_ID:=0;
+            }
+          }
+
+         if (katorg_ID = 0 and trim(DBFGetFieldValue(Handle,'UNNKONT'))<>'' and trim(DBFGetFieldValue(Handle,'KPPKONT'))<>'')
+          {
+           if getfirst katorg where ((trim(DBFGetFieldValue(Handle,'UNNKONT')) == katorg.UNN and trim(DBFGetFieldValue(Handle,'KPPKONT')) == katorg.KODPLATNDS (noindex) )) = tsok
+            {
+            katorg_ID  := katorg.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Контрагент|УНН|'+trim(DBFGetFieldValue(Handle,'UNNKONT'))+'|КПП|'+trim(DBFGetFieldValue(Handle,'KPPKONT')));
+             }
+          }
+
+         if (katorg_ID = 0 and trim(DBFGetFieldValue(Handle,'NAMEKONT'))<>'')
+          {
+           if getfirst katorg where ((trim(DBFGetFieldValue(Handle,'NAMEKONT')) == katorg.name )) = tsok
+            {
+             katorg_ID  := katorg.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Контрагент|имя|'+trim(DBFGetFieldValue(Handle,'NAMEKONT')));
+             }
+          }
+
+!-------------end katorg---------------------
+
+!-------------katorgdescr---------------------
+
+          if katorgdescr_ID <> 0
+           {
+          if getfirst katorgdescr where ((katorgdescr_ID == katorgdescr.nrec )) = tsok
+           {
+            katorgdescr_ID := katorgdescr.nrec;
+           }
+           else
+            {
+             LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Группа контрагентов|нрек|'+katorgdescr_ID);
+             katorgdescr_ID := 0;
+            }
+           }
+
+          if (katorgdescr_ID=0 and trim(DBFGetFieldValue(Handle,'GRKONT')) <> '')
+           {
+              if trim(DBFGetFieldValue(Handle,'GRKONT')) = '001 Головная компания и дочерние общества' {katorg_ID := 0064000000000001h;}
+              if trim(DBFGetFieldValue(Handle,'GRKONT')) = '002 Зависимые общества'                    {katorg_ID := 006400000000000Ah;}
+              if trim(DBFGetFieldValue(Handle,'GRKONT')) = '003 Связанные стороны'                     {katorg_ID := 006400000000000Bh;}
+              if trim(DBFGetFieldValue(Handle,'GRKONT')) = '004 Сторонние предприятия'                 {katorg_ID := 006400000000000Ch;}
+           }
+           else
+            {
+             LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Группа контрагентов|код|'+trim(DBFGetFieldValue(Handle,'GRKONT')));
+            }
+
+!-------------end katorgdescr---------------------
+
+
+!------------- направление расходов ---------------------
+
+          if napr_rash_ID <> 0
+           {
+           if getfirst spkau where ((napr_rash_ID == spkau.nrec )) = tsok
+            {
+             napr_rash_ID := spkau.nrec;
+            }
+            else
+              {
+               LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Направление расходов|нрек|'+napr_rash_ID);
+               napr_rash_ID := 0;
+              }
+           }
+
+          if (napr_rash_ID=0 and trim(DBFGetFieldValue(Handle,'KODNAPR'))<>'')
+           {
+           if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODNAPR')) == spkau.code  and word(20038) == spkau.KODGRKAU )) = tsok
+            {
+             napr_rash_ID := spkau.nrec;
+            }
+            else
+              {
+               LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Направление расходов|код|'+trim(DBFGetFieldValue(Handle,'KODNAPR')));
+              }
+           }
+
+!-------------end направление расходов ---------------------
+
+!------------- dogovor ---------------------
+
+          if dogovor_ID <> 0
+           {
+           if getfirst dogovor where ((dogovor_ID == dogovor.nrec )) = tsok
+            {
+             dogovor_ID := dogovor.nrec;
+            }
+            else
+              {
+               LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Договор|нрек|'+dogovor_ID);
+               dogovor_ID := 0;
+              }
+           }
+
+          if (dogovor_ID = 0 and trim(DBFGetFieldValue(Handle,'NDOG')) <> '')
+           {
+           if getfirst dogovor where ((
+                                        trim(DBFGetFieldValue(Handle,'NDOG')) == dogovor.nodoc and
+                                        strtodate(trim(DBFGetFieldValue(Handle,'DATADOG')),'YYYYMMDD') == dogovor.ddoc
+                                     )) = tsok
+            {
+             dogovor_ID := dogovor.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Договор|№|'+trim(DBFGetFieldValue(Handle,'NDOG'))+'|'+strtodate(trim(DBFGetFieldValue(Handle,'DATADOG')),'YYYYMMDD')+'|нрек контрагента|'+comp(DBFGetFieldValue(Handle,'KAUOS[1]')));
+             }
+           }
+
+
+!-------------end dogovor ---------------------
+
+!------------- срочность ---------------------
+
+          if sroch_ID <> 0
+           {
+           if getfirst spkau where ((sroch_ID == spkau.nrec )) = tsok
+            {
+             sroch_ID := spkau.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Срочность|нрек|'+sroch_ID);
+              sroch_ID := 0;
+             }
+           }
+
+          if (sroch_ID = 0 and trim(DBFGetFieldValue(Handle,'KODSR')) <> '')
+           {
+            if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODSR')) == spkau.code  and word(20072) == spkau.KODGRKAU )) = tsok
+             {
+              sroch_ID := spkau.nrec;
+             }
+             else
+               {
+                LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Срочность|код|'+trim(DBFGetFieldValue(Handle,'KODSR')));
+               }
+           }
+
+!------------- end срочность ---------------------
+
+!------------- end структура налогов и сборов ---------------------
+
+          if strnalisb_ID <> 0
+           {
+           if getfirst spkau where ((strnalisb_ID == spkau.nrec )) = tsok
+            {
+             strnalisb_ID := spkau.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Структура налогов и сборов|нрек|'+strnalisb_ID);
+              strnalisb_ID := 0;
+             }
+           }
+
+          if (strnalisb_ID = 0 and trim(DBFGetFieldValue(Handle,'KODSTRNS')) <> '')
+           {
+            if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODSTRNS')) == spkau.code  and word(20075) == spkau.KODGRKAU )) = tsok
+             {
+              strnalisb_ID := spkau.nrec;
+             }
+             else
+               {
+                LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Структура налогов и сборов|код|'+trim(DBFGetFieldValue(Handle,'KODSTRNS')));
+               }
+           }
+!------------- end структура налогов и сборов ---------------------
+
+!------------- persons ---------------------
+
+          if persons_ID   <> 0
+           {
+           if getfirst persons where ((persons_ID == persons.nrec )) = tsok
+            {
+             persons_ID  := persons.nrec;
+            }
+            else
+             {
+             LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Сотрудник|нрек|'+persons_ID);
+             persons_ID:=0;
+             }
+           }
+
+           if (persons_ID = 0 and trim(DBFGetFieldValue(Handle,'TABN'))<>'' and trim(DBFGetFieldValue(Handle,'FIO'))<>'')
+            {
+            if getfirst persons where ((word(0) == persons.WPRIZN1 and trim(DBFGetFieldValue(Handle,'FIO')) == persons.FIO and trim(DBFGetFieldValue(Handle,'TABN')) == persons.TABNMB (noindex))) = tsok
+             {
+             persons_ID  := persons.nrec;
+             }
+             else
+              {
+               LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Сотрудник|Табельный номер|'+trim(DBFGetFieldValue(Handle,'TABN'))+'|ФИО|'+trim(DBFGetFieldValue(Handle,'FIO')));
+              }
+            }
+!------------- end persons ---------------------
+
+!------------- прочие расчеты с физлицами ---------------------
+
+          if prfl_ID <> 0
+           {
+           if getfirst spkau where ((prfl_ID == spkau.nrec )) = tsok
+            {
+             prfl_ID := spkau.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Прочие расчеты с физ. лицами|нрек|'+prfl_ID);
+              prfl_ID := 0;
+             }
+           }
+
+          if (prfl_ID = 0 and trim(DBFGetFieldValue(Handle,'KODPRFL')) <> '')
+           {
+            if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODPRFL')) == spkau.code  and word(20059) == spkau.KODGRKAU )) = tsok
+             {
+              prfl_ID := spkau.nrec;
+             }
+             else
+               {
+                LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Прочие расчеты с физ. лицами|код|'+trim(DBFGetFieldValue(Handle,'KODPRFL')));
+               }
+           }
+
+
+!------------- end  прочие расчеты с физлицами ---------------------
+
+!------------- sterr ---------------------
+
+          if sterr_ID   <> 0
+           {
+           if getfirst sterr where ((sterr_ID == sterr.nrec )) = tsok
+            {
+             sterr_ID  := sterr.nrec;
+            }
+            else
+             {
+             LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','АТД|нрек|'+sterr_ID);
+             sterr_ID:=0;
+             }
+           }
+
+           if (sterr_ID = 0 and trim(DBFGetFieldValue(Handle,'KODATD'))<>'')
+            {
+            if getfirst sterr where ((trim(DBFGetFieldValue(Handle,'KODATD')) == sterr.SCODE)) = tsok
+             {
+             sterr_ID  := sterr.nrec;
+             }
+             else
+              {
+               LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','АТД|код|'+trim(DBFGetFieldValue(Handle,'KODATD')));
+              }
+            }
+
+!------------- end  sterr ---------------------
+
+!-------------  Виды продукции, работ, услуг ---------------------
+
+          if vpru_ID <> 0
+           {
+           if getfirst spkau where ((vpru_ID == spkau.nrec )) = tsok
+            {
+             vpru_ID := spkau.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Виды продукции, работ, услуг|нрек|'+vpru_ID);
+              vpru_ID := 0;
+             }
+           }
+
+          if (vpru_ID = 0 and trim(DBFGetFieldValue(Handle,'KODVPRU')) <> '')
+           {
+            if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODVPRU')) == spkau.code  and word(20009) == spkau.KODGRKAU )) = tsok
+             {
+              vpru_ID := spkau.nrec;
+             }
+             else
+               {
+                LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Виды продукции, работ, услуг|код|'+trim(DBFGetFieldValue(Handle,'KODVPRU')));
+               }
+           }
+
+!------------- end Виды продукции, работ, услуг ---------------------
+
+!-------------  Виды расчетов по претензиям ---------------------
+
+          if vrp_ID <> 0
+           {
+           if getfirst spkau where ((vrp_ID == spkau.nrec )) = tsok
+            {
+             vrp_ID := spkau.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Виды расчетов по претензиям|нрек|'+vrp_ID);
+              vrp_ID := 0;
+             }
+           }
+
+          if (vrp_ID = 0 and trim(DBFGetFieldValue(Handle,'KODVRPP')) <> '')
+           {
+            if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODVRPP')) == spkau.code  and word(20020) == spkau.KODGRKAU )) = tsok
+             {
+              vrp_ID := spkau.nrec;
+             }
+             else
+               {
+                LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Виды расчетов по претензиям|код|'+trim(DBFGetFieldValue(Handle,'KODVRPP')));
+               }
+           }
+
+!-------------end  Виды расчетов по претензиям ---------------------
+
+!-------------  Виды страхования ---------------------
+
+          if vs_ID <> 0
+           {
+           if getfirst spkau where ((vs_ID == spkau.nrec )) = tsok
+            {
+             vs_ID := spkau.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Виды страхования|нрек|'+vs_ID);
+              vs_ID := 0;
+             }
+           }
+
+          if (vs_ID = 0 and trim(DBFGetFieldValue(Handle,'KODVS')) <> '')
+           {
+            if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODVS')) == spkau.code  and word(20025) == spkau.KODGRKAU )) = tsok
+             {
+              vs_ID := spkau.nrec;
+             }
+             else
+               {
+                LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Виды страхования|код|'+trim(DBFGetFieldValue(Handle,'KODVS')));
+               }
+           }
+
+!------------- end Виды страхования ---------------------
+
+
+!------------- Прочие расчеты с юр. лицами ---------------------
+
+          if prul_ID <> 0
+           {
+           if getfirst spkau where ((prul_ID == spkau.nrec )) = tsok
+            {
+             prul_ID := spkau.nrec;
+            }
+            else
+             {
+              LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Прочие расчеты с юр. лицами|нрек|'+prul_ID);
+              prul_ID := 0;
+             }
+           }
+
+          if (prul_ID = 0 and trim(DBFGetFieldValue(Handle,'KODPRUL')) <> '')
+           {
+            if getfirst spkau where (( trim(DBFGetFieldValue(Handle,'KODPRUL')) == spkau.code  and word(20058) == spkau.KODGRKAU )) = tsok
+             {
+              prul_ID := spkau.nrec;
+             }
+             else
+               {
+                LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'saldo_76.log','Прочие расчеты с юр. лицами|код|'+trim(DBFGetFieldValue(Handle,'KODPRUL')));
+               }
+           }
+
+!------------- end Прочие расчеты с юр. лицами ---------------------
+
+!------------- basedoc ---------------------
+
+         if basedoc_ID <> 0
+          {
+           if (DBFGetFirst(Handle3) = tsok)
+           do
+            {
+             if basedoc_ID = comp(DBFGetFieldValue(Handle3,'NREC'))
+              {
+               data_doc := basedoc.ddoc;
+               nom_doc  := basedoc.nodoc;
+              }
+            }
+           while (DBFGetNext(Handle3) = tsok)
+          }
+          else
+           {
+            data_doc      := strtodate(DBFGetFieldValue(Handle,'DATASF'),'YYYYMMDD');
+            nom_doc       := double(DBFGetFieldValue(Handle,'NOMSF'));
+           }
+
+
+!-------------end basedoc ---------------------
+
+!-------------schfact---------------------
+
+
+
+!-------------end schfact---------------------
+
+
+        if y
+         {
+           vid_saldo:=''; data_doc:=date(0,0,0); sum_saldo:=0; nom_doc:='';
+
+           if DBFGetFieldValue(Handle,'VIOB') = word(1)
+            {
+             vid_saldo:='76.'+DBFGetFieldValue(Handle,'SUBOSSCH')+' дебет';
+            }
+            else
+             {
+              vid_saldo:='76.'+DBFGetFieldValue(Handle,'SUBOSSCH')+' кредит';
+             }
+                 data_doc     := strtodate(DBFGetFieldValue(Handle,'DATADOC'),'YYYYMMDD');
+             //    data_sf      := strtodate(DBFGetFieldValue(Handle,'DATASF'),'YYYYMMDD');
+                 sum_saldo    := double(DBFGetFieldValue(Handle,'SUMS'));
+                 nom_doc      := string(DBFGetFieldValue(Handle,'NOMDOC'));
+             //     nom_sf       := string(DBFGetFieldValue(Handle,'NOMSF'));
+
+
+
+
+             data_sf:=date(0,0,0);
+             nom_sf:='';
+              Handle2 := DBFOpen(_path+'\sch.dbf', stOpen);
+              if (DBFGetFirst(Handle2) = tsok)
+              do
+            {
+             if schfact_ID = comp(DBFGetFieldValue(Handle2,'NREC'))
+
+              {
+
+               data_sf      := strtodate(DBFGetFieldValue(Handle2,'DFACT'),'YYYYMMDD');
+               nom_sf  := string(DBFGetFieldValue(Handle2,'NUM'));
+              }
+            }
+
+           while (DBFGetNext(Handle2) = tsok)
+            // message(schfact_ID+'---'+comp(DBFGetFieldValue(Handle2,'NREC')))
+             DBFClose(Handle2);
+           /*else
+           {
+            data_sf      := strtodate(DBFGetFieldValue(Handle,'DATASF'),'YYYYMMDD');
+            nom_sf       := string(DBFGetFieldValue(Handle,'NOMSF'));
+           }
+           */
+
+
+                 if data_doc = date(0,0,0) {data_doc := date(26,09,2011);}
+                 if data_sf = date(0,0,0) {data_sf := date(26,09,2011);}
+                 if nom_doc = '' {nom_doc := vid_saldo;}
+                 if nom_sf = '' {nom_sf := vid_saldo;}
+
+              ClearBuffer(#plpor);
+              plpor.TIDKGAL := word(10);
+              plpor.TIDK    := word(10);
+              plpor.NODOK   := nom_sf;
+              plpor.DESCR   := sgettune('User.Descr');
+              plpor.DESGR   := kod_desgr; //sgettune('User.Desgr');
+              plpor.YEARDOC := year(data_doc);
+              plpor.DATVIP  := data_sf;
+              plpor.DATOTS  := data_sf;
+              plpor.DATOB   := data_sf;
+              plpor.SUMPLAT := round(sum_saldo, 2);
+              plpor.NAMEPL1 := vid_saldo;
+              plpor.NAMEPL2 := if(vrp_ID<>0,string(vrp_ID),nom_sf);
+              plpor.NAMEPL3 := data_sf;
+              plpor.NAMEPL4 := if(sroch_ID='', strnalisb_ID, sroch_ID);
+              plpor.MODEDOC := word(2048);
+              plpor.CPLAT    := katorg_ID;
+              plpor.CPERSONS:= persons_ID;
+              plpor.PODOTCHET:= persons.fio;
+              plpor.CWAYMOVE:= nrec_co;
+              if (getfirst katbank where ((katorg_ID == katbank.corg)) = tsok)
+               {
+                plpor.CBANKPLAT := katbank.nrec;
+               }
+
+
+
+              if insert current plpor = tsok
+               {
+                ClearBuffer(#Soprhoz);
+                soprhoz.DATOB    := data_doc ;
+                soprhoz.CSOPRDOC := plpor.nrec;
+                soprhoz.TIPDOC   := word(10);
+                soprhoz.TIDKGAL  := word(10);
+                soprhoz.NODOC    := plpor.NODOK;
+                soprhoz.DESCR    := sgettune('User.Descr');
+                soprhoz.DESGR    := kod_desgr; //sgettune('User.Desgr');
+                soprhoz.SUMMA    := round(sum_saldo, 2);
+                soprhoz.DIRECT   := word(0);
+                soprhoz.MODEDOC  := word(2048);
+                soprhoz.VHSUMHOZ := '+';
+                soprhoz.CDOGOVOR := dogovor_ID;
+                if insert current soprhoz = tsok
+                 {
+                   ClearBuffer(#Basefin);
+                   basefin.TIPDOC   := word(10);
+                   basefin.TIDKGAL  := word(10);
+                   basefin.CSOPRDOC := plpor.nrec;
+                   basefin.CPLPOR   := plpor.nrec;
+                   basefin.NODOC    := plpor.NODOK;
+                   basefin.DESCR    := sgettune('User.Descr');
+                   basefin.DESGR    := kod_desgr; //sgettune('User.Desgr');
+                   basefin.DDOC     := data_doc ;
+                   basefin.SUMMA    := round(sum_saldo, 2);
+                   basefin.DIRECT   := word(2);
+                   basefin.CORG     := katorg_ID;
+                   basefin.CSOPRHOZ := soprhoz.nrec;
+                   basefin.CPLDGDIST:= 0000000000000001h;
+                   basefin.CDOGOVOR := dogovor_ID;
+                   if insert current basefin = tsok {}
+                 }
+
+                if sterr_ID <> 0
+                 {
+                 if getfirst attrnam where ((     word(9015)        == attrnam.wtable
+                                             and  'Административно-территориальное деление' == attrnam.name  )) = tsok
+                  {
+                   ClearBuffer(#attrval);
+                   AttrVal.wTable   := word(9015)  ;
+                   AttrVal.cRec     := plpor.nrec  ;
+                   AttrVal.cAttrNam := attrnam.nrec;
+                   attrval.vstring  := sterr_name;
+                   attrval.vcomp    := sterr_ID;
+                   if insert current attrval = tsok {}
+                  }
+                 }
+
+                if napr_rash_ID <> 0
+                 {
+                 if getfirst attrnam where ((     word(9015)        == attrnam.wtable
+                                             and  'Направление расходов' == attrnam.name  )) = tsok
+                  {
+                   ClearBuffer(#attrval);
+                   AttrVal.wTable   := word(9015)  ;
+                   AttrVal.cRec     := plpor.nrec  ;
+                   AttrVal.cAttrNam := attrnam.nrec;
+                   attrval.vstring  := napr_rash_name;
+                   attrval.vcomp    := napr_rash_ID;
+                   if insert current attrval = tsok {}
+                  }
+                 }
+
+                 if vpru_ID <> 0
+                  {
+                  if getfirst attrnam where ((     word(9015)        == attrnam.wtable
+                                             and  'Виды продукции, работ, услуг' == attrnam.name  )) = tsok
+                    {
+                    ClearBuffer(#attrval);
+                    AttrVal.wTable   := word(9015)  ;
+                    AttrVal.cRec     := plpor.nrec  ;
+                    AttrVal.cAttrNam := attrnam.nrec;
+                    attrval.vstring  := vpru_name;
+                    attrval.vcomp    := vpru_ID;
+                    if insert current attrval = tsok {}
+                    }
+                  }
+
+                      if vs_ID <> 0
+                  {
+                  if getfirst attrnam where ((     word(9015)        == attrnam.wtable
+                                             and  'Виды страхования' == attrnam.name  )) = tsok
+                    {
+                    ClearBuffer(#attrval);
+                    AttrVal.wTable   := word(9015)  ;
+                    AttrVal.cRec     := plpor.nrec  ;
+                    AttrVal.cAttrNam := attrnam.nrec;
+                    attrval.vstring  := vs_name;
+                    attrval.vcomp    := vs_ID;
+                    if insert current attrval = tsok {}
+                    }
+                  }
+                      if prfl_ID <> 0
+                  {
+                  if getfirst attrnam where ((     word(9015)        == attrnam.wtable
+                                             and  'Прочие расчеты с физ. лицами' == attrnam.name  )) = tsok
+                    {
+                    ClearBuffer(#attrval);
+                    AttrVal.wTable   := word(9015)  ;
+                    AttrVal.cRec     := plpor.nrec  ;
+                    AttrVal.cAttrNam := attrnam.nrec;
+                    attrval.vstring  := prfl_name;
+                    attrval.vcomp    := prfl_ID;
+                    if insert current attrval = tsok {}
+                    }
+                  }
+
+                       if prul_ID <> 0
+                  {
+                  if getfirst attrnam where ((     word(9015)        == attrnam.wtable
+                                             and  'Прочие расчеты с юр. лицами' == attrnam.name  )) = tsok
+                    {
+                    ClearBuffer(#attrval);
+                    AttrVal.wTable   := word(9015)  ;
+                    AttrVal.cRec     := plpor.nrec  ;
+                    AttrVal.cAttrNam := attrnam.nrec;
+                    attrval.vstring  := prul_name;
+                    attrval.vcomp    := prul_ID;
+                    if insert current attrval = tsok {}
+                    }
+                  }
+
+               }
+
+            if (string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '101' or string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '102'
+            or  string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '23' or  string(trim(DBFGetFieldValue(Handle,'SUBOSSCH'))) = '06')
+             {
+              ClearBuffer(#Basedoc);
+              basedoc.nodoc   := nom_sf;
+              basedoc.dform   := data_doc;
+              basedoc.ddoc    := data_sf
+              basedoc.YEARDOC := year(data_sf);
+              basedoc.KOLDN   := word(30);
+              basedoc.DEND    := dateadd(data_sf,30,0,0);
+              basedoc.corg    := katorg_ID;
+              basedoc.cdogovor:= dogovor_ID;
+              basedoc.direct  := word(2);
+              basedoc.viddoc  := word(101);
+              basedoc.name    := vid_saldo;
+              basedoc.DESCR   := sgettune('User.Descr');
+              basedoc.DESGR   := kod_desgr; // sgettune('User.Desgr');
+              basedoc.vhodnal := word(1);
+              basedoc.status  := word(2);
+              basedoc.cnote   := 013F000000000004h;
+              basedoc.CMYBANK := nrec_bank_fil;
+              basedoc.cgrpol  := nrec_fil;
+              basedoc.CGROTPR := katorg_ID;
+              basedoc.TIPMONEY:= word(1);
+              basedoc.PRIOR   := word(99);
+              basedoc.VHSKID  := word(1);
+              basedoc.nds     := round(sum_saldo/118*18,2);
+              basedoc.total   := round(sum_saldo,2);
+              basedoc.totalnde:= round(sum_saldo,2);
+              basedoc.summa   := round(sum_saldo,2);
+              basedoc.cpayment:= 000100000000000Bh;
+              basedoc.COTVPODR:= nrec_co;
+
+              if (getfirst katbank where ((katorg_ID == katbank.corg)) = tsok)
+               {
+                basedoc.cbank:=katbank.nrec;
+               }
+
+              if insert current basedoc = tsok
+               {
+                if napr_rash_ID <> 0
+                 {
+                 if getfirst attrnam where ((     word(1102)        == attrnam.wtable
+                                             and  'Направление расходов' == attrnam.name  )) = tsok
+                  {
+                   ClearBuffer(#attrval);
+                   AttrVal.wTable   := word(1102)  ;
+                   AttrVal.cRec     := basedoc.nrec  ;
+                   AttrVal.cAttrNam := attrnam.nrec;
+                   attrval.vstring  := napr_rash_name;
+                   attrval.vcomp    := napr_rash_ID;
+                   if insert current attrval = tsok {}
+                  }
+                 }
+
+                if sroch_ID <> 0
+                 {
+                 if getfirst attrnam where ((     word(1102)        == attrnam.wtable
+                                             and  'Срочность' == attrnam.name  )) = tsok
+                  {
+                   ClearBuffer(#attrval);
+                   AttrVal.wTable   := word(1102)  ;
+                   AttrVal.cRec     := basedoc.nrec  ;
+                   AttrVal.cAttrNam := attrnam.nrec;
+                   attrval.vcomp    := sroch_ID;
+                   attrval.vstring  := sroch_name;
+
+                   if insert current attrval = tsok {}
+                  }
+                 }
+
+               }
+
+                ClearBuffer(#Stepdoc);
+                stepdoc.cbasedoc:= basedoc.nrec;
+                stepdoc.NSTEP   := '1';
+                stepdoc.dstart  := basedoc.ddoc;
+                stepdoc.dend    := basedoc.dend;
+                stepdoc.status  := word(2);
+                stepdoc.summa   := round(sum_saldo,2);
+                if (insert current stepdoc = tsok) {}
+
+                ClearBuffer(#SpStep);
+                spstep.cstepdoc := stepdoc.nrec;
+                spstep.npp      := 1;
+                spstep.prmc     := word(2);
+                spstep.cmcusl   := 00640000000008BEh;
+                spstep.cotped   := 0064000000000B1Bh;
+                spstep.kol      := 1;
+                spstep.price    := round(sum_saldo,2);
+                spstep.CGRNAL   := 0064000000000001h;
+                spstep.DDOC     := data_doc;
+                spstep.kolskl   := 1;
+                spstep.PRSKID   := word(1);
+                spstep.CDOGOVOR := dogovor_ID;
+                spstep.nds      := round(sum_saldo/118*18,2);
+                spstep.summa    := round(sum_saldo,2);
+                if (insert current Spstep = tsok) {}
+
+                ClearBuffer(#Spdocnal);
+                spdocnal.cSpDoc   := spstep.nrec;
+                spdocnal.cdoc     := basedoc.nrec;
+                spdocnal.TIPDOC   := word(1101);
+                spdocnal.cgrnal   := spstep.cgrnal;
+                spdocnal.CNALOG   := 0000000000000002h
+                spdocnal.nalog    := 18;
+                spdocnal.SUMVAL   := round(sum_saldo/118*18,2);
+                spdocnal.SUMNAL   := round(sum_saldo/118*18,2);
+                spdocnal.SUMMA    := round(sum_saldo/118*18,2);
+                spdocnal.CORG     := basedoc.corg;
+                spdocnal.npp      := spstep.npp;
+                if (insert current Spdocnal = tsok) {}
+
+                ClearBuffer(#Soprhoz);
+                soprhoz.CDOGOVOR := dogovor_ID;
+                soprhoz.CSTEPDOC := stepdoc.nrec;
+                soprhoz.DATOB    := data_sf;
+                soprhoz.CSOPRDOC := basedoc.nrec;
+                soprhoz.TIPDOC   := word(41);
+                soprhoz.TIDKGAL  := word(41);
+                soprhoz.NODOC    := basedoc.nodoc;
+                soprhoz.DESCR    := sgettune('User.Descr');
+                soprhoz.DESGR    := kod_desgr; // sgettune('User.Desgr');
+                soprhoz.SUMMA    := round(sum_saldo,2);
+                soprhoz.DIRECT   := word(2);
+                soprhoz.CORG     := katorg_ID;
+                if (insert current Soprhoz = tsok) {}
+           }
+         }
+      }
+      while (DBFGetNext(Handle) = tsok)
+
+    StopVisual('',0);
+    message('Конвертация завершена : ' + String(k));
+    DBFClose(Handle);
+
+    DBFClose(Handle3);
+    xlKillExcel;
+    CloseInterFace(cmdefault);
+}
+End;
+End.
+
+.Form 'Закачка сальдо по счету 76_test'
+.Ard
+.F 'Nul'
+.begin
+        RunInterface ('saldo_76_test');
+end.
+
+.endform

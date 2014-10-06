@@ -1,0 +1,169 @@
+#ifdef ComponentVersion
+#component "M_Transp"
+#end
+alter interface Put_lst
+  ( '')
+;
+  overload
+  end;
+create view
+   (put_lst_jt1,
+    put_lst_jt2,
+    put_lst_jt3,
+    put_lst_jt4,
+    put_lst_jt5,
+    put_lst_jt6,
+    put_lst_jt7,
+    put_lst_jt8)
+as select 
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж1'),
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж2'),
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж3'),
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж4'),
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж5'),
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж6'),
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж7'),
+  oExtAtr.doGetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж8');
+
+create view zputlst 
+var wcpodr:comp ;
+    wusername :string ;
+    wneedfiltr:boolean ;
+    planto_name :string ;
+from podrier podrier1 ,tmp_USERRIGHTS 
+where (( wusername == USERRIGHTS.OWNNAME ))
+bounds mypodrier =   wcpodr /== podrier1.cgroup
+   and putlst.cpol /== podrier1.crecds
+bounds mypodr =   wcpodr == putlst.cpol(noindex) 
+//bounds  prcex - filtr
+//bounds mypodrzar =    putlst.cpol /== USERRIGHTS.crecds
+//            and wusername == USERRIGHTS.OWNNAME
+bounds mypodrzar =    putlst.cpol /== tmp_USERRIGHTS.crecds
+;
+create view vplanto
+var 
+ wctransp:comp
+as select MORALE.name
+ ,PLANTO.VALREKV  //значение показателя
+// ,TEXSUP.DATTOBEG //дата начала
+from MORALE, planto //(PLANTO10)
+where ((
+ 1 == planto.TIPOBJ
+and wctransp ==  planto.CTIPOBJ
+and planto.CMORALETC == MORALE.NREC
+)) 
+and (planto.DATREM=0)
+//order by planto.TIPOBJ,planto.CTIPOBJ,PLANTO.VALREKV
+
+;
+
+// получить наименование ТО
+Procedure proc_planto_name ;
+var wprobeg :double ;
+{ planto_name:='Нет ТО' ;
+  set vplanto.wctransp := putlst.ctransp ;
+  if (vplanto.getfirst planto=0) 
+  { if (vplanto.getfirst MORALE=0) 
+    { planto_name:='ТО '+vplanto.Morale.name+',план.пробег='
+      wprobeg:=vplanto.PLANTO.VALREKV
+      planto_name:=planto_name+Doubletostr(wprobeg,'666 666 666')
+      if PUTLST.SPEEDEXI>vplanto.PLANTO.VALREKV
+      { planto_name:='!! '+planto_name
+      }
+    }
+  }
+} //Procedure proc_planto_name ;
+
+
+#include transp_podrflt.vpp
+
+tableEvent table PutLst 
+cmSetDefault :
+{ 
+ Inherited::HandleEvent(cmSetDefault) 
+ if wcpodr>0
+   PutLst.cpol:=wcpodr ;
+
+}
+cmPick:
+{
+ Inherited::HandleEvent(cmPick) ;
+ if wneedfiltr
+ { case curfield of
+   #TRANSP.NOMER:
+   { if isvalid(#transp) 
+     { set putlst.cpol :=transp.POSTNREC ;
+     }
+   }
+   end ;
+ }
+}
+cmExprFieldChanged :
+{ inherited :: handleEvent (cmExprFieldChanged); 
+    case curfield of
+    #put_lst_jt1:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж1',ExprFieldValue)
+    }
+    #put_lst_jt2:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж2',ExprFieldValue)
+    }
+    #put_lst_jt3:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж3',ExprFieldValue)
+    }
+    #put_lst_jt4:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж4',ExprFieldValue)
+    }
+    #put_lst_jt5:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж5',ExprFieldValue)
+    }
+    #put_lst_jt6:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж6',ExprFieldValue)
+    }
+    #put_lst_jt7:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж7',ExprFieldValue)
+    }
+    #put_lst_jt8:
+    { oExtAtr.doSetAttr(coPutLst,PutLst.Nrec,'Время_работы_реж8',ExprFieldValue)
+    }
+    end;
+}
+end; //tableEvent table PutLst 
+
+HandleEvent
+cmInit:
+{
+ Inherited::HandleEvent(cmInit) 
+ InitServTxo(0);
+ if wgettune('RARS_TRANSP.FILTR_PODR_PUTLST')=1 
+ { wneedfiltr:=true ;
+   MyPodrFlt ;
+   HowPodr:=1 ;
+   cLEARFieldOption(#HowPodr,ofSelectable);
+   WhatPodr:=wcpodr ;
+ } 
+ else
+ { wneedfiltr:=false ;
+ }
+ if getlast putlst=0 {} ;
+ SaveMyDsk(HowPodr, 'Filt_new_22')
+ SaveMyDsk(WhatPodr, 'Filt_new_23') 
+
+ rescanpanel(#putlst)
+
+}
+cmDone:
+{ DoneServTxo;
+  Inherited::HandleEvent(cmDone) 
+}
+cmIdle :
+{ Inherited::HandleEvent(cmIdle) 
+  proc_planto_name ;
+  rescanpanel(#putlst)
+
+
+}
+end;
+end.
+
+
+//-----------------------------------------------------------------------------

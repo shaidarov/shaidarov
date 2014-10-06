@@ -1,0 +1,553 @@
+/***************************************************************************
+  ╔═════════════════════════════════════════════════════════════════════╗
+  ║      Н Т О  "T O P   S O F T"                                       ║
+  ║           Проект "ЗАРПЛАТА" (с) 1996                                ║
+  ║      Версия : 7.12                                                  ║
+  ║      Разработала: Артамонов Д.С.                                    ║
+  ║      Назначение:  Объектный интерфейс для работы с Plug-in`ами      ║
+  ║                   для справки по заработной плате в разрезе         ║
+  ║                    начислений и удержаний                           ║
+  ╚═════════════════════════════════════════════════════════════════════╝
+****************************************************************************/
+
+#include ZarNachislUder.vih
+#include ExtAttr.Vih
+//#include ExpRList.vih
+#component "z_zar"
+
+// получить отработанное время
+vipinterface ZarNachislUder_ValCH implements IZarNachislUder
+#ifdef ATL51
+licensed (Free)
+#end
+;
+vipinterface ZarNachislUder_ValDN implements IZarNachislUder
+#ifdef ATL51
+licensed (Free)
+#end
+;
+
+vipinterface ZarNachislUder_ValBDR_OLD implements IZarNachislUder
+licensed (Free)
+;
+
+vipinterface ZarNachislUderParam_ValBDR implements IZarNachislUderParam //IZarNachislUder
+#ifdef ATL51
+licensed (Free)
+#end
+;
+
+vipinterface ZarNachislUderParam_ValESOT implements IZarNachislUderParam
+#ifdef ATL51
+licensed (Free)
+#end
+;
+
+//vipinterface*****************************************************************
+interface ZarNachislUder_ValCH '' EscClose;
+create view ValCH
+  var
+  columnName:string;
+  NrecTab   :longint;
+  pnrec :comp ;
+as select  Nachisl.nrec
+from NACHISL
+where (( 
+ pnrec ==Nachisl.nrec
+and  pnrec ==Sumvidop.nrec
+)) ; 
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  set pnrec := ParNrec ;
+  case NumbTable of
+  coNachisl:  
+  { if getfirst Nachisl  = tsOk
+    { GetValue := string(Nachisl.CHASF);
+    }
+  }  
+  coSumvidop:  
+  { if getfirst Sumvidop  = tsOk
+    { GetValue := string(Sumvidop.CHASF);
+    }
+  }  
+  end ;
+}
+
+function SetColName: string;
+{
+  SetColName := 'Часы';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Получить часы из начислений' ;
+}
+
+  HandleEvent
+  cmInit: Abort;
+  end;
+end.
+
+//vipinterface*****************************************************************
+interface ZarNachislUder_ValDN '' EscClose;
+create view ValDN
+  var
+  columnName:string;
+  NrecTab   :longint;
+  pnrec :comp ;
+as select  Nachisl.nrec
+from NACHISL
+where (( 
+ pnrec ==Nachisl.nrec
+and  pnrec ==Sumvidop.nrec
+)) ; 
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  set pnrec := ParNrec ;
+  case NumbTable of
+  coNachisl:  
+  { if getfirst Nachisl  = tsOk
+    { GetValue := string(Nachisl.KOLDN);
+    }
+  }  
+  coSumvidop:  
+  { if getfirst Sumvidop  = tsOk
+    { GetValue := string(Sumvidop.KOLDN);
+    }
+  }  
+  end ;
+}
+
+function SetColName: string;
+{
+  SetColName := 'Дни';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Получить дни из начислений' ;
+}
+
+  HandleEvent
+  cmInit: Abort;
+  end;
+end.
+#Declare ValBDR_FACE
+var piExtAttr : iExtAttr;
+create view ValBDR
+  var
+  columnName:string;
+  NrecTab   :longint;
+  pnrec :comp ;
+  wc_lsch: comp
+  w_dtb :date;
+  wc_staff:comp;
+  wc_spkau:comp;
+  wc_post :comp;
+  w_mainlink :comp;
+  w_name:string;
+  w_code:string;
+  w_namepost,w_namepost1,w_namepost2 :string;
+  w_postklass0,w_postklass1:word;
+// доплнительно будем фильтровать по дополнительной характеристике
+  WC_CREF3:comp;
+  w_vidopl :word;
+  w_kodgrkau:word;
+  w_kodgr_stzatrat:word;
+  w_tbld:word;
+  w_ckaud:comp;
+  w_type :word;
+as select  Nachisl.nrec
+from NACHISL ,Sumvidop , lschet
+ , appointments(APNTBYPERSON) , staffstruct
+ , staffstruct staffstruct1
+ ,PerevodTek , Perevod 
+ ,SPKAU , SPKAU SPKAU1
+//для поиска
+ ,catalogs
+ ,catalogs cat_find
+ ,klvidopl 
+where (( 
+ pnrec ==Nachisl.nrec
+and  pnrec ==Sumvidop.nrec
+and  pnrec ==Perevod.nrec
+and  pnrec ==PerevodTek.nrec
+and  wc_lsch == lschet.nrec
+and lschet.tperson == appointments.person
+and w_dtb >>= appointments.APPOINTDATE
+and lschet.nrec ==appointments.caddnrec2 (noindex)
+and ( if(lschet.sovm<>3,0,3) = appointments.lprizn or 100+lschet.sovm = appointments.lprizn)
+and wc_staff == staffstruct1.nrec
+and appointments.department == staffstruct.department
+and wc_post == staffstruct.post
+and w_dtb >>=staffstruct.DINPUT
+// доплнительно будем фильтровать по дополнительной характеристике
+and (WC_CREF3=0 or WC_CREF3 =staffstruct.CINF3 ) 
+//and (staffstruct.DCLOSE=date(0,0,0) or staffstruct.DCLOSE>w_dtb) - уволенные не глотаются
+and wc_spkau== SPKAU.nrec
+// для поиска без категорий
+and wc_post == catalogs.nrec
+and 0 == cat_find.lpr
+and w_mainlink == cat_find.mainlink
+and w_namepost       <<= cat_find.name
+and w_namepost+'ЯЯЯ' >>= cat_find.name
+and w_vidopl == klvidopl.vidopl
+and w_kodgrkau == spkau1.kodgrkau
+)) ; 
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+var wkl_displ: boolean;
+{
+  if w_kodgr_stzatrat=0
+  { w_vidopl:=7;
+    if getfirst klvidopl=0
+    { w_kodgr_stzatrat:=klvidopl.tbld[1]
+    }
+  }  
+  GetValue := '';
+  set pnrec := ParNrec ;
+  wkl_displ:=false
+  w_vidopl:=0;
+  case NumbTable of
+  coNachisl:  
+  { if getfirst fastfirstrow Nachisl  = tsOk
+    { wc_lsch:=Nachisl.clsch ;
+      w_dtb:=Nachisl.datok
+      w_vidopl:=Nachisl.vidopls
+      w_tbld :=Nachisl.tbld[1]
+      w_ckaud:=Nachisl.ckaud[1]
+    }
+  }  
+  coSumvidop:  
+  { if getfirst fastfirstrow Sumvidop  = tsOk
+    { wc_lsch:=Sumvidop.clsch ;
+      w_dtb:=Sumvidop.datok
+      w_vidopl:=Sumvidop.vidopl
+      w_tbld :=Sumvidop.tbld[1]
+      w_ckaud:=Sumvidop.ckaud[1]
+    }
+  }  
+  coPerevod:  
+  { if getfirst fastfirstrow Perevod  = tsOk
+    { wc_lsch:=Perevod.clsch ;
+      w_dtb:=date(1,Perevod.mesn,Perevod.yearn)
+      w_tbld :=Perevod.tbld[1]
+      w_ckaud:=Perevod.ckaud[1]
+      w_vidopl:=Perevod.VIDOPLS
+    }
+  }  
+  coPerevodTek:  
+  { if getfirst fastfirstrow PerevodTek  = tsOk
+    { wc_lsch:=PerevodTek.clsch ;
+      w_dtb:=date(1,PerevodTek.mesn,PerevodTek.yearn)
+      w_tbld :=Perevodtek.tbld[1]
+      w_ckaud:=PerevodTek.ckaud[1]
+      w_vidopl:=Perevod.VIDOPLS
+    }
+  }  
+  else exit;
+  end ;
+  wc_spkau:=0
+  
+  if getfirst fastfirstrow lschet=0
+  { //if lschet.strtabn='2700014' wkl_displ:=true;
+    //if username='gal' and lschet.strtabn='3201060' wkl_displ:=true;
+    if wkl_displ displ('Старт '+datetostr(w_dtb,'DD/MM/YYYY ')+lschet.strtabn+'/'+string(lschet.tabn) );
+    if getlast  fastfirstrow  appointments=0
+    { wc_staff:=0;
+      if wkl_displ displ('1 '+datetostr(appointments.appointdate,'DD/MM/YYYY')
+           +' '+appointments.strtabn+'/'+string(appointments.apptabnmb)  )
+      if appointments.staffstr>0
+      {  wc_staff:=appointments.staffstr 
+         if getfirst  fastfirstrow  staffstruct1<>0 then wc_staff:=0
+         else
+         { if staffstruct1.department<>appointments.department then wc_staff:=0
+         }
+         if wkl_displ displ('2 '+string(wc_staff))
+      }
+      if wc_staff=0
+      { wc_post:=appointments.post
+        WC_CREF3:= appointments.CREF3;
+        if wkl_displ displ('3 '+string(appointments.post))
+        if getlast staffstruct=0
+          wc_staff:=staffstruct.nrec
+        if wc_staff=0
+        { if getfirst fastfirstrow catalogs =0 
+          { w_mainlink:=catalogs.mainlink
+            w_namepost2:='класс'
+            w_postklass0:=pos(' '+w_namepost2,catalogs.name)
+            if w_postklass0=0
+            { w_namepost2:='категор'
+              w_postklass0:=pos(' '+w_namepost2,catalogs.name)
+            }
+            if w_postklass0>0
+            { //пробуем найти в штатном на друггую должность
+              //w_postklass0:=pos(' класс',catalogs.name)
+             w_namepost :=substr(catalogs.name,1,w_postklass0-2)
+             w_namepost1:=substr(catalogs.name,1,w_postklass0-3)
+            if wkl_displ displ(' '+catalogs.name+'/'+w_namepost1+'/'+w_namepost2+'/'+string(w_postklass0)+'/'+w_namepost)
+            _loop fullcache cat_find
+            { w_postklass1:=pos(' '+w_namepost2,cat_find.name)
+              if w_postklass1=0 then w_postklass1:=100;
+              if wkl_displ displ('find '+cat_find.name+'/'+string(w_postklass1)+'/'+substr(cat_find.name,1,w_postklass1-3)+'/'+w_namepost1+'/')
+              if wkl_displ displ('select staffstruct.* where (('+string(appointments.department)+' == department and '+string(wc_post)+'==post));')
+             //if w_postklass1<>w_postklass0 then continue;
+              if substr(cat_find.name,1,w_postklass1-3)<>w_namepost1 then continue;
+              wc_post:=cat_find.nrec;
+              if wkl_displ displ('!!!!!')
+              if getlast staffstruct=0
+              { wc_staff:=staffstruct.nrec
+                break;
+              }   
+            } //_loop fullcache cat_find
+           } //if w_postklass0>0
+          }  //if getfirst fastfirstrow catalogs =0 
+        } //if wc_staff=0
+          
+      }
+      if wkl_displ displ('5 '+string(wc_staff))
+      wc_spkau:=piExtAttr.coGetAttr(coStaffStruct,wc_staff,'Статьи БДР') ;
+      if getfirst fastfirstrow spkau=0
+      { case w_type of
+        0: GetValue:=spkau.name;      
+        1: GetValue:=string(spkau.nrec);      
+        end;
+        if wkl_displ displ('5 1 '+spkau.name)
+      }  
+    }
+  }  
+  if wc_spkau=0
+  { if w_kodgr_stzatrat=w_tbld
+    { wc_spkau:=piExtAttr.coGetAttr(coSpKau,w_ckaud,'Статьи БДР') ;
+      if getfirst fastfirstrow spkau=0
+      { case w_type of
+        0: GetValue:=spkau.name;      
+        1: GetValue:=string(spkau.nrec);      
+        end;
+//        exit;
+       if wkl_displ displ('6 '+spkau.name)
+      }
+    }
+  }
+  // по некторым видам оплат нужно заменить
+  if getfirst fastfirstrow klvidopl=0
+  { w_code:=substr(spkau.name,1,8);
+    wc_spkau:= piExtAttr.coGetAttr(coKlvidopl,klvidopl.nrec,'Статьи БДР') ;
+    if wc_spkau>0
+    { if getfirst fastfirstrow spkau=0
+      { w_kodgrkau:=spkau.kodgrkau
+        case w_type of
+        0: GetValue:=spkau.name;      
+        1: GetValue:=string(spkau.nrec);      
+        end;
+        w_name:=if(pos('  ',spkau.name)>0,trim(substr(spkau.name,pos('  ',spkau.name),30)),spkau.name)
+        if getfirst  fastfirstrow  spkau1 where (( w_kodgrkau == spkau1.kodgrkau
+         and w_code<<=spkau1.code
+         and w_code+'ЯЯЯ'>>=spkau1.code
+         and ( pos(w_name,spkau1.name)>0 )
+         ))=0
+        { case w_type of
+          0: GetValue:=spkau1.name;      
+          1: GetValue:=string(spkau1.nrec);      
+          end;
+          if wkl_displ displ('7 '+spkau.name)
+        }
+      } //if getfirst fastfirstrow spkau=0
+    } //if wc_spkau>0
+  }//if getfirst fastfirstrow klvidopl=0  
+  if wkl_displ ShowErrors;
+ 
+} //function GetValue(ParNrec : comp; NumbTable :longint ):string;
+#END
+
+//vipinterface*****************************************************************
+Interface ZarNachislUderParam_ValBDR '' EscClose;
+#ValBDR_FACE
+function GetColName: string;
+{
+  GetColName := 'БДР';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Получить статью БДР из штатного' ;
+}
+#doc
+устанавливает параметры
+#end
+procedure SetParameter(cParameter: comp; wParameter : word; sParameter : string);
+{   w_type:=wParameter;
+}
+#doc
+функция возвращает строку с параметрами для отображения в интерфейсе
+#end
+function GetParamStr : string;
+{ //GetParamStr :='тип '+string(w_type);
+  GetParamStr :='БДР1';
+}
+#doc
+интерфейс для редактирования параметров(например выбор вида аналитики)
+#end
+Function EditParameters : word;
+{ EditParameters:=0
+}
+
+  HandleEvent
+  cmInit: { // Abort;
+  }
+  cmOnVipLoad:
+  { w_kodgr_stzatrat:=0
+    w_type:=0;
+  }
+  end;
+end.
+
+//vipinterface*****************************************************************
+Interface ZarNachislUder_ValBDR_OLD '' EscClose;
+#ValBDR_FACE
+function GetColName: string;
+{
+  GetColName := 'БДР1';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Получить статью БДР из штатного без параметров' ;
+}
+#doc
+устанавливает параметры
+#end
+procedure SetParameter(cParameter: comp; wParameter : word; sParameter : string);
+{   w_type:=wParameter;
+}
+#doc
+функция возвращает строку с параметрами для отображения в интерфейсе
+#end
+function SetColName: string;
+{ //GetParamStr :='тип '+string(w_type);
+  SetColName :='БДР1';
+}
+
+  HandleEvent
+  cmInit: { // Abort;
+  }
+  cmOnVipLoad:
+  { w_kodgr_stzatrat:=0
+    w_type:=0;
+  }
+  end;
+end.
+#UNDEF ValBDR_FACE
+//vipinterface*****************************************************************
+interface ZarNachislUderParam_ValESOT '' EscClose;
+var piExtAttr : iExtAttr;
+create view ValBDR
+  var
+  columnName:string;
+  NrecTab   :longint;
+  pnrec :comp ;
+  wc_lsch: comp
+  w_dtb :date;
+  wc_staff:comp;
+  wc_spkau:comp;
+as select  Nachisl.nrec
+from NACHISL ,Sumvidop , lschet
+ , appointments(APNTBYPERSON) , staffstruct
+ ,PerevodTek , Perevod
+where (( 
+ pnrec ==Nachisl.nrec
+and  pnrec ==Sumvidop.nrec
+and  pnrec ==Perevod.nrec
+and  pnrec ==PerevodTek.nrec
+and  wc_lsch == lschet.nrec
+and lschet.tperson == appointments.person
+and w_dtb >>= appointments.APPOINTDATE
+and appointments.department == staffstruct.department
+and appointments.post == staffstruct.post
+and w_dtb >>=staffstruct.DINPUT
+and (staffstruct.DCLOSE=date(0,0,0) or staffstruct.DCLOSE>w_dtb)
+and wc_spkau== SPKAU.nrec
+)) ; 
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  set pnrec := ParNrec ;
+  case NumbTable of
+  coNachisl:  
+  { if getfirst fastfirstrow Nachisl  = tsOk
+    { wc_lsch:=Nachisl.clsch ;
+      w_dtb:=Nachisl.datok
+    }
+  }  
+  coSumvidop:  
+  { if getfirst fastfirstrow Sumvidop  = tsOk
+    { wc_lsch:=Sumvidop.clsch ;
+      w_dtb:=Sumvidop.datok
+    }
+  }  
+  coPerevod:  
+  { if getfirst fastfirstrow Perevod  = tsOk
+    { wc_lsch:=Perevod.clsch ;
+      w_dtb:=date(1,Perevod.mesn,Perevod.yearn)
+    }
+  }  
+  coPerevodTek:  
+  { if getfirst fastfirstrow PerevodTek  = tsOk
+    { wc_lsch:=PerevodTek.clsch ;
+      w_dtb:=date(1,PerevodTek.mesn,PerevodTek.yearn)
+    }
+  }  
+  else exit;
+  end ;
+  if getfirst fastfirstrow lschet=0
+  if getlast appointments=0
+  { wc_staff:=0;
+    if appointments.staffstr>0
+      wc_staff:=appointments.staffstr 
+    else
+    { if getlast staffstruct=0
+        wc_staff:=staffstruct.nrec
+    }  
+    wc_spkau:=piExtAttr.coGetAttr(coStaffStruct,wc_staff,'Уровни ЕСОТ, по ОСП') ;
+    if getfirst fastfirstrow spkau=0
+      GetValue:=spkau.name;      
+  }
+}
+
+function GetColName: string;
+{
+  GetColName := 'Есот';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Получить Уровни ЕСОТ, по ОСП из штатного' ;
+}
+#doc
+устанавливает параметры
+#end
+procedure SetParameter(cParameter: comp; wParameter : word; sParameter : string);
+{
+}
+#doc
+функция возвращает строку с параметрами для отображения в интерфейсе
+#end
+function GetParamStr : string;
+{ GetParamStr:=''
+}
+#doc
+интерфейс для редактирования параметров(например выбор вида аналитики)
+#end
+Function EditParameters : word;
+{  EditParameters:=0
+}
+
+  HandleEvent
+  cmInit: Abort;
+  end;
+end.

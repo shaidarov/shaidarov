@@ -1,0 +1,280 @@
+#include GetKau.vih
+
+#doc
+Редактирование постоянных разниц к начислению, из-за переоценок и прочей разницы в первоначальных стоимостях
+#end
+Interface OsNMARaznStBrowse 'Редактирование постоянных разниц к начислению, из-за переоценок и прочей разницы в первоначальных стоимостях';
+  Show at (2, 2, 80, 20);
+
+  #include GetKau.var
+
+  Var
+    _PrintData : date;
+    _cCO       : comp;
+    _cCOIfc    : comp;
+    _TiDk      : word;
+    _wOsRaznPRSt : word;
+
+  Create view vOsNMARaznStBrowse
+  select
+    KatOS.*,
+    OsRazn.*,
+    OsRaznSt.*,
+    OsRaznSt.NvrNach                                      (FieldName = CurM_PRStRestBeg),
+    OsRaznSt.NvrNachM                                     (FieldName = CurM_PRStNachM),
+    OsRaznSt.PRM                                          (FieldName = CurM_PRStPogM),
+    (OsRaznSt.NvrNach + OsRaznSt.NvrNachM - OsRaznSt.PRM) (FieldName = CurM_PRStRestEnd)
+
+  From
+    KatOS (KATOS34)
+  , OSRazn
+  , OSRazn OsRaznSt
+  , OsRazn OsRaznStPrint
+  , FpCO
+  where
+    ((
+      _TiDk                 == KatOS.TiDk         and
+      KatOS.TiDk            == OsRazn.TiDk        and
+      KatOS.NRec            == OsRazn.cDoc        and
+      0                     << OsRazn.Data        and
+
+      _wOsRaznPRSt          == OsRaznSt.TiDk      and
+      KatOS.NRec            == OsRaznSt.cDoc      and
+      OsRazn.Data           == OsRaznSt.Data      and
+
+      _wOsRaznPRSt          == OsRaznStPrint.TiDk and
+      KatOS.NRec            == OsRaznStPrint.cDoc and
+      _PrintData            == OsRaznStPrint.Data and
+
+      _cCOIfc               == FpCO.NRec
+    ))
+  bounds byCO =
+                  _TiDk                 == KatOS.TiDk         and
+                  _cCO                  == KatOS.cCO (noindex)
+  ;
+
+Parameters
+  _TiDk;
+
+Datastream FrOsNMARaznStBrowse
+(
+  [PrintData]  _PrintData;
+
+  Table KatOS
+  (
+    [Nrec]    KatOS.Nrec;
+    [Innum]   KatOS.Innum;
+    [NameOS]  KatOS.NameOS;
+  );
+
+  Table OsRaznStPrint
+  (
+    [Data]          OsRaznStPrint.Data;
+    [PRStRestBeg]   OsRaznStPrint.NvrNach;
+    [PRStNachM]     OsRaznStPrint.NvrNachM;
+    [PRStPogM]      OsRaznStPrint.PRM;
+    [PRStRestEnd]   OsRaznStPrint.NvrNach + OsRaznStPrint.NvrNachM - OsRaznStPrint.PRM;
+  );
+)
+end;
+
+Browse bKatOS (, , sci1Esc);
+  Show at (, , , 10);
+  Table KatOS;
+Fields
+  KatOS.DesGr       #3'Группа дескрипторов' ('Группа дескрипторов')         : [5], protect;
+  KatOS.Innum       #3'Инвентарный номер ОС' ('Инвентарный номер ОС')       : [15], protect;
+  KatOS.NameOS      #3'Наименование ОС' ('Наименование ОС')                 : protect;
+  KatOS.OtchPer     #3'Отч.период' ('Отчетный период карточки ОС')          : [12], protect;
+end; //bOsNMARaznStBrowse
+
+TableEvent table KatOS
+  cmPositionChanged:
+  {
+      PushPos(tnOsRazn);
+      if getfirst OsRazn where
+                      ((
+                        KatOS.TiDk            == OsRazn.TiDk        and
+                        KatOS.NRec            == OsRazn.cDoc        and
+                        KatOS.OtchPer         == OsRazn.Data
+                      )) <> tsOk
+      {
+        PopPos(tnOsRazn);
+      }
+      else
+      {
+        PopPos(tnOsRazn);
+        getfirst OsRazn where
+                      ((
+                        KatOS.TiDk            == OsRazn.TiDk        and
+                        KatOS.NRec            == OsRazn.cDoc        and
+                        KatOS.OtchPer         == OsRazn.Data
+                      ));
+      }
+  }
+end;
+
+
+Browse bOsNMARaznStBrowse (, , sci14Esc);
+  Show at (, 11, , );
+  Table OsRazn;
+Fields
+  { Font = {Bold = (KatOS.OtchPer = OsRazn.Data)} };
+  OsRazn.Data       #3'Дата разниц'   ('Дата разниц')           : protect;
+  OsRazn.VvrNachM   #3'Начислено ВВР' ('Начислено ВВР')         : [14,2,'\2p[|-]3666`666`666`666`666.88'], protect;
+  OsRazn.VvrPogM    #3'Погашено ВВР'  ('Погашено ВВР')          : [14,2,'\2p[|-]3666`666`666`666`666.88'], protect;
+  OsRazn.NvrNachM   #3'Начислено НВР' ('Начислено НВР')         : [14,2,'\2p[|-]3666`666`666`666`666.88'], protect;
+  OsRazn.NvrPogM    #3'Погашено НВР'  ('Погашено НВР')          : [14,2,'\2p[|-]3666`666`666`666`666.88'], protect;
+  OsRazn.PRM        #3'Начислено ПР'  ('Начислено ПР')          : [14,2,'\2p[|-]3666`666`666`666`666.88'], protect;
+
+  CurM_PRStRestBeg  #3'ПР к нач.',#3'на начало месяца' ('ПР к начислению на начало месяца')       : [14,2,'\2p[|-]3666`666`666`666`666.88'],protect;
+  CurM_PRStNachM    #3'ПР к нач.',#3'увеличение' ('ПР к начислению увеличение')                   : [14,2,'\2p[|-]3666`666`666`666`666.88'],protect;
+  CurM_PRStPogM     #3'ПР к нач.',#3'уменьшение' ('ПР к начислению уменьшение')                   : [14,2,'\2p[|-]3666`666`666`666`666.88'],protect;
+  CurM_PRStRestEnd  #3'ПР к нач.',#3'на кон. месяца'  ('ПР к начислению на конец месяца')         : [14,2,'\2p[|-]3666`666`666`666`666.88'],protect;
+end; //bOsNMARaznStBrowse
+
+Window wGetRepDate 'Ввод параметров отчета' ;
+  show at (, , 55, 6);
+screen sGetRepDate;
+fields
+  _PrintData ('Период формирования отчета по разницам') : noprotect;
+buttons
+  cmOk,     default, , 'Формирование отчета';
+  cmCancel, , closeowner, 'Отмена формирования отчета';
+<<
+
+  Период формирования отчета по разницам .@@@@@@@@@@@
+
+  <. Сформировать .>   <.    Отмена    .>
+>>
+end;
+HandleEvent
+  cmOk:
+  {
+    if word(_PrintData) <> 0
+    {
+      set _PrintData := date(Last_Day(_PrintData) , Month(_PrintData), Year(_PrintData));
+
+      PushPos(tnKatOS);
+      PushPos(tnOsRazn);
+
+      RunFReport(FrOsNMARaznStBrowse,'', true);
+
+      PopPos(tnOsRazn);
+      PopPos(tnKatOS);
+
+      RereadRecord(tnOsRaznSt);
+      RereadRecord(tnOsRazn);
+      RereadRecord(tnKatOS);
+      CloseWindow(wGetRepDate);
+    }
+    else
+      message('Задайте дату отчета');
+
+  }
+end;
+end;
+/////////////////////////////////////////////////////////////////////////////////////////
+Window wGetFilter 'Ввод параметров фильтра' ;
+  show at (, , 65, 8);
+screen sGetFilter;
+table FpCO;
+fields
+  FpCO.Name ('Центр ответственности для фильтрации карточек ОС') : protect, pickbutton;
+buttons
+  cmOk,     default, , 'Установка фильтра';
+  cmValue24, ,, 'Снятие фильтра';
+  cmCancel, , closeowner, 'Выход без изменений';
+<<
+  Центр ответственности для фильтрации картотеки
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  <. Установить фильтр .> <. Снять фильтр .>  <.    Отмена    .>
+>>
+end;
+HandleEvent
+  cmOk:
+  {
+    if _cCoIfc <> 0
+    {
+      set _cCO := _cCoIfc;
+      PushBounds(tbbyCO);
+    }
+    else
+    {
+      Message('Не задан центр ответственности. Будут показаны все карточки.');
+      PopBounds(tnKatOS);
+    }
+    // RereadRecord(tnOsRaznSt);
+    RereadRecord(tnOsRazn);
+    RereadRecord(tnKatOS);
+
+    CloseWindow(wGetFilter);
+  }
+
+  cmValue24:
+  {
+    PopBounds(tnKatOS);
+
+    // RereadRecord(tnOsRaznSt);
+    RereadRecord(tnOsRazn);
+    RereadRecord(tnKatOS);
+
+    CloseWindow(wGetFilter);
+  }
+
+  cmCancel:
+  {
+    if BoundActive(tbbyCO)
+      set _cCoIfc := _cCO;
+  }
+
+  cmPick:
+  {
+    iGetKau.GetCodeKau(cgiPick, cgKau_FpCO, _cCoIfc);
+    set _cCoIfc := _cCoIfc; // для прорисовки
+  }
+end;
+end;
+/////////////////////////////////////////////////////////////////////////////////////////
+
+HandleEvent
+  cmInit:
+  {
+    var dateChanged: Boolean;
+    if not ReadMyDsk (_PrintData, 'OsNMARaznStBrowse_PrintData', dateChanged)
+      _PrintData := date(Last_Day(dGetTune('OS.OTCHPERIOD')) , Month(dGetTune('OS.OTCHPERIOD')), Year(dGetTune('OS.OTCHPERIOD')));
+
+    ReadMyDsk (_cCOIfc, 'OsNMARaznStBrowse_cCOIfc', dateChanged);
+
+    _wOsRaznPRSt := 7700 + _TiDk;
+  }
+
+  cmDone:
+  {
+    SaveMyDsk (_PrintData, 'OsNMARaznStBrowse_PrintData');
+    SaveMyDsk (_cCOIfc, 'OsNMARaznStBrowse_cCOIfc');
+  }
+
+  cmEdit:
+  {
+    RunInterface('OsNMARaznStEdit', OsRazn.TiDk, OsRazn.NRec, OsRazn.cDoc, OsRazn.Data);
+    RereadRecord(tnOsRaznSt);
+    RereadRecord(tnOsRazn);
+    RereadRecord(tnKatOS);
+  }
+
+  cmPrintDoc: RunWindowModal(wGetRepDate);
+
+  cmFilterSave: RunWindowModal(wGetFilter);
+
+  cmHotKeys : PutHotCommand(RunMenu('mnuOsNMARaznStBrowse'));
+end;
+end.
+
+mnuOsNMARaznStBrowse Menu
+{
+  - 'Фильтр на карточки ОС', cmFilterSave, 'Фильтр на карточки ОС',,'Alt+B',kbAltB,sci1Esc;
+  - 'Редактирование данных по ПР к начислению', cmEdit, 'Редактирование данных по ПР к начислению',,'',kbNoKey,sci1Esc;
+  - 'Печать данных', cmPrintDoc, 'Печать данных по данным ПР к начислению', , 'Ctrl+P', kbCtrlP, sci1Esc;
+}

@@ -1,0 +1,368 @@
+
+
+#component "L_SOPRDOC"
+
+#include OtkatToOldState.vih
+
+alter Interface iOtkatToOldState, AlwaysReturn, cacheable;
+
+Create view;
+
+overload
+  Function OtkatToOldStateKatSopr: boolean;
+end;
+
+Function OtkatToOldStateKatSopr: boolean;
+{
+  OtkatToOldStateKatSopr := FALSE;
+
+  if (isEditSoprVisible)
+    if (isCurField = 1) // разрешать смотреть счет-фактуру, если она есть
+      if (KatSopr.cSchFact <> 0) and (wEditNaklWithOrder = 0)
+        if (isCurCommand = cmPick)
+        {
+          OtkatToOldStateKatSopr := TRUE;
+          Exit;
+        }
+
+  if (Mess)
+  {
+    if (NOT CanEditDocument)
+      Exit;
+  }
+  else
+    if (NOT CanEditDocumentNotMessage)
+      Exit;
+
+  if (NOT isEditSoprVisible)
+    if (isCurCommand <> cmDeleteRecord)
+    {
+      if (isCurCommand = cmPositionChanged)
+        Exit;
+
+      if (isCurCommand = cmSetCurField)
+        Exit;
+
+! не нужно, т.к. при закрытии окна тогда не обновляется запись
+!      if (isCurCommand = cmCheckRecord)
+!        Exit;
+
+      if (isCurCommand = cmCheckField)
+        Exit;
+
+      if (isCurCommand = cmDelOnProtect)
+        Exit;
+    }
+
+  if ((isCurField <> 1) AND (isCurField <> 3)) // для статусов разрешен выбор подстатусов
+     OR (isCurCommand = cmDeleteRecord)        // В момент создания Счет-фактуры срабатывает своя проверка
+    if NOT CheckCloseBuhPeriodOper(KatSopr.dSopr, KatSopr.nRec)
+    {
+      Exit;
+    }
+
+  if (NOT CheckTXO(Mess))
+  {
+    if (wGetTune('Fin.User.ModHaveProvod') = 2) //ЗАПРЕЩАТЬ
+    {
+      if (isCurField = 4)
+        if ( KatSopr.cStepDoc  <> 0 )
+          showGetDBase(Mess);
+
+      if (isCurField = 8)
+        if ( KatSopr.cDogovor <> 0 )
+          if (Not boGetTune('Doc.SD.CanLinkDogovor'))
+            showGetDogovor(mess);
+
+      if (isCurField = 9)
+        if ( KatSopr.cAppDogovor <> 0 )
+          if (Not boGetTune('Doc.SD.CanLinkDogovor'))
+            showGetDogovor(mess);
+
+      if (isCurField = 10)
+        if ( KatSopr.cCalPlan <> 0 )
+          if (Not boGetTune('Doc.SD.CanLinkDogovor'))
+            showGetDogovor(mess);
+
+      if (Mess)
+        ShowTune('Документ доступен только для просмотра.', 'Fin.User.ModHaveProvod');
+
+      Exit;
+    }
+
+    Exit;
+  }
+
+  if (NOT CheckStatus)
+    Exit;
+
+  if (KatSopr.VidSopr = 101 or KatSopr.VidSopr = 108 or KatSopr.VidSopr = 201)
+  {
+    NOAktRec := CheckAktRec;//номер рекламационной накладной
+
+    if (NoAktRec <> '')
+    {
+      if Mess
+        Message('Нельзя редактировать документ по причине: '+  NoAktRec );
+
+      Exit;
+    }
+  }
+
+  case KatSopr.Vidsopr of
+    101, //Накладная на прием МЦ
+    102, //Накладная на возврат МЦ от консигнатора
+    103, //Накладная на прием МЦ от консигнанта
+    108, //Накладная на прием молочного сырья
+    1411,//УЛХ. Дневник приемки работ
+    1421,//УЛХ. Накладная на отпуск лесопродукции
+    201, //Накладная на отпуск МЦ
+    202, //Накладная на отпуск МЦ консигнатору
+    203, //Накладная на возврат МЦ консигнанту
+    210, //Акт передачи оборудования в монтаж
+    229: //Акт передачи материалов на строительство
+    {
+      if (wEditNaklWithOrder <> 1)
+        {
+          if ( EditNaklWithOrder(true) )
+            Exit;
+        }
+      else
+        //запрет редактирования при наличии скл.ордеров
+        if (KatSopr.dOpr <> date(0, 0, 0))
+          if (isCurField <> 2) OR (isCurCommand = cmDeleteRecord)
+          {
+            showGetDBase(Mess);//показать ДО
+
+            if (Mess)
+              ShowTune('Запрещено редактирование документа при наличии ордеров.', wEditNaklWithOrderStr);
+
+            Exit;
+      }
+    }
+
+    115: //Акт о приемке материалов
+    {
+      if (wEditNaklWithOrder <> 1)
+        {
+          if ( EditNaklWithOrder(true) )
+            Exit;
+        }
+      else
+        //запрет редактирования при наличии скл.ордеров
+        if (KatSopr.dOpr <> date(0, 0, 0))
+          if (isCurField <> 2) OR (isCurCommand = cmDeleteRecord)
+          {
+            showGetDBase(Mess);//показать ДО
+
+            if (Mess)
+              ShowTune('Запрещено редактирование документа при наличии ордеров.', wEditNaklWithOrderStr);
+
+            Exit;
+          }
+
+      var FlagSpecZatr : boolean;
+      var isEditZakrPost : word;
+      FlagSpecZatr := False;
+      _Loop SpSopr1
+        if GetFirst SpecZatr where (( word(0) == SpecZatr.coTable (noIndex) and
+                                      SpSopr1.nRec == SpecZatr.cUKS)) = tsOk
+        {
+          FlagSpecZatr := True;
+          Break;
+        }
+
+      if ((isCurField <> 2) OR (isCurCommand = cmDeleteRecord))
+        if (FlagSpecZatr)
+        {
+          if (not boGetTune('Doc.ModifDocZakrPost')) //запрет редактирования при наличии закрытых поставок
+          {
+            showGetDBase(Mess);//показать ДО
+
+            if (Mess)
+              ShowTune('Запрещено редактирование документа при наличии закрытых поставок.', 'Doc.ModifDocZakrPost');
+            Exit;
+          }
+          else
+          {
+            ReadMyDsk(isEditZakrPost, 'AktUmc_isEditZakrPost', True);
+            if (Mess)
+              if (isEditZakrPost = 0)
+              {
+                if (message('По документу имеются закрытые поставки, которые будут удалены'#13 +
+                            'при редактировании акта. Продолжить?', YesNo) <> cmYes)
+                {
+                  SaveMyDsk(1, 'AktUmc_isEditZakrPost');
+                  Exit;
+                }
+                else
+                {
+                  SaveMyDsk(2, 'AktUmc_isEditZakrPost');
+                  _Loop SpSopr1
+                  {
+                    if GetFirst SpecZatr where (( word(0)      == SpecZatr.coTable (noIndex) and
+                                                  SpSopr1.nRec == SpecZatr.cUKS)) = tsOk
+                    {
+                      if GetFirst SpSopr2 Where ((SpecZatr.cADDSumTune == SpSopr2.nRec)) = tsOk
+                        if GetFirst KatSopr2 where ((SpSopr2.cSopr     ==  KatSopr2.nRec)) = tsOk
+                        {
+                          set KatSopr2.dOpr := Date(0,0,0);
+                          Update Current KatSopr2;
+                        }
+
+                      Delete Current SpecZatr;
+                    }
+                  }
+                }
+              }
+              else
+               if (isEditZakrPost = 1)
+                 Exit;
+          }
+       }
+    }
+
+    110: //Акт выполненных работ в строительстве
+    {
+      if ( wEditAktWithOrder = 1 ) //запрет редактирования при наличии скл.ордеров
+        if ( KatSopr.dOpr <> date(0, 0, 0) )
+          if ( GetFirst SklOrder where ((KatSopr.NRec == SklOrder.cSopr)) = tsOk )
+            if ( (SklOrder.cSopr <> 0) and (KatSopr.TipSopr = 2) ) // аты собственные, содержащие ордера
+              {
+                if (mess)
+                  Message('Нельзя редактировать документ при включенной настройке: '+
+                          ''#13#3'"Редактирование акта при наличии ордеров = запрещать"');
+
+                Exit;
+              }
+    }
+  end;
+
+  case KatSopr.Vidsopr of
+    101, //Накладная на прием МЦ
+    102, //Накладная на возврат МЦ от консигнатора
+    103, //Накладная на прием МЦ от консигнанта
+    108, //Накладная на прием молочного сырья
+   1411, //УЛХ. Дневник приемки работ
+   1421, //УЛХ. Накладная на отпуск лесопродукции
+    201, //Накладная на отпуск МЦ
+    202, //Накладная на отпуск МЦ консигнатору
+    203, //Накладная на возврат МЦ консигнанту
+    210, //Акт передачи оборудования в монтаж
+    229, //Акт передачи материалов на строительство
+    110, //Акт выполненных работ в строительстве
+    111, //Акт на прием услуги
+    114, //Акт приемки
+    211, //Акт в сбыте
+    553,
+    557:
+    {
+      if (KatSopr.Vidsopr = 211)
+        if (wChMesg <> 0FFFFh)
+          if NOT (isCurField = 1 OR isCurField = 3 OR isCurField = 11)
+            {
+              if (KatSopr.NRec <> cKSopr)
+                {
+                  cKSopr  := KatSopr.NRec;
+                  wChMesg := 0;
+                }
+
+              if (wChMesg = 0)
+                wChMesg:=  if (NOT fChAkts.ChAktsCalc(KatSopr.NRec), 2, 1);
+
+              if (wChMesg = 2)
+                {
+                  showGetDBase(Mess);
+                  showGetDogovor(mess);
+
+                  if (isCurCommand <> cmPick)
+                    if (Mess)
+                      Message('Акт создан на базе расчета. Данный акт запрещено изменять!');
+
+                  Exit;
+                }
+            }
+
+      if (KatSopr.cSchFact <> 0 AND wEditNaklHavingDocNDS = 0) //запрет редактирования при наличии документов НДС
+      {
+        showGetDBase(Mess);//показать ДО
+
+        if (Mess)
+          Message('Нельзя редактировать документ при включенной настройке: '+
+                  ''#13#3'"Редактирование накладной/акта при наличии документа для учета НДС = запрещать"');
+          Exit;
+      }
+    }
+  end;
+
+  if (KatSopr.VidSopr = 101) or (KatSopr.VidSopr = 108) or (KatSopr.VidSopr = 115)
+    if (KatSopr.wADoc <> adSoprDocKN)
+      if (IsValid(tnKN_KatSopr))
+      {
+        if (Mess)
+          Message('Нельзя редактировать, так как по ' +
+                  if (KatSopr.VidSopr = 115, 'акту создан корректирующий акт.',
+                                             'накладной создана корректирующая накладная.'));
+
+        Exit;
+      }
+
+/*
+  if (KatSopr.VidSopr = 101) or (KatSopr.VidSopr = 111) or (KatSopr.VidSopr = 201) or (KatSopr.VidSopr = 211) or (KatSopr.VidSopr = 110)
+  {
+    if (IsValid(tnKatSoprKD))
+    {
+      if (Mess)
+        Message('Нельзя редактировать, так как по ' +
+                if ((KatSopr.VidSopr = 111) or (KatSopr.VidSopr = 211),
+                  'акту создан корректировочный акт.',
+                  'накладной создана корректировочная накладная.'));
+
+      Exit;
+    }
+
+    if (KatSopr.wADoc = adSoprDocKD)
+      if (isCurCommand <> cmCheckField)
+         AND (isCurCommand <> cmCheckRecord)
+         AND (isCurCommand <> cmDeleteRecord)
+         AND (isCurCommand <> cmExprFieldChanged)
+         AND (isCurCommand <> cmPickAttr)
+         AND (isCurCommand <> cmPickClass)
+         AND (isCurField <> 1)  // СФ
+         AND (isCurField <> 3)  // Статус
+         AND (isCurField <> 11) // ТХО
+         AND (isCurField <> 12) // дескриптор
+         AND (isCurField <> 13) // группа дескрипторов
+         AND ((isCurField <> 4) OR (isCurCommand <> cmDelOnProtect)) // ДО
+      {
+        if (Mess)
+          Message('В корректировочных '
+                  + if ((KatSopr.VidSopr = 111) or (KatSopr.VidSopr = 211) or (KatSopr.VidSopr = 110),
+                    'актах ', 'накладных ')
+                  + 'разрешено только:'#13
+                  + ' - изменение кол-ва и сумм по позиции'#13
+                  + ' - изменение номера, статуса, даты создания и даты цен'#13
+                  + ' - создание и удаление СФ'#13
+                  + ' - отвязка  и привязка ТХО'#13
+                  + ' - отвязка  и формирование ДО'#13
+                  + ' - удаление позиций'
+                  );
+        Exit;
+      }
+  }
+*/
+  if (KatSopr.VidSopr = 210) OR (KatSopr.VidSopr = 229)
+    if (isCurCommand <> cmSkipRes)
+      if (KatSopr.Reserved = 1)
+      {
+        if Mess
+          Message('Редактирование запрещено, т.к.'#13 +
+                  'имеются зарезервированные по акту МЦ.', Warning + CancelButton);
+        Exit;
+      }
+
+  OtkatToOldStateKatSopr := TRUE;
+}
+
+
+end.

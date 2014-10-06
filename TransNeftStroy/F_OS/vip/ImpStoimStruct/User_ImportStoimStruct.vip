@@ -1,0 +1,671 @@
+#include KauReff.vih
+#include ExtAttr.Vih
+
+#doc
+  Интерфейс для закачки внешних КАУ и внешних атрибутов к карточке ОС
+#end
+interface User_ImportStoimStruct 'Закачка данных по отнесению затрат по карточке РБП' (,,) escClose;
+  show at (,,100,7);
+
+const
+  AnCount  = 8;
+
+  MsgErr   = 1;
+  MsgWarn  = 2;
+  MsgInfo  = 3;
+  MsgDebug = 4;
+
+  IdentModeByCode = 1;
+  IdentModeByName = 2;
+end;
+
+type tRefType = array [1..AnCount] of word;
+
+Table struct stStoimStruct
+(
+    NRec       : comp
+  , Code       : string
+  , Name       : string
+  , cClass     : comp
+
+  , cDoc       : comp
+
+  , KolPerson  : double
+  , Summa      : double
+  , SumRes1    : double
+
+  , sCode      : array [1..AnCount] of string
+  , tRef       : tRefType
+  , cRef       : array [1..AnCount] of comp
+
+  /*
+  , S2         : string // Подразделения
+  , S40        : string // Объекты строительства
+  , S5017      : string // Элементы затрат
+  , U20009     : string // Виды продукции, работ, услуг
+  , U20038     : string // Направление расходов
+  , U20054     : string // Признак входимости в налогооблагаемую базу
+  , U20073     : string // Статьи затрат
+  , U20077     : string // Счет БУ для начисления амортизации
+
+  */
+)
+with index
+(
+  stStoimStruct01 = NRec,
+  stStoimStruct02 = cDoc
+);
+
+var iKauReff : EditKauReff; // Переменная типа "Интерфеса EditKauReff"
+#include ExtAttr.var
+
+var
+   LogFilePath : string;
+   DateFormat  : string;
+   PodrPref    : string;
+   Spliter     : string;
+   ErrLevel    : longint;
+
+   TableMarkerStr : string;
+   ColNameArray : array[1..10] of string;
+   AnCodeArray  : tRefType;
+   AttrNameArray : array[1..AnCount] of string;
+
+   dbfhandle : longint;
+   Res    : integer;
+   XLSName          : string;
+   ImpInfoSheetName : string;
+   wrewrite  : word;
+
+   ThousandSeparator : char;
+   DecimalSeparator  : char;
+
+   _cKatOs           : comp;
+   MsgCounter        : array[1..4] of LongInt;
+create view
+var
+   _cOS   : comp;
+from
+   stStoimStruct
+ , StoimStruct
+ , katOS
+ , SpKatOS
+ , NastrOS
+ , KatPodr
+ , KatKau
+ , SpKau
+ , katstroy
+ , KaElem
+// , kaureff
+// , attrnam
+// , attrval
+// , fpco
+where
+((
+  _cOS == KatOS.NRec
+))
+;
+Parameters
+  _cKatOs;
+
+procedure LogMsg(MsgLevel : word; Msg : string);
+{
+  MsgCounter[MsgLevel]++;
+  LogStrToFile(LogFilePath, Msg);
+}
+
+function GetIdentMode(_KodKau : word) : word;
+{
+  Case _KodKau of
+    20077 : result := IdentModeByName;
+    else
+      result := IdentModeByCode;
+  end;
+}
+
+function GetRef(_KodKau : word; _SpKauCode : string) : comp;
+{
+  result := 0;
+
+  var _Type : word;
+  if getfirst KatKau where (( _KodKau == KatKau.KodGroup )) = tsOk
+  {
+    _Type := KatKAU.SysNum;
+
+    Case _Type of
+      cgKatKau_Table:
+      {
+        case _KodKau of
+              2 : {
+                    if getfirst KatPodr where (( _SpKauCode == KatPodr.Kod )) = tsOk
+                      result := KatPodr.NRec;
+                  }
+
+             40 : {
+                    if getfirst KatStroy where (( _SpKauCode == KatStroy.Code)) = tsOk
+                      result := KatStroy.NRec;
+                  }
+
+           5017 : {
+                    if getfirst KaElem where (( _SpKauCode == KaElem.Code)) = tsOk // по системному коду
+                      result := KaElem.NRec;
+                  }
+        end;
+      }
+
+      cgKatKau_User:
+      {
+        Case GetIdentMode(_KodKau) of
+          IdentModeByCode:
+          {
+            if getfirst SpKau where ((
+                                            KatKau.KodGroup == SpKau.KodGrKau
+                                        and _SpKauCode      == SpKau.Code
+                                    )) = tsOk
+            {
+              result := SpKau.NRec;
+            }
+          }
+
+          IdentModeByName:
+          {
+            if getfirst SpKau where ((
+                                            KatKau.KodGroup == SpKau.KodGrKau
+                                        and _SpKauCode      == SpKau.Name
+                                    )) = tsOk
+            {
+              result := SpKau.NRec;
+            }
+          }
+        end;
+      }
+    end;
+  }
+}
+
+function GetCreateAn34(_Code :string) : comp;
+{
+  var cHead : comp;
+
+  cHead := 0;
+  // сразу попробуем найти группирующую запись
+  if getfirst SpKau where ((      34      == SpKau.KodGrKau
+                              and '1000'  == SpKau.Code
+                          )) <> tsOk
+  {
+    ClearBuffer(tnSpKau);
+    SpKau.KodGrKau := 34;
+    SpKau.cNode    := 0;
+    SpKau.Code     := '1000';
+    SpKau.LevelCode:= '1000';
+    SpKau.Name     := 'Источники финансирования для страхования';
+    insert current SpKau;
+  }
+  cHead := SpKau.NRec;
+
+  // затем попробуем найти или создать детальную запись
+  if getfirst SpKau where ((      34     == SpKau.KodGrKau
+                              and _Code  == SpKau.Code
+                          )) <> tsOk
+  {
+    ClearBuffer(tnSpKau);
+    SpKau.KodGrKau := 34;
+    SpKau.cNode    := cHead;
+    SpKau.Code     := _Code;
+    SpKau.LevelCode:= _Code;
+    SpKau.Name     := _Code;
+    insert current SpKau;
+  }
+  result := SpKau.NRec;
+}
+
+function GetDouble (_Value : string) : double;
+{
+  _Value := Replace (_Value, ThousandSeparator, '');
+  _Value := Replace (_Value, DecimalSeparator, '.');
+  result := double (_Value);
+}
+
+procedure ImportProc;
+{
+  if XLSName = ''
+  {
+    LogMsg(MsgErr, 'Не задан путь к Excel-файлу для импорта.');
+    exit;
+  }
+
+
+  if getfirst KatOS <> tsOk
+  {
+    LogMsg(MsgErr, 'Не найдено основное средство указанное в параметрах.');
+    exit;
+  }
+
+  delete all stStoimStruct where (( KatOS.NRec == stStoimStruct.cDoc ));
+
+  // накачка временной таблицы
+  if xlOpenNewExcel(false)
+  {
+    if xlOpenWorkBook(XLSName)
+    {
+      ThousandSeparator := xlGetThousandSeparator;
+      DecimalSeparator  := xlGetDecimalSeparator;
+
+      StartNewVisual(vtNumericVisual, vfTimer, 'Обрабатываю данные', 1);
+
+      if xlSetActiveSheetByName(ImpInfoSheetName)
+      {
+        var RowU, ColL, RowD, ColR : longint;
+        var i, j, k: longint;
+        var _Value, _KeyValue : string;
+        var RowU_Range, ColL_Range, RowD_Range, ColR_Range : longint;
+
+        xlGetUsedRange(RowU, ColL, RowD, ColR);
+        for (i := RowU; i <= RowD; i++)
+        {
+          for (j := ColL; j <= ColR; j++)
+          {
+            if xlGetCellValue(i, j, _Value)
+              if _Value = TableMarkerStr
+                {
+                  RowU_Range := i;
+                  ColL_Range := j;
+                  i := RowD + 1;
+                  j := ColR + 1;
+                  // для мгновенного выхода
+                }
+          }
+        }
+
+        if RowU_Range <> 0 and ColL_Range <> 0
+        {
+          var ColNumArray  : array[1..10] of longint;
+
+          for (j := ColL_Range; j <= ColR; j++)
+          {
+            if xlGetCellValue(RowU_Range, j, _Value)
+            {
+              if _Value = ''
+              {
+                j := ColR;
+              }
+              else
+              {
+                for (k := 1; k <= 10; k++)
+                {
+                  if _Value = ColNameArray[k]
+                    ColNumArray[k] := j;
+                }
+              }
+            }
+          }
+
+          i := RowU_Range + 1;
+
+          xlGetCellValue(i, ColL_Range, _KeyValue);
+
+          while (_KeyValue <> '')
+          do
+          {
+            ClearBuffer(tnstStoimStruct);
+            stStoimStruct.cDoc := KatOS.NRec;
+
+            for (k := 1; k <= 10; k++)
+            {
+              if ColNumArray[k] <> 0
+                if xlGetCellValue(i, ColNumArray[k], _Value)
+                  if _Value <> 0
+                    Case k of
+                    1  : stStoimStruct.Summa     := GetDouble(_Value); //
+                    2  : stStoimStruct.KolPerson := GetDouble(_Value); //
+                    else
+                      stStoimStruct.sCode[k-2]   := _Value; // Подразделения
+                    end;
+            }
+            insert current stStoimStruct;
+
+            i++;
+            xlGetCellValue(i, ColL_Range, _KeyValue);
+          }
+        }
+        else
+        {
+          LogMsg(MsgErr, 'На листе не найдена ячейка обозначающая начало таблицы');
+          LogMsg(MsgInfo, 'Маркером начала таблицы является ячейка с текстом ' + TableMarkerStr);
+        }
+      }
+      else
+      {
+        LogMsg(MsgErr, 'Не найден лист Excel');
+      }
+      xlCloseWorkBookByName(XLSName);
+      StopVisual('',0);
+    }
+    else
+    {
+      LogMsg(MsgErr, 'Не смог открыть книгу Excel');
+    }
+    xlKillExcel;
+  }
+  else
+  {
+    LogMsg(MsgErr, 'Не удалось создать Excel');
+    exit;
+  }
+
+  // подбор значений аналитик по кодам
+  _loop stStoimStruct where (( KatOS.NRec == stStoimStruct.cDoc ))
+  {
+    var k: longint;
+
+    for (k := 1; k <= AnCount; k++)
+    {
+      stStoimStruct.tRef[k] := AnCodeArray[k];
+      stStoimStruct.cRef[k] := GetRef(AnCodeArray[k], stStoimStruct.sCode[k]);
+
+      if stStoimStruct.sCode[k] <> '' and stStoimStruct.cRef[k] = 0
+        LogMsg(MsgWarn, 'Для строки с суммой ' + stStoimStruct.Summa +  ' не удалось подобрать значение аналитики. Код аналитики=' + stStoimStruct.tRef[k] + ' Код значения аналитики=' + stStoimStruct.sCode[k]);
+    }
+    update current stStoimStruct;
+  }
+
+  // проверка на соответствие общей суммы карточки и суммы по распределению
+  var _AllSum : double;
+  _AllSum := 0;
+
+  _loop stStoimStruct where (( KatOS.NRec == stStoimStruct.cDoc ))
+  {
+    _AllSum += stStoimStruct.Summa;
+  }
+
+  if getfirst SpKatOS where ((      NastrOS.NRec == SpKatOS.cNastrOS
+                                and KatOS.NRec   == SpKatOS.cKatOS )) = tsOk
+  {
+    if abs(_AllSum - SpKatOS.Stoim) > 0.05
+    {
+      LogMsg(MsgErr, 'Закачиваемое распределение отличается по сумме от стоимости карточки. Импорт производиться не будет.');
+      exit;
+    }
+  }
+  else
+  {
+    // Ошибка. Не удалось спозиционироваться на SpKatOS. Совсем плохо.
+  }
+
+  // пересчет процентов
+  _loop stStoimStruct where (( KatOS.NRec == stStoimStruct.cDoc ))
+  {
+    stStoimStruct.SumRes1 := stStoimStruct.Summa / _AllSum * 100;
+    update current stStoimStruct;
+  }
+
+
+  // зачистка имеющегося распределения
+  _loop StoimStruct where ((     16         == StoimStruct.wType
+                             and KatOS.NRec == StoimStruct.cDoc
+                             and 0          == StoimStruct.cOper ))
+  {
+    oExtAttr.DeleteAllAttr (coStoimStruct, StoimStruct.NRec);
+    delete current StoimStruct;
+  }
+
+  // сгенерировать аналитику "Источники финансирования"
+  _loop stStoimStruct where (( KatOS.NRec == stStoimStruct.cDoc ))
+  {
+    stStoimStruct.Code   := sCode[8] + '_' + sCode[1] + '_' + sCode[2];
+    stStoimStruct.Name   := sCode[8] + '_' + sCode[1] + '_' + sCode[2];
+    stStoimStruct.cClass := GetCreateAn34(stStoimStruct.Code);
+    update current stStoimStruct;
+  }
+
+  // перенос из временной таблицы
+  _loop stStoimStruct where (( KatOS.NRec == stStoimStruct.cDoc ))
+  {
+    ClearBuffer(tnStoimStruct);
+    StoimStruct.wType  := 16;
+    StoimStruct.cDoc   := stStoimStruct.cDoc;
+    StoimStruct.cClass := stStoimStruct.cClass;
+    StoimStruct.Summa  := stStoimStruct.Summa;
+    StoimStruct.SumRes1:= stStoimStruct.SumRes1;
+    insert current StoimStruct;
+
+    var k: longint;
+
+    for (k := 1; k <= AnCount; k++)
+    {
+      if stStoimStruct.cRef[k] <> 0
+        if oExtAttr.AttrID (coStoimStruct, AttrNameArray[k]) > 0
+          oExtAttr.coSetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[k], stStoimStruct.cRef[k], stStoimStruct.sCode[k]);
+    }
+  }
+}
+
+Panel pnParam;
+  table KatOs;
+screen inData;
+  show at (,,,);
+  fields
+    KatOs.Innum ('Инвентарная карточка РБП',,) : Protect, PickButton ;
+    XLSName          ('Путь на XLS-файл',,) : Protect, PickButton ;
+    ImpInfoSheetName ('Наименование листа в XLS-файле',,) : NoProtect ;
+    //wrewrite   ('Отметьте для того чтобы включить',,) : NoProtect;
+  buttons
+    cmRun, Default;
+    cmCancel;
+<<
+  `Инвентарная карточка расходов на страхование` .@@@@@@@@@@@@@@@@@@@@@
+  `Путь к xls-файлу для импорта`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Наименование листа в XLS-файле` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   <.Выполнить.>          <. Отмена .>
+
+>>
+end;
+end;
+
+// _cKau :=
+// iKauReff.SetKauReff(coKatOs, KatOs.NRec, cgKau_ObjBuild, _cKau)
+// Function MySetKauReff(_sKatCode : string; _wKau : word; )
+
+handleEvent
+cmInit:
+{
+  Spliter        := chr(9);
+  ErrLevel       := MsgWarn;
+  TableMarkerStr := 'Распределение данных по страхованию';
+  LogFilePath    := GetStringParameter('Files','OutputFilesDirectory',0) + 'User_ImportStoimStruct.log';
+
+  ColNameArray[1] := 'Сумма';
+  ColNameArray[2] := 'Количество человек';
+
+  ColNameArray[3] := 'Подразделение затрат';
+  ColNameArray[4] := 'Объект строительства';
+  ColNameArray[5] := 'Элемент затрат';
+  ColNameArray[6] := 'Виды продукции, работ, услуг';
+  ColNameArray[7] := 'Направление расходов';
+  ColNameArray[8] := 'Признак входимости в налогооблагаемую базу';
+  ColNameArray[9] := 'Статья затрат';
+  ColNameArray[10]:= 'Счет учета затрат';
+  // ColNameArray[11] := 'Центр ответственности';
+
+  AnCodeArray[1] := 2;      // Подразделения
+  AnCodeArray[2] := 40;     // Объекты строительства
+  AnCodeArray[3] := 5017;   // Элементы затрат
+  AnCodeArray[4] := 20009;  // Виды продукции, работ, услуг
+  AnCodeArray[5] := 20038;  // Направление расходов
+  AnCodeArray[6] := 20057;  // Признак входимости в налогооблагаемую базу
+  AnCodeArray[7] := 20073;  // Статьи затрат
+  AnCodeArray[8] := 20077;  // Счет БУ для начисления амортизации
+
+  AttrNameArray[1] := 'Подразделения';
+  AttrNameArray[2] := 'Объект строительства';
+  AttrNameArray[3] := 'Элементы затрат';
+  AttrNameArray[4] := 'Виды продукции, работ, услуг';
+  AttrNameArray[5] := 'Направление расходов'; // !!! нет такого атрибута
+  AttrNameArray[6] := 'Признак входимости в налогооблагаемую базу';
+  AttrNameArray[7] := 'Статьи затрат';
+  AttrNameArray[8] := 'СчетЗатрат';
+
+  if getfirst NastrOS where ((    16                   == NastrOS.TiDk
+                              and 'Бухгалтерский учет' == NastrOS.Name )) <> tsOk
+    exit;
+
+  if not readMyDsk (XLSName, 'user_ImportStoimStruct_XLSName', true)
+    set XLSName :='';
+  set wrewrite:=0;
+
+  if not readMyDsk (ImpInfoSheetName, 'user_ImportStoimStruct_ImpInfoSheetName', true)
+    set ImpInfoSheetName :='';
+
+  if _cKatOs = 0
+  {
+    if not readMyDsk (_cOS, 'user_ImportStoimStruct__cOS', true)
+      set _cOS := 0;
+  }
+  else
+  {
+    _cOS := _cKatOs;
+  }
+  getfirst KatOS;
+
+  if _cKatOs <> 0
+    ClearFieldOption(#KatOs.Innum, ofSelectable)
+  else
+    SetFieldOption(#KatOs.Innum, ofSelectable);
+}
+
+cmDone:
+{
+  saveMyDsk (XLSName, 'user_ImportStoimStruct_XLSName');
+  saveMyDsk (ImpInfoSheetName, 'user_ImportStoimStruct_ImpInfoSheetName');
+  saveMyDsk (_cOS, 'user_ImportStoimStruct__cOS');
+}
+
+
+cmPick:
+{
+ var
+  res : string;
+
+  case CurField of
+    #KatOs.Innum:
+    {
+      var wTip : word;          // Тип документа
+      var cKatos_Znach : comp;  // Выбраный и возвращаемый Katos
+      var cOsMc_Znach  : comp;  // Выбраный и возвращаемый OsMc
+      wTip := 16;
+      if RunInterface('GetKatOSMC', wTip, cKatos_Znach, cOsMc_Znach) = cmDefault
+        _cOS := cKatos_Znach;
+      ReReadRecord(tnKatOS);
+    }
+
+    #XLSName:
+    {
+      res:=GetFileName ('*.xls', 'Задайте DBF для загрузки' ) ;
+      if res<>''
+       set XLSName := res;
+    }
+   end; // case
+}
+
+cmRun:
+{
+  DeleteFile(LogFilePath);
+  MsgCounter[1] := 0;
+  MsgCounter[2] := 0;
+  MsgCounter[3] := 0;
+  MsgCounter[4] := 0;
+
+  ImportProc; // ++++++++++++++++++++++++++
+
+  var k : longint;
+  var MsgCounterAll : longint;
+  MsgCounterAll := 0
+  for (k:=1;k<=ErrLevel;k++)
+  { MsgCounterAll += MsgCounter[k]; }
+
+  if MsgCounterAll > 0
+    ProcessText (LogFilePath, vfDefault, 'Лог функции присвоения ЦО для ОС');
+  else
+    Message ('Импорт успешно завершен!');
+
+  CloseInterface (cmRun);
+}
+
+cmCancel:
+{
+ CloseInterface (cmCancel);
+}
+end;
+end.
+
+/*
+
+#include UserReport.vih
+
+VipInterface UserReport_User_ImportStoimStruct Implements IUserReport;
+
+Interface UserReport_User_ImportStoimStruct;
+
+create view;
+
+HandleEvent
+cmInit:
+{
+} // cmInit
+cmCancel:
+{
+}
+end; // HandleEvent
+!-------------------------------------------------------------------------------
+
+!-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+{
+  RunInterface('User_ImportStoimStruct', 0);
+}
+!-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'Не пользоваться!!! Загрузка структуры стоимости в карточку НМА (#__DATE__)';
+end;
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Утилиты модулей ОС и НМА';
+!    2 : GetGroupName := 'Группа 2';
+  end;
+end;
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := 'B_OSN';
+    2 : VisibleInModule := 'B_ACT';
+  end;
+end;
+!-------------------------------------------------------------------------------
+
+end. // interface
+
+*/

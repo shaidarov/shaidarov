@@ -1,0 +1,985 @@
+/*
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 8.1 - ОС и НМА
+// Работа с операциями по восстановлению значений в
+// карточках измененных операциями изменения параметров.
+//------------------------------------------------------------------------------
+*/
+#ifdef __OsChgPar__
+
+#include ChgPar.vih
+#include docs2obj.vih         // для putmove.vpp
+#include SchFactFunctions.vih // для putmove.vpp
+#include Actualit.vih         // для putmove.vpp // Объектный интерфейс Поддержки актуальности сальдо
+#include NalTunes.vih         // для putmove.vpp
+#include SHManager.vih        // для putmove.vpp
+#include BFManager.vih        // для putmove.vpp
+#include DOfuns.vih           // Функции округления в зависимости от типа документа для документов-оснований
+#include UKSfuns.vih          // Функции УКСа: привязка к объектам строительства и т.п.
+#include iSynch.vih      // синхронизация SoprHoz и BaseFin
+#include MoveOS.vih
+#include ChkSoprHoz.vih
+#include OsFun.vih
+
+#doc
+  Работа с операциями по восстановлению значений в карточках измененных операциями изменения параметров
+#end
+Interface OsChgParRev;
+
+#include Actualit.var    // для putmove.vpp // Переменная типа VipInterface SaldoActuality
+var iSHoz   : SHManager; // для putmove.vpp
+#include iSynch.var      // синхронизация SoprHoz и BaseFin
+#include ChkSoprHoz.var
+var pOsFun : OsFun;
+
+// список карточек по которым надо сформировать операцию
+table struct TOsList
+(
+  isLeaf : word,
+  cKatOs : comp
+)
+with index
+(
+  iOsListLf = isLeaf,
+  iOsListNr = cKatOs (unique)
+);
+
+// список операций сформированных в данной сессии
+table struct TNewMoveList
+(
+  cMoveOs : comp
+);
+
+// список операций по которым необходимо создать операции восстановления
+// значений.
+table struct TOrigMoveList
+(
+  DatOb   : date,
+  NoDoc   : s20,
+  DatEnd  : date,
+  cMoveOs : comp
+)
+with index
+(
+  iOrigMoveDt = DatOb + NoDoc + DatEnd,
+  iOrigMoveNr = cMoveOs (unique)
+);
+
+
+create view loOsChgParRev
+var
+  wVidop  : word;     // для putmove.vpp
+  TipDock : word;     // для putmove.vpp
+
+  cMoveOsOrig : comp;
+  cKatOsNRec  : comp;
+  cSMSNode    : comp;
+  cNastrOSNrec: comp;
+
+  wMonth4Creat : word;
+  wYear4Creat  : word;
+
+   CurDesGr   : tDesGr;
+   CurDescr   : tDescr;
+   CurVisible : word;
+
+from
+  TOsList, TNewMoveList,
+  TOrigMoveList,
+  NastrOs,
+  HozOper,
+  KatOs, SpKatOs,
+  MoveOs, SpMove, SpMoveOs,
+  SoprHoz,       // для putmove.vpp
+  Synonym MoveOs   MoveOsOrig,
+  Synonym NastrOs  NastrOsL,
+  Synonym SpMoveOs SpMoveOsL,
+  Synonym SpMoveOs SpMoveOsTr,
+  Synonym KatOs    KatOsTr
+, OsChgPar OsChgPar_S
+, OsChgPar OsChgParOld
+, OsChgPar OsChgParNew
+, OsMcMov
+
+where
+((
+  cMoveOsOrig        == MoveOsOrig.NRec      and
+
+  cKatOsNRec         == KatOs.NRec           and
+  KatOs.NRec         == SpKatOs.cKatOs       and
+  NastrOs.NRec       == SpKatOs.cNastrOs     and
+
+  MoveOsOrig.TipDoc  == MoveOs.TipDoc        and
+  MoveOsOrig.NRec    == MoveOs.cOldPodr      and
+  cgOs_9_ChgPar      == MoveOs.SysOper (NoIndex) and
+
+  MoveOs.NRec        == SpMove.cMoveOs       and
+  NastrOs.NRec       == SpMove.cNastrOs      and
+  MoveOs.NRec        == SpMoveOs.cMoveOs     and
+  NastrOs.NRec       == SpMoveOs.cNastrOs    and
+  KatOs.NRec         == SpMoveOs.cKatOs      and
+
+  // список карточек по операции возврата значений
+  MoveOs.TipDoc      == NastrOsL.TiDk        and
+  NastrOsL.NRec     /== SpMoveOsL.cNastrOs   and
+  MoveOs.NRec        == SpMoveOsL.cMoveOs    and
+  // дерево карточек по операции
+  MoveOs.NRec        == SpMoveOsTr.cMoveOs   and
+  NastrOsL.NRec      == SpMoveOsTr.cNastrOs  and
+  cSMSNode           == SpMoveOsTr.cHigherOs and
+  SpMoveOsTr.cKatOs  == KatOsTr.NRec
+
+))
+
+Bounds byOsChgParOld =
+       cMoveOsOrig     == OsChgParOld.cMoveOs and
+       cgOsChg_OldVal  == OsChgParOld.wType   and
+       cKatOsNRec      == OsChgParOld.cKatOs
+
+Bounds byOsChgParNew =
+       cMoveOsOrig     == OsChgParNew.cMoveOs  and
+       cgOsChg_NewVal  == OsChgParNew.wType    and
+       0               == OsChgParNew.cKatOs   and
+       cNastrOsNRec    == OsChgParNew.cNastrOs
+;
+
+var phUNastrOsPos : comp;
+
+#include PutMove.vpp
+
+Window wiRevOper 'Список операций по восстановлению значений' (, hcWMoveOsVosstanParam, sci1Esc) cyan;
+  Show at (10,7,70,18);
+
+Browse brRevOper (,,sci1EnEsc);
+  show at (,,,5);
+  table MoveOs;
+Fields
+  MoveOs.DatOb  'Дата'  ('Дата документа')  : [10], protect;
+  MoveOs.NoDoc  'Номер' ('Номер документа') : [20], protect;
+end;
+
+Tree trRevOperKat (,,sci1Tree)
+  show at (,6,,10);
+  table SpMoveOsTr;
+Fields
+  KatosTr.InNum 'Инв.ном'     ('Инвентарный номер')     :[15]    ,protect;
+  KatosTr.NameOs'Наименование'('Наименование объекта')  :[45]   ,protect;
+end;
+
+HandleEvent
+cmDefault:
+{
+  RunInterface('MoveOs',MoveOs.SysOper,MoveOs.TipDoc,0,MoveOs.NRec,false,word(0));
+  RereadRecord(tnMoveOs);
+
+  if Not IsValid(tnMoveOs)
+    CloseWindow(wiRevOper);
+}
+end;
+end;
+
+// -------------------------------------------------------------------------
+// Просмотр списка операций обратной корректировки.
+// -------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pcMoveOs - ссылка на исходную операцию
+// -------------------------------------------------------------------------
+public procedure ViewReversOperations(pcMoveOs : comp);
+{
+  cMoveOsOrig := pcMoveOs;
+  FixRelations(cMoveOsOrig);
+  cSMSNode := 0;
+  if ( GetFirst MoveOs = tsOk )
+    RunWindowModal(wiRevOper);
+  else
+    Message('Для операции нет операций восстановления значений.', Information + CancelButton);
+}
+
+
+create view loPres
+var
+  cMoveOsNRec : comp;
+  cKatOsNRec  : comp;
+  cNastrOsNRec: comp;
+from
+  OsChgPar
+where
+((
+  // Значения доп. параметров по заданной карточке в заданном методе учета в
+  // операции.
+  cMoveOsNRec    == OsChgPar.cMoveOs    and
+  cgOsChg_OldVal == OsChgPar.wType      and
+  cKatOsNRec     == OsChgPar.cKatOs     and
+  cNastrOsNRec   == OsChgPar.cNastrOs
+));
+// Функция проверки наличия сохраненных данных в заданной операции, по
+// заданной карточке в заданном методе учета.
+function isPresSavedData(pcMoveOs : comp; pcKatOs : comp; pcNastrOs : comp) : boolean;
+{
+  loPres.cMoveOsNRec  := pcMoveOs;
+  loPres.cKatOsNRec   := pcKatOs;
+  loPres.cNastrOsNRec := pcNastrOs;
+  isPresSavedData := (loPres.RecordExists OsChgPar = tsOk);
+}
+
+create view loGetOp
+var
+  cMoveOsOrig : comp;
+  cKatOsNRec  : comp;
+  cNastrOs2Kat: comp;
+from
+  TNewMoveList,
+  KatOs, SpKatOs,
+  NastrOs,
+  synonym MoveOs   MoveOsOrig,
+  synonym OsChgPar OsChgParNew2Old,
+  synonym OsChgPar OsChgParNew2Kat,
+  synonym OsChgPar OsChgParOld
+where
+((
+  cMoveOsOrig              == MoveOsOrig.NRec          and
+  MoveOsOrig.TipDoc        == NastrOs.TiDk             and
+
+  // Значения доп. параметров по заданной карточке в исходной операции
+  // (значения которые были до проведения операции).
+  cMoveOsOrig              == OsChgParOld.cMoveOs      and
+  cgOsChg_OldVal           == OsChgParOld.wType        and
+  cKatOsNRec               == OsChgParOld.cKatOs       and
+
+  // Список только что сформированных операций и значения доп.
+  // параметров по ним (связанный со списком в исходной операции)
+  TNewMoveList.cMoveOs     == OsChgParNew2Old.cMoveOs  and
+  cgOsChg_NewVal           == OsChgParNew2Old.wType    and
+  0                        == OsChgParNew2Old.cKatOs   and
+  OsChgParOld.ParCode      == OsChgParNew2Old.ParCode  and
+  OsChgParOld.cNastrOs     == OsChgParNew2Old.cNastrOs and
+
+  // Список только что сформированных операций и значения доп. параметров по
+  // ним по заданному методу учета (связанные с карточкой)
+  TNewMoveList.cMoveOs     == OsChgParNew2Kat.cMoveOs  and
+  cgOsChg_NewVal           == OsChgParNew2Kat.wType    and
+  0                        == OsChgParNew2Kat.cKatOs   and
+  cNastrOs2Kat             == OsChgParNew2Kat.cNastrOs and
+
+  cKatOsNRec               == KatOs.NRec               and
+  KatOs.NRec               == SpKatOs.cKatOs           and
+  OsChgParNew2Kat.cNastrOs == SpKatOs.cNastrOs
+));
+
+// ---------------------------------------------------------------------------
+// Поиск операции в списке только что созданных на предмет совпадения
+// параметров для изменения с теми что были до проведения исходной
+// операции.
+// ---------------------------------------------------------------------------
+function GetMatchingOperation(pcMoveOsOrig : comp; pcKatOs : comp) : comp;
+var
+  bMatch : boolean;
+{
+  GetMatchingOperation := 0;
+
+  loGetOp.cMoveOsOrig := pcMoveOsOrig;
+  loGetOp.cKatOsNRec  := pcKatOs;
+  loGetOp.FixRelations(loGetOp.cKatOsNRec);
+
+  loGetOp._loop TNewMoveList
+  {
+    bMatch := true;
+
+    // Проверка по списку сохраненных значений.
+    loGetOp._loop OsChgParOld
+    {
+      if loGetOp.OsChgParOld.cValue != loGetOp.OsChgParNew2Old.cValue or
+         loGetOp.OsChgParOld.dValue != loGetOp.OsChgParNew2Old.dValue
+      {
+        bMatch := false;
+        break;
+      }
+    }
+
+    if (not bMatch) continue;
+
+    // Если в исходной операции нет сохраненных данных для KatOs, то делаем
+    // проверку по данных в самом KatOs.
+    if not isPresSavedData(pcMoveOsOrig,pcKatOs,0)
+    {
+      loGetOp.cNastrOs2Kat := 0;
+
+      loGetOp._loop OsChgParNew2Kat
+      {
+        case loGetOp.OsChgParNew2Kat.ParCode of
+          cgOsChg_Podr     : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.KatOs.cPodr );
+          cgOsChg_Mol      : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.KatOs.cMol );
+          cgOsChg_OKOF     : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.KatOs.cOkof );
+          cgOsChg_PrSb     : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.KatOs.cPrSb );
+          cgOsChg_CO       : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.KatOs.cCO );
+          cgOsChg_Sposob   : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.KatOs.cSposob );
+          cgOsChg_Grup     : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.KatOs.cGrup );
+          cgOsChg_Kol      : bMatch := (loGetOp.OsChgParNew2Kat.dValue = loGetOp.KatOs.Kol );
+        end;
+
+        if (not bMatch) break;
+      }
+    }
+
+    if (not bMatch) continue;
+
+    // Если в методе учета в исходной операции нет сохраненных данных, то
+    // делаем проверку по данным из картотеки.
+    // (Исходим из того, что данные могут быть сохранены и в случае, когда
+    // операция еще не считается проведенной).
+    loGetOp._loop NastrOs
+    {
+      if not isPresSavedData(pcMoveOsOrig,pcKatOs,loGetOp.NastrOs.NRec)
+      {
+        loGetOp.cNastrOs2Kat := loGetOp.NastrOs.NRec;
+
+        case loGetOp.OsChgParNew2Kat.ParCode of
+          cgOsChg_Isp      : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.SpKatOs.cIsp );
+          cgOsChg_HozOper  : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.SpKatOs.cHozOper );
+          cgOsChg_Metod    : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.SpKatOs.cMetod );
+          cgOsChg_SrokIsp  : bMatch := (loGetOp.OsChgParNew2Kat.dValue = loGetOp.SpKatOs.SrokIsp );
+          cgOsChg_PoprKoef : bMatch := (loGetOp.OsChgParNew2Kat.dValue = loGetOp.SpKatOs.PoprKoef );
+          cgOsChg_GrAm     : bMatch := (loGetOp.OsChgParNew2Kat.cValue = loGetOp.SpKatOs.cGrAm );
+        end;
+      }
+    }
+
+    if ( bMatch )
+    {
+      GetMatchingOperation := loGetOp.TNewMoveList.cMoveOs;
+      break;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Формирование новой операции для модификации карточки на основе
+// исходной операции.
+// ---------------------------------------------------------------------------
+Procedure CreateNewOperation(pcMoveOsOrig : comp; pcKatOs : comp; pdDatOb : date);
+var
+  cNewMoveOs : comp;
+{
+  cMoveOsOrig := pcMoveOsOrig;
+  cKatOsNRec  := pcKatOs;
+  FixRelations(cMoveOsOrig);
+  FixRelations(cKatOsNRec);
+
+  PutBufMoveOs();
+  MoveOs.DatOb    := pdDatOb;
+  MoveOs.cOldPodr := pcMoveOsOrig;
+  InsertMoveOs();
+  InsertSpMoveOs();
+
+  cNewMoveOs := MoveOs.NRec;
+  insert TNewMoveList set TNewMoveList.cMoveOs := cNewMoveOs;
+
+// ---------------------------------------------------------------------------
+// Заполнение информации о параметрах изменяемых операцией.
+// ---------------------------------------------------------------------------
+//
+// Если операция не проведена по методу учета, то брать значения из
+// карточки, а если проведена, то из сохраненных значений.
+//
+// Данные из KatOs надо брать если операция не проведена вообще ни по одному
+// методу учета. Данные из SpKatOs надо брать если операция не проведена по
+// текущему обрабатываемому методу учета.
+//
+// Т.е. мы можем поступить так:
+// Скопировать все что есть в сохраненных данных, а остальное дополнить из
+// данных карточки ОС/НМА.
+//
+// ВНИМАНИЕ !!!
+// Если функция будет распространена на формирование зеркальных операций для
+// остальных типов операций, то принцип касающийся SpKatOs будет немного
+// другим. Для перемещения и для выбытия достаточно будет проверить
+// проведенность хотя бы под одному из методов, т.к. они проводятся сразу по
+// всем методам учета.
+//
+// ---------------------------------------------------------------------------
+  /* на филиальных БД под ораклом не работает !!!
+  insert into OsChgPar (wType, cMoveOs, cNastrOs, cKatOs, ParCode, cValue, dValue)
+  select
+    cgOsChg_NewVal,
+    cNewMoveOs,
+    OsChgParOld.cNastrOs,
+    0,
+    OsChgParOld.ParCode,
+    OsChgParOld.cValue,
+    OsChgParOld.dValue
+  from
+    synonym OsChgPar OsChgParOld
+  where
+  ((
+    pcMoveOsOrig   /== OsChgParOld.cMoveOs and
+    cgOsChg_OldVal  == OsChgParOld.wType   and
+    pcKatOs         == OsChgParOld.cKatOs
+  ));
+
+  if not isPresSavedData(pcMoveOsOrig,pcKatOs,0)
+  {
+    insert into OsChgPar (wType, cMoveOs, cNastrOs, cKatOs, ParCode, cValue, dValue)
+    select
+      cgOsChg_NewVal,
+      cNewMoveOs,
+      OsChgParNew.cNastrOs,
+      0,
+      OsChgParNew.ParCode,
+      // cValue
+      if( OsChgParNew.ParCode = cgOsChg_Podr,   KatOs.cPodr,
+      if( OsChgParNew.ParCode = cgOsChg_Mol,    KatOs.cMol,
+      if( OsChgParNew.ParCode = cgOsChg_OKOF,   KatOs.cOkof,
+      if( OsChgParNew.ParCode = cgOsChg_PrSb,   KatOs.cPrSb,
+      if( OsChgParNew.ParCode = cgOsChg_CO,     KatOs.cCO,
+      if( OsChgParNew.ParCode = cgOsChg_Sposob, KatOs.cSposob,
+      if( OsChgParNew.ParCode = cgOsChg_Grup,   KatOs.cGrup,
+      0))))))),
+      // dValue
+      0
+    from
+      synonym OsChgPar OsChgParNew,
+      KatOs
+    where
+    ((
+      pcMoveOsOrig   /== OsChgParNew.cMoveOs  and
+      cgOsChg_NewVal  == OsChgParNew.wType    and
+      0               == OsChgParNew.cKatOs   and
+      0               == OsChgParNew.cNastrOs and
+      pcKatOs        /== KatOs.NRec
+    ));
+  }
+
+  PushPos(tnNastrOs);
+  _loop NastrOs where (( MoveOsOrig.TipDOc  == NastrOs.TiDk ))
+  {
+    if not isPresSavedData(pcMoveOsOrig,pcKatOs,NastrOs.NRec)
+    {
+      var tcNastrOs : comp; tcNastrOs := NastrOs.NRec;
+
+      insert into OsChgPar (wType, cMoveOs, cNastrOs, cKatOs, ParCode, cValue, dValue)
+      select
+        cgOsChg_NewVal,
+        cNewMoveOs,
+        OsChgParNew.cNastrOs,
+        0,
+        OsChgParNew.ParCode,
+        // cValue
+        if( OsChgParNew.ParCode = cgOsChg_Isp,     SpKatOs.cIsp,
+        if( OsChgParNew.ParCode = cgOsChg_HozOper, SpKatOs.cHozOper,
+        if( OsChgParNew.ParCode = cgOsChg_Metod,   SpKatOs.cMetod,
+        if( OsChgParNew.ParCode = cgOsChg_GrAm,    SpKatOs.cGrAm,
+        0)))),
+        // dValue
+        if( OsChgParNew.ParCode = cgOsChg_SrokIsp,  SpKatOs.SrokIsp,
+        if( OsChgParNew.ParCode = cgOsChg_PoprKoef, SpKatOs.PoprKoef,
+        0))
+      from
+        SpKatOs,
+        synonym OsChgPar OsChgParNew
+      where
+      ((
+        pcMoveOsOrig         /== OsChgParNew.cMoveOs  and
+        cgOsChg_NewVal        == OsChgParNew.wType    and
+        0                     == OsChgParNew.cKatOs   and
+        tcNastrOs             == OsChgParNew.cNastrOs and
+        pcKatOs              /== SpKatOs.cKatOs       and
+        OsChgParNew.cNastrOs  == SpKatOs.cNastrOs
+      ));
+    }
+  }
+  PopPos(tnNastrOs);
+  */
+
+  _LOOP OsChgParOld
+  {
+    if (OsChgParOld.ParCode = 0)
+      Continue;
+
+    ClearBuffer(tnOsChgPar_S);
+    OsChgPar_S.wType    := cgOsChg_NewVal;
+    OsChgPar_S.cMoveOs  := cNewMoveOs;
+    OsChgPar_S.cNastrOs := OsChgParOld.cNastrOs;
+    OsChgPar_S.cKatOs   := Comp(0);
+    OsChgPar_S.ParCode  := OsChgParOld.ParCode;
+    OsChgPar_S.cValue   := OsChgParOld.cValue;
+    OsChgPar_S.dValue   := OsChgParOld.dValue;
+
+    if (Insert Current OsChgPar_S = tsOk) {};
+  }
+
+  if Not isPresSavedData(pcMoveOsOrig, pcKatOs, 0)
+  {
+    cNastrOSNrec := Comp(0);
+
+    _LOOP OsChgParNew
+    {
+      if (OsChgParNew.ParCode = 0)
+        Continue;
+
+      ClearBuffer(tnOsChgPar_S);
+      OsChgPar_S.wType    := cgOsChg_NewVal;
+      OsChgPar_S.cMoveOs  := cNewMoveOs;
+      OsChgPar_S.cNastrOs := OsChgParNew.cNastrOs;
+      OsChgPar_S.cKatOs   := Comp(0);
+      OsChgPar_S.ParCode  := OsChgParNew.ParCode;
+
+      case OsChgParNew.ParCode of
+      //-------------------------
+        cgOsChg_Podr  : OsChgPar_S.cValue := KatOs.cPodr;
+      //-------------------------
+        cgOsChg_Mol   : OsChgPar_S.cValue := KatOs.cMol;
+      //-------------------------
+        cgOsChg_OKOF  : OsChgPar_S.cValue := KatOs.cOkof;
+      //-------------------------
+        cgOsChg_PrSb  : OsChgPar_S.cValue := KatOs.cPrSb;
+      //-------------------------
+        cgOsChg_CO    : OsChgPar_S.cValue := KatOs.cCO;
+      //-------------------------
+        cgOsChg_Sposob: OsChgPar_S.cValue := KatOs.cSposob;
+      //-------------------------
+        cgOsChg_Grup  : OsChgPar_S.cValue := KatOs.cGrup;
+      //-------------------------
+        cgOsChg_DateK : OsChgPar_S.cValue := LongInt(KatOs.DateK);
+      //-------------------------
+        cgOsChg_Kol   : OsChgPar_S.dValue := KatOs.Kol;
+      //-------------------------
+      end;
+
+      if (Insert Current OsChgPar_S = tsOk) {};
+    }
+  }
+
+  PushPos(tnNastrOs);
+
+  _LOOP NastrOs where (( MoveOsOrig.TipDOc  == NastrOs.TiDk ))
+  {
+    if Not isPresSavedData(pcMoveOsOrig, pcKatOs, NastrOs.NRec)
+    {
+      cNastrOSNrec := NastrOs.NRec;
+
+      _LOOP OsChgParNew
+      {
+        if (OsChgParNew.ParCode = 0)
+          Continue;
+
+        ClearBuffer(tnOsChgPar_S);
+        OsChgPar_S.wType    := cgOsChg_NewVal;
+        OsChgPar_S.cMoveOs  := cNewMoveOs;
+        OsChgPar_S.cNastrOs := OsChgParNew.cNastrOs;
+        OsChgPar_S.cKatOs   := Comp(0);
+        OsChgPar_S.ParCode  := OsChgParNew.ParCode;
+
+        case OsChgParNew.ParCode of
+        //-------------------------
+          cgOsChg_Isp     : OsChgPar_S.cValue := SpKatOs.cIsp;
+        //-------------------------
+          cgOsChg_HozOper : OsChgPar_S.cValue := SpKatOs.cHozOper;
+        //-------------------------
+          cgOsChg_Metod   : OsChgPar_S.cValue := SpKatOs.cMetod;
+        //-------------------------
+          cgOsChg_GrAm    : OsChgPar_S.cValue := SpKatOs.cGrAm;
+        //-------------------------
+          cgOsChg_SrokIsp : OsChgPar_S.dValue := SpKatOs.SrokIsp;
+        //-------------------------
+          cgOsChg_PoprKoef: OsChgPar_S.dValue := SpKatOs.PoprKoef;
+        //-------------------------
+          cgOsChg_StoimPs : OsChgPar_S.dValue := SpKatOs.StoimPs;
+        //-------------------------
+          cgOsChg_IznosPs : OsChgPar_S.dValue := SpKatOs.IznosPs;
+        //-------------------------
+          cgOsChg_Stoim   : OsChgPar_S.dValue := SpKatOs.Stoim;
+        //-------------------------
+          cgOsChg_StoimL  : OsChgPar_S.dValue := SpKatOs.StoimL;
+        //-------------------------
+          cgOsChg_BaseStoim: OsChgPar_S.dValue := SpKatOs.DbReserv;
+        end
+
+        if (Insert Current OsChgPar_S = tsOk) {};
+      }
+    }
+  }
+
+  PopPos(tnNastrOs);
+}
+// ---------------------------------------------------------------------------
+// Добавление карточки в операцию.
+// ---------------------------------------------------------------------------
+procedure AddKatOsToOperation(pcMoveOs : comp; pcKatOs : comp);
+{
+  if GetFirst MoveOs where (( pcMoveOs == MoveOs.NRec )) = tsOk
+  {
+    cKatOsNRec := pcKatOs;
+    FixRelations(cKatOsNRec);
+    InsertSpMoveOs();
+  }
+}
+
+create view loCr
+var
+  cMoveOsOrig : comp;
+from
+  TOsList,
+  MoveOs,
+  Synonym MoveOs   MoveOsOrig,
+  Synonym NastrOs  NastrOsL,
+  Synonym SpMoveOs SpMoveOsL
+where
+((
+  cMoveOsOrig        == MoveOsOrig.NRec       and
+
+  MoveOsOrig.TipDoc  == MoveOs.TipDoc         and
+  MoveOsOrig.NRec    == MoveOs.cOldPodr       and
+  cgOs_9_ChgPar      == MoveOs.SysOper (NoIndex) and
+
+  // список карточек по операции возврата значений
+  MoveOs.TipDoc      == NastrOsL.TiDk         and
+  NastrOsL.NRec     /== SpMoveOsL.cNastrOs    and
+  MoveOs.NRec        == SpMoveOsL.cMoveOs
+));
+
+// -------------------------------------------------------------------------
+// Формирование списка карточек по которым необходимо сформировать операции
+// возврата значений.
+// -------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pcMoveOs - ссылка на исходную операцию.
+//     pcKatOs  - ссылка на карточку которую необходимо включить в список
+//                0, если формировать по всем карточкам операции.
+// -------------------------------------------------------------------------
+// Возвращаемые значения:
+//    -1 - в исходной операции нет карточек
+//     0 - по всем карточкам есть операции восстановления значений
+//  либо количество записей в результирующей выборке
+// -------------------------------------------------------------------------
+function GetOsList(pcMoveOs : comp; pcKatOs : comp) : longint;
+{
+  loCr.cMoveOsOrig := pcMoveOs;
+  loCr.FixRelations(loCr.cMoveOsOrig);
+
+  // Инициализация для putmove.vpp
+  // В принципе, может, стоило бы сделать отдельный метод...
+  TipDock := loCr.MoveOsOrig.TipDoc;
+
+  phUNastrOsPos := GetUserNastrOsPos(tipDock);
+  phUNastrOsPos := GetUserNastrOsPos(TipDock);
+  if (GetFirst NastrOs where ((phUNastrOsPos == NastrOs.nRec)) <> tsOk) {};
+  // Конец инициализации для putmove.vpp
+
+  MTClear(tnTOsList,mfNormal);
+
+  if (pcKatOs != 0)
+    loCr.insert TOsList set cKatOs := pcKatOs;
+  else
+  {
+    insert into TOsList (isLeaf,cKatOs)
+    select SpMoveOs.isLeaf, SpMoveOs.cKatOs
+    from MoveOs, NastrOs, SpMoveOs
+    where
+    ((
+      pcMoveOs      /== MoveOs.NRec       and
+      MoveOs.TipDoc  == NastrOs.TiDk      and
+      NastrOs.NRec  /== SpMoveOs.cNastrOs and
+      MoveOs.NRec    == SpMoveOs.cMoveOs
+    ))
+    IGNORE_ERRORS (tsDuplicateKey);
+  }
+
+  if ( RecordsInTable(tnTOsList) = 0 )
+  {
+    GetOsList := -1;
+    exit;
+  }
+
+  loCr._loop MoveOs
+    loCr._loop SpMoveOsL
+      loCr.delete TOsList where (( SpMoveOsL.cKatOs == TOsList.cKatOs ));
+
+  GetOsList := RecordsInTable(tnTOsList);
+}
+
+// -------------------------------------------------------------------------
+// На основе данных по исходной операции и списка карточек формирует
+// операции восстановления значений.
+// -------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pcMoveOs - ссылка на исходную операцию.
+//     pdDatOb  - дата для создаваемой операции
+// -------------------------------------------------------------------------
+procedure CreateOperationsOnOsList(pcMoveOs : comp; pdDatOb : date);
+{
+  MTClear(tnTNewMoveList,mfNormal);
+
+  StartNewVisual(vtIndicatorVisual,vfTimer + vfScreenBottom,'Формирование возврата значений',RecordsInTable(tnTOsList));
+  // Обрабатываем сначала папки потом листики, т.к. при добавлении листика,
+  // чтобы корректно установилась ссылка необходимо чтобы папка уже была
+  // привязана к операции.
+  PushBounds(tbbyOsChgParOld);
+  PushBounds(tbbyOsChgParNew);
+
+  _loop TOsList ordered by TOsList.isLeaf
+  {
+    NextVisual();
+
+    var tcMoveOs : comp;
+    tcMoveOs := GetMatchingOperation(pcMoveOs,TOsList.cKatOs);
+
+    if ( tcMoveOs = 0 )
+      CreateNewOperation(pcMoveOs,TOsList.cKatOs,pdDatOb);
+    else
+      AddKatOsToOperation(tcMoveOs,TOsList.cKatOs);
+  }
+  PopBounds(tbbyOsChgParOld);
+  PopBounds(tbbyOsChgParNew);
+
+  StopVisual('',0);
+}
+
+// -------------------------------------------------------------------------
+// Формирование операций обратного возвращения значений параметров,
+// модифицированных операцией изменения параметров.
+// -------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pcMoveOs - ссылка на исходную операцию.
+//     pcKatOs  - ссылка на карточку по которой необходимо сформировать
+//                операцию.
+//                0, если формировать по всем карточкам операции.
+//     pdDatOb  - дата для создаваемой операции
+// -------------------------------------------------------------------------
+public procedure CreateReversOperations(pcMoveOs : comp; pcKatOs : comp; pdDatOb : date);
+{
+  case GetOsList(pcMoveOs,pcKatOs) of
+   -1: {
+         Message('Не найдены инвентарные карточки для которых'#13 +
+                 'требуется формирование операций возврата значений.',
+                 Information + CancelButton);
+         exit;
+       }
+    0: {
+         Message('Для всех инвентарных карточек операции'#13 +
+                 'возврата значений уже сформированы.',
+                 Information + CancelButton);
+         exit;
+       }
+  end;
+
+  CreateOperationsOnOsList(pcMoveOs,pdDatOb);
+
+  if ( RecordsIntable(tnTNewMoveList) = 0 )
+    Message('Операции сформированы не были',Information + OkButton);
+  else
+  {
+    if Message('Операции сформированы, вызвать их на редактирование?', Confirmation + YesNo ) = cmYes
+    {
+      ViewReversOperations(pcMoveOs);
+    }
+  }
+
+  MTClear(tnTOsList,mfNormal);
+  MTClear(tnTNewMoveList,mfNormal);
+
+// Формировать зеркальную операцию можно так:
+//   1. Сформировать список карточек по которым еще нет обратных операций;
+//   2. Сформировать операцию для первой карточки;
+//   3. Для следующих карточек, если новые параметры по только что
+//      сформированным операциям совпадают с параметрами карточки до
+//      проведения исходной операции, то подключить ее к той с которой имеется
+//      совпадение. Если совпадений нет, то формируем операцию для этой
+//      карточки.
+}
+
+// ---------------------------------------------------------------------------
+// Проверка для заданной операции наличия операций обратного преобразования
+// по всем карточкам.
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pcMoveOs - ссылка на исходную операцию.
+// ---------------------------------------------------------------------------
+// Возвращает true если есть полный набор операций восстановления значений.
+// ---------------------------------------------------------------------------
+function HaveAllReverseOperations(pcMoveOs : comp) : boolean;
+{
+  HaveAllReverseOperations := ( GetOsList(pcMoveOs,0) <= 0 );
+  MTClear(tnTOsList,mfNormal);
+}
+
+
+var bContCreate : boolean; // флаг продолжения или отказа от операции
+                           // выставляемый в ниже описанном окне окне.
+
+window wiOrigOper 'Операции для формирования возврата значений' (, hcWMoveOsVozvratZnachPeriod, sci1Esc) gray;
+show at (3,5,77,19);
+screen scOrigMsg;
+  show at (,,,4);
+<<
+
+  Для приведенных операций изменения параметров необходимо формирование
+  операций по восстановлению исходных значений в инвентарных карточках.
+
+>>
+end;
+browse brOrigOper (,,sci1EnEsc);
+  show at (,5,,10);
+  table TOrigMoveList;
+Fields
+  TOrigMoveList.DatOb  'Дата'  ('Дата документа')  : [10], protect, noAutoSize;
+  TOrigMoveList.NoDoc  'Номер' ('Номер документа') : [20], protect;
+  TOrigMoveList.DatEnd 'Дата окончания' ('Дата окончания действия изменений')  : [14], protect, noAutoSize;
+end;
+screen scOrigButt;
+  show at (,11,,13);
+buttons
+  cmOk, Default,, 'Сформировать операции восстановления исходных значений';
+  cmCancel,,,     'Отмена';
+<<
+
+                <. Сформировать .>    <.    Отмена    .>
+
+>>
+end;
+HandleEvent
+cmInit:
+{
+  bContCreate := false;
+}
+cmOk:
+{
+  bContCreate := true;
+  CloseWindow(wiOrigOper);
+}
+end;
+end;
+
+window wiGetPar 'Формирование возврата значений в периоде' (,hcWMoveOsVozvratZnachPeriod,), gray;
+show at (19,9,61,16);
+screen scGetPar;
+fields
+  wMonth4Creat ('Отчетный период в котором необходимо сформировать операции',,sci13Esc)      :
+             [LIST 1 'Январь','Февраль','Март','Апрель','Май','Июнь','Июль',
+             'Август','Сентябрь','Октябрь','Ноябрь','Декабрь'], protect;
+  wYear4Creat  ('Отчетный период в котором необходимо сформировать операции',,sci1Esc)        : noProtect,
+             SpinButton[1,1900,2999],
+             {Font = {BackColor = if(wYear4Creat=0,ColorNeed,0)}},
+             {InputMask = '[1,2]999'};
+buttons
+  cmOk, Default,, 'Сформировать операции восстановления исходных значений';
+  cmCancel,,,     'Отмена';
+<<
+
+  Сформировать операции возврата значений
+  для периода: .@@@@@@@@@@@ .@@@@@ г.
+
+  <. Сформировать .> <.    Отмена    .>
+
+>>
+end;
+HandleEvent
+cmInit:
+{
+  wMonth4Creat := Month(dGetTune('OS.OtchPeriod'));
+  wYear4Creat  := Year(dGetTune('OS.OtchPeriod'));
+  bContCreate  := false;
+}
+cmOk:
+{
+  if ( wYear4Creat = 0 )
+  {
+    Message('Укажите год', Information + OkButton);
+    SelectField(#wYear4Creat);
+    abort; exit;
+  }
+  bContCreate := true;
+  CloseWindow(wiGetPar);
+}
+end;
+end;
+
+// -------------------------------------------------------------------------
+//  Формирование операций обратного возвращения значений параметров,
+// модифицированных операциями изменения параметров, действие которых
+// завершается в заданном периоде.
+// Период задается пользователем в соответствующем окне ввода.
+// -------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwTiDk - тип документов для которых осуществляется операция:
+//              15 - ОС,
+//              16 - НМА
+// -------------------------------------------------------------------------
+public procedure CreateOperationsForPeriod(pwTiDk : word);
+{
+  RunWindowModal(wiGetPar);
+  if ( not bContCreate )
+    exit;
+
+  var tcBegDate : comp; tcBegDate := comp(LongInt(date(1,wMonth4Creat,wYear4Creat)));
+  var tcEndDate : comp; tcEndDate := comp(LongInt(pOsFun.LastDayDate(date(1,wMonth4Creat,wYear4Creat))));
+
+  // Отбор операций действие которых заканчивается в заданном периоде и по
+  // которым необходимо сформировать операции восстановления значений.
+  MTClear(tnTOrigMoveList,mfNormal);
+  insert into TOrigMoveList (DatOb,NoDoc,DatEnd,cMoveOs)
+  select MoveOs.DatOb, MoveOs.NoDoc, From_Days(LongInt(MoveOs.cOldMol)), MoveOs.NRec
+  from MoveOs
+  where
+  ((
+     pwTiDk        ==  MoveOs.TipDoc  and
+     tcBegDate     <<= MoveOs.cOldMol and
+     tcEndDate     >>= MoveOs.cOldMol and
+     cgOs_9_ChgPar ==  MoveOs.SysOper (noIndex) and
+     (not HaveAllReverseOperations(MoveOs.NRec))
+  ));
+
+  if ( RecordsInTable(tnTOrigMoveList) = 0 )
+  {
+    Message('В заданном периоде нет операций для которых'#13+
+            'необходимо формирование возврата значений ИК',
+            Information+CancelButton);
+    exit;
+  }
+
+  RunWindowModal(wiOrigOper);
+
+  if (not bContCreate)
+    exit;
+
+  StartNewVisual(vtIndicatorVisual,vfTimer,
+                 'Формирование возврата значений по списку операций',
+                 RecordsInTable(tnTOrigMoveList));
+  _loop TOrigMoveList
+  {
+    NextVisual;
+
+    if ( GetOsList(TOrigMoveList.cMoveOs,0) <= 0 )
+      continue;
+
+    CreateOperationsOnOsList(TOrigMoveList.cMoveOs,TOrigMoveList.DatEnd);
+
+    MTClear(tnTOsList,mfNormal);
+    MTClear(tnTNewMoveList,mfNormal);
+  }
+  MTClear(tnTOrigMoveList,mfNormal);
+  StopVisual('',0);
+}
+
+HandleEvent
+cmOnVipLoad:
+{
+  wVidop := cgOs_9_ChgPar;
+
+  CurDescr   := sGetTune('User.Descr');
+  CurDesGr   := sGetTune('User.DesGr');
+  case TipDock of
+    15 : CurVisible := wGetTune('OS.VISIBLE');
+    16 : CurVisible := wGetTune('NMA.VISIBLE');
+  end;
+}
+
+cmTreeTop       : cSMSNode := 0;
+cmTreeUp        : cSMSNode := SpMoveOsTr.cHigherOs;
+cmTreeDown      : cSMSNode := SpMoveOsTr.NRec;
+cmTreeNodeType  : if SpMoveOsTr.isLeaf = 1
+                    TreeSetNodeType(trRevOperKat, 2);
+end;
+end.
+
+#end

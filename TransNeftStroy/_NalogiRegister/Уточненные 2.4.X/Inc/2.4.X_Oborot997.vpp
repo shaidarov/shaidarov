@@ -1,0 +1,312 @@
+procedure writeDateTime(_index : word);
+{
+  xlMergeCells(_index,1,_index,3);
+  xlSTWriteToMatrix(_index,1,DateToStr(Cur_Date,'DD.MM.YYYY') +' '+TimeToStr(Cur_Time,'HH:MM:SS'));
+}
+
+procedure SetVidRab(_KauOS2 : comp);
+{
+  if GetFirst SpKau997 where ((_KauOS2 == SpKau997.Nrec))= tsOk
+  {
+    TabStoimStruct.Vid  := SpKau997.Name;
+    TabStoimStruct.cVid := SpKau997.Nrec;
+  }
+}
+procedure SetPodrazd(_Podr : comp);
+{
+  if (Getfirst KatPodrFin997 where((_Podr == KatPodrFin997.nrec))=tsok)
+  {
+    TabStoimStruct.Podrazd := KatPodrFin997.Name;
+    TabStoimStruct.cPodrazd := KatPodrFin997.Nrec;
+  }
+}
+function GetNalogShet(_shet, _subshet: string) : string;
+{
+  if SubStr(_shet,1,1) <> 'N'
+  {
+  if GetFirst BUHSCHET where (('N9'+_shet == BUHSCHET.SCHET
+                            and _subshet == BUHSCHET.SUBSCH)) = tsOk
+    GetNalogShet:= '9'+_shet+'.'+_subshet
+  else
+    if GetFirst BUHSCHET where (('N9'+_shet == BUHSCHET.SCHET )) = tsOk
+      GetNalogShet:= '9'+_shet
+    else
+      GetNalogShet:='Нет в НУ!';
+  }
+  else
+    GetNalogShet:= _shet+'.'+_subshet
+}
+#declare InsertStoimStuct(OborotTab, OK)
+  SpKau997.Nrec :=0;
+  for (KAUInd:=cFirstKau; KAUInd<cLastKau;KAUInd:=KAUInd+1)
+  {
+    if (#OborotTab.TBL#(OK)S[KAUInd] = 20009)
+      if GetFirst SpKau997 where((#OborotTab.KAU#(OK)S[KAUInd] == SpKau997.Nrec))=tsOk
+        break;
+  }
+   Sc := SubStr(#OborotTab.SCHET#(OK),2,3);
+   Sc1 := #OborotTab.SUBOSSCH;
+   if Sc='920'
+     or Sc='923'
+     or Sc='925'
+     or Sc='926'
+     or Sc='991'
+     or Sc='944'
+     or (Sc='929' and Sc1 = '01')
+     or (Sc='929' and Sc1 = '02')
+     or sc999 = true
+    {
+      if GetFirst TabStoimStruct where ((   KatOS.nrec == TabStoimStruct.cTabKatOS
+                                     and           Sc  == TabStoimStruct.Schet
+                                     and SpKau997.Nrec == TabStoimStruct.cVid
+                                     and #OborotTab.KODSP#(OK)   == TabStoimStruct.cPodrazd  )) != tsOK
+      {
+        ClearBuffer(tnTabStoimStruct);
+        TabStoimStruct.Schet := SC;
+        TabStoimStruct.cTabKatOS:=KatOS.nrec;
+        if #OborotTab.TBL#(OK)S[KAUInd] = 20009
+          SetVidRab(#OborotTab.KAU#(OK)S[KAUInd])
+        else
+          TabStoimStruct.cVid := 0;
+        SetPodrazd(#OborotTab.KodSP#(OK));
+        TabStoimStruct.Percent     := _Percent;
+        TabStoimStruct.SumOplVh    := _SumOplVh;
+        TabStoimStruct.SumNachVh   := _SumNachVh;
+    //    TabStoimStruct.UtochSum    :=
+        insert current TabStoimStruct;
+      }
+      else
+      {
+        TabStoimStruct.Percent     := TabStoimStruct.Percent + _Percent;
+        TabStoimStruct.SumOplVh    := TabStoimStruct.SumOplVh + _SumOplVh;
+        TabStoimStruct.SumNachVh   := TabStoimStruct.SumNachVh + _SumNachVh;
+        update current TabStoimStruct;
+      }
+      LogStrToFile('C:\Log244.log',KatOS.NameOS+' Д'+Oborot997_34.SCHETO+'.'+Oborot997_34.SUBOSSCH+' К'+Oborot997_34.SCHETK+'.'+Oborot997_34.SUBSCHK +' от '+Oborot997_34.DatOb+' '+Oborot997_34.SUMOB);
+    }
+  //  LogStrToFile('C:\Gal810\24X_4.log','KatOS.InNum='+KatOS.InNum+'Sc='+Sc+'_SumOplVh='+_SumOplVh+'_SumNachVh='+_SumNachVh+'_Percent='+_Percent);
+#end
+
+Procedure GetIzmStoim;
+{
+  sumMove := 0;
+  _Loop spMoveOs
+  {
+    sumMove := sumMove + SpMoveOs.NewSumizn - SpMoveOs.OldSumizn;
+  }
+}
+
+//function FiltShet  : boolean;
+//{
+//  FiltShet := false;
+//
+//  filt1:=true;
+//  if SubStr(Oborot97.SCHETO,1,1) <> 'N'
+//  for (KAUInd:=cFirstKau; KAUInd<cLastKau;KAUInd:=KAUInd+1)
+//  {
+//    if (Oborot97.TBLOS[KAUInd] = 20054)
+//      if GetFirst SpKau997 where((Oborot97.KAUoS[KAUInd] == SpKau997.Nrec))=tsOk
+//        if SpKau997.CODE = '001002'
+//        {
+//          filt1:= false;
+//          break;
+//        }
+//
+//  }
+//  filt2:=false;
+//    if SubStr(Oborot97.SCHETO,1,1) <> 'N'
+//      Sc := '9'+SubStr(Oborot97.SCHETO,2,2);
+//  if Sc='920'
+//    or Sc='923'
+//    or Sc='925'
+//    or Sc='926'
+//    or Sc='991'
+//    or Sc='944'
+//      filt2:=true;
+//
+//  if Sc = '929'
+//    if Oborot97.SUBOSSCH <> ''
+//      Sc :=SC+'.'+Oborot97.SUBOSSCH;
+//
+//   if Sc='929.01' or Sc='929.02'
+//      filt2:=true;
+//
+//
+//  if (Filt1 = true) and (Filt2 = true)
+//    FiltShet := true;
+//}
+
+procedure GetSaldo997_34;
+{
+  Saldo997_34 := 0;
+  if (isvalidall(#SALDMOUN997_34))
+  {
+    logStrToFile('C:\Col11', 'Расчитывается сальдо по 997.34(Дебет -, Кредит +)');
+   _loop SALDMOUN997_34
+     if SALDMOUN997_34.VIOB = word(2)
+     {
+       Saldo997_34 := Saldo997_34 + SALDMOUN997_34.sums;
+       logStrToFile('C:\Col11','Это складывается '+KatOs.NameOs +' '+SALDMOUN997_34.DBSCHETO+'.'+SALDMOUN997_34.SUBOSSCH+' '+ ' '+SALDMOUN997_34.sums );
+     }
+     else
+       if SALDMOUN997_34.VIOB = word(1)
+       {
+         Saldo997_34 := Saldo997_34 - SALDMOUN997_34.sums;
+         logStrToFile('C:\Col11','Это отнимается '+KatOs.NameOs +' '+SALDMOUN997_34.DBSCHETO+'.'+SALDMOUN997_34.SUBOSSCH+' '+ ' '+SALDMOUN997_34.sums );
+       }
+
+  }
+}
+
+procedure GetSaldo997_33;
+{
+ Saldo997_33 := 0;
+ if (isvalidall(tnSALDMOUN))
+ {
+ logStrToFile('C:\Col11', 'Расчитывается сальдо по 997.33(Дебет +, Кредит -)');
+ _loop SALDMOUN
+ {
+   if SALDMOUN.VIOB = word(1)
+   {
+     Saldo997_33 := Saldo997_33 + SALDMOUN.sums;
+     logStrToFile('C:\Col11','Это складывается '+KatOs.NameOs +' '+SALDMOUN.DBSCHETO+'.'+SALDMOUN.SUBOSSCH+' '+ ' '+saldmoun.sums );
+   }
+   else
+     if SALDMOUN.VIOB = word(2)
+     {
+       Saldo997_33 := Saldo997_33 - SALDMOUN.sums;
+       logStrToFile('C:\Col11','Это отнимается '+KatOs.NameOs +' '+SALDMOUN.DBSCHETO+'.'+SALDMOUN.SUBOSSCH+' '+ ' '+saldmoun.sums );
+     }
+ }
+ }
+}
+procedure GetUtochSum;
+{
+  if VidDecl <> 0
+    _loop  Oborot997_34_Utoch
+    {
+     Sc := SubStr(Oborot997_34_Utoch.SCHETO,2,3);
+     Sc1 := Oborot997_34_Utoch.SUBOSSCH;
+     if Sc='920'
+       or Sc='923'
+       or Sc='925'
+       or Sc='926'
+       or Sc='991'
+       or Sc='944'
+       or (Sc='929' and Sc1 = '01')
+       or (Sc='929' and Sc1 = '02')
+      if Oborot997_34_Utoch.DatOb < DataProv
+      {
+        SumUtoch997_34 :=  SumUtoch997_34 + Oborot997_34_Utoch.SUMOB;
+        VsegoUtoch997_34 := VsegoUtoch997_34 + Oborot997_34_Utoch.SUMOB;
+      }
+      if Oborot997_34_Utoch.SCHETO = 'N999'
+      {
+         SumProv999 :=  SumProv999 + Oborot997_34_Utoch.SUMOB;
+         VsegoSumm999 := VsegoSumm999 + Oborot997_34_Utoch.SUMOB;
+      }
+    }
+}
+Procedure GetOborot97_01;
+{
+  Var  Ob997_34D : double;
+  Oborot97_01 :=0;
+  Ob997_34D :=0;
+  SumUtoch997_34 :=0;
+  LogStrToFile('C:\Log244.log','Обороты которые вычтутся из общей суммы проводок');
+  _loop Oborot997_34D
+  {
+    sc := SubStr(Oborot997_34D.SCHETK,2,3);
+    Sc1 := Oborot997_34D.SUBSCHK;
+    if Sc='920'
+      or Sc='923'
+      or Sc='925'
+      or Sc='926'
+      or Sc='991'
+      or Sc='944'
+      or (Sc='929' and Sc1 = '01')
+      or (Sc='929' and Sc1 = '02')
+#ifdef With999
+      or Sc='999'
+#endIf
+   {
+     Ob997_34D := Ob997_34D + Oborot997_34D.SUMOB;
+     LogStrToFile('C:\Log244.log',KatOS.NameOS+' Д'+Oborot997_34D.SCHETO+'.'+Oborot997_34D.SUBOSSCH+' К'+Oborot997_34D.SCHETK+'.'+Oborot997_34D.SUBSCHK +' от '+Oborot997_34D.DatOb+' '+Oborot997_34D.SUMOB);
+   }
+  }
+  LogStrToFile('C:\Log24x.log','Общая сумма проводок');
+  _Loop Oborot997_34
+  {
+    sc := SubStr(Oborot997_34.SCHETO,2,3);
+    Sc1 := Oborot997_34.SUBOSSCH;
+    if Sc='920'
+      or Sc='923'
+      or Sc='925'
+      or Sc='926'
+      or Sc='991'
+      or Sc='944'
+      or (Sc='929' and Sc1 = '01')
+      or (Sc='929' and Sc1 = '02')
+#ifdef With999
+      or Sc='999'
+#endIf
+   {
+     Oborot97_01 := Oborot97_01 + Oborot997_34.SUMOB;
+     LogStrToFile('C:\Log24x.log',KatOS.NameOS+' Д'+Oborot997_34.SCHETO+'.'+Oborot997_34.SUBOSSCH+' К'+Oborot997_34.SCHETK+'.'+Oborot997_34.SUBSCHK +' от '+Oborot997_34.DatOb+' '+Oborot997_34.SUMOB);
+   }
+  }
+
+  Oborot97_01 := Oborot97_01-Ob997_34D;
+}
+
+procedure GetOborot997_33;
+{
+  var OborotK : double;
+
+  Oborot997_33:= 0;
+  OborotK := 0;
+  logStrToFile('C:\Col11', 'Рассчитываются проводки по К997.33');
+  _Loop Oborot997_33K
+  {
+    OborotK := OborotK + Oborot997_33K.SUMOB;
+    LogStrToFile('C:\Col11.log',KatOS.NameOS+' Д'+Oborot997_33K.SCHETO+'.'+Oborot997_33K.SUBOSSCH+' К'+Oborot997_33K.SCHETK+'.'+Oborot997_33K.SUBSCHK +' от '+Oborot997_33K.DatOb+' '+Oborot997_33K.SUMOB);
+  }
+
+  if (isvalidall(tnOborot))
+  {
+    logStrToFile('C:\Col11', 'Рассчитываются проводки по L997.33');
+    _Loop Oborot
+    {
+      Oborot997_33 := Oborot997_33 + oborot.SUMOB;
+      LogStrToFile('C:\Col11.log',KatOS.NameOS+' Д'+Oborot.SCHETO+'.'+Oborot.SUBOSSCH+' К'+Oborot.SCHETK+'.'+Oborot.SUBSCHK +' от '+Oborot.DatOb+' '+Oborot.SUMOB);
+    }
+  }
+  logStrToFile('C:\Col11', KatOS.NameOS+' Д997.33 - K997.33 = ' + Oborot997_33+'-'+OborotK);
+  Oborot997_33 := Oborot997_33 - OborotK;
+  logStrToFile('C:\Col11', '='+Oborot997_33);
+}
+
+procedure FillTabStoim;
+{
+
+  var sc999: boolean;
+  GetOborot97_01;
+  LogStrToFile('C:\Log24x.log','Тут формируется структура суммы');
+    if (isvalidall(tnOborot997_34))
+    {
+      _Loop Oborot997_34
+      {
+
+        _Percent := Oborot997_34.SUMOB/Oborot97_01*100;
+        _SumOplVh := 0;
+        _SumNachVh := 0;
+        sc999:=false;
+#ifdef With999
+     sc := SubStr(Oborot997_34.SCHETO,2,3);
+     if Sc='999'
+       sc999:=true;
+#endIf
+        #InsertStoimStuct(Oborot997_34,O)
+      }
+    }
+}

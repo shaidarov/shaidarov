@@ -1,0 +1,458 @@
+
+#include UserReport.vih
+VipInterface UserReport_SprKomand Implements IUserReport;
+
+Interface UserReport_SprKomand;
+
+Create view;
+
+!-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+begin
+  RuninterfaceNoModal('SpravkaKomand');
+end;
+!-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'Справка о нахождении работника в командировке';
+end;
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Отчеты завода "Турбодеталь"
+//     Движение ПФ между участками производства
+
+ function GetGroupName (Level : Word) : String;
+ begin
+   GetGroupName := '';
+ //  case Level of
+ //    1 : GetGroupName := 'Ведомости ...';
+ //  end;
+ end;
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 1;
+end;
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := 'STAFFMAINMENU';
+  end;
+end;
+!-------------------------------------------------------------------------------
+End.
+
+#include KatOrgAttr.vih
+//#include PAFILTER.VIH
+#include GetKau.vih            // Обьектный интерфес выбора КАУ
+Interface SpravkaKomand 'Справка о нахождении работника в командировке', dialog
+show at (,,57,12)
+table Struct PM
+(
+  Nrec : comp
+)
+with index
+(
+ i0 = Nrec
+)
+;
+var
+  iKatOrgAttr : KatOrgAttr;
+  DataChanged : Boolean;
+  dateBeg, dateEnd : date;
+  FiltrSotr : string;
+  Marker, k : longint;
+  MarkerName: string;
+  NRECPRIK : comp;
+  PodpisDolzhn,
+  PodpisFIO : string;
+
+#include GetKau.var     // Переменная типа "Интерфеса выбора КАУ"
+create view
+var
+
+/*#include PAFILTER.VAR
+ (
+ FiltrPodr,
+ FiltrPublic
+
+ )   */
+as select
+// #include -filtr1.vpp  // вычисляемые поля для фильтров по сотрудн. и подразд.
+ *
+from
+/* CurLSchet,
+ ,
+ lschet,
+ KatPodr,
+ lschet  lschetN,
+ PERSONS PERSONSN, */
+ PERSONS,
+ PERSONS snPERSONS,
+ PERSONS PERSONS2,
+ lschet lschet2,
+ FORMARKS,
+ CATALOGS  CATALOGS2,
+ KatPodr KatPodr2,
+ SpPrikaz snSpPrikaz,
+ SpPrikaz,
+ Prikaz,
+ KatOrg,
+ PM,
+ PM snPM
+where
+((
+       PM.Nrec == Persons2.nRec
+ and  1        == SpPrikaz.TipDoc
+ and PM.Nrec  /== SpPrikaz.cPersons
+ and SpPrikaz.cLSCH == lschet2.Nrec
+
+ and dateBeg <<= Prikaz.dEND   (NoIndex)
+ and dateEnd >>= Prikaz.DSTART (NoIndex)
+ and
+    (1 = Prikaz.status
+     or 2 = Prikaz.status
+     or 5 = Prikaz.status
+     or 7 = Prikaz.status
+    )
+ and SpPrikaz.cPrikaz /== Prikaz.nRec
+ and lschet2.CEX       == KatPodr2.Nrec
+ and 'USER.DESCR'    == TuneDef.Code
+ and TuneDef.Nrec    == TuneVal.cTune
+ and sgettune('USER.DESCR')  == TuneVal.StrVal    (noindex)
+ and TuneVal.cUser   == x$Users.Atl_Nrec
+
+// and PERSONS2.APPOINTFIRST == APPOINTMENTS.Nrec
+// and lschet2.CAPPOINT  == CATALOGS2.Nrec
+
+ //and LSchet2.nRec  == SpPrikaz.cLsch
+
+
+
+//#include -filtr2.vpp
+
+))
+;
+Form frmSpr('Prot_SpravkaKomand.OUT','Prot_SpravkaKomand')
+;
+parameters
+  NRECPRIK
+
+Screen ScSets 'Настройки отчета';
+//Table Zar_User;
+Fields
+  dateBeg  ('Дата начала формирования')    : NoProtect;
+  dateEnd  ('Дата окончания формирования') : NoProtect;
+ // FiltrPodr('Заданный фильтр по подразделению', ,sci13Esc) :protect;
+  FiltrSotr('Выберите сотрудника', ,sci13Esc):protect,quickChoice;
+  PodpisDolzhn ('Должность подписывающего лица') : NoProtect;
+  PodpisFIO    ('ФИО подписывающего лица') : NoProtect;
+buttons
+ cmOk,,,'Печать';
+ cmCancel,,,'Выход';
+<<
+
+   Период     `с` .@@@@@@@@@@@@ `по` .@@@@@@@@@@@@
+
+  `Сотрудник` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   `Подписант`
+    `Должность`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `ФИО`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     <.   Печать   .>         <.   Отмена   .>
+>>
+end; // of Screen
+
+
+//#include PAFILTER.VPP
+procedure GetSotr;
+{
+  var mCount, m1 : word;
+  var cKau : comp;
+  QuickChoiceName := 'qcKau_Needed';
+  cKau := comp(0);
+  mCount := iGetKau.GetCodeKau(cgiPickMult or if (mCount>0, cgiNotClear, 0), cgKau_Persons, cKau);
+  if mcount > 1
+    FiltrSotr := 'По '+mcount+' сотрудникам'
+   else
+     if GetFirst Persons where ((cKau == Persons.Nrec)) = tsOk
+       FiltrSotr := Persons.FIO;
+     else
+       FiltrSotr := 'Не выбран!';
+   delete all from PM;
+   if mcount > 1
+   {
+     MarkerName := iGetKau.GetMarkerName(cgKau_Persons);
+     Marker := InitMarker(MarkerName, 8, 100, 5);
+     for (m1:=0; m1<mCount; m1++)
+     {
+       ClearBuffer(#snPM);
+       GetMarker(Marker, m1,cKau);
+       snPM.Nrec := cKau;
+       insert current snPM;
+     }
+     DoneMarker(Marker, MarkerName);
+   }
+   else
+     if cKau <> comp(0)
+     {
+      snPM.Nrec := cKau;
+      insert current snPM;
+     }
+  RereadREcord;
+
+}
+HandleEvent
+cmInit:
+{
+  var cKau: comp;
+  if (not ReadMyDSK(dateBeg, #__InterfaceName__+'dateBeg', true)) {}
+  if (not ReadMyDSK(dateEnd, #__InterfaceName__+'dateEnd', true)) {}
+  if (not ReadMyDSK(PodpisDolzhn, #__InterfaceName__+'PodpisDolzhn',true)) {}
+
+  if (not ReadMyDSK(PodpisFIO,    #__InterfaceName__+'PodpisFIO',true))
+    if getfirst TuneDef = tsOk
+      if getfirst TuneVal = tsOk
+        if getfirst x$Users = tsOk
+        {
+          PodpisFIO := x$Users.xU$FullName;
+        }
+  if GetFirst snSpPrikaz where ((NRECPRIK == snSpPrikaz.cPrikaz))=tsok
+  {
+    cKau := snSpPrikaz.cPersons;
+    if GetFirst snPersons where ((cKau == snPersons.Nrec)) = tsOk
+      FiltrSotr := snPersons.FIO;
+    else
+      FiltrSotr := 'Не выбран!';
+    delete all from snPM;
+    snPM.Nrec := cKau;
+    insert current snPM;
+  }
+  RereadREcord;
+
+/*  if not FillMarks
+  {
+    abort;
+    exit;
+  }
+  ReReadRecord(#Zar_User);  */
+}
+
+cmPick:
+{
+
+  case CurField of
+    // кау
+    #FiltrSotr:
+    {
+      GetSotr;
+    }
+   end;
+   ReReadRecord;
+} // cmPick
+cmOpenSearch:
+{
+  ProcessCommand(cmPick);
+}
+
+cmOk:
+{
+  var NPP : word;
+  var Col : word;
+  var TotalKol : double;
+  // шапка
+    StartNewVisual(vtIndicatorVisual,vfBreak + vfTimer + vfConfirm,'Формирование отчета',
+    RecordsInTable(#Formarks));
+//  _loop lschet2
+   if getFirst PM <> tsOk
+   {
+     message('Выбранные сотрудники не были в командировках',Information);
+     if (VisualizationActive())
+       stopvisual('',0);
+     exit;
+   }
+   col := 0;
+    _Loop PM
+    {
+      if (NOT NextVisual)
+      {
+        PutCommand(cmError);
+        StopVisual('', 0);
+        Exit;
+      }
+
+      if GetFirst KatOrg where ((cogettune('MYORG')==KatOrg.Nrec))=tsOk
+      {
+        frmSpr.write(KatOrg.Name);
+        frmSpr.write(KatOrg.UNN);
+        frmSpr.write(sgettune('KOD_UCHET'));
+        frmSpr.write(iKatOrgAttr.GetJurAddr(KatOrg.Nrec));
+
+        frmSpr.write(Cur_date);
+      }
+      else
+        frmSpr.SkipFormat(4);
+
+       //------------- Фио -----
+   //   if (GetFirst lschet2  = tsOk)
+       if GetFirst PERSONS2 = tsOk
+          frmSpr.write(PERSONS2.FIO);
+        else
+          frmSpr.write('');
+
+       //-------------- должность -----
+       If (getfirst appointments where ((persons2.APPOINTCUR==appointments.nrec))=tsOK)
+       {
+        If (getfirst catalogs2 where ((Appointments.Post ==catalogs2.nrec))=tsOK)
+          frmSpr.write(CATALOGS2.NAME);
+        else
+          frmSpr.write('');
+       }
+       else
+       /*  If (getfirst appointments where ((persons2.APPOINTFIRST==appointments.nrec))=tsOK)
+         {
+            If (getfirst catalogs2 where ((Appointments.Post ==catalogs2.nrec))=tsOK)
+              frmSpr.write(CATALOGS2.NAME);
+            else
+              frmSpr.write('');
+         }
+         else                  */
+         frmSpr.write('');
+
+      NPP := 0;
+      TotalKol := 0;
+      _loop SpPrikaz
+      {
+        if GetFirst Prikaz = tsok
+        {
+          NPP++;
+          frmSpr.write(NPP);
+          frmSpr.write(DatetoStr(PRIKAZ.DSTART,'DD.MM.YYYY'));
+          frmSpr.write(DatetoStr(PRIKAZ.DEND,'DD.MM.YYYY'));
+          frmSpr.write(PRIKAZ.KOLDAY);
+          frmSpr.write(PRIKAZ.Mesto);
+          TotalKol:= TotalKol + PRIKAZ.KOLDAY;
+        }
+      }
+      frmSpr.PutEvent(feBreak);
+      frmSpr.write(TotalKol);
+
+      frmSpr.write(PodpisDolzhn);
+      frmSpr.write(PodpisFIO);
+
+      PushPos(#PM);
+      if GetNext PM = tsOk
+        frmSpr.write('1');
+      else
+        frmSpr.write('');
+      PopPos(#PM);
+    }
+    frmSpr.PutEvent(feBreak);
+    if (VisualizationActive())
+      stopvisual('',0);
+    frmSpr.showFile('Печать справки');
+}
+
+cmClose:
+{
+  SaveMyDsk(dateBeg, #__InterfaceName__+'dateBeg');
+  SaveMyDsk(dateEnd, #__InterfaceName__+'dateEnd');
+  SaveMyDsk(PodpisDolzhn, #__InterfaceName__+'PodpisDolzhn');
+  SaveMyDsk(PodpisFIO,    #__InterfaceName__+'PodpisFIO');
+  DoneMarker(Marker,MarkerName);
+}
+
+cmDelOnProtect:
+{
+   case CurField of
+    // кау
+    #FiltrSotr:
+    {
+      FiltrSotr:= 'Не выбран';
+      delete all from PM;
+      ClearMarker(Marker);
+    }
+    end;
+  ReReadRecord;
+} //cmDelOnProtect
+end;
+end.
+
+.form 'Prot_SpravkaKomand'
+.hide
+.fields
+ sMyKatOrgName
+ sMyKatOrgUNN
+ sMyKPP
+ sMyJurAddr
+ dDateForm
+ sFIO
+ sDolzhn
+
+    wNPP
+    PRIKAZ_DSTART
+    PRIKAZ_DEND
+    PRIKAZ_KOLDAY
+    PRIKAZ_Mesto
+
+ wTotalKol
+
+ sPodpisDolzhn
+ sPodpisFIO
+
+ SpecSimv
+.endfields
+
+.{
+
+  ^ ^ ^ ^ ^ ^ ^
+.{
+  ^ ^ ^ ^ ^
+.}
+^
+^ ^
+^
+.}
+
+.endform
+
+.LinkForm 'RUN_SpravKomand' Prototype is 'KOMPRIK'
+.Group 'Ком док'
+.NameInList 'Справка о нахождении работника в командировке'
+.begin
+  RunInterface('SpravkaKomand', comp(NRECPRIK));
+  RUN_SpravKomand.fbreak;
+  RUN_SpravKomand.fexit;
+end.
+.{
+.}
+.endform
+
+.LinkForm 'RUN_SpravKomand' Prototype is 'PRIKR'
+.NameInList 'Справка о нахождении работника в командировке'
+.if MYFILTRR3
+.else
+.end
+.begin
+  RunInterface('SpravkaKomand', comp(0));
+  RUN_SpravKomand.fbreak;
+  RUN_SpravKomand.fexit;
+end.
+.{
+.{
+.{CheckEnter PRIKRETAP
+.}
+.}
+.}
+.endform

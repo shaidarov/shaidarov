@@ -1,0 +1,251 @@
+#include PlPorSimple.vih
+#include ChkSoprHoz.vih
+
+Interface UnitedPersonsSFO 'UnitedPersonsSFO' EscClose DoAccept;
+ show at (0,0,60,13);
+create view
+var
+  piPlPor   : PlPorSimple   ;
+  bufPlPor  : TPlPor        ;
+  arDoc     : TInfoDocument ;
+  iChkSH    : ChkSoprHoz    ;
+
+  cDoc
+, cHoz
+, _PlanSch
+            : comp;
+  DateSaldo
+            : date;
+  KodPodr
+, Schet
+, SchetSub
+, SchetO                                      // счёт без кода плана счетов
+, pTiDk
+            : string;
+  pSchet
+, iPers
+, iMC
+            : byte;
+as select * from
+  synonym SaldMoun SaldMounK
+, synonym SaldMoun SaldMounD
+, synonym Persons  PersonsK
+, synonym Persons  PersonsD
+, synonym KatPodr  KatPodrK
+, synonym KatPodr  KatPodrD
+, PlPor
+, Oborot
+where ((  _PlanSch               == SaldMounK.cPlansSch
+      and DateSaldo              == SaldMounK.DateSal
+      and Schet                  == SaldMounK.SchetO
+      and SchetSub               == SaldMounK.SubOsSch
+      and 2                      == SaldMounK.ViOb         (noIndex)     // 2 - Кредит
+      and SaldMounK.KauOs[iPers] == PersonsK.nRec
+
+      and _PlanSch               == SaldMounD.cPlansSch
+      and DateSaldo              == SaldMounD.DateSal
+      and Schet                  == SaldMounD.SchetO
+      and SchetSub               == SaldMounD.SubOsSch
+      and 1                      == SaldMounD.ViOb         (noIndex)     // 1 - Дебет
+      and SaldMounD.KauOs[iPers] == PersonsD.nRec
+
+      and SaldMounK.KodSPO      /== KatPodrK.nRec
+      and SaldMounD.KodSPO      /== KatPodrD.nRec
+      and KodPodr               <<= KatPodrK.Kod            (noIndex)
+      and KodPodr+1              >> KatPodrK.Kod            (noIndex)
+      and KodPodr               <<= KatPodrD.Kod            (noIndex)
+      and KodPodr+1              >> KatPodrD.Kod            (noIndex)
+      ))
+bounds pers013 =
+          0                      << SaldMounK.TblOs[3]      (noIndex)    // где заполнены Сотрудники
+      and 0                      << SaldMounD.TblOs[3]      (noIndex)
+bounds pers1009 =
+          0                      << SaldMounK.TblOs[5]      (noIndex)
+      and 0                      << SaldMounD.TblOs[5]      (noIndex)
+
+bounds mc013 =
+          SaldMounK.TblOs[2]     == SaldMounD.TblOs[2]      (noIndex)
+      and SaldMounK.KauOs[2]     == SaldMounD.KauOs[2]      (noIndex)
+bounds mc1009 =
+          SaldMounK.TblOs[3]     == SaldMounD.TblOs[3]      (noIndex)
+      and SaldMounK.KauOs[3]     == SaldMounD.KauOs[3]      (noIndex)
+;
+
+screen Peram ('Параметры формирования бух.справки',,sci1EnEsc)
+fields
+  DateSaldo  : noProtect;
+  KodPodr    : noProtect;
+  pSchet     : noProtect;
+buttons
+  cmOk,Default,,'Создать бух.справку',hcAllBOk;
+  cmCancel,,,'Отмена';
+<<
+ Создание бух.справки для сворачивания Аналитики "Работник" по Спецодежде
+ с разными Лицевыми счетами, но одной карточкой учёта СФО
+
+ `Дата сальдо для анализа`   .@@@@@@@@@@
+ `Код подразделения (первый символ)` .@@
+
+ Счёт для анализа:
+ (.) 013   `
+ (.) 10.09 `
+
+
+          <. Создать бух.справку .>  <.  Отмена  .>
+>>
+end;
+
+HandleEvent
+
+cmInit: {
+  _PlanSch := 28147497671065602;
+  iPers        := 5;
+  iMC          := 3;
+}
+
+cmOk:{
+StartNewVisual(vtRotateVisual, vfTimer+vfThread, 'Сворачивается аналитика по Работникам', 1);
+  if BoundActive(tbPers013 )  SubBounds(tbPers013 ) ;
+  if BoundActive(tbPers1009)  SubBounds(tbPers1009) ;
+  if BoundActive(tbMc013   )  SubBounds(tbMc013   ) ;
+  if BoundActive(tbMc1009  )  SubBounds(tbMc1009  ) ;
+
+ case pSchet of
+   0: { Schet    := 'T013';
+        SchetSub := ''    ;
+        SchetO   := '013' ;
+        iPers    := 3     ;
+        iMC      := 2     ;
+        AddBounds(tbPers013);
+        AddBounds(tbmc013);
+   }
+   1: { Schet    := 'T10' ;
+        SchetSub := '09'  ;
+        SchetO   := '10'  ;
+        iPers    := 5     ;
+        iMC      := 3;
+        AddBounds(tbPers1009);
+        AddBounds(tbmc1009);
+   }
+ end;
+
+ case KodPodr of
+   1: { pTiDK := '10'   ; }
+   2: { pTiDK := '10231'; }
+   3: { pTiDK := '10232'; }
+   4: { pTiDK := '10233'; }
+   5: { pTiDK := '10234'; }
+ end;
+
+
+  piPlPor.PlPor_Fill(bufPlPor, pTiDK, sGetTune('User.DesCr'), cur_date, cur_date);
+
+ // дополнительно заполнить свои поля
+  bufPlPor.TiDk    := pTiDK;
+  bufPlPor.TiDkGal := 10;
+  bufPlPor.ModeDoc := 1024;
+  bufPlPor.NoDok   := month(DateSaldo) + '_' + KodPodr;
+  bufPlPor.DesCr   := sGetTune('User.DesCr');
+  bufPlPor.DesGr   := sGetTune('User.DesGr');
+  bufPlPor.NamePl1 := 'Сворачивание Аналитики "Работник" по Спецодежде с разными Лицевыми счетами, но одной карточкой учёта СФО';
+
+  cDoc  := piPlPor.PlPor_insert(bufPlPor);
+  arDoc := piPlPor.GetDocBuff(bufPlPor);
+  cHoz  := iChkSH.CreateOneSoprHoz(arDoc);
+
+  piPlPor.PlPor_CheckSH(bufPlPor, cgMakeDoc);
+
+  _Loop SaldMounK {
+    _Loop SaldMounD {
+      NextVisual();
+      if ( PersonsK.FIO <> PersonsD.FIO ) {Continue;}
+
+      ClearBuffer(#Oborot);
+      Oborot.cSoprDoc   := cDoc;
+      Oborot.cSoprHoz   := cHoz;
+      Oborot.DatOb 		  := cur_date;
+    	Oborot.NoDok      := month(DateSaldo) + '_' + KodPodr;
+      Oborot.TiDk       := pTiDK;
+      Oborot.TiDkGal    := 10;
+
+    	Oborot.SchetO	 	  := Schet;
+    	Oborot.SubosSch   := SchetSub;
+    	Oborot.SchetK  		:= Schet;
+    	Oborot.SubSchK    := SchetSub;
+    	Oborot.dbSchetO		:= SchetO;
+    	Oborot.krSchetK		:= SchetO;
+    	Oborot.cPlansSch  := _PlanSch;
+      Oborot.DesCr      := sGetTune('User.DesCr');
+      Oborot.DesGr      := sGetTune('User.DesGr');
+    	Oborot.KodSpO	  	:= SaldMounK.KodSPO;
+    	Oborot.KodSpK 		:= SaldMounD.KodSPO;
+    	Oborot.SumOb	    := SaldMounK.SumS;
+    	Oborot.Kol        := SaldMounK.Kol;
+    	Oborot.cEd 	      := SaldMounK.cEd;
+      Oborot.RuchAuto   := 1;
+
+    	Oborot.TblOs      := SaldMounK.TblOs;
+    	Oborot.KauOs      := SaldMounK.KauOs;
+
+    	Oborot.TblKs      := SaldMounD.TblOs;
+    	Oborot.KauKs      := SaldMounD.KauOs;
+      Insert current Oborot;
+
+      Break;                                      // сделали одну проводку по паре Сальдо и хватит - смотрим дальше следующее Красное сальдо
+    }
+  }
+  StopVisual('',0);
+  message('Создана бух.справка № ' + month(DateSaldo) + '_' + KodPodr + ' от ' + cur_date);
+}
+
+end;
+
+end.
+
+
+
+
+#include UserReport.vih
+
+VipInterface UserReport_UnitedPersonsSFO Implements IUserReport;
+
+Interface UserReport_UnitedPersonsSFO;
+
+create view;
+
+HandleEvent
+cmInit: {}
+cmCancel: {}
+end; // HandleEvent
+
+procedure Run; { RunInterface(UnitedPersonsSFO); }
+
+function GetReportName: String;
+begin
+  GetReportName := 'Сворачивания Аналитики "Работник" по Спецодежде';
+end;
+
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+!    1 : GetGroupName := 'ENN????';
+!    2 : GetGroupName := 'a??>>a 2';
+  end;
+end;
+
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := 'SFO';
+  end;
+end;
+!-------------------------------------------------------------------------------
+
+end. // interface

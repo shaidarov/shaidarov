@@ -1,0 +1,283 @@
+
+var  stmt, vliSQLCommand : longint;
+var  sql_log :string;
+
+
+create view vChkFlter
+var wc_podr:comp;
+    wUsername:string;
+    wTable :word;
+    wCode  :word;
+    wc_link:comp;
+    w_grpodr:string;
+as select katpodr.nrec
+from katpodr,katlink, grpodr
+where (( wc_podr == katpodr.nrec
+// для проверки по настройкам
+and  wUsername == katlink.OWNNAME
+and  wTable == katlink.CODETABLE 
+and  wCode  == katlink.code
+and  wc_link == katlink.CREC(noindex)
+and  wc_link == grpodr.nrec
+)) ;
+
+//******************************************************************************
+Procedure LogSql(const ww :string);
+{ if sql_log=''
+  { sql_log:=GetStringParameter('Files','OutputFilesDirectory',0)+ '!sql_form.log'
+    if FileExist(sql_log) DeleteFile(sql_log)
+  }
+  logstrtofile(sql_log,ww)
+} //Procedure LogSql(const ww :string);
+
+//******************************************************************************
+Function GetErr(w : word) : string;
+var ErrMsg : string;
+{
+  case w of
+    CfErrObjectTypeNotExist:      ErrMsg := 'Тип объекта не существует';
+    CfErrObjectTypeAlreadyExist:  ErrMsg := 'Тип объекта уже существует';
+    CfErrObjectNotExist:          ErrMsg := 'Объект не существует';
+    CfErrObjectAlreadyExist:      ErrMsg := 'Уже есть объект с таким именем, как у создаваемого объекта';
+    CfErrContainerObjectNotExist: ErrMsg := 'Контейнер не существует';
+    CfErrPropNotExist:            ErrMsg := 'Свойство не существует';
+    CfErrPropAlreadyExist:        ErrMsg := 'Свойство уже существует';
+    CfErrObjectSelfAlreadyExist:  ErrMsg := 'Уже есть объект с заданным указателем (Self''ом)';
+    CfErrContainerSelfNotExist:   ErrMsg := 'Не найден контейнер с заданным указателем (Self-''ом)';
+    CfErrCantEditProp:            ErrMsg := 'Нельзя редактировать указанное свойство';
+    CfErrPropValueError:          ErrMsg := 'Значение поля не совместимо по типу с указанным свойством';
+    CfErrCantCreateObject:        ErrMsg := 'Нельзя создать объект в указанном контейнере';
+    CfErrCreateObjectError:       ErrMsg := 'Не получилось создать объект';
+    CfErrObjectStorageNotCreated: ErrMsg := 'Вызвана функция управления ObjectStorage, а объект не создан';
+    CfErrInternalBadCommand:      ErrMsg := 'Неизвестная команда сервисных функций';
+    CfErrBadFieldType:            ErrMsg := 'Не того типа параметр';
+    CfErrBadFind:                 ErrMsg := 'Атом не найден';
+    CfErrMustBeUnsigned:          ErrMsg := 'Значение типа cftUnsignedInteger меньше 0';
+    0:                            ErrMsg := '';
+  else                            ErrMsg := 'Неопознанная ошибка. Код: ' + w;
+  end;
+
+  GetErr := ErrMsg; 
+}
+
+
+
+
+//******************************************************************************
+
+Procedure ClearQuery(var liHandle : longint);
+{
+  if (liHandle <> 0)
+    {
+      sqlFreeStr(liHandle);
+      liHandle := 0;
+    }
+}
+
+
+
+//******************************************************************************
+Procedure PrepareSQLQuery(const sSQL : string);
+{
+  if (Trim(sSQL) <> '')
+    {
+      sqlAddStr(vliSQLCommand, sSQL); 
+      LogSql(sSQL)
+    }
+}
+
+
+
+//******************************************************************************
+Function FitchExec(const IdTable : longint) : longint;
+{
+  FitchExec := 0;
+
+  var vliErrorCode : longint;
+                                           
+  LogSql( 'Fetch в таблицу			>> Старт');
+  vliErrorCode := sqlFetchInto(stmt, IdTable);
+  LogSql( 'Fetch в таблицу			>> Стоп : ' + string(vliErrorCode));
+
+  FitchExec := vliErrorCode;
+}
+
+
+
+//******************************************************************************
+Function ExecDSQLex(const IdTable : longint) : longint;
+{
+  ExecDSQLex := 0;
+
+  var vliErrorCode : longint;
+
+  LogSql( 'Подготовка SQL запроса');
+
+  if (IdTable <> 0)
+    vliErrorCode := sqlPrepare(stmt, vliSQLCommand);
+
+  if (vliErrorCode = 0)
+    {
+      if (IdTable <> 0)
+        {
+          LogSql( 'Выполнение SQL запроса Execute	>> Старт');
+      
+          vliErrorCode := sqlExecute(stmt);
+
+          LogSql( 'Выполнение SQL запроса Execute	>> Стоп : ' + string(vliErrorCode));
+          vliErrorCode := FitchExec(IdTable);
+
+
+        }
+      else
+        {
+          LogSql( 'Выполнение SQL запроса ExecDirect	>> Старт');
+
+          vliErrorCode := sqlExecDirect(vliSQLCommand);
+
+          LogSql( 'Выполнение SQL запроса ExecDirect	>> Стоп : ' + string(vliErrorCode));
+        }
+
+
+      ClearQuery(vliSQLCommand);
+    }
+  else
+    LogSql( 'Подготовка SQL запроса	>> ошибка №' + string(vliErrorCode));
+    
+  sqlFreeStmt(stmt);
+  ClearQuery(vliSQLCommand);
+
+  ExecDSQLex := if (vliErrorCode < 30000, 0, vliErrorCode); 
+}
+
+
+
+//===================================
+// пересоздать таблицу TempVib
+//===================================
+Procedure CreateTempVib;
+{ sqlDropTmpTable ( 'TEMPVIB' ); //На всякий случай дропнем
+  sqlCreateTmpTable ( 'Table TEMPVIB ( WLIST:word, CREC:comp) with index (a1 = wlist+crec);', ctmNormal );  
+
+} //Procedure CreateTempVib;
+
+
+
+//===================================
+// проверить на разрешенные группы подразделений
+//===================================
+Function ChkFlterGrPodr(ww_nrec:comp):boolean;
+{ ChkFlterGrPodr:=False;
+  vChkFlter.wc_podr:=ww_nrec;
+  if vChkFlter.getfirst fastfirstrow katpodr<>0 then exit;
+  vChkFlter.wUserName:=UserName()
+  vChkFlter.wTable:=coGrPodr;
+
+// кажись wc_link никто не заполнял, и катлинку нечему подцепиться самой группы не было
+  vChkFlter.wc_link:= vChkFlter.katpodr.CGRPODR;
+  vChkFlter.wCode:=0
+  if vChkFlter.getfirst fastfirstrow katlink<>0 then exit;
+  if vChkFlter.getfirst fastfirstrow grpodr=0
+   if pos(vChkFlter.grpodr.name,vChkFlter.w_grpodr)=0 then 
+     vChkFlter.w_grpodr:=vChkFlter.w_grpodr+if(length(vChkFlter.w_grpodr)=0,'','; ')+vChkFlter.grpodr.name;
+  ChkFlterGrPodr:=True;
+} //Function ChkFlterGrPodr(ww_nrec:comp):boolean;
+
+//==============================
+// Добавить одиночный фильтр
+//==============================
+Function InsTempVibOne(ww_wlist:word;ww_Item:comp):boolean;
+var
+   num_column:longint;
+{  InsTempVibOne:=False;
+   stmt := sqlAllocStmt;
+   ClearQuery(vliSQLCommand);
+   PrepareSQLQuery('insert into TEMPVIB (WLIST,CREC) values (?,?)');
+   sqlPrepare(stmt, vliSQLCommand)
+   num_column:=1;
+   sqlBindParam(stmt,  num_column, ww_wlist);inc(num_column);
+   sqlBindParam(stmt,  num_column, ww_Item);inc(num_column);
+   SqlFreeStr(vliSQLCommand)
+   if SqlExecute(stmt)=0
+   { InsTempVibOne:=True;
+   }
+   SqlFreeStmt(stmt)
+}//Function InsTempVibOne(ww_wlist:word;ww_Item:comp):boolean;
+
+//=====================================
+// Добавить фильтр по маркеру
+//=====================================
+Function InsTempVibByMarker(ww_list:word;ww_marker:longint):boolean;
+var
+ ii:longint;
+ ii_count:longint;
+ ww_nrec:comp;
+ ww_flt:word;
+{ InsTempVibByMarker:=False
+  ii_count:=GetMarkerCount(ww_marker)
+  ww_flt:=0
+  vChkFlter.w_grpodr:='';
+  if ww_list=11
+  { if(sGetTune('PICK.CGRPODR')<>'')
+    ww_flt:=ww_flt or 1
+  }//if ww_list=11
+  for(ii:=0;ii<ii_count;ii:=ii+1)
+  { if not nextvisual then exit;
+    if GetMarker(ww_marker,ii,ww_nrec)
+    { if ww_list=11 and (ww_flt and 1)>0
+      { if not ChkFlterGrPodr(ww_nrec) then continue;
+      }
+      if not  InsTempVibOne(11,ww_nrec) then exit
+    }
+  } //for(ii:=0;ii<ii_count;ii:=ii+1)
+  InsTempVibByMarker:=True;
+} //Function InsTempVibByMarker(ww_list:word;ww_marker:longint):boolean;
+
+//===================================
+// Добавить фильтр по доступным группам подразделений
+//===================================
+Function InsTempVibByGrPodr(ww_list:word): boolean;
+var
+   num_column:longint;
+   ww_Username:string;
+{  InsTempVibByGrPodr:=False;
+   stmt := sqlAllocStmt;
+   ClearQuery(vliSQLCommand);
+   PrepareSQLQuery('insert into TEMPVIB (WLIST,CREC) select ?,katpodr.nrec from katlink');
+   PrepareSQLQuery('inner join katpodr on katpodr.cgrpodr = katlink.CREC ');
+   PrepareSQLQuery('where ? = katlink.OWNNAME and 1414 = katlink.CODETABLE and 0 = katlink.CODE');//1414 = coGrpodr
+   sqlPrepare(stmt, vliSQLCommand)
+   num_column:=1;
+   sqlBindParam(stmt,  num_column, ww_list);inc(num_column);
+   ww_Username:=UserName()
+   sqlBindParam(stmt,  num_column, ww_Username);inc(num_column);
+   ClearQuery(vliSQLCommand)
+   if SqlExecute(stmt)=0
+   { InsTempVibByGrPodr:=True;
+   }
+   SqlFreeStmt(stmt)
+} //Function InsTempVibByGrPodr(ww_list:word): boolean;
+
+//===================================
+// Добавить фильтр по всем подразделений
+//===================================
+Function InsTempVib_All(ww_list:word): boolean;
+var
+   num_column:longint;
+{  InsTempVib_All:=false;
+   LogSql('InsTempVib_All 1')
+   stmt := sqlAllocStmt;
+   ClearQuery(vliSQLCommand);
+   PrepareSQLQuery('insert into TEMPVIB (WLIST,CREC) select '+string(ww_list)+',katpodr.nrec from katpodr');
+   sqlPrepare(stmt, vliSQLCommand)
+   //num_column:=1;
+   //sqlBindParam(stmt,  num_column, ww_list);inc(num_column);
+   LogSql('InsTempVib_All 2')
+   ClearQuery(vliSQLCommand)
+   LogSql('InsTempVib_All 3')
+   if SqlExecute(stmt)=0
+   { InsTempVib_All:=True;
+   }
+   LogSql('InsTempVib_All 4')
+   SqlFreeStmt(stmt)
+} //Function InsTempVibByGrPodr(ww_list:word): boolean;

@@ -1,0 +1,178 @@
+#include Persons_chk.frn
+#ifndef __TrudogTNFForm__
+#define __TrudogTNFForm__
+! Макроопределение для вставки в секции .var присоединенной формы
+#declare TrudogTNFLinkVar
+.var
+  iadr: AddressFunc;  // iadr.GetNamePlace_City(KATPODR.CUSER)
+  Doc_DD ,Doc_MM, Doc_YYYY :string;
+  Doc_pens,Doc_Inn :string ;
+  FioRuk,DolRuk:string
+  SrokZ:word;
+
+  OrgAddr,OrgInn,AdrPodrF,AdrPodr4,OrgCity : String;
+  AdrPodr:string ;
+  OrgAddr_2 :string ;
+  DovUst:string;
+  Nom_Dover : String;
+  Date_Dover : String;
+  FIO1, DolRuk1,DolRuk2,DolRuk3,DolRuk4, Podrname1, Podrname2, PodrName3, PodrName4, FioRuk1, FioRuk2, DolRukF :string
+
+  Podrname :string;
+
+  iOdecl : declension;
+  iOSfunc : StringFunctions
+  NrecRuk,NrecPodr,NrecOrg:comp;
+  wdate:date ;
+.endvar
+#end // TrudogTNFLinkVar
+#declare TrudogTNFViews
+.create view vPassp
+var
+ w_person :comp
+ w_syscode  : word
+from passports
+where (( w_person == passports.person
+  and w_syscode == passports.syscode
+)) ;
+!-----------------------------
+.create view t1
+Var podrnrec:comp;
+from katpodr,katorg where ((podrnrec==katpodr.nrec and katpodr.corg==katorg.nrec and katorg.ccity==katcity.nrec));
+!-----------------------------
+.create view t2
+From XARPRED,katpodr,katorg where ((XARPRED.cpol==katorg.nrec and katorg.nrec==katpodr.corg));
+!-----------------------------
+.create view tview3
+Var fiosotr:string;
+select * from persons (Readonly) ,lschet (ReadOnly),catalogs (ReadOnly)
+where (('С'==persons.isemployee and fiosotr==persons.fio
+   //and persons.nrec==lschet.tperson
+   //and lschet.cappoint==catalogs.nrec
+   and if(persons.appointcur>0,persons.appointcur,persons.appointlast) == appointments.nrec
+   and appointments.post == catalogs.nrec
+   and #mycDopTblDover==DOPTABLES.NMBTBL
+   and DOPTABLES.nrec==dopinfo.CDOPTBL
+   and persons.nrec==dopinfo.cperson));
+!-----------------------------
+! Получить номер документа
+!-----------------------------
+.Function GetDocName(ww_person :comp ; wtype :word) :string ;
+var ww :string ;
+begin
+ ww:=''
+ vPassp.w_person := ww_person
+ vPassp.w_syscode:= wtype
+
+ DovUst:='o??aoa';Nom_Dover:='';Date_Dover:='';
+
+ if vPassp.getfirst passports=0
+ { case wtype of
+   505 : ww:=vPassp.passports.nmb ;    // INN
+   501 : ww:=vPassp.passports.nmb ;    // страховое свидетельство
+   end ;
+ }
+ GetDocName:=if(ww='' ,'______________',ww) ;
+ end.
+#end
+!-----------------------------
+! Макроопределение для вставки в секции вывода данных присоединенной формы
+!-----------------------------
+#declare TruDogTNFWork
+.begin
+If (L3.Getfirst Persons = tsOk)
+{ //Doc_pens:=GetDocName(L3.persons.nrec,501)
+  //Doc_Inn :=GetDocName(L3.persons.nrec,505)
+}
+Doc_DD  := DateToStr(StrToDate(Date_Doc,'DD/MM/YYYY'),   'DD')
+Doc_MM  := DateToStr(StrToDate(Date_Doc,'DD/MM/YYYY'),   'mon')
+Doc_YYYY:= DateToStr(StrToDate(Date_Doc,'DD/MM/YYYY'),   'YYYY')
+SrokZ:=Months_Between(StrToDate(AppointDate,'DD/MM/YYYY'),StrToDate(DateEnd,'DD/MM/YYYY'));
+wDate:=cur_date ;
+DovUst:='Устава';Nom_Dover:='';Date_Dover:='';
+
+If (L3.Getfirst Persons = tsOk)
+  if L3.getfirst appointments=0
+   if L3.getfirst appointments=0
+    if L3.getfirst extcatlinks=0
+    If (L3.Getfirst Katpodr = tsOk)
+    {
+!      runinterface(MyPersons_chk,l3.persons.nrec)
+     Podrname:= L3.katpodr.name;
+     AdrPodr:=L3.katpodr.ADDR
+     t1.Podrnrec:=L3.katpodr.nrec;
+     if T1.GetFirst katpodr<>0 then break;
+     T1.podrnrec:=t1.katpodr.cpodr;  // Определяем вышестоящее подразделение
+     Podrname1:=t1.katpodr.name;
+     NrecPodr:=t1.katpodr.nrec;
+     Tview3.fiosotr:=t1.katpodr.fio;
+
+!     If (tview3.getfirst persons=tsok and tview3.getfirst lschet=tsok and tview3.getfirst catalogs=tsOk)
+!     {
+!       FioRuk:= tview3.Persons.FIO;
+!       NrecRuk:= tview3.Persons.nrec;
+!       DolRuk:=tview3.catalogs.name
+!     }
+     do
+     {
+       if T1.GetFirst katpodr<>0 then break;
+
+       T1.podrnrec:=t1.katpodr.cpodr;  // Определяем вышестоящее подразделение
+     }
+//     while t1.katpodr.cpodr<>0 and T1.katpodr.corg=0;
+     while (length(t1.katpodr.kod)<>2 or t1.katpodr.kod='1.66') and T1.katpodr.corg=0;
+     Podrname1:=t1.katpodr.name;
+     NrecPodr:=t1.katpodr.nrec
+     OrgCity:=RTrim(iadr.GetAddrElementEx(t1.KATPODR.CUSER,4,cgAddrFld_Name),'г');
+     Tview3.fiosotr:=t1.katpodr.fio;
+     AdrPodrF:=t1.katpodr.ADDR;
+     If (tview3.getfirst persons=tsok and tview3.getfirst lschet=tsok and tview3.getfirst catalogs=tsOk)
+     { 
+       FioRuk1:= tview3.Persons.FIO;
+       NrecRuk:= tview3.Persons.nrec;
+       if (substr(t1.katpodr.kod,1,2)='1.')
+       {DolRuk1:='Генеральный директор'}
+       else
+       {DolRuk1:='Директор филиала'}
+     }
+    RUNINTERFACE('F_USERREPORT::GetParTruDog',FIORuk1,NrecRuk,DolRuk1,PodrName1,NrecPodr);
+    tview3.fiosotr:=FioRuk1
+     If (tview3.getfirst persons=tsok and tview3.getfirst lschet=tsok and tview3.getfirst catalogs=tsOk)
+     {
+       FioRuk1:= tview3.Persons.FIO;
+//       NrecRuk:= tview3.Persons.nrec;
+//       DolRuk1:=tview3.catalogs.name
+       FioRuk2:= iOdecl.FIODeclension(tview3.Persons.NRec, tview3.Persons.FIO, 2);
+       If (tview3.getfirst doptables=tsok and tview3.getfirst dopinfo=tsok)
+     {  dovUst:='доверенности'
+       Nom_Dover:='№ '+tview3.dopinfo.sfld[1];
+       Date_Dover:=if(tview3.dopinfo.dfld[1]<=Date(01,01,1900),'','от '+DateToStr(tview3.dopinfo.dfld[1],'DD/MM/YYYY')   +' г.');
+     }
+!       DolRuk2:= BossPost
+     }
+!     DolRuk2:= if(DolRuk1='',BossPost,My_Sclonenie(DolRuk1,12) )2
+    DolRuk4:=DolRuk1;
+    Case DolRuk1 of
+    'Генеральный директор':
+    {Dolruk3:='Генерального директора'}
+    'Директор филиала':
+    {Dolruk3:='Директора филиала в городе'}
+    'Заместитель генерального директора':
+    {Dolruk3:='Заместителя генерального директора'}
+    'Начальник управления по работе с персоналом':
+    {Dolruk3:='Начальника управления по работе с персоналом'}
+    'Заместитель директора':
+    {Dolruk3:='Заместителя директора'}
+    'Заместитель директора по экономике':
+    {Dolruk3:='Заместителя директора по экономике'}
+    'Главный инженер':
+    {Dolruk3:='Главного инженера'}
+    end;
+    if (DolRuk1='Директор филиала')
+    {DolRuk1:=DolRuk1+' в городе '+Orgcity;
+    DolRuk3:=DolRuk3+' '+Orgcity;}
+    else {}
+}
+ end.
+#end // TrudogTNFWork
+#end // __TrudogTNFForm__

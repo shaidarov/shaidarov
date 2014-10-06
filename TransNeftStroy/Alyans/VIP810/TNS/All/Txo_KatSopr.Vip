@@ -1,0 +1,1004 @@
+
+/*
+ТДФ00041 от 21/01/2008
+fTT"Сырье и материалы"
+
+возмажна следующая схема работы
+в первой проводке [ЭТАП:"НАЧ"]
+в последующей     [ЭТАП:"СЛЕД"]
+в последней [ЭТАП:"КОН"] (без фильтров)
+тогда все что не отобралось в предыдущих проводках попадет в последнюю
+&VIP_[Obj:"SCHFACT"][ТИП:"ВКЛ"][АТТР:"4612130662701380473"][АТТРФЛТ:"DDD"][СУМ:НДС][ЭТАП:"НАЧ"]
+&VIP_[Obj:"SCHFACT"][ТИП:"ВКЛ"][СУМ:НДС][ЭТАП:"КОН"]
+Измерительные и регулирующие приборы;Вычислительная техника;Транспортные средства;Библиотечный фонд;Прочие активы стоимостью не более 10 тыс. руб.;Инвентарь
+описание изменений
+//20080425 - отключена проверка по партии и отпускной един.измерения
+
+10 по типу мц
+01 = fTT"Сырье и материалы"
+02 = fTT"Покупные полуфабрикаты, комплект., констр., детали"
+03 = fTT"Топливо"
+04 = fTT"Тара и тарные материалы"
+05 = fTT"Запасные части"
+06 = fTT"Строительные материалы"
+07 = fTT"Активы стоимостью не более 10 тыс. руб.;Хоз.инвентарь;Машины и оборудование#"
+     fTT"Измерительные и регулирующие приборы;Вычислительная техника;Транспортные средства#"
+     fTT"Библиотечный фонд;Прочие активы стоимостью не более 10 тыс. руб.;Инвентарь#"     
+08 = fTT"Специальная оснастка и специальная одежда"
+10 = fTT"Прочие материалы"
+11 = fTT"Трубы"
+99 = fU
+
+86 fGP"006"
+
+
+
+
+
+
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                     TEST_txoapi_sCHfACT                                                        │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│Регистр учета: План счетов 2001г. (в ред. Приказа Минфина РФ от 07.05.2003 №38н)                                                │
+├────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────┬───┬────────┤
+│ No │ Корреспонденция                                                                                              │Вх.│ Процент│
+├────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────┼───┼────────┤
+│   1│ ДЕБЕТ : 19.02                                                                                                │ + │100.0000│
+│    │ КАУ 1 : <авто - Организации>                                                                                 │   │        │
+│    │ КАУ 2 : <авто - Материальные ценности>                                                                       │   │        │
+│    │ КАУ 3 : <авто - Документы-основания>                                                                         │   │        │
+│    │ КАУ 4 : <авто - Центры ответственности>                                                                      │   │        │
+│    │ Подразделение: <авто - Подразделения>                                                                        │   │        │
+│    ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤   │        │
+│    │ КРЕДИТ: 68.03                                                                                                │   │        │
+│    │ Подразделение: <авто - Подразделения>                                                                        │   │        │
+│    ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤   │        │
+│    │ Дата проводки: <авто - дата>                                                                                 │   │        │
+│    │ Содержание проводки:                                                                                         │   │        │
+│    │ Алгоритм в НДЕ     : &VIP_[Obj:"SCHFACT"][ТИП:ВКЛ][СУМ:НДС]                                                  │   │        │
+│    │ Алгоритм в валюте <по настройке>:                                                                            │   │        │
+│    │ Алгоритм количество:                                                                                         │   │        │
+│    │ Вычисление формул  : Вычислять все формулы по списку                                                         │   │        │
+│    │ Фильтр для циклической обработки:                                                                            │   │        │
+│    │ Циклическая обработка: <Организации> <Подразделения> <Материальные ценности> <Документы-основания> <Центры   │   │        │
+│    │                        ответственности>                                                                      │   │        │
+│    │ Результат: положительная, при смене знака изменить корреспонденцию счетов                                    │   │        │
+│    │ Сумму в проводке: не конвертировать                                                                          │   │        │
+│    │ Внешняя классификация:                                                                                       │   │        │
+└────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────┴───┴────────┘
+
+
+*/
+
+#ifdef ComponentVersion
+#Component "F_TxoApi"
+#end
+
+#include TxoApi.vih
+
+VipInterface Txo_KatSopr implements ObjTxoIdentPlugin
+#ifdef ATL51
+ licensed (FREE) 
+#endif 
+
+;
+
+Interface Txo_KatSopr cacheable;
+table struct tmp_sch
+( sch :string[20] ,
+  sub :string[20] ,
+  name:string  ,
+  nrec :comp
+)
+with index
+( tmp_sch01 =sch+sub
+) ;
+var
+  wsch ,wsub : string ;
+  wschm ,wsubm : string ;
+  wsch_f,wsub_f: string ;
+  wsch_tp,wsch_tpm,wwsch_tp :word ; // 0 - затратные, 1 - 73 , 2 - 76
+  wwsch ,wwsub: string ;
+  wschet_nrec :comp ;
+  i: longint ;
+create view  vTxo_KatSopr
+var
+  CurSoprHoz : comp;
+  CurSoprDoc : comp;
+  CurDatOb : date;
+  curTidk :longint  ;
+  MyPlansNo:comp ;
+  klfilter:boolean ;
+  tp_filtr :word ; // логическое условие
+  tp_filtr_mcusl :word ; // тип фильтра по мц услугам
+  filtr_mcusl: string ; // фильтр по МЦ
+  filtr_arrtval : string ; // фильтр по внешнему атрибуту  
+  filtr_attrnam :comp ;
+  tp_deist : word ; //для сохранения пометки записей отобранных для проводок 
+                    //0 - нет, 1 - старт,2 - продолжение, 3 - последняя
+  marker_deist :longint ;
+  tp_summ :word ; // 0 - вся сумма, 1 без ндс, 2 ндс
+  marker_spsopr,IndexNoOt,marker_vib :longint ;
+  wnrec :comp ;
+  wcpodr,wcpodrm :comp ; // для поиска счета сбусчета
+  wattr_table :word ; // для вывода атрибутов по таблице
+  wattr_nrec : comp ;
+  w_CKAELEM : comp ;
+  w_cfpco   : comp ;
+  w_cpersons: comp ;
+  w_corg    : comp ;
+  tp_schet  :word ; // 0 - затратные,1 - 73,2 -76
+  wnmdesgr  :string ; // группа организаций по умолчанию
+as select katsopr.nrec 
+from
+  KATSOPR,spsopr
+,attrnam ,attrval 
+,attrnam attrnamk,attrval attrvalk
+,attrnam attrnams,attrval attrvals
+,stepdoc , basedoc
+, katmc,groupmc,katusl , groupusl  
+,katpodr ,grpodr ,KatOrg 
+,KatOrgDescr ,KatOrgDescr KatOrgDescr1
+,fpco,fpco fpco1
+,planssch
+,tmp_sch(tmp_sch01)
+,BUHSCHET
+,sporder , sporder sporder1
+, katotped
+where
+((
+  CurSoprDoc == katsopr.nrec   // накладная
+ AND katsopr.nrec == spsopr.csopr // спецификация
+ AND katsopr.cstepdoc== stepdoc.nrec // до
+ and stepdoc.cbasedoc == basedoc.nrec
+ and MyPlansNo == planssch.nrec // план счетов
+ and w_corg == katorg.nrec // организация
+ and KatOrg.nrec == KatOrgDescr.cRec //группа организаций
+ and 0 << KatOrgDescr.cgroup(noindex)
+ // для установки фильтра по атрибуту
+ and filtr_attrnam == attrnam.nrec
+ and cospsopr == attrval.wtable
+ and filtr_attrnam ==attrval.cattrnam
+ and spsopr.nrec == attrval.crec
+ // тип спецификации 
+ and spsopr.cmcusl ==katmc.nrec
+ and katmc.cgroupmc == groupmc.nrec
+ and spsopr.cmcusl ==katusl.nrec
+ and katusl.cgroupusl == groupusl.nrec
+ // отпускная единица измерения
+ and spsopr.cotped == katotped.nrec
+ // для поиска ордеров
+ and spsopr.nrec == sporder.cspsopr // приход
+ and 0 == sporder.vidorder
+ and spsopr.nrec == sporder1.cspsopr // расход
+ and 1 == sporder1.vidorder
+ // для вывода анешних атрибутов по таблицам
+ and wattr_table == attrnamk.wtable
+ and wattr_table == attrvalk.wtable
+ and attrnamk.nrec ==attrvalk.cattrnam
+ and wattr_nrec == attrvalk.crec
+ // для поиска центров ответственности
+ and w_cfpco  == fpco.nrec
+ and fpco.cnode == fpco1.nrec
+ // объект целевого учета
+ and cospsopr     == SpecMTR.coTable  
+ and spsopr.nrec  == SpecMTR.cSpec
+ // для поиска подразделений
+ and wcpodr == katpodr.nrec
+ and katpodr.cgrpodr  == GRPODR.Nrec
+// счет субсчет во внешнем атрибуте
+ and wattr_table    == attrnams.wtable
+ and 'Счет/субсчет' == attrnams.name
+ and wattr_table    == attrvals.wtable
+ and attrnams.nrec  == attrvals.cattrnam
+ and wattr_nrec     == attrvals.crec
+// группа организаций по умолчанию
+ and 1 == KATORGDESCR1.code
+ and 0 == KATORGDESCR1.CGROUP
+ and wnmdesgr ==  KatOrgDescr1.name
+// and SPSCHF.PRNONDS ==spsopr.price 
+// and SPSCHF.PRICE   ==SPSOPR.PRICE 
+));
+Const
+  idVipInfo        = '&VIP[Obj:"SchFact"]';
+  idVipTag         = 'SchFact';
+end;
+//**************************Наименование интерфейса
+function GetInfo : string;
+{
+  GetInfo := 'Формирование проводок по книге покупок';
+}
+//**************************выбор параметров
+function ParamGen : string;
+{  var s : String;
+   s:='' ;
+   s :='['+'ТИП:'+chr(34)+if(tp_filtr=0,'ВКЛ','ИСКЛ')+chr(34)+']';
+   if tp_filtr_mcusl>0
+   { s :=s+'['+'ТИПМЦУСЛ:'+chr(34)+string(tp_filtr_mcusl)+chr(34)+']';
+     s :=s+'['+'ФЛТМЦУСЛ:'+chr(34)+filtr_mcusl+chr(34)+']';
+   }
+   if filtr_attrnam>0
+   {  s :=s+'['+'АТТР:'+chr(34)+string(filtr_attrnam)+chr(34)+']';
+      s :=s+'['+'АТТРФЛТ:'+chr(34)+string(filtr_arrtval)+chr(34)+']';
+   }
+   if tp_summ>0
+   { s:=s+'[СУМ:' //[
+     case tp_summ of 
+     1:s:=s+'"НДС"' ;
+     2:s:=s+'"БЕЗНДС"' ;
+     3:s:=s+'"NREC"' ;
+     4:s:=s+'"ПРИХ"' ;
+     5:s:=s+'"РАСХ"' ;
+     end ;
+     s:=s+ ']';    
+   }
+   case tp_deist of
+   1: s:=s+'[ЭТАП:"НАЧ"]';
+   2: s:=s+'[ЭТАП:"СЛЕД"]';
+   3: s:=s+'[ЭТАП:"КОН"]';
+   end ;
+   if wsch_f<>''
+   { s:=s+'[СЧЕТ:"'+wsch_f+'"]';
+     if wsub_f<>''
+        s:=s+'[СУБСЧ:"'+wsub_f+'"]';
+   }
+   else
+   { case tp_schet of
+     1: s:=s+'[ТИПСЧ:"ЗАТР"]' ;
+     2: s:=s+'[ТИПСЧ:"73"]' ;
+     3: s:=s+'[ТИПСЧ:"76"]' ;
+     end ;
+   }  
+   ParamGen := s;
+}
+//**************************Разбор параметров при обработке в ТХО
+procedure ParamParser(hTxo : longint);
+var 
+!   s : String;
+    i : Longint;
+{  tp_filtr :=0 ;tp_filtr_mcusl:=0 ;filtr_mcusl:='' ; 
+   tp_schet:=0 ;
+   filtr_attrnam:=0 ;filtr_arrtval:='' ;tp_summ:=0 ;
+   wsch_f:='' ;wsub_f:=''
+   for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   { 
+     case TxoParamName(hTxo,i) of
+     'ТИП'      : tp_filtr :=if(TxoParamValue(hTxo,i)='ИСКЛ',1,0) ;
+     'ТИПМЦУСЛ' : tp_filtr_mcusl:=word(TxoParamValue(hTxo,i))   ;
+     'ФЛТМЦУСЛ' : set filtr_mcusl:=TxoParamValue(hTxo,i)        ;
+     'АТТР'     : set filtr_attrnam:=comp(TxoParamValue(hTxo,i));
+     'АТТРФЛТ'  : set filtr_arrtval:=TxoParamValue(hTxo,i)      ;
+     'СУМ'      : 
+     { case TxoParamValue(hTxo,i) of
+       'НДС' : tp_summ:=1 ;
+       'БЕЗНДС' : tp_summ:=2 ;
+       'NREC' :tp_summ:=3 ;
+       'ПРИХ' :tp_summ:=4 ;
+       'РАСХ' :tp_summ:=5 ;
+       else tp_summ:=0 ;
+       end ;
+     }  
+     'ЭТАП' :
+     { case TxoParamValue(hTxo,i) of
+       'НАЧ' : tp_deist:=1;
+       'СЛЕД': tp_deist:=2;
+       'КОН' : tp_deist:=3;
+       end ;
+     }
+     'ТИПСЧ' :
+     { case TxoParamValue(hTxo,i) of
+       'ЗАТР': tp_schet:=1;
+       '73'  : tp_schet:=2;
+       '76'  : tp_schet:=3;
+       else {  tp_schet:=0;}
+       end ;
+     }
+     'СЧЕТ':
+     { wsch_f:=TxoParamValue(hTxo,i) ;
+     }
+    'СУБСЧ':
+     { wsub_f:=TxoParamValue(hTxo,i) ;
+     }
+     end ;
+   }
+   Rereadrecord ;
+
+} //procedure ParamParser(hTxo : longint);
+
+//**************************Окно Фейса
+Window winParam 'Параметры идентификатора' (,,sci13Esc) EscClose, DoAccept;
+Show at (10,1,90,28);
+Screen scInfo 'Информация';
+table attrnam;
+Fields
+ tp_filtr : noprotect ;
+ tp_filtr_mcusl: noprotect ;
+ filtr_mcusl : noprotect,pickbutton ;
+ tp_deist ('служит для пометки записей,чтобы предотвратить дальнейшее формирование') : [list 0 'Общий','Начало пометки','Продолжение','Конец'],protect ;
+ Attrnam.name : protect ,pickbutton ;
+ filtr_arrtval : noprotect ;
+ tp_summ : [list 0 'Вся сумма','НДС','БЕЗ НДС','NREC','Цена пр.ордера','Цена расх.ордера'],protect ;
+ tp_schet: [list 0 'Все','Затратные','73(сотрудники)','76(организация)'],protect ;
+ wsch_f : noprotect ;
+ wsub_f : noprotect ;
+   buttons
+        cmOk, default,, '',,;
+        cmCancel,,, '',,;
+<<
+ Установка параметров
+ Вид фильтра по спецификации    'Режим 0'
+ (.) входит в фильтр   `        'подр.,мол куда'
+ (.) не входит в фильтр`        'объект строит.из спец.'
+ Фильтровать по МЦ/Услугам      'счет/субсчет из подр.'
+ (.) Нет       `                'Режим 1'
+ (.) Только МЦ `                'по вн.атриб.к спец.'  
+ (.) По заданой МЦ`             'счет/субсчет из группы МЦ'
+ (.) По заданой Группе МЦ`      'Режим 2'  
+ (.) Только Услуги`             'по вн.атриб.к накл.'  
+ (.) По заданой Услуге`         'Режим 9 код 9999'
+ (.) По заданой Группе Услуг`   'spsopr.nrec'
+ Значение фильтра
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   Тип работы
+ Фильтр по атрибуту спец. накладной   .@@@@@@@@@@@@@@
+ Атрибут  .@@@@@@@@@@@@@@@@@@@@@@@@@
+ Значение .@@@@@@@@@@@@@@@@@@@@@@@@@
+ Тип суммы.@@@@@@@@@@@@@@@@@@@@@@@@@ 
+ Тип счета.@@@@@@@@@@@@@@@@@@@@@@@@@ или Счет .@@@@ Субсч .@@@
+   <.~П~родолжить.>                             <.Отмена.>
+>>
+End;
+
+HandleEvent
+  cmCheckField :
+  { case curfield of
+    #tp_filtr_mcusl :filtr_mcusl:='' ;
+    end ;
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+    RescanPanel(#attrnam) ;
+
+  } //cmCheckField :
+  cmIdle:
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  cmInit :
+    {
+      SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+      RescanPanel(#attrnam) ;
+      MyPlansNo:=0 ;
+      // так то все подкэшируется
+      tp_filtr :=0 ;tp_filtr_mcusl:=0 ;filtr_mcusl:='' ; 
+      filtr_attrnam:=0 ;filtr_arrtval:='' ;tp_summ:=0 ;
+   
+    }
+  cmPick:
+  { case curfield of
+    #filtr_mcusl: 
+    { wnrec:=0 ;
+/*      
+Parameters
+   wIntMode  // Режим выбора  1 - один.выбор
+  ,wKatKau   // Исходная выбираемая аналитика (Например, Код синонима)
+  ,cKau      // Выбранная запись
+  ,Markers   // Рабочий маркер - надо инициализировать
+  #ifdef AddKauParameters
+    #AddKauParameters
+  #end
+*/      
+      marker_vib:=InitMarker('marker_vib', 8, 200, 10) 
+      ClearMarker(marker_vib) ;
+      case tp_filtr_mcusl of
+      2 : 
+      { runinterface(F_GETAN::GTCGKAU_KATMC,1,4,wnrec,marker_vib)
+        if getfirst katmc where (( wnrec == katmc.nrec ))=0 then filtr_mcusl:=katmc.barkod
+      }
+      3: {
+        runinterface(F_GETAN::GTCGKAU_GroupMc,1,8,wnrec,marker_vib)
+        if getfirst GroupMc where (( wnrec == groupmc.nrec ))=0 then filtr_mcusl:=groupmc.kod
+      }
+      5: {
+        runinterface(F_GETAN::GTCGKAU_KATUSL,1,5,wnrec,marker_vib)
+        if getfirst katUSL where (( wnrec == katusl.nrec ))=0 then filtr_mcusl:=katusl.kod
+      }
+      6:{
+        runinterface(F_GETAN::GTCGKAU_Groupusl,1,9,wnrec,marker_vib)
+        if getfirst GroupuSL where (( wnrec == groupusl.nrec ))=0 then filtr_mcusl:=groupusl.kod
+      }
+      end ; //case tp_filtr_mcusl of
+      ClearMarker(marker_vib) ;
+      DoneMarker(marker_vib, 'marker_vib') ;
+    } //#filtr_mcusl: {
+    #Attrnam.name : 
+    {
+      runinterface(C_EXTCLASS::PICKATTRNAM, filtr_attrnam , coSpSopr ) ;
+    }  //#Attrnam.name : {
+    end;
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+    RescanPanel(#attrnam) ;
+  } //cmPick:
+  cmDelOnProtect :
+  { message('1') ;
+    case curfield of
+    #filtr_mcusl:{SET  filtr_mcusl:='' ;}
+    #Attrnam.name :
+    { SET filtr_attrnam:=0 ;
+      message('2 '+string(filtr_attrnam)) ;
+    }
+    end ;
+    RescanPanel(#attrnam) ;
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  }  //cmDelOnProtect :
+  cmOk :
+  { MyPlansNo:=1
+    closewindow(winParam) ;
+  }
+End;
+End; //Window winParam 'Параметры идентификатора' (,,sci13Esc) EscClose, DoAccept;
+
+
+window wngetsch 'Выбор счета субсчета' (,,sci13Esc) EscClose, DoAccept;
+browse brgetsch ;
+table tmp_sch ;
+fields
+  tmp_sch.sch 'Счет' :[10],protect ;
+  tmp_sch.sub 'СубСчет':[10],protect ; 
+  tmp_sch.name 'Наименование' :[40],protect ;
+end;
+HandleEvent
+cmDefault :
+{ wwsch:=tmp_sch.sch ;
+  wwsub:=tmp_sch.sub ;
+}
+end ;
+end ;  //window wngetsch
+  
+  
+
+//**************************Мастер параметров
+function ParamMaster : string;
+{  ParamMaster := '';
+   if( RunWindowModal(winParam)=cmDefault ) or MyPlansNo=1
+   {  //PackFields;
+      ParamMaster := ParamGen;
+   }
+}
+//************ для вывода аналитик по внешним атрибутам
+Procedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+{ set wAttr_table :=wwtable ;
+  set wAttr_nrec  :=wwnrec ;
+  _loop fullcache attrnamk
+  { if attrnamk.AttrType=5 and isvalid(#attrvalk)
+    { if attrvalk.vcomp>0
+      { if attrnamk.ROBJECT=5017 and w_CKAELEM=0 then w_CKAELEM:=attrvalk.vcomp ; // элемент затрат
+        TxoBodyAddKau(hTxo, wwFlKau_Mode, attrnamk.ROBJECT, attrvalk.vcomp)        
+        TxoDebugMsg(hTxo, 'TXO_KatSopr','аналитика к таблице '+string(wAttr_table)+',значение='+attrvalk.vstring+',режим='+string(wwFlKau_Mode)+'/'+string(attrnamk.ROBJECT)+'/'+string(attrvalk.vcomp))
+      }  
+    } //if attrnamk.AttrType=5 and isvalid(#attrvalk)
+  } //_loop attrnamk
+} //Proccedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+
+//************ для получения счета субсчета из внешнего атрибута
+Function GetSchetAttr(wwtable :word ;wwnrec :comp ) :string ;
+{ GetSchetAttr:='' ;
+  set wAttr_table :=wwtable ;
+  set wAttr_nrec  :=wwnrec ;
+  if getfirst fastfirstrow attrnams=0
+  { if getfirst fastfirstrow attrvals=0
+    { if getfirst fastfirstrow buhschet where (( attrvals.vcomp == buhschet.nrec ))=0
+      { GetSchetAttr:=substr(buhschet.schet,2,20) ;
+      } 
+    } //if getfirst attrvals=0 
+  } //if getfirst attrnams=0
+} //Function GetSchetAttr(wwtable :word ;wwnrec :comp ) :string ;
+
+//************ для установки счета субсчета во внешний атрибут
+Function SetSchetAttr(wwtable :word ;wwnrec :comp ; wnrecbuh:comp ) : boolean ;
+{ SetSchetAttr:=false ;
+  set wAttr_table :=wwtable ;
+  set wAttr_nrec  :=wwnrec ;
+  if getfirst fastfirstrow attrnams=0
+  { if getfirst fastfirstrow attrvals<>0
+    { insert into attrvals set
+         attrvals.WTABLE:=wAttr_table 
+        ,attrvals.CATTRNAM :=attrnams.nrec
+        ,attrvals.CREC :=wAttr_nrec
+    }
+    if getfirst fastfirstrow buhschet where (( wnrecbuh == buhschet.nrec ))=0
+    { update current attrvals  set    
+         attrvals.VSTRING:= buhschet.schet+'.'+buhschet.subsch+' '+buhschet.name ,
+         attrvals.VCOMP  :=buhschet.nrec ;
+      SetSchetAttr:=true ;   
+    }     
+  } //if getfirst attrnams=0
+} //Function GetSchetAttr(wwtable :word ;wwnrec :comp ) :string ;
+
+//********** ищем счет/субсчет по группе подразделений
+Function GetSchetByGrPodr(htxo:longint ; wtp :word ) :string ;
+{   
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-','Ищем счет по группе подразделений в  '+chr(39)+katpodr.name+chr(39))
+    case wtp of
+    1: { wwsch_tp:=wsch_tpm ; wwsch:=GetSchetAttr(coKatsopr,katsopr.nrec ) ; }
+    2: { wwsch_tp:=wsch_tp  ;wwsch:=GetSchetAttr(cospsopr,spsopr.nrec ) ; }
+    end ;
+    wwsub:='' ;
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-', 'Счет в атрибутах к '
+       + if(wtp=1,'накладной','спец.')
+       +' = '+wwsch+',тип='+string(wwsch_tp) ) ;
+    if wwsch=''
+    {if wwsch_tp=1 
+     { wwsch:='73' ; wwsub:='02' ; // будет вшит в ТХО :)
+     }
+     else
+     if wwsch_tp=2 
+     { wwsch:='76' ; wwsub:='17' ; // будет вшит в ТХО :)
+     }
+     else
+     {
+      if getfirst fastfirstrow grpodr=0
+      { 
+        TxoDebugMsg(hTxo, 'TXO_KatSopr-','Группа подразделений = '+grpodr.name) ;
+        if pos(':',grpodr.name)>0
+        { wwsch:=trim(substr(grpodr.name,1,pos(':',grpodr.name)-1))
+          if pos('.',wwsch)>0
+          { wwsub:=substr(wwsch,pos('.',wwsch)+1,10)
+            wwsch:=substr(wwsch,1,pos('.',wwsch)-1)
+          }
+        }
+        else //if pos(':',grpodr.name)>0
+        { TxoDebugMsg(hTxo, 'TXO_KatSopr-','ищем счет по выбору !!! ') ;
+        
+          delete all tmp_sch ;
+          i:=0 ;
+          do 
+          { i:=i+1 ;
+            wwsch:=trim(ExtractDelimitedWord(grpodr.name,i,'/')) ;
+            if wwsch<>''
+            { wwsch:=planssch.kod+wwsch ;
+                insert tmp_sch select
+                 substr(buhschet.schet,2,20),buhschet.SUBSCH,buhschet.name,buhschet.nrec
+                where (( wwsch /==  buhschet.schet )) ;
+              TxoDebugMsg(hTxo, 'TXO_KatSopr-','выбрали для счета '+string(wwsch)) ;  
+            }
+          }   while wwsch<>''
+          wwsch:='' ;
+          if katsopr.vidsopr<>101 and katsopr.vidsopr<>201 // материалы не идут сразу на затраты
+          { if getfirst tmp_sch=0
+            { RunWindowModal(wngetsch) ;
+              if wwsch<>''
+              { case wtp of
+                1 : SetSchetAttr(coKatsopr,katsopr.nrec ,tmp_sch.nrec ) ;
+                2 : SetSchetAttr(cospsopr,spsopr.nrec ,tmp_sch.nrec ) ;
+                end ;
+              }
+            }  
+          }  
+        } //else if pos(':',grpodr.name)>0
+      }  //if getfirst grpodr=0
+     } 
+    } //if wwsch='' 
+    else wwsub:=buhschet.subsch ;
+  
+    case wtp of 
+    1 : { wschm:=wwsch ;wsubm :=wwsub ;}
+    2 : { wsch:=wwsch ;wsub :=wwsub ;}
+    end ;
+    GetSchetByGrPodr:=wwsch ;
+} //Function GetSchetByGrPodr(htxo:longint ; wtp :word ) :string ;
+
+//**************************ОСНОВНАЯ ПРОЦЕДУРА ОБРАБОТКИ ТХО
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+var 
+   wstr:string ;
+   wkoef_main : double ;
+//   wkoef_pos  : double ;
+   wsu :double  ;
+   wsuval:double ;
+{
+  set CurSoprDoc := buf.cSoprDoc;
+  set CurSoprHoz := buf.cSoprHoz;
+  set CurDatOb := buf.DatOb;
+  set CurTidk := buf.TidkGal;
+  set MyPlansNo:= buf.cplanssch ;
+  ParamParser(hTxo);
+  TxoAllowRecallStoreCycles(hTxo);
+  
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','tp_filtr='+string(tp_filtr))
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','tp_filtr_mcusl='+string(tp_filtr_mcusl))
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','filtr_mcusl='+filtr_mcusl)
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','tp_deist='+string(tp_deist))
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','filtr_attrnam='+string(filtr_attrnam))
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','filtr_arrtval='+filtr_arrtval)
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','tp_summ='+string(tp_summ))
+  TxoDebugMsg(hTxo, 'TXO_KatSopr','tp_schet='+string(tp_schet))
+  if wsch_f<>''
+  { tp_schet:=999 ;
+    TxoDebugMsg(hTxo, 'TXO_KatSopr','Задан счет! tp_schet='+string(tp_schet)
+        + ',wsch_f='+wsch_f+ ',wsub_f='+wsub_f)
+  
+  }
+  if CurTidk<100 // покупки
+  and CurTidk>700 //продажи
+  { wstr:='Не тот тип документа '+string(CurTidk)
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-',wstr)    
+    message(wstr)
+    exit ; 
+  }
+  TxoDebugMsg(hTxo, 'TXO_KatSopr-','1 ');
+  if getfirst katsopr<>0
+  { wstr:=('Не нашли документ '+string(CurTidk))
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-',wstr)    
+    message(wstr)
+    exit ;
+  }
+  marker_spsopr:=InitMarker('', 8, 200, 10) 
+  marker_deist:=InitMarker('deist', 8, 200, 10) 
+  case tp_deist of
+  1: ClearMarker(marker_deist) ;
+  end ;
+  ClearMarker(marker_spsopr) ;
+  DoneMarker(marker_spsopr,'') ;
+  marker_spsopr:=InitMarker('', 8, 200, 10) 
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-','2');
+  IndexNoOt:=0 ;  
+  wkoef_main:=1 ; 
+  TxoDebugMsg(hTxo, 'TXO_KatSopr-','Накладная '+katsopr.nsopr+DatetoStr(katsopr.dsopr,' от DD/MM/YYYY'))
+  wschm :='' ; wsubm:='' ;
+  w_cfpco :=katsopr.cotvpodr ;
+  wcpodr:=0 ;
+  if getfirst fastfirstrow fpco=0 
+  { case fpco.COTABLE of
+    2 :
+    { set wcpodr:=fpco.CMEAN  
+      wsch_tpm:=0 ;
+      wcpodr:=fpco.CMEAN  
+      TxoDebugMsg(hTxo, 'TXO_KatSopr-','Нашли центр ответсвенности '+fpco.name)
+    }
+    3: // сотрудники 
+    { wsch_tpm:=1
+      if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+    }
+    1: 
+    { // организация
+      wsch_tpm:=2 ;
+      if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+      TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Katorg, fpco.CMEAN)
+    }
+    end ;
+  } // if getfirst fpco=0 
+  else
+  { 
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-','Не нашли центр ответсвенности !!!')
+    if katsopr.cpodrto>0
+    { wcpodr:=katsopr.cpodrto ;
+    }
+  }  
+  if (wcpodr=0 or katsopr.vidsopr=201) and katsopr.cpodrfrom>0 and katsopr.cotvpodr=0
+  { wcpodr:=katsopr.cpodrfrom ;
+  }
+//-- Added by Childinov S.M., 04.06.2008 --
+  if (katsopr.vidsopr=501 and katsopr.cpodrto>0) // Для накладной на отпуск в производство
+  { wcpodr:=katsopr.cpodrto; 
+  }
+//-----------------------------------------
+  wcpodrm:=wcpodr ;
+  if (katsopr.vidsopr<>600 and katsopr.vidsopr<>611) or wcpodr>0 // Для внутреннего перемещения и актов об излишках не нужно
+  { if getfirst katpodr<>0
+    { TxoDebugMsg(hTxo, 'TXO_KatSopr-','Не найдено подразделение !! ')
+    }
+    else
+    { TxoDebugMsg(hTxo, 'TXO_KatSopr-','Ищем счет по группе подразделений в  '+chr(39)+katpodr.name+chr(39))
+      GetSchetByGrPodr(htxo,1) ;
+    } // else if getfirst katpodr<>0
+    TxoDebugMsg(hTxo, 'TXO_KatSopr-','Счет|субсчет к накладной = '+wschm+'/'+wsubm) ;
+  }
+//=========================
+// обработка спецификации  
+//=========================
+      _loop fullcache spsopr
+      { TxoDebugMsg(hTxo, 'TXO_KatSopr-','Позиция='+spsopr.npp) ; 
+        if SearchMarker(marker_spsopr,spsopr.nrec,IndexNoOt) then continue ;
+        TxoDebugMsg(hTxo, 'TXO_KatSopr-','----') ; 
+        InsertMarker(marker_spsopr,spsopr.nrec);
+        TxoDebugMsg(hTxo, 'TXO_KatSopr-',' позиция накладной '+string(spsopr.cmcusl)
+          +',цена*кол-во='+string(spsopr.price*spsopr.kolfact)
+          +',ндс '+string(spsopr.sumnds))
+        if tp_filtr_mcusl>0// отработаем фильтр по мц
+        { klfilter:=false
+          wstr:='' ;
+          case tp_filtr_mcusl of
+          1  : { klfilter:=SpSopr.prmc=1 }
+          2  : 
+          { if SpSopr.prmc=1 and katmc.barkod=filtr_mcusl then klfilter:=true ;
+           wstr:='МЦ '+katmc.name+'/'+katmc.barkod ;
+          }
+          3  : 
+          { if SpSopr.prmc=1 and substr(groupmc.kod,1,length(filtr_mcusl))=filtr_mcusl then klfilter:=true ; 
+            wstr:='Гр.МЦ '+groupmc.name+'/'+groupmc.kod ;
+          }
+          4  : { klfilter:=SpSopr.prmc<>1 }
+          5  : 
+          { if SpSopr.prmc<>1 and katusl.kod=filtr_mcusl then klfilter:=true ; 
+            wstr:='Усл. '+katusl.name+'/'+katusl.kod ;
+          }
+          6  : 
+          { if SpSopr.prmc<>1 and groupusl.kod=filtr_mcusl then klfilter:=true ; 
+             wstr:='Гр.Усл '+groupusl.name+'/'+groupusl.kod ;
+          }
+          end ;
+          if tp_filtr<>0 klfilter:=not klfilter ;
+          if not klfilter then
+          { TxoDebugMsg(hTxo, 'TXO_KatSopr-','  не прошла по фильтру,тип '+string(SpSopr.prmc)+','+wstr)
+            continue ;
+          }
+        }  //if tp_filtr_mcusl>0
+
+        if filtr_attrnam>0
+        { klfilter:=false ;
+          if isvalid(tnattrval) 
+          { TxoDebugMsg(hTxo, 'TXO_KatSopr-','атрибут= '+attrval.vstring)
+            if upcase(substr(attrval.vstring,1,length(filtr_arrtval)))=upcase(filtr_arrtval)
+            { 
+              klfilter:=true ;
+            }  
+            if ATTRNAM.ATTRTYPE=5 
+            { wstr:=if(GetAnyKau(word(0),ATTRNAM.ROBJECT,attrval.vcomp),GivenAnName(2),'') 
+              if upcase(substr(wstr,1,length(filtr_arrtval)))=upcase(filtr_arrtval) then klfilter:=true 
+              else
+                if attrval.vcomp=comp(filtr_arrtval) then klfilter:=true ;
+              TxoDebugMsg(hTxo, 'TXO_SCHFACT-','код атрибут= '+wstr)  
+            } 
+          }
+          if tp_filtr<>0 klfilter:=not klfilter ;
+          if not klfilter then
+          { TxoDebugMsg(hTxo, 'TXO_KatSopr-','  не прошла по фильтру на внешний атрибут')
+           continue ;
+          }
+        } //if filtr_attrnam>0
+        TxoBodyClear(hTxo);
+        if tp_deist>0
+        { if SearchMarker(marker_deist,spsopr.nrec,IndexNoOt) then
+          { TxoDebugMsg(hTxo, 'TXO_KatSopr-',' обработана в предыдущих проводках ')
+            continue ;
+          } 
+          InsertMarker(marker_deist,spsopr.nrec);
+        }
+        wsu:=0 ;wsuval:=0 ;
+        case tp_summ of
+        0 : { // сумма
+          wsu:=spsopr.price*spsopr.kolfact+if(katsopr.vhodnal=1,0,SpSopr.SumNds) 
+          wsuval:=spsopr.vprice*spsopr.kolfact+if(katsopr.vhodnal=1,0,SpSopr.SumVNds) 
+        }
+        1 : {// НДС
+          wsu:=SpSopr.SumNds 
+          wsuval:=SpSopr.SumVNds 
+        }
+        2: { // без НДС
+          wsu:=spsopr.price*spsopr.kolfact-if(katsopr.vhodnal<>1,0,SpSopr.SumNds) 
+          wsuval:=spsopr.vprice*spsopr.kolfact-if(katsopr.vhodnal<>1,0,SpSopr.SumVNds) 
+        }
+        4: // приход
+        { if isvalid(#sporder)
+          { wsu:=sporder.RSRPRICE*sporder.kol ;
+            wsuval:=sporder.RVPRICE*sporder.kol ;
+          }
+        }
+        5: // расход
+        { if isvalid(#sporder1)
+          { wsu:=sporder1.RSRPRICE*sporder1.kol ;
+            wsuval:=sporder1.RVPRICE*sporder1.kol ;
+          }
+        }
+        end ; //case tp_sum of
+        // на коэф по позиции умножать не надо ! можно конечно еще по цене проверку добавить
+        wsu:=wsu*wkoef_main ; //*wkoef_pos ;
+        wsuval:=wsuval*wkoef_main; //*wkoef_pos ;
+        if tp_summ=3
+        { wsu:=spsopr.nrec ; wsuval:=0 ;
+        } //if tp_sum=3
+        set w_corg:=katsopr.corg ;
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatOrg, katsopr.corg)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Basedoc, stepdoc.cbasedoc)        
+        if spsopr.prmc=1
+        { TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatMC, spsopr.cmcusl)        
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_GroupMC, katmc.cgroupmc)        
+        } else
+        { TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatUsl, spsopr.cmcusl)        
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_GroupUsl, katusl.cgroupusl)        
+        }
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_KatParty, spsopr.cparty)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_schfact, katsopr.cschfact)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Katsopr, katsopr.nrec)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_Dogovor, katsopr.cdogovor)        
+        TxoBodyAddKau(hTxo, wFlKau_mode2, cgKau_Dogovor, if(katsopr.cappdogovor>0,katsopr.cappdogovor,katsopr.cdogovor))        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, 5022, katsopr.ccalplan)        
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_katmol, katsopr.cmolfrom)        
+        TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_katmol, katsopr.cmolto)        
+        TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_katpodr, katsopr.cpodrto)
+        TxoBodyAddKau(hTxo, wFlKau_Mode1, cgKau_katpodr, katsopr.cpodrfrom)
+        TxoBodyAddKau(hTxo, wFlKau_Mode5, cgKau_katpodr, wcpodrm) // главное подразделение по накладной
+                
+        if KatSopr.cOtvPodr>0
+        { TxoBodyAddKau(hTxo, wFlKau_Mode3, cgKau_FPCO, KatSopr.cOtvPodr)        
+          
+        }
+        if isvalid(#katorg)
+        { TxoDebugMsg(hTxo, 'TXO_KatSopr-',' организация='+katorg.name)
+          if isvalid(#KatOrgDescr)
+          {  TxoBodyAddKau(hTxo, wFlKau_Auto, 68, KatOrgDescr.cgroup)   
+             TxoDebugMsg(hTxo, 'TXO_KatSopr-',' группа ='+string(KatOrgDescr.cgroup))            
+          }
+          else
+          { set wnmdesgr:=if(katsopr.vidsopr<200,'Поставщики','Заказчики')
+            if getfirst KatOrgDescr1=0
+            { TxoBodyAddKau(hTxo, wFlKau_Auto, 68, KatOrgDescr1.nrec) 
+              TxoDebugMsg(hTxo, 'TXO_KatSopr-',' группа ='+KatOrgDescr1.name)       
+            }
+            else
+            { TxoDebugMsg(hTxo, 'TXO_KatSopr-','нет группы '+wnmdesgr)       
+            }
+          }  
+        }  
+        
+        TxoBodyAddKau(hTxo, wFlKau_Mode9, 9999, spsopr.nrec)     
+        w_CKAELEM:=0 ;   
+        // заполняем по аналитике
+        Attr_Analitik(hTxo, wFlKau_Mode2,coBasedoc,basedoc.nrec )
+        Attr_Analitik(hTxo, wFlKau_Mode2,coKatsopr,katsopr.nrec )
+        // Эдуард просил - из кау справочника с большим приоритетом а теперь обратно.
+        if spsopr.prmc=1 // А может и не надо !
+          Attr_Analitik(hTxo, wFlKau_Mode1,coKatmc,spsopr.cmcusl )
+        else
+          Attr_Analitik(hTxo, wFlKau_Mode1,coKatusl,spsopr.cmcusl )
+
+        Attr_Analitik(hTxo, wFlKau_Mode1,coSpsopr,spsopr.nrec )
+        
+
+        if w_CKAELEM=0
+        { w_CKAELEM:=if(spsopr.prmc=1,katmc.CKAELEM,katusl.CKAELEM) ;
+        }
+        TxoDebugMsg(hTxo, 'TXO_KatSopr-','Элемент затрат='+string(w_CKAELEM) )       
+        wcpodr:=0 ;
+        TxoBodyAddKau(hTxo, wFlKau_Auto, 5017, w_CKAELEM)
+        TxoBodyAddKau(hTxo, wFlKau_Mode0, 5017, w_CKAELEM)
+        if isvalid(#sporder) //  приход
+        {
+          TxoBodyAddKau(hTxo, wFlKau_Mode3, cgKau_katmol, sporder.ccmol)        
+          TxoBodyAddKau(hTxo, wFlKau_Mode3, cgKau_katpodr,sporder.ccpodr)
+        }
+        if isvalid(#sporder1)
+        {
+          TxoBodyAddKau(hTxo, wFlKau_Mode4, cgKau_katmol, sporder1.ccmol)        
+          TxoBodyAddKau(hTxo, wFlKau_Mode4, cgKau_katpodr,sporder1.ccpodr)
+        }
+        w_cfpco:=0 ; //KatSopr.cOtvPodr ;
+        if isvalid(#SpecMtr)
+        { TxoDebugMsg(hTxo, 'TXO_KatSopr-','нашли объект строительства '+string(SpecMtr.cobj)+'/'+string(cgKau_ObjBuild))
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_ObjBuild, SpecMtr.cobj)        
+          TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_ObjBuild, SpecMtr.cobj)        
+          TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_FPCO , SpecMtr.ckau[1])        
+          set w_cfpco:=SpecMtr.ckau[1] ;           
+           wsch_tp:=wsch_tpm ;
+          if getfirst fastfirstrow fpco=0 
+          { TxoDebugMsg(hTxo, 'TXO_KatSopr-','Нашли центр ответсвенности '+fpco.name)
+            case fpco.COTABLE of
+            2 :
+            { set wcpodr:=fpco.CMEAN  
+              wsch_tp:=0 ;
+//              TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_katpodr, fpco.CMEAN)
+              TxoBodyAddKau(hTxo, wFlKau_mode1, cgKau_katpodr, fpco.CMEAN)
+            }
+            3: // сотрудники 
+            { wsch_tp:=1
+              TxoBodyAddKau(hTxo, wFlKau_mode2, cgKau_Persons, fpco.CMEAN)
+              if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+            }
+            1: 
+            { // организация
+              wsch_tp:=2 ;
+              TxoBodyAddKau(hTxo, wFlKau_mode2, cgKau_Katorg, fpco.CMEAN)
+              set w_corg:=fpco.CMEAN ;
+              if getfirst fastfirstrow fpco1=0 and fpco1.COTABLE=2   set wcpodr:=fpco1.CMEAN ; 
+              if isvalid(#katorg)
+              { TxoDebugMsg(hTxo, 'TXO_KatSopr-',' организация='+katorg.name)
+                if isvalid(#KatOrgDescr)
+                { TxoBodyAddKau(hTxo, wFlKau_mode2, 68, KatOrgDescr.cgroup)        
+                }
+              }  
+
+            }
+            end ;
+          }
+          //'400093017AAC5E2Fh' ,
+          //'400093017AAC5E2Fh', 
+          //'400093017AAC5E2Fh' 
+          //'400093017AAC5E2Fh'
+        }
+        else
+         TxoDebugMsg(hTxo, 'TXO_KatSopr-',' не нашли объект строительства !!!')
+        if w_cfpco=0 and KatSopr.cOtvPodr>0
+        { TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_FPCO, KatSopr.cOtvPodr)        
+          
+        }
+        if wcpodr=0
+        { wcpodr:=wcpodrm ; 
+        }
+        TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_katpodr, wcpodr)
+        if (katsopr.vidsopr<>600 and katsopr.vidsopr<>611) or wcpodr>0 // Для внутреннего перемещения и актов об излишках не нужно
+        { wsch:=GetSchetAttr(cospsopr,spsopr.nrec ) ;
+          if wsch=''
+          { if w_cfpco<>KatSopr.cOtvPodr and w_cfpco>0
+            { GetSchetByGrPodr(htxo,2) ;
+            }
+           
+            if wsch=''
+            { wsch:=wschm ;
+              wsub:=wsubm ;
+            
+            }  
+          }  
+          else wsub:=buhschet.subsch ;
+          TxoDebugMsg(hTxo, 'TXO_KatSopr-', 'счет= '+wsch+',субсч='+string(wsub) ) ;
+          klfilter:=true ;
+          case tp_schet of
+          1:
+          { if wsch='73' or wsch='76' then 
+            { TxoBodyClear(hTxo); continue ;       }
+          }    
+          2 :
+          { if wsch<>'73' then
+            { TxoBodyClear(hTxo); continue ;}
+          }
+          3 :
+          { if wsch<>'76' then
+            { TxoBodyClear(hTxo); continue ;
+            }
+          }  
+          999: // прочие !!
+          { if wsch_f<>wsch
+            { TxoBodyClear(hTxo); continue ;
+            }
+            if wsub_f<>'' and wsub_f<>wsub then
+            { TxoBodyClear(hTxo); continue ;
+            }
+              
+          }
+          end ;
+          TxoDebugMsg(hTxo, 'TXO_KatSopr-', 'формируем на сумму '+string(wsu)+'/'+string(spsopr.kolfact) ) ;
+          TxoBodyAddSchet(hTxo, wFlKau_Mode0, PLANSSCH.KOD + wsch, wsub); 
+        } //if katsopr.vidsopr<>600
+        if spsopr.prmc=1
+        { wsch:=GetSchetAttr(cogroupmc,katmc.cgroupmc )
+          if wsch<>''
+          { wsub:=buhschet.subsch ;
+            TxoBodyAddSchet(hTxo, wFlKau_Mode1, PLANSSCH.KOD + wsch, wsub);
+          }
+          wsch:=GetSchetAttr(cotypemc,katmc.ctype )
+          if wsch<>''
+          { wsub:=buhschet.subsch ;
+            TxoBodyAddSchet(hTxo, wFlKau_Mode2, PLANSSCH.KOD + wsch, wsub);
+          }
+        }
+        TxoBodySetSum(hTxo,wsu,wsuval,spsopr.kolfact*if(isvalid(#katotped),katotped.koef,1));
+        TxoBodyInsert(hTxo);
+      } //_loop spsopr
+  ClearMarker(marker_spsopr) ;
+  DoneMarker(marker_spsopr, '') ;
+  case tp_deist of
+  3: ClearMarker(marker_deist) ;
+  end ;
+  DoneMarker(marker_deist, 'deist') ;
+
+} //procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+
+HandleEvent
+cmCheckField : 
+{
+  SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  RescanPanel(#attrnam) ;
+
+}
+cmIdle:
+{ SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  RescanPanel(#attrnam) ;
+}
+end ;
+end. //Конец основной процедуры
+

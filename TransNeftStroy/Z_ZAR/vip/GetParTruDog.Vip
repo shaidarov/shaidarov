@@ -1,0 +1,130 @@
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+#endif
+interface GetParTruDog 'Параметры формирования отчета';
+
+Create View
+var
+  PersFIO:string;
+  PersNrec:comp;
+  Dolname:string;
+  Dolname2:string;
+  PodrNrec:comp;
+  PodrName:string;
+  OrgName:string;
+  OrgNrec:comp;
+  flExit:boolean;
+  f1:byte;
+  mode1:byte;
+as select TMPSOTRUDNIK.* from TMPSOTRUDNIK
+//,katpodr,catalogs,katorg,lschet,persons
+;
+
+parameters
+  PersFIO,PersNrec,Dolname,PodrName,PodrNrec;
+
+procedure FilltmpSotr;
+//var fladded,fladdedall:boolean;
+{
+// Медленно FFFFFF
+  Delete All tmpSotrudnik;
+  Modifier insert tmpSotrudnik
+    select persons.nrec,lschet.tabn,persons.fio,catalogs.name,katpodr.name from lschet,persons,katpodr,catalogs
+/*    
+  where   (( root == catalogs.name and
+            (catalogs.name='Директор' or catalogs.name='Заместитель директора' or catalogs.name='Начальник почтамта') and
+     catalogs.nrec==lschet.cappoint (noindex) and lschet.tperson==persons.nrec and persons.galdep==katpodr.nrec)
+     )   
+*/
+// хочу 04!
+  where (( date(0,0,0) == lschet.datuv(noindex) and
+  lschet.cappoint == catalogs.nrec and lschet.tperson==persons.nrec and persons.galdep==katpodr.nrec     
+  )) ;         
+}
+
+Panel P1;
+Screen S1;
+Fields
+  PersFIO: Protect, PickButton;
+  dolname: Protect;
+  f1:noprotect;
+  PodrName: Protect, PickButton;
+buttons
+  cmOk, Default;
+  cmCancel;
+<< 
+
+    `Руководитель:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+      
+    `Должность руководителя:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     (.) Генеральный директор `
+     (.) Директор филиала `
+     (.) Заместитель генерального директора `
+     (.) Начальник управления по работе с персоналом `
+     (.) Заместитель директора `
+     (.) Заместитель директора по экономике `
+     (.) Главный инженер `
+
+    `Подразделение:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                            <.   ОК   .>       <. Отмена .>
+>>
+End;
+End;
+Function GetDolgPrist :string ;
+{ case f1 of
+  0: GetDolgPrist:='Генеральный директор' ;
+  1: GetDolgPrist:='Директор филиала' ;
+  2: GetDolgPrist:='Заместитель генерального директора';
+  3: GetDolgPrist:='Начальник управления по работе с персоналом';
+  4: GetDolgPrist:='Заместитель директора';
+  5: GetDolgPrist:='Заместитель директора по экономике';
+  6: GetDolgPrist:='Главный инженер';
+  else GetDolgPrist := DolName2;
+  end ;
+
+}
+handleevent
+   cmInit:
+   {
+     RereadRecord;
+   }
+   cmCheckField:
+   {
+     case curfield of
+       #f1:
+       {
+         DolName:=GetDolgPrist ;
+         ReReadRecord;
+       }
+     end;
+   } 
+   cmPick:
+   {
+     case curField of
+     #PersFIO:
+     {
+       FilltmpSotr;
+       runinterface('GetSotrudnik',Persnrec,PersFio,DolName2);
+       DolName:=GetDolgPrist ;
+     }
+     #PodrName:
+     {
+       mode1:=0;
+       runinterface('Getfilial3',Podrnrec,Podrname,mode1);
+     }
+     end;
+     RereadRecord;
+   }
+
+   cmOk:
+   {
+     flExit:=true;
+     if PersFIO=''
+       { message('Не выбран руководитель!',okButton+Error);flExit:=false }
+     if flExit
+       CloseInterface(1);
+   }
+end;
+End.

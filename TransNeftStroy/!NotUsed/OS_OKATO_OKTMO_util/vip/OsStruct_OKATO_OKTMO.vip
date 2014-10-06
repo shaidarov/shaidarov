@@ -1,0 +1,116 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) Корпорация ГАЛАКТИКА                              ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Модуль        : Учет ОС                                                   ║
+ ║ Версия        : 8.10                                                      ║
+ ║ Клиент        : ООО "ТрансНефть-Финанс"                                   ║
+ ║ Назначение    : Утилита конвертации внешнего атрибута ОКАТО к закладке    ║
+ ║                 финансирование карточки ОС в атрибут ОКТМО                ║
+ ║ Ответственный : Викторович Владимир Анатольевич                           ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include ATDServices.vih
+#include ExtAttr.vih
+#include ShowAnalytics.vih
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface OsStruct_OKATO_OKTMO;
+  Show At ( , , , 7);
+
+  var
+    pATDSerices  : IATDServices;
+    piExtAttr    : iExtAttr;
+    iShAn        : ShowAnalytics;
+
+    MsgCount     : longint;
+    LogFilePath  : string;
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  create view
+
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  from
+  StoimStruct
+  where
+  ((
+        15             == StoimStruct.wType
+  ))
+  ;
+
+    screen scMainScreen;
+      Show At ( , , , 6);
+      fields
+    <<
+     Назначение    : Утилита конвертации внешнего атрибута ОКАТО к закладке
+                     финансирование карточки ОС в атрибут ОКТМО
+
+     После окончания операции закройте это окно.
+    >>
+
+    end; // screen
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  procedure Logging(Msg : string);
+  {
+    LogStrToFile(LogFilePath, Msg);
+    MsgCount++;
+  }
+
+  procedure Main;
+  {
+    var cOKATO : comp;
+    var cOKTMO : comp;
+
+    StartNewVisual(vtRotateVisual, vfTimer, 'Идет операция конвертации ОКАТО-ОКТМО Финансирование в ОС', 0);
+    if piExtAttr.AttrID ( coStoimStruct, 'ОКАТО' ) <> 0
+    {
+      if piExtAttr.AttrID ( coStoimStruct, 'ОКТМО' ) <> 0
+      {
+        //_loop KatOS
+        //{
+          _loop StoimStruct
+          {
+            NextVisual;
+
+            cOKATO := piExtAttr.coGetAttr(coStoimStruct, StoimStruct.nRec, 'ОКАТО');
+            if cOKATO > 0
+            {
+
+              cOKTMO := pATDSerices.GetOKTMOnRecbyOKATOnRec(cOKATO);
+              if cOKTMO <> 0
+              { piExtAttr.coSetAttr(coStoimStruct, StoimStruct.nRec, 'ОКТМО', cOKTMO, iShAn.ShowKau(72, cOKTMO)); }
+              else
+              { Logging(pATDSerices.GetLastError); }
+            }
+
+          }
+        //}
+      }
+      else
+        Logging('Отсутствует внешний атрибут ОКТМО к StoimStruct');
+    }
+    else
+      Logging('Отсутствует внешний атрибут ОКАТО к StoimStruct');
+
+    StopVisual('', 0);
+    message('Операция конвертации закладки Финансирование завершена!');
+  }
+
+  HandleEvent
+    cmInit:
+    {
+      LogFilePath := GetPathParameter('Files', 'OutputFilesDirectory', 0);
+      LogFilePath := LogFilePath + '\OsStruct_OKATO_OKTMO.out';
+
+      MsgCount := 0;
+      if ExistFile(LogFilePath)
+        DeleteFile(LogFilePath);
+
+      Main;
+
+      if MsgCount > 0
+        ProcessText(LogFilePath, vfRunModal + vfNewTitle, 'Протокол работы интерфейса');
+    }
+  End;
+
+End.

@@ -1,0 +1,1301 @@
+#doc
+ отчет по мрот 02
+
+#end
+//================================
+#include PAFILTER.VIH
+#include CLSFUNCS.VIH
+#include OrganizationInfo.vih
+#include AdrFunc.vih
+
+//==============================
+#include MyFun_ZAR.Vih // Для поиска окато
+#include Zar_Spr.Vih // для кэеширования значений справочников
+//================================
+
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+#endif
+
+//=========================================================================
+Interface Zar_NDFLReestr 'Отчет о перечислении НДФЛ',EscClose;
+//=========================================================================
+var
+ CLSF        : CurLSFunctions;
+ iMyFun_ZAR  : MyFun_ZAR;
+ iZar_Spr    : Zar_Spr;
+ iPodrFilterDef :PodrFilterDef;
+ kl_init:boolean;
+ kl_need:boolean;
+ Tabn_Format:WORD;
+ it_su : array[1..10] of double;
+ dtb,dte,dt_otch:date;
+ w_vidud_depon:word;
+ tp_option:word;
+ wsu1,wsu2:double;
+ podr_ie :word;
+ #include excel_var.vpp
+//============================
+table struct tmp_sbokato
+( pa:word
+ ,okato :string [20]
+ ,KPP   :string [20]
+ ,Mes   :word
+ ,su :array [1..4] of double
+ ,prim  :string
+ ,prim2 :string
+ ,prim3 :string
+ ,platno: string
+ ,cLsch :comp
+)
+with index
+( tmp_sbokato01= pa+ okato+kpp+mes
+);
+
+
+//============================
+table struct tmp_lschet
+( tabn:longint
+ ,strtabn :string [20]
+ ,clsch :comp
+ ,fio :string[50]
+ ,tperson:comp
+)
+with index
+( tmp_lschet01= clsch
+ ,tmp_lschet02= fio
+);
+
+table struct tmp_lschetSp
+( clsch:comp
+ ,tp :word
+ ,cexoz :comp //1, 3 - ссылка на подразделение, 2 - на sterr, 4=0
+ ,cex   :comp
+ ,kpp   :string[20]
+ ,Mes   :word
+ ,vidopl:word
+ ,summa :double
+ ,prim:string
+) with index
+( tmp_lschetSp = clsch + tp
+);
+//======================
+Create view vZar_NdflReestr
+var
+ chet:longint;
+ VedYear,VedMonth, MesB, MesE:word;
+ VedYear1,  VedMonth1:word;
+ w_clsch:comp;
+ w_vidopl_mrot:word;
+ wc_sterr:comp;
+ tp_oz : word; // по отнесению затрат.
+ wc_podr :comp;
+ _PodrMArkerPointer: Longint; // сам маркер
+ w_otpdop:comp ;
+
+
+ #include PAFILTER.VAR
+ (
+   FiltrPodr,
+   FiltrPublic
+ )
+ as select
+ #include -filtr1.vpp  ,// вычисляемые поля для фильтров по сотрудн. и подразд.
+ Zar_User.nrec
+from
+  Zar_User,
+  lschet(readonly),
+  KatPodr(readonly),
+  persons,
+  synonym lschet   lschetN,
+  synonym Persons  PersonsN
+  , lschet lschet1
+  , persons persons1
+  , sumvidud , uder
+  , Formarks(FORMARKS11)
+  , spplban
+  , sbban , sbban sbban1//, sbban sbban_ins
+  , PlPOr
+  , Oborot
+  , sbban sbban_pl
+  , spplban spplban_pl
+  , OtpDop
+  , OtpDop OtpDop1
+  , OtpDop OtpDop2
+  , ZAROPER
+  , DOCPODOT DOCPODOT_pl
+  , KATKOD
+  , fpco
+  , sterr
+  , nachisl
+  , sumvidop
+  , tmp_sbokato
+  , tmp_lschet , tmp_lschetSp
+where
+ ((
+     Word(0)               ==  ForMarks.Choice    and
+     formarks.Cpodr        ==  CurLSchet.CLSchet  and
+     #include -filtr2.vpp  // ограниечения для фильтров по сотр. и подр.
+     and formarks.clschet == lschet1.nrec
+     and lschet1.tperson == persons1.nrec
+
+     and w_otpDop == OtpDop2.Nrec
+
+     and lschet1.nrec == sumvidud.clsch
+     and VedYear == sumvidud.yearn
+     and VedMonth == sumvidud.mesn
+     and 182 <<=sumvidud.vidud(noindex)
+     and 184 >>=sumvidud.vidud(noindex)
+
+     and lschet1.nrec == uder.clsch
+     and VedMonth == uder.mesn(noindex)
+     and 182 <<=uder.viduds(noindex)
+     and 184 >>=uder.viduds(noindex)
+
+     and lschet1.nrec == sumvidop.clsch
+     and VedYear == sumvidop.yearn
+     and VedMonth == sumvidop.mesn
+
+     and lschet1.nrec == nachisl.clsch
+     and VedYear == nachisl.yearn(noindex)
+     and VedMonth == nachisl.mesn(noindex)
+
+     and lschet1.nrec == nenach.clsch
+     and VedYear == nenach.yearn
+     and VedMonth == nenach.mesn
+
+
+     and lschet.nrec == spplban.clsch
+     and sub_months(DTB,3) <<spplban.dform
+     and Dtb <<=spplban.datan(noindex)
+     and Dte >>=spplban.datan(noindex)
+     and 182 <<=spplban.vidud(noindex)
+     and 184 >>=spplban.vidud(noindex)
+     and spplban.csbban == sbban.nrec
+     and SBBAN.MNREC == OTPDOP.NREC
+     and spplban.nrec == ZAROPER.CPLPOR
+     and  cgLink_ReesPlDoc == DOCPODOT.TIPDOC
+     and  sbban.nrec       == DOCPODOT.CVTDOC
+
+
+     and wc_podr == sbban1.cex
+     and Dtb <<=sbban1.dform(noindex)
+     and Dte >>=sbban1.dform(noindex)
+     and 182 <<=sbban1.vidud(noindex)
+     and 184 >>=sbban1.vidud(noindex)
+     and SBBAN1.MNREC == OTPDOP1.NREC
+
+     //
+     and 1 == plpor.tidkgal
+     and dtb << plpor.datob(noindex)
+     and add_months(dte ,1) >>= plpor.datob(noindex)
+     and '' << plpor.tax (noindex)
+     and PLPOR.CWAYMOVE == FPCO.NREC
+     and cgLink_ReesPlDoc == DOCPODOT_pl.TIPDOC
+     and  plpor.nrec  == DOCPODOT_pl.cprdoc
+     and  DOCPODOT_pl.CVTDOC == sbban_pl.nrec
+     and sbban_pl.nrec == spplban_pl.csbban
+     and plpor.tidk == oborot.tidk
+     and plpor.nrec == oborot.csoprdoc
+     and '68' == oborot.DBSchetO (noindex)
+     and '03' == oborot.SubosSch (noindex)
+
+     and tmp_lschet.clsch == tmp_lschetsp.clsch
+
+     and wc_sterr == sterr.nrec
+ ))
+
+bounds bySbBanAll   
+         Dtb <<=sbban1.dform(noindex)
+     and Dte >>=sbban1.dform(noindex)
+     and 182 <<=sbban1.vidud(noindex)
+     and 184 >>=sbban1.vidud(noindex)
+     and SBBAN1.MNREC == OTPDOP1.NREC
+ 
+bounds byPodrUL  wc_podr == sumvidud.cexoz
+       and VedYear == sumvidud.yearn
+       and VedMonth == sumvidud.mesn
+       and 182 <<=sumvidud.vidud(noindex)
+       and 184 >>=sumvidud.vidud(noindex)
+bounds byPodrU wc_podr == uder.cexoz
+     and VedMonth == uder.mesn(noindex)
+     and 182 <<=uder.viduds(noindex)
+     and 184 >>=uder.viduds(noindex)
+bounds byPodrNL wc_podr == sumvidop.cexoz
+     and VedYear == sumvidop.yearn
+     and VedMonth == sumvidop.mesn
+bounds byPodrN   wc_podr == nachisl.cexoz
+     and VedYear == nachisl.yearn(noindex)
+     and VedMonth == nachisl.mesn(noindex)
+
+bounds byPodrNe wc_podr == nenach.cexoz
+      and VedYear == nenach.yearn
+      and VedMonth == nenach.mesn
+//bounds PodrPersons tmp_lschet.tperson == persons.nrec 
+bounds Podrspplban sbban1.nrec == spplban.csbban
+
+ ;
+
+create view vSterr
+var
+ w_okato:string;
+from StErr
+where (( w_okato == StErr.sgni_code
+)); 
+ 
+//====================== 
+#include PAFILTER.VPP
+#include tmp_sbor.vpp
+#include excel_fun.vpp 
+//================================
+
+//== получить nrec c учетом допаналитики
+Function GetCexozDop(ww_otpdop: comp;ww_cexoz :comp) :comp;
+var kk :word;
+{ Result := ww_cexoz;
+  if ww_otpdop=0 then exit;
+  w_otpdop:=ww_OtpDop ;
+  if getfirst OtpDop2<>0 then Exit;
+  for(kk:=1;kk<=6;kk++)
+  { if otpDop2.TBLD[kk]=2
+    {  if otpDop2.cKauD[kk]>0  Result:=otpDop2.cKauD[kk]
+       Exit;
+    } 
+  }
+  
+} //Function GetCexozDop(ww_otpdop: comp;ww_cexoz :comp) :comp;
+
+Window wnMess ;
+screen scrmess ;
+Buttons
+ cmCancel,,,'Выход',,;
+<<
+  Интерфейс уже запущен!
+  
+   <. Закрыть .>
+>>
+end;
+HandleEvent
+cmCancel:
+{ closewindow(wnMess)
+}
+cmIdle:
+{ //closewindow(wnMess)
+}
+end;
+end; //Window wnMess ;
+
+//========================
+Function GetTabn(const ww_tabn:longint; const ww_strtabn:string):string;
+{ if Tabn_Format=0
+  {  GetTabn:=string(ww_Tabn)
+  }
+  else
+  { GetTabn:=ww_strTabn
+  }
+}
+//==============================
+Procedure Add_Sum(ww_type:word;ww_vidud:word;wsumma:double;ww_cokato:comp;ww_cex:comp; wMes:word );
+var wokato:string;
+    wkpp  :string;
+    k:word;
+{ if abs(wsumma)<0.005 then exit;
+  if logfilekl
+    mylogwrite(false,'Add_Sum ww_type='+string(ww_type)+', ww_vidud='+string(ww_vidud)+', wsumma='+string(wsumma)
+              +', ww_cokato= '+string(ww_cokato)+', ww_cex='+string(ww_cex) )
+  case ww_type of
+  1,3:
+  { IMyFun_ZAR.GetcodeGniByPodr(ww_cokato)  
+    wc_sterr:=IMyFun_ZAR.GetOKATONrec
+    mylogwrite(false,'подразд.='+string(ww_cokato)+', ссылка на окато= '+string(wc_sterr))
+    wkpp    :=IMyFun_ZAR.GetKPP;
+  }
+  2:
+  { wc_sterr:=ww_cokato;
+    IMyFun_ZAR.GetcodeGniByPodr(ww_cex)  
+    wkpp    :=IMyFun_ZAR.GetKPP;  
+  }
+  4:
+  { wkpp    :=tmp_lschetSp.KPP
+  }
+  end;
+  mylogwrite(false,' wkpp='+wkpp);
+  if ww_type<>4
+  { if not iZar_Spr.Find_TmpVal('GetOkato',to_char(wc_sterr,21,0))
+    {
+      if getfirst fastfirstrow sterr=0
+        wokato:=STERR.CATDATA
+      else
+        wokato:=''
+      iZar_Spr.Write_TmpValStr('GetOkato',to_char(wc_sterr,21,0),wokato)
+      mylogwrite(false,'Запомнили окато '+wokato+','+to_char(wc_sterr,21,0))
+    }    
+    else
+    { wokato:=iZar_Spr.Get_TmpValStr;
+      mylogwrite(false,'Прочитали окато '+wokato+','+to_char(wc_sterr,21,0))
+    }
+  } //if ww_type<>4
+  else
+  { wokato:= replace(lpad(string(ww_cokato),11),' ','0')
+    ww_type:=2; // заменим
+  } //else if ww_type<>4 
+  
+  
+  //mylogwrite(false,'Add_Sum 2')
+  
+  for(k:=0;k<=1;k:=k+1  )
+  { if k=1
+    { wkpp:='';
+      wMes:=0;
+    }
+    if k=0 and ((tp_option and  64)=0)  wkpp:=''
+    if k=0 and ((tp_option and 128)=0) wmes:=0 ;
+    
+    if getfirst tmp_sbokato where (( k == tmp_sbokato.pa and wokato ==tmp_sbokato.okato and wkpp == tmp_sbokato.KPP
+      and wmes == tmp_sbokato.Mes
+      ))<>0
+    { clearbuffer(#tmp_sbokato)
+      tmp_sbokato.okato:=wokato
+      tmp_sbokato.Kpp:=wKpp
+      tmp_sbokato.Mes:=wMes
+      tmp_sbokato.pa:=k
+      tmp_sbokato.su[ww_type]:=wsumma
+      insert current tmp_sbokato;
+    }
+    else
+    { tmp_sbokato.su[ww_type]:=tmp_sbokato.su[ww_type]+wsumma
+      update current tmp_sbokato;
+
+    }
+    if (ww_type=2) and k=0
+    { if tp_oz=0
+      { update current tmp_sbokato set tmp_sbokato.prim:=tmp_sbokato.prim
+          +sbban.lastuser+' '+sbban.prefix+datetostr(sbban.dform,' DD/MM/YYYY')+   '; '
+         //,tmp_sbokato.cSbBan:=sbban.Nrec  
+      }
+      else
+      { if tmp_lschetsp.prim<>''
+         if pos(tmp_lschetsp.prim,tmp_sbokato.prim)=0 and pos(tmp_lschetsp.prim,tmp_sbokato.prim2)=0 and pos(tmp_lschetsp.prim,tmp_sbokato.prim3)=0
+         { if length(tmp_sbokato.prim+tmp_lschetsp.prim+'; ')<255
+            update current tmp_sbokato set tmp_sbokato.prim:=tmp_sbokato.prim+tmp_lschetsp.prim+'; '
+           else 
+           if length(tmp_sbokato.prim2+tmp_lschetsp.prim+'; ')<255
+            update current tmp_sbokato set tmp_sbokato.prim2:=tmp_sbokato.prim2+tmp_lschetsp.prim+'; '
+           else 
+            update current tmp_sbokato set tmp_sbokato.prim3:=tmp_sbokato.prim3+tmp_lschetsp.prim+'; '
+         }   
+      } 
+      //mylogwrite(false,'Add_Sum '+tmp_sbokato.prim)
+    }  
+    
+  } //for(k:=0;k<=1;k:=k+1  )
+  mylogwrite(false,'Add_Sum 3')
+  case ww_type of 
+  1: wsu1:=wsu1+wsumma;
+  2: wsu2:=wsu2+wsumma;
+  end;
+  it_su[ww_type]:=it_su[ww_type]+wsumma;
+  mylogwrite(false,'Add_Sum 4')
+} //Procedure Add_Summ(ww_vidopl:word;wsumma:double);
+
+//=============================================
+// добавить суммы по цеху отнесения затрат
+//=============================================
+Procedure Add_sumCex(ww_type:word;ww_clsch:comp;ww_vidud:word;wsumma:double;ww_cokato:comp;ww_cex:comp; ww_kpp:string; wMes:word);
+var ww_str:string;
+{ 
+  if logfilekl
+  {  mylogwrite(false,'Add_Sum ww_type='+string(ww_type)+', ww_vidud='+string(ww_vidud)+', wsumma='+string(wsumma)
+              +', ww_cokato= '+string(ww_cokato)+', ww_cex='+string(ww_cex)+', '+ww_kpp ) 
+  }
+  if (tp_option and 16)>0  or ww_type=4
+  { ww_clsch:=if(ww_type=4,ww_clsch,wc_podr);
+    ww_str:=substr(iPodrFilterDef.katpodrGetLevel('',ww_clsch,podr_ie),21,200);
+    if podr_ie>0
+      ww_clsch:=iPodrFilterDef.katpodrGetLevelNrec(podr_ie)
+  }
+  if getfirst tmp_lschet where (( ww_clsch == tmp_lschet.clsch ))<>0
+  { if not ( (tp_option and 16)>0  or ww_type=4)
+    {
+      if getfirst fastfirstrow lschet1 where (( ww_clsch == lschet1.nrec))=0 {}
+      if getfirst fastfirstrow persons1=0 {}
+      ww_str:=persons1.fio;
+    }  
+    tmp_lschet.clsch :=ww_clsch
+    tmp_lschet.strtabn:=lschet1.strtabn
+    tmp_lschet.tabn   :=lschet1.tabn
+    tmp_lschet.tperson:=lschet1.tperson
+    tmp_lschet.fio:=ww_str;
+    insert current tmp_lschet;
+  }
+  ww_str:=''
+  if ww_type=2
+  { ww_str:=sbban.lastuser+' '+sbban.prefix+datetostr(sbban.dform,' DD/MM/YYYY');
+  } 
+  if ww_type=4
+  { ww_str:=plpor.nodok+','+datetostr(plpor.datob,'DD/MM/YYYY')
+     +','+string(plpor.sumplat);
+  }       
+  if getfirst tmp_lschetsp where ((
+     tmp_lschet.clsch ==  tmp_lschetsp.clsch
+    and ww_type  == tmp_lschetsp.tp    
+    and ww_vidud == tmp_lschetsp.vidopl(noindex)
+    and ww_cokato== tmp_lschetsp.cexoz(noindex)
+    and ww_cex   == tmp_lschetsp.cex (noindex)
+    and ww_kpp   == tmp_lschetsp.Kpp (noindex)
+    and wMes     == tmp_lschetsp.Mes (noindex)
+    and ww_Str    == tmp_lschetsp.prim(noindex)
+  ))<>0
+  { insert into tmp_lschetsp set
+      tmp_lschetsp.clsch:=tmp_lschet.clsch
+     ,tmp_lschetsp.tp:=ww_type
+     ,tmp_lschetsp.vidopl:=ww_vidud
+     ,tmp_lschetsp.summa:=wsumma
+     ,tmp_lschetsp.cexoz:=ww_cokato
+     ,tmp_lschetsp.cex  :=ww_cex
+     ,tmp_lschetsp.Kpp  :=ww_kpp
+     ,tmp_lschetsp.Mes  :=wMes
+     ,tmp_lschetsp.prim:=ww_Str
+     ;
+   }
+   else
+   { update current tmp_lschetsp set tmp_lschetsp.summa:=tmp_lschetsp.summa+wsumma
+   }   
+     
+} //Procedure Add_sumCex(ww_type:word;ww_clsch:comp;ww_vidud:word;wsumma:double;ww_cokato:comp);
+
+
+
+//=======================================================================
+//
+//=======================================================================
+Function Sbor_Cexoz :boolean;
+var ii,CountInTMP :longint;
+{ Sbor_Cexoz:=False;
+  mylogwrite(false,' == Sbor_Cexoz ==')
+  CountInTMP:= GetMarkerCount(_PodrMArkerPointer);
+  if CountInTMP=0
+  { message('Необходимо пометить подразделения')
+    exit;
+  }
+  mylogwrite(false,' == Sbor_Cexoz =='+ string(CountInTMP))
+  PushBounds(tbbyPodrUL)
+  PushBounds(tbbyPodrU)
+  PushBounds(tbbyPodrNL)
+  PushBounds(tbbyPodrN)
+  PushBounds(tbbyPodrNe)
+  PushBounds(tbPodrspplban)
+  if (tp_option and 512)>0
+    PushBounds(tbbySbBanAll)
+  else  
+    PushBounds(tnSbBan1)
+  if not inextvisual('Сбор по цехам отнечения затрат') then exit;    
+  for(ii:= 0; ii< CountInTMP; ii:= ii+ 1)
+  { if not nextvisual then exit;
+    mylogwrite(false,' == Sbor_Cexoz i='+string(ii))
+    if not GetMarker(_PodrMArkerPointer, ii, wc_podr) then continue
+    mylogwrite(false,' == Sbor_Cexoz wc_podr='+string(wc_podr))
+    for(VedMonth:=Mesb;VedMonth<=MesE;VedMonth++)
+    { if date(1,VedMonth,VedYear)>=dt_otch
+      { _loop fullcache uder
+        { Add_sumCex(1,uder.clsch   ,uder.viduds    ,uder.sumud   
+           ,GetCexozDop(uder.OLDCLSCH,uder.cexoz)   ,GetCexozDop(uder.OLDCLSCH,uder.cexoz), '' , VedMonth)
+        }
+        _loop fullcache nachisl
+        { Add_sumCex(3,nachisl.clsch,nachisl.vidopls,nachisl.summa
+           ,GetCexozDop(nachisl.OLDCLSCH,nachisl.cexoz),GetCexozDop(nachisl.OLDCLSCH,nachisl.cexoz), '' , VedMonth)
+        }
+      }
+      else
+      { _loop  fullcache  sumvidud
+        { Add_sumCex(1,sumvidud.clsch,sumvidud.vidud ,sumvidud.sumud
+           ,GetCexozDop(sumvidud.OLDCLSCH,sumvidud.cexoz),GetCexozDop(sumvidud.OLDCLSCH,sumvidud.cexoz), '' , VedMonth)
+        }
+        _loop fullcache sumvidop
+        { Add_sumCex(3,sumvidud.clsch,sumvidop.vidopl,sumvidop.summa
+            ,GetCexozDop(sumvidop.OLDCLSCH,sumvidop.cexoz),GetCexozDop(sumvidop.OLDCLSCH,sumvidop.cexoz), '' , VedMonth)
+        }
+      }
+      _loop fullcache nenach
+      { Add_sumCex(3,nenach.clsch,nenach.vidopls,nenach.summa
+            ,GetCexozDop(nenach.OLDCLSCH,nenach.cexoz),GetCexozDop(nenach.OLDCLSCH,nenach.cexoz), '' , VedMonth)
+      }
+    }  //for(VedMonth:=Mesb;VedMonth<=MesE;VedMonth++)
+    if (tp_option and 32+512)=0
+    { _loop sbban1
+      { if sbban1.datan<dtb then continue;
+        if sbban1.datan>dte then continue;
+      
+        _loop  fullcache  spplban
+        { Add_sumCex(2,spplban.clsch,spplban.vidud,spplban.sumud,sbban1.region, spplban.cpodr // SbBan1.Cex//if(isvalid(#otpdop1),OtpDop1.cex,SbBan1.Cex)
+           ,'', month(sbban1.dform) )
+        }
+      } //_loop sbban1
+    }  //if (tp_option and 32)=0
+  } //for(i:= 0; i< CountInTMP; i:= i+ 1)
+  if (tp_option and 512)>0 and (tp_option and 32)=0
+  { _loop sbban1
+    {  if not nextvisual then exit;
+       if sbban1.datan<dtb then continue;
+       if sbban1.datan>dte then continue;
+       if not FoundMarker(_PodrMArkerPointer,OtpDop1.cex) then continue;
+        _loop  fullcache  spplban
+        { Add_sumCex(2,spplban.clsch,spplban.vidud,spplban.sumud,sbban1.region, spplban.cpodr // SbBan1.Cex//if(isvalid(#otpdop1),OtpDop1.cex,SbBan1.Cex)
+           ,'', month(sbban1.dform) )
+        }
+      } //_loop sbban1
+  }  //(tp_option and 512)=512 and (tp_option and 31)=0
+  _loop tmp_lschet
+  { if not nextvisual then exit;
+    delete tmp_sbokato where (( 0 == tmp_sbokato.pa));
+    wsu1:=0;
+    wsu2:=0;
+
+    _loop tmp_lschetsp
+    { Add_sum(tmp_lschetsp.tp,tmp_lschetsp.vidopl,tmp_lschetsp.summa,tmp_lschetsp.cexoz,tmp_lschetsp.cex , tmp_lschetsp.Mes)
+    }
+    if (tp_option and 4)=0
+    { if getfirst tmp_sbokato where (( 0 == pa ))<>0 then continue;
+      if (tp_option and 1)>0
+      { if abs(wsu1-wsu2)<0.001 then continue;
+      }
+      if (tp_option and 2)>0
+      { kl_need:=false
+        
+        _loop tmp_sbokato where (( 0 == pa ))
+        { if abs(tmp_sbokato.su[1]-tmp_sbokato.su[2])>0.001 then  kl_need:=true;
+        }
+        if not kl_need then continue;
+      }
+      
+      _loop tmp_sbokato where (( 0 == pa ))  ordered by index tmp_sbokato01
+      { wexrow:=wexrow+1; wexcol:=1;
+        MyPutExcel(GetStrTabn(tmp_lschet.tabn,tmp_lschet.strtabn),0,0,-1,-1) //Таб. №  
+        MyPutExcel(tmp_lschet.fio,0,0,-1,-1) //Ф.И.О.  
+        MyPutExcel(tmp_sbokato.okato,0,0,-1,-1) //Ф.И.О.  
+        MyPutExcelNumber(tmp_sbokato.su[1],2,0,0,-1,-1) //Оклад, руб.  
+       
+        MyPutExcelNumber(tmp_sbokato.su[2],2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(tmp_sbokato.su[1]-tmp_sbokato.su[2],2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(tmp_sbokato.su[3],2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcel(tmp_sbokato.prim,0,0,-1,-1) //
+        if ((tp_option and 64+128)>0)
+        { MyPutExcel(chr(39)+tmp_sbokato.kpp,0,0,-1,-1) //KPP
+          MyPutExcelNumber(tmp_sbokato.Mes,0,0,0,-1,-1) //Месяц
+        }
+        MyPutExcel(tmp_sbokato.prim2,0,0,-1,-1) //
+        MyPutExcel(tmp_sbokato.prim3,0,0,-1,-1) //
+        
+      }
+      if (tp_option and 8)=0
+      { wexrow:=wexrow+1; wexcol:=1;
+        MyPutExcel(GetStrTabn(tmp_lschet.tabn,tmp_lschet.strtabn),0,0,-1,-1) //Таб. №  
+        MyPutExcel(tmp_lschet.fio,0,0,-1,-1) //Ф.И.О.  
+        MyPutExcel('Итого',0,0,-1,-1) //Ф.И.О.  
+        MyPutExcelNumber(wsu1,2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(wsu2,2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(wsu1-wsu2,2,0,0,-1,-1) //Оклад, руб.  
+      }  
+    } //if (tp_option and 8)=0   
+    
+  } //_loop tmp_lschet
+  Sbor_Cexoz:=True;
+}
+
+//=================================
+// сбор платежек
+//=================================
+Function Sbor_plat :boolean;
+var ww_cex:comp;
+    ww_okato:string;
+    ww_kpp:string;
+    ww_period:string; 
+    ww_dt:date;
+{ Sbor_plat:=False;
+  if not iNextVisual('Сбор платежей') then exit
+  _loop fullcache plpor
+  { if not nextvisual then exit;
+    if plpor.tax='' then continue;
+    // проверить что это налог
+    //if getfirst fastfirstrow oborot<>0 then continue; 
+    if ExtractDelimitedWord(plpor.tax,2,';')<>'18210102021011000110' then continue;
+
+    ww_cex:=0;
+    if PLPOR.CWAYMOVE>0
+    { if getfirst fastfirstrow fpco=0
+      { if not FoundMarker(_PodrMArkerPointer,fpco.cMean) then continue;
+        ww_cex:=fpco.cMean;
+      }  
+    }
+    else
+    { if getfirst fastfirstrow DOCPODOT_pl=0
+        if getfirst fastfirstrow sbban_pl=0
+        { if not FoundMarker(_PodrMArkerPointer,sbban_pl.cex) then continue;
+          ww_cex:=sbban.cex;
+          if getfirst fastfirstrow spplban_pl=0 
+             ww_cex:=spplban_pl.cpodr;
+        }  
+    }
+    ww_okato := ExtractDelimitedWord(plpor.tax,3,';')
+    ww_period:= substr(ExtractDelimitedWord(plpor.tax,5,';'),4,10)
+    ww_dt:=StrToDate(ww_period,'MM.YYYY')
+    if ww_dt<dtb or ww_dt>dte then continue;
+    
+    if pos('КПП',Plpor.namepl1)>0
+      ww_kpp:=substr(Plpor.namepl1,pos('КПП',Plpor.namepl1)+4,9)
+    else
+    if ww_cex>0
+    {  IMyFun_ZAR.GetcodeGniByPodr(ww_cex)  
+       ww_kpp   :=IMyFun_ZAR.GetKPP;
+    }
+    else
+    { ww_kpp:=PLPOR.DENOSCH2;
+    }  
+    Add_sumCex(4,ww_cex,182,plpor.sumplat,comp(ww_okato),ww_cex,ww_kpp ,month(ww_dt))
+  } //_loop fullcache plpor
+  Sbor_plat:=True;
+} // Function Sbor_plat :boolean;
+
+
+     
+//=================================
+// сбор по лицевым счетам
+//=================================
+Function Sbor_lsch :boolean;
+{ Sbor_lsch:=False;
+
+  PushBounds(tnSumvidud)
+  PushBounds(tnUder)
+  PushBounds(tnsumvidop)
+  PushBounds(tnNachisl)
+  PushBounds(tnNeNach)
+  PushBounds(tnPersons)
+  PushBounds(tnspplban)
+  _loop formarks
+  { if not nextvisual then exit;
+    if getfirst fastfirstrow lschet1<>0 then continue;
+    // будем проверять только основное место работы
+    if getfirst fastfirstrow persons1<>0 then continue;
+    w_clsch:=formarks.clschet
+    mylogwrite(false,'Табн='+GetStrTabn(lschet1.tabn,lschet1.strtabn))
+    delete tmp_sbokato where (( 0 == tmp_sbokato.pa));
+    wsu1:=0;
+    wsu2:=0;
+    for(VedMonth:=Mesb;VedMonth<=MesE;VedMonth++)
+    { if date(1,VedMonth,VedYear)>=dt_otch
+      { _loop fullcache uder
+        { Add_sum(1,uder.viduds,uder.sumud
+                ,GetCexozDop(uder.OLDCLSCH,uder.cexoz), GetCexozDop(uder.OLDCLSCH,Uder.cexoz), VedMonth)
+        }
+        _loop fullcache nachisl
+        { Add_sum(3,nachisl.vidopls,nachisl.summa
+           ,GetCexozDop(nachisl.OLDCLSCH,nachisl.cexoz),GetCexozDop(nachisl.OLDCLSCH,nachisl.cexoz), VedMonth)
+        }
+      }
+      else
+      { _loop  fullcache  sumvidud
+        { Add_sum(1,sumvidud.vidud,sumvidud.sumud
+           ,GetCexozDop(sumvidud.OLDCLSCH,sumvidud.cexoz), GetCexozDop(sumvidud.OLDCLSCH,sumvidud.cexoz), VedMonth)
+        }
+        _loop fullcache sumvidop
+        { Add_sum(3,sumvidop.vidopl,sumvidop.summa
+            ,GetCexozDop(sumvidop.OLDCLSCH,sumvidop.cexoz), GetCexozDop(sumvidop.OLDCLSCH,sumvidop.cexoz), VedMonth)
+        }
+      }
+      if true // (tp_option and 32)=0
+      { _loop fullcache nenach
+        { Add_sum(3,nenach.vidopls,nenach.summa
+           ,GetCexozDop(nenach.OLDCLSCH,nenach.cexoz), GetCexozDop(nenach.OLDCLSCH,nenach.cexoz), VedMonth)
+        }
+      }  
+    } //for(VedMonth:=Mesb;VedMonth<=MesE;VedMonth++) 
+    _loop  fullcache  spplban
+    { if getfirst fastfirstrow sbban<>0 then continue
+      if getfirst fastfirstrow OtpDop<>0 then continue
+      Add_sum(2,spplban.vidud,spplban.sumud,sbban.region, spplban.cpodr//SbBan.Cex //if(isvalid(#otpdop) and OtpDop.cex>0,OtpDop.cex,SbBan.Cex)
+         , month(sbban.datan))
+    }
+    mylogwrite(false,'собрали по '+GetStrTabn(lschet1.tabn,lschet1.strtabn))
+    
+    if (tp_option and 4)=0
+    { if getfirst tmp_sbokato where (( 0 == pa ))<>0 then continue;
+      if (tp_option and 1)>0
+      { if abs(wsu1-wsu2)<0.001 then continue;
+      }
+      if (tp_option and 2)>0
+      { kl_need:=false
+        
+        _loop tmp_sbokato where (( 0 == pa ))
+        { if abs(tmp_sbokato.su[1]-tmp_sbokato.su[2])>0.001 then
+          { kl_need:=true;
+            break;
+          }  
+        }
+        if not kl_need then continue;
+      } //if (tp_option and 2)>0
+      
+      _loop fullcache tmp_sbokato where (( 0 == pa ))  ordered by index tmp_sbokato01
+      { wexrow:=wexrow+1; wexcol:=1;
+        MyPutExcel(GetStrTabn(lschet1.tabn,lschet1.strtabn),0,0,-1,-1) //Таб. №  
+        MyPutExcel(persons1.fio,0,0,-1,-1) //Ф.И.О.  
+        MyPutExcel(tmp_sbokato.okato,0,0,-1,-1) //Ф.И.О.  
+        MyPutExcelNumber(tmp_sbokato.su[1],2,0,0,-1,-1) //Оклад, руб.  
+       
+        MyPutExcelNumber(tmp_sbokato.su[2],2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(tmp_sbokato.su[1]-tmp_sbokato.su[2],2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(tmp_sbokato.su[3],2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcel(tmp_sbokato.prim,0,0,-1,-1) //
+        if ((tp_option and 64+128)>0)
+        { MyPutExcel(chr(39)+tmp_sbokato.kpp,0,0,-1,-1) //KPP
+          MyPutExcelNumber(tmp_sbokato.Mes,0,0,0,-1,-1) //Месяц
+        }
+        MyPutExcel(tmp_sbokato.prim2,0,0,-1,-1) //
+        MyPutExcel(tmp_sbokato.prim3,0,0,-1,-1) //
+        
+      }
+      //==== Будем формировать дельту по реестрам                             
+      if (tp_option and 256)>0
+      { update tmp_sbokato where (( 0 == tmp_sbokato.pa )) and abs(tmp_sbokato.su[1]-tmp_sbokato.su[2])>0.001
+           set tmp_sbokato.clsch:=lschet1.nrec ,tmp_sbokato.Pa:=2
+      }
+      if (tp_option and 8)=0
+      { wexrow:=wexrow+1; wexcol:=1;
+        MyPutExcel(GetStrTabn(lschet1.tabn,lschet1.strtabn),0,0,-1,-1) //Таб. №  
+        MyPutExcel(persons1.fio,0,0,-1,-1) //Ф.И.О.  
+        MyPutExcel('Итого',0,0,-1,-1) //Ф.И.О.  
+        MyPutExcelNumber(wsu1,2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(wsu2,2,0,0,-1,-1) //Оклад, руб.  
+        MyPutExcelNumber(wsu1-wsu2,2,0,0,-1,-1) //Оклад, руб.  
+      }  
+    } //if (tp_option and 8)=0   
+  } //_loop formarks
+  Sbor_lsch:=True;
+}
+
+
+//------------------------------------------------------------------------------
+// возвращает ссылку на некое вышестоящее обособленное подразделение или филиал
+//------------------------------------------------------------------------------
+function GetDistinctDepartment(Department: comp): comp;
+{
+  Result := Department;
+
+  if Department <> 0
+  {
+    if getfirst fastfirstrow KATPODR where ((Department == KATPODR.NREC)) = tsOk
+    {
+      //if case(Trim(KATPODR.LASTUSER);'1','2': false; true)
+      if katpodr.cOrg=0 
+        Result := GetDistinctDepartment(KATPODR.CPODR);
+    }
+  }
+}
+
+
+//==========================================
+// получение реквизитов по строчному КПП
+//==========================================
+Function GetRecvizitKpp(ww_kpp:string;var wwc_kpp:comp; var wwc_cex:comp; var wwc_org:comp; var wwc_bank:comp) :boolean;
+var ww_nrec:comp;
+{   GetRecvizitKpp:=False
+    wwc_cex:=0
+    wwc_kpp:=0
+    _loop katkod  where (( 6 == katkod.wtype and ww_kpp == KATKOD.KOD  ))
+    { if getfirst katpodr where (( katkod.nrec == katpodr.ckpp(noindex) ))=0
+      {  wwc_cex:=katpodr.nrec;
+         wwc_kpp:=katkod.nrec
+         break;
+      }
+    }
+    if wwc_cex<>0  
+    { 
+      // извлечем ссылку на ГНИ, на которую указывает полученный КПП
+      ww_nrec:=KATKOD.CORG1;
+
+      // по найденной ГНИ определим получателя
+      if getfirst fastfirstrow KATKOD where ((ww_nrec == KATKOD.NREC)) = tsOk
+      {
+        // определим получателя
+        var ODB: IBankInfo(OrganizationDefaultBank);
+        if (KATKOD.CORG3 = 0) or not IOrganizationInfoFinder(ODB).Seek(KATKOD.CORG3)
+        { // MLog('Не задан получатель для ГНИ "' + KATKOD.NAME + '"', mfError)
+        }
+        else
+        {
+          // это и есть получатель, заданный для ГНИ
+          wwc_org:= KATKOD.CORG3;
+          wwc_bank:=ODB.GetBankRef;
+        }
+      } //if getfirst fastfirstrow KATKOD where ((ww_nrec == KATKOD.NREC)) = tsOk
+   }  //if wwc_cex<>0  
+   GetRecvizitKpp:=True  
+} //Function GetRecvizitKpp(ww_kpp:string;var wwc_kpp:comp; var wwc_cex:comp; var wwc_org:comp; var wwc_bank:comp) :boolean;
+
+
+//===============================
+// сформировать реестры на перечисление налогов
+//===============================
+Procedure FormReestr;
+var ww_kpp,ww_okato:string;
+    jk:word;
+    wwc_kpp:comp; 
+    wwc_cex:comp;
+    wwc_org:comp; 
+    wwc_bank:comp;
+    ww_su:double;
+    wwc_region:comp;
+{ ww_kpp:='?????????'
+  ww_okato:='?????????'
+  jk:=0; 
+  _loop tmp_sbokato where (( 2 == tmp_sbokato.Pa)) ordered by index tmp_sbokato01
+  { if ww_kpp<>tmp_sbokato.kpp or ww_okato<>tmp_sbokato.okato
+    { if ww_kpp<>'?????????'
+      { update current sbban set sbban.SUMMA:=ww_su,sbban.SUMFACT:=ww_su
+      }
+      ww_su:=0;
+      ww_kpp:=tmp_sbokato.kpp 
+      ww_okato:=tmp_sbokato.okato
+      jk:=jk+1;
+      wwc_kpp:=0
+      wwc_org:=0; 
+      wwc_bank:=0;
+      GetRecvizitKpp(ww_kpp,wwc_kpp, wwc_cex, wwc_org, wwc_bank)
+      vSterr.w_okato:=ww_okato
+      //        case(DocName; 1: coKATBANK; coKATORG),
+
+      wwc_region:=if(vSterr.getfirst fastfirstrow sterr=0,vSterr.Sterr.Nrec,0)
+      insert otpdop
+      set 
+       OTPDOP.lastuser:=''
+      ,OTPDOP.LASTDATE := From_Days(coSBBAN)
+      ,OTPDOP.CEX :=GetDistinctDepartment(wwc_cex) //wwc_cex
+      ;
+      insert into sbban
+      set
+       sbban.PREFIX:='R$Z'
+      ,sbban.DFORM:=dGetTune('UP.DATOTCH')
+      ,sbban.DATAN:=date(1,Mesb,VedYear)
+      ,sbban.DATOK:=date(last_day(date(1,Mesb,VedYear)),Mesb,VedYear)
+      ,sbban.YEARDOC:=VedYear
+      ,sbban.NAME:='Налог на дохды, корректировка, КПП='+ww_kpp
+      ,sbban.VIDUD:=182 // perech.vidper
+      ,sbban.MNREC:=otpdop.nrec// ?
+      ,SBBAN.LASTTIME := OTPDOP.LASTTIME
+      ,sbban.NMNEM:='Налог на дохды,'
+      ,sbban.CEX:=wwc_cex //GetDistinctDepartment(wwc_cex) // может надо чем то.
+      ,sbban.PRIZDEL:=3
+      ,sbban.PRIZMEG:=15022
+      ,sbban.lastuser:='__'+string(jk)
+      ,sbban.cpol:=wwc_org
+      ,sbban.CBANKPOL:=wwc_bank
+      ,sbban.PRIZNAK:=0
+      ,sbban.region:=wwc_region;
+      ;
+      wexrow:=wexrow+1;wexcol:=2
+      MyPutExcel('Реестр '+sbban.lastuser,0,0,-1,-1) //Ф.И.О.  
+
+    
+    
+    }
+    if getfirst fastfirstrow lschet1 where (( tmp_sbokato.clsch == lschet1.nrec ))=0 {}
+    if getfirst fastfirstrow persons1 where (( lschet1.tperson == persons1.nrec ))=0 {}
+    ww_su:=ww_su+tmp_sbokato.su[1]-tmp_sbokato.su[2]
+       insert into SPPLBAN
+       set
+         SPPLBAN.LASTUSER:='СЗВ'
+        ,SPPLBAN.CSBBAN:=SBBAN.NREC
+        ,SPPLBAN.DFORM :=dte
+        ,SPPLBAN.TABN:=lschet1.tabn
+        ,SPPLBAN.CEX:=lschet1.cex
+        ,SPPLBAN.FIO:=persons1.fio
+        ,SPPLBAN.NOMLSH:=LPadCh(  '0',    '0', 30)
+        ,SPPLBAN.DATROG:=persons1.borndate
+        ,SPPLBAN.VIDOPL:=1
+        ,SPPLBAN.MES:=mesb
+        ,SPPLBAN.cPodr   :=wwc_cex 
+        ,SPPLBAN.DATAN   :=date(1,Mesb,VedYear)
+        ,SPPLBAN.FAMCH   :=''
+        ,SPPLBAN.DATOK   :=date(last_day(date(1,Mesb,VedYear)),Mesb,VedYear)
+        ,SPPLBAN.CLSCH   :=lschet1.nrec
+        ,SPPLBAN.TPERSON :=lschet1.tperson
+        ,SPPLBAN.VIDUD   :=sbban.vidud //
+        ,SPPLBAN.SUMUD   :=tmp_sbokato.su[1]-tmp_sbokato.su[2]
+        ,SPPLBAN.SUMOPL  :=tmp_sbokato.su[1]-tmp_sbokato.su[2]
+        ,SPPLBAN.SBOR    :=0 // начисленно по ведомости
+        ,SPPLBAN.SUMFACT :=0 // здесь будет входящее сальдо
+        ,SPPLBAN.PRIZMEG :=sbban.PRIZMEG
+        ,SPPLBAN.STRTABN :=lschet1.strtabn
+        ,SPPLBAN.PAYNUM  :=''
+        ,SPPLBAN.REGION  := SBBAN.REGION
+        ,SPPLBAN.cpol    :=sbban.cpol
+        ,SPPLBAN.CBANKPOL:=sbban.CBANKPOL
+
+       ; 
+      insert into zaroper
+       set
+         zaroper.TIPDOC:=15008
+        ,zaroper.TABN:=lschet1.tabn
+        //,ZAROPER.LASTTIME := 0
+        ,zaroper.CEX:=lschet1.cex
+        ,zaroper.CEXOZ:=lschet1.cex
+        ,zaroper.MES:=mesb
+        ,ZAROPER.CAPPOINT:=otpdop.nrec
+        ,zaroper.MESN:=mesb
+        ,zaroper.YEARK:=VedYear
+        ,zaroper.YEARN:=VedYear
+        ,zaroper.SUMMA:=SPPLBAN.SUMFACT
+        ,zaroper.SUMMAVKL:=0
+        ,ZAROPER.CPLPOR:=SPPLBAN.NREC
+        ,zaroper.PRIZPR:=16061
+        ,zaroper.CLSCHET:=lschet1.nrec
+        ,zaroper.CPERSON:=lschet1.tperson
+        ,zaroper.CPODR:=sbban.nrec //? 00010000000001F6h Ссылка на исходный документ
+        ,zaroper.PARAM:=lschet1.param
+        ,zaroper.MESV:=MesB
+        ,zaroper.YEARV:=VedYear
+        ,zaroper.STRTABN:=lschet1.strtabn
+       ; 
+ 
+  } //_loop tmp_sbokato where (( 2 == tmp_sbokato.Pa) ordered by index tmp_sbokato01;
+  if ww_kpp<>'?????????'
+  { update current sbban set sbban.SUMMA:=ww_su,sbban.SUMFACT:=ww_su
+  }
+        
+} //Procedure FormReestr;
+
+
+//===============================
+//
+//===============================
+Function FormDoc :boolean;
+var
+  wi:longint;
+{ FormDoc:=false;
+  logfilenm:=GetStringParameter('Files','OutputFilesDirectory',0)
+                               +'!NDFL_Reestr.log'
+  //==== Будем формировать дельту по реестрам                             
+  if (tp_option and 256)>0
+  { if MesB<>MesE 
+    { message('Для формирования корректировочных реестров' 
+         +chr(13)+'Необхоидо установить период' 
+         +chr(13)+'"в один месяц"' 
+         )
+      exit;   
+    }
+
+    if (tp_option and 64)=0
+    { message('Для формирования корректировочных реестров' 
+         +chr(13)+'Необхоидо установить флаг' 
+         +chr(13)+'"Разбить по КПП"' 
+         )
+      exit;   
+    }
+    if (tp_option and 16)>0
+    { message('Для формирования корректировочных реестров' 
+         +chr(13)+'Необхоидо сбросить флаг' 
+         +chr(13)+'"Вместо работников вывести ОСП(только по ОЗ)"' 
+         )
+      exit;   
+    }    
+    if (tp_option and 32)>0
+    { message('Для формирования корректировочных реестров' 
+         +chr(13)+'Необхоидо сбросить флаг' 
+         +chr(13)+'"Собрать информацию по платежам(только по ОЗ)"' 
+         )
+      exit;   
+    }    
+    if (tp_oz)>0
+    { message('Для формирования корректировочных реестров' 
+         +chr(13)+'Необхоидо сбросить флаг' 
+         +chr(13)+'"По подразделению ОЗ"' 
+         )
+      exit;   
+    }    
+  } //if (tp_option and 256)>0
+
+  if ExcelInit(nmtemplate,true,2009)<>0
+  { message('Ошибка инициализации шаблона')
+    exit ;
+  }
+  MyLogWrite(true,'START')
+  VedYear1:=VedYear; VedMonth1:=VedMonth+1
+  if VedMonth1>12
+  { VedMonth1:=1;
+    VedYear1:=VedYear1+1
+  }
+  delete all tmp_lschet;
+  resetbounds(#tmp_lschetsp)
+  delete all tmp_lschetsp;
+  delete all tmp_lschetsp;
+  setbounds(#tmp_lschetsp)
+
+
+
+  IMyFun_ZAR.InitMyFun
+  IMyFun_ZAR.Set_tp_sbor(1) 
+  //dtb:=date(1,VedMonth,VedYear)
+  //dte:=date(last_day(dtb),VedMonth,VedYear)
+  dtb:=date(1,MesB,VedYear)
+  dte:=date(Last_day(date(1,MesE,VedYear)),MesE,VedYear)
+  matrixkl:=False;
+  wexrow:=1;wexcol:=1;
+  MyPutExcel(commonformheader,0,0,-1,-1)
+  wexrow:=3;wexcol:=2;
+  MyPutExcel(string(MesB)+' мес. '
+    +if(MesB<>MesE,' - '+string(MesE)+' мес. ','')
+    +string(VedYear)+' г',0,0,-1,-1)
+ 
+  wexrow:=4;wexcol:=2;
+  if (Zar_User.GrupStN and 1)>0
+    MyPutExcel(FiltrPodr,0,0,-1,-1)
+  if((tp_option and 64+128)>0)
+  { wexrow:=5;
+    wexcol:=9;
+    MyPutExcel('КПП',0,0,-1,-1)
+    MyPutExcel('Месяц за',0,0,-1,-1)
+  }  
+  HeaderStrCount:=5;  
+  wexrow:=HeaderStrCount+1;
+  MyXlCreaMatrix(1000,20)
+  wexrow:=wexrow-1;
+  for(wi:=1;wi<=10;wi++)  it_su[wi]:=0;
+  delete tmp_sbokato where (( 2 == tmp_sbokato.pa));
+  delete tmp_sbokato where (( 1 == tmp_sbokato.pa));
+  delete tmp_sbokato where (( 0 == tmp_sbokato.pa));
+  
+  
+  //==== сбор данных
+  if tp_oz=1 and   (Zar_User.GrupStN and 2)=0
+  { 
+    // соберем платежи
+    if (tp_option and 32)>0
+    { if not Sbor_plat then exit
+    }  //if (tp_option and 32)>0
+    if not Sbor_Cexoz then exit;
+    
+  } //if tp_oz=1 and   (Zar_User.GrupStN and 2)=0
+  else
+  {  if tp_oz=1
+     { message('По отнесению затрат не работает'
+       + chr(13)+'при установленном фильтре по лиц.счетам'
+       + chr(13)+'переключаем в "по лиц.счетам"')
+       tp_oz:=0   
+     }
+     if not Sbor_lsch then exit;
+  }
+
+
+  //==== вывод итогов
+  _loop tmp_sbokato where (( 1 == pa )) ordered by index tmp_sbokato01
+  { if (tp_option and 2)>0
+      if abs(tmp_sbokato.su[1]-tmp_sbokato.su[2])<0.001 then continue;
+    wexrow:=wexrow+1; wexcol:=1;
+    MyPutExcel('',0,0,-1,-1) //Таб. №  
+    MyPutExcel('Итого',0,0,-1,-1) //Ф.И.О.  
+    MyPutExcel(tmp_sbokato.okato,0,0,-1,-1) //Ф.И.О.  
+    MyPutExcelNumber(tmp_sbokato.su[1],2,0,0,-1,-1) //Оклад, руб.  
+    MyPutExcelNumber(tmp_sbokato.su[2],2,0,0,-1,-1) //Оклад, руб.  
+    MyPutExcelNumber(tmp_sbokato.su[1]-tmp_sbokato.su[2],2,0,0,-1,-1) //Оклад, руб.  
+    MyPutExcelNumber(tmp_sbokato.su[3],2,0,0,-1,-1) //Оклад, руб.  
+  }
+  wexrow:=wexrow+1; wexcol:=1;
+  wsu1:=it_su[1]
+  wsu2:=it_su[2]
+  MyPutExcel('',0,0,-1,-1) //Таб. №  
+  MyPutExcel('Итого',0,0,-1,-1) //Ф.И.О.  
+  MyPutExcel('Итого',0,0,-1,-1) //Ф.И.О.  
+  MyPutExcelNumber(wsu1,2,0,0,-1,-1) //Оклад, руб.  
+  MyPutExcelNumber(wsu2,2,0,0,-1,-1) //Оклад, руб.  
+  MyPutExcelNumber(wsu1-wsu2,2,0,0,-1,-1) //Оклад, руб.  
+
+
+  MyxlWriteMatrix(wexrow);
+  xlFreeMatrix;
+  xlWrapText(HeaderStrCount+1,1,wexrow,8);
+
+  matrixkl:=False;
+  MyxlFrameCells(63, 2, 1, 1, HeaderStrCount,1,wexrow,8+if((tp_option and 64+128)>0,2,0));
+
+  //==== Будем формировать дельту по реестрам                             
+  if (tp_option and 256)>0
+  { FormReestr;
+  }
+  MyXlEnd;
+
+  FormDoc:=true;
+} //Function FormDoc :boolean;
+
+
+//===============================
+
+panel PnMain;
+  table Zar_User;
+tabbedsheet top tbMain;
+Screen scrMain 'Параметры' ;
+  Fields
+   //VedMonth ('За какой год формировать отчет',, sci1Esc) : noprotect;
+   MesB : noprotect;
+   MesE : noprotect;
+   VedYear  ('За какой год формировать отчет',, sci1Esc) : noprotect;
+   logfilekl :noprotect;
+   nmtemplate:protect;
+   //======================          
+   tp_oz : noprotect;
+   Zar_User.GrupStN ('Выберите фильтр', ,sci1Esc):noprotect;
+   FiltrPodr('Заданный фильтр по подразделениям', ,sci13Esc) :protect;
+   FiltrPublic('Заданный фильтр по работникам', ,sci13Esc):protect;
+   podr_ie: noprotect;
+   tp_option :noprotect;
+   //=============
+    buttons
+       cmOk,default,,'Сформировать отчет',,sci1Esc;
+       cmCancel,,,'Выход',,sci1Esc;
+
+<<'Параметры отчета'
+
+   `Период` месяц c .@@@ по .@@@ `год` .@@@@@      [.] Отладка`
+   `Шаблон` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   `Фильтр по`         [.] По подразделению ОЗ`              
+    [.] подразделению ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    [.] работникам    ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    
+    Опции                      Уровень ОСП .@@
+    [.] Вывести только если есть расхождения по итогам  1`
+    [.] Вывести только если есть расхождения по окато   2`
+    [.] Вывести только итоги по окато                   4`
+    [.] Не выводить итоги по работнику                  8`
+    [.] Вместо работников вывести ОСП(только по ОЗ)    16` 
+    [.] Собрать информацию по платежам(только по ОЗ)   32`
+    [.] Разбить по КПП                                 64`
+    [.] Разбить по месяцам                            128`
+    [.] Сформировать корректирующие реестры(нужен КПП)256`
+    [.] Проверять все реестры, а не только видимые    512`
+   <. ~С~формировать .>       <. ~О~тмена .>
+
+>>
+end; // screen
+screen scrInfo 'Информация'  ;
+<<
+Для удобства сравнения с реестрами при установке флага лпо подразделению ОЗ╗ 
+реестры отбираются по дате формирования, а без него по периоду лза который╗.
+1.Вывести только если есть расхождения по итогам 
+   - позволяет вывести людей, только если   есть расхождения по итогам.
+2. Вывести только если есть расхождения по окато 
+  Ц выводит только строки, где расходится сумма в разрезе по ОКАТО. 
+3. Вывести только итоги по окато Ц выводятся только итоги по ОКАТО(без сотрудников)
+4. Не выводить итоги по работнику Ц не выводятся итоги по работнику.
+  
+>>
+end;
+end;//tabbedsheet top tbMain;
+//==========================
+HandleEvent
+ cmCheckField :
+  {
+   case CurField of
+    #VedYear:
+     {
+      if (VedYear < year(dgettune('UP.DATOTCH'))-5) or (VedYear > year(dgettune('UP.DATOTCH')))    Set VedYear:= year(dgettune('UP.DATOTCH'));
+     }
+   end; // case
+   PodrPubCheck; //Процедура для фильтров по подразд. и работникам
+   ReScanPanel(#Zar_user);
+  }
+end; // handle
+end; // panel
+//===========================
+HandleEvent
+cmNotify_NdflReestr: //блокируем повторный запуск
+{ if kl_init 
+  {  RunWindowModal(wnMess); 
+     SelectPanel(#Zar_user)
+     Stop(); 
+  }
+} 
+cmInit:
+{
+   kl_init:=false 
+   if (Notify(cmNotify_NdflReestr,0 ) <> 0) 
+   {  message('Интерфейс уже запущен!'+chr(13)
+              +'Переключитесь по Alt+0')
+      Abort(); 
+   } 
+   kl_init:=true;
+   CLSF.ReScan;
+   nmtemplate:='TNS_ZAR_NdflReestr.xls'
+ dt_otch:=dgettune('UP.DATOTCH');
+
+ InitUser(1); // Инициализация Zar_User
+ if (not ReadMyDsk(VedYear,'NDFLReestr_VedYear', false))
+   VedYear:= year(dgettune('UP.DATOTCH'));
+ if (not ReadMyDsk(MESB,'NDFLReestr_MESB', false))
+   MESB:= month(dgettune('UP.DATOTCH'));
+ if (not ReadMyDsk(MESE,'NDFLReestr_MESE', false))
+   MESE:= month(dgettune('UP.DATOTCH'));
+ if (not ReadMyDsk(tp_option,'NDFLReestr_tp_option', false))
+   tp_option := 0;
+ if (not ReadMyDsk(tp_oz,'NDFLReestr_tp_oz', false))
+   tp_oz:=1;
+ if (not ReadMyDsk(podr_ie,'NDFLReestr_podr_ie',false) )
+    podr_ie:=3   
+  if (not intinit)
+   {
+    CLSF.ReScan;
+    Abort;
+    Exit;
+   }
+}
+cmPick :
+{
+ PodrPubPick; //Процедура для фильтров по подразд. и работникам
+ case CurField of
+ end;  //case
+ ReScanPanel(#Zar_user);
+}
+
+cmTableChanged:
+ if (GetNotificationInfoPtr = coZAR_USER)
+   ReReadRecord(#ZAR_USER);
+cmOk:
+{ SaveMyDsk(VedYear ,'NDFLReestr_VedYear')
+  SaveMyDsk(Mesb ,'NDFLReestr_MESB')
+  SaveMyDsk(Mese ,'NDFLReestr_MESE')
+  SaveMyDsk(tp_option ,'NDFLReestr_tp_option')
+  SaveMyDsk(tp_oz,'NDFLReestr_tp_oz') // по цеху отнесения затрат
+  SaveMyDsk(podr_ie,'NDFLReestr_podr_ie') 
+  
+  //
+  iPodrFilterDef.katpodrGetLevelInit;
+  
+  
+  Tabn_Format:=wgettune('FORMATCLOCKNUMBER')
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak, 'Ждите идет сбор данных...', 50); 
+  dt_otch:=dgettune('UP.DATOTCH')
+  _PodrMArkerPointer:=  CLSF.LoadFullCurrentDepartmentList;
+  if tp_oz=1
+  {
+  }
+  else
+   if not FillMarks then  // Заполнение Formarks
+    {
+     exitproc;
+     DoneMarker(_PodrMArkerPointer,'');
+     CLSF.ReScan;
+     Abort;
+     Exit;
+    }
+  InitWorkingTable;
+  displ('====== Начало == '+datetostr(cur_date,'DD/MM/YYYY')+timetostr(cur_time,'HH:MM:SS:SSS'))  
+  displ('отобранно '+string(recordsintable(#formarks)));
+  FormDoc;
+  StopVisual('',0)
+  DoneMarker(_PodrMArkerPointer,'');
+  xlkillexcel;
+  displ('====== Завершение == '+datetostr(cur_date,'DD/MM/YYYY')+timetostr(cur_time,'HH:MM:SS:SSS'))  
+  ShowErrors;
+  DoneWorkingTable;
+  //Closeinterface(cmDone)
+}
+end; //  HandleEvent
+end.
+ 

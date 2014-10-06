@@ -1,0 +1,868 @@
+.LinkForm 'REEPLATDOCS1_5tns' Prototype is 'REEPLATDOCS'
+.declare
+#include Commission.vih
+.enddeclare
+.Group 'Реестр оплаченных документов'
+.Group 'Платежные документы классификатор'
+.NameInList 'ТНС. Реестр платежных документов'
+.var
+iCommission : Commission;
+sum_nds  : double;
+CO       : word;
+SCHET    : word;
+NAMEKBK  : word;
+NOMDOK   : word;
+DATDOK   : word;
+SUMDOK   : word;
+SUMNDS   : word;
+ORGDOC   : word;
+NAMDOC   : word;
+KODKBK   : word;
+SCHBANK  : word;
+NAMEBANK : word;
+POS      : word;
+T_temp,T_temp2,marker   : LongInt;
+FBasName : string;
+Fmacros  : string;
+pr_co, kod_kbk, nom_sch, gen_dir    : string;
+pr_kbk   : string;
+pr_namkbk   : string;
+pr_schet : string;
+pos_x, pos_n, pos_p, pos_num : integer;
+xx       : integer;
+x,y      : integer;
+summa_co     : double;
+sumnds_co    : double;
+summa_schet  : double;
+sumnds_schet : double;
+summa_kbk    : double;
+sumnds_kbk   : double;
+summa_it     : double;
+sumnds_it    : double;
+sum_kbk      : double;
+sum_kbk_nds  : double;
+nrec_spkau : comp;
+.endvar
+
+.Create view t1
+as select
+plpor.nrec
+from
+     plpor,
+     fpco,
+     cashbank,
+     attrnam,
+     attrval,
+     katbank,
+     attrnam attrnam2,
+     attrval attrval2
+where ((
+          PlPorNRec == plpor.nrec
+      and plpor.CWAYMOVE == fpco.nrec
+      and word(1) == nalogfin.TIDKGAL
+      and plpor.nrec == nalogfin.CSOPRDOC
+      and 0000000000000002h == nalogfin.CNALOG (noindex)
+      and cashbank.cpodr == katbank.nrec
+      and coGetTune('MyOrg') == katorg.nrec
+      and  word(1418)       == AttrNam.wTable
+      and  'Расчетный счет для сумм-ия финансир от заказчика'  == AttrNam.Name
+      and  word(1418)       == AttrVal.wTable
+      and  katorg.nrec      == AttrVal.cRec
+      and  AttrNam.Nrec     == AttrVal.cAttrNam
+      and  attrval.vcomp    == spkau.nrec
+      and cashbank.nrec == spcash.CCASHBANK
+      and  word(1418)       == AttrNam2.wTable
+      and  'КБК перевод собственных средств'  == AttrNam2.Name
+      and  word(1418)       == AttrVal2.wTable
+      and  katorg.nrec      == AttrVal2.cRec
+      and  AttrNam2.Nrec     == AttrVal2.cAttrNam
+      ))
+;
+
+.fields
+.endfields
+.begin
+
+iCommission.InitCommission(111);
+iCommission.RunWindowSelection(1);
+
+
+T_temp  := TblInitNew(1,1);
+SCHET   := TblNewField(T_temp, ftString);
+CO      := TblNewField(T_temp, ftString);
+KODKBK  := TblNewField(T_temp, ftString);
+NOMDOK  := TblNewField(T_temp, ftString);
+TblEndKey(T_temp);
+DATDOK  := TblNewField(T_temp, ftString);
+SUMDOK  := TblNewField(T_temp, ftDouble);
+SUMNDS  := TblNewField(T_temp, ftDouble);
+ORGDOC  := TblNewField(T_temp, ftString);
+NAMDOC  := TblNewField(T_temp, ftString);
+NAMEKBK := TblNewField(T_temp, ftString);
+TblSetDuplicate(T_temp,True);
+TblClearBuffer(T_temp);
+
+T_temp2 := TblInitNew(1,1);
+SCHBANK     := TblNewField(T_temp2, ftString);
+TblEndKey(T_temp2);
+NAMEBANK    := TblNewField(T_temp2, ftString);
+POS         := TblNewField(T_temp2, ftString);
+TblSetDuplicate(T_temp2,False);
+TblClearBuffer(T_temp2);
+
+nrec_spkau:=0;
+kod_kbk:='';
+
+if t1.getfirst katorg = tsok
+ {
+if t1.getfirst attrnam = tsok
+if t1.getfirst attrval = tsok
+if t1.getfirst spkau = tsok
+ {
+  nrec_spkau := t1.spkau.nrec;
+ }
+if t1.getfirst attrnam2 = tsok
+if t1.getfirst attrval2 = tsok
+ {
+  kod_kbk:=trim(t1.attrval2.vstring);
+ }
+ }
+
+marker := initmarker('SelUsDoc_CashBank', 8, 255, 10);
+
+t1._loop cashbank
+{
+if foundmarker(marker,t1.cashbank.nrec)
+ {
+ TblClearBuffer(T_temp2);
+ if t1.getfirst katbank = tsok
+  {
+  TblSfString (T_temp2, SCHBANK , t1.katbank.Schet1);
+  }
+ TblSfString (T_temp2, NAMEBANK  , t1.cashbank.name);
+ TblInsertCurrent(T_temp2);
+ }
+
+ if t1.getfirst spcash = tsok
+  {
+   if nrec_spkau = t1.spcash.KAUOS[1]
+    {
+     nom_sch := t1.katbank.Schet1;
+    }
+  }
+}
+
+end.
+.{CheckEnter FILTERPLDOC
+.{CheckEnter FILTERPLDOCNAME
+.}
+.}
+ .{.?SHAPKA1;.}
+ .{.?SHAPKA2;.}
+ .{.?SHAPKA3;.}
+ .{.?SHAPKA4;.}
+.{
+.{
+.{
+ .{.?SUMMA1;.}
+.begin
+sum_nds:=0;
+
+if t1.getfirst plpor = tsok
+ {
+  t1._loop nalogfin
+    {
+     sum_nds := sum_nds + nalogfin.summa;
+    }
+
+  if t1.getfirst fpco = tsok
+   {}
+
+ }
+ TblClearBuffer(T_temp);
+ TblSfString (T_temp, CO      , t1.fpco.name);
+ TblSfString (T_temp, SCHET   , PlatBankSchet1);
+ if classifier <> ''
+  {
+   TblSfString (T_temp, NAMEKBK , trim(substr(classifier,14,200)));
+  }
+ else
+  {
+   TblSfString (T_temp, NAMEKBK , 'Не указан код бюджетной классификации');
+  }
+
+
+ TblSfString (T_temp, NOMDOK  , nodok);
+ TblSfString (T_temp, DATDOK  , DatVip1);
+ TblSfDouble (T_temp, SUMDOK  , double(sumplat));
+ TblSfDouble (T_temp, SUMNDS  , sum_nds);
+ TblSfString (T_temp, ORGDOC  , WOrgName);
+ TblSfString (T_temp, NAMDOC  , nameall);
+ if classifier <> ''
+  {
+  TblSfString (T_temp, KODKBK  , substr(classifier,1,13));
+  if kod_kbk = substr(classifier,1,13)
+   {
+
+    sum_kbk:= sum_kbk + double(sumplat);
+    sum_kbk_nds:= sum_kbk_nds + sum_nds;
+   }
+  }
+ else
+  {
+  TblSfString (T_temp, KODKBK  , 'Не указан код');
+  }
+ TblInsertCurrent(T_temp);
+
+ TblClearBuffer(T_temp2);
+ TblSfString (T_temp2, SCHBANK , PlatBankSchet1);
+ TblSfString (T_temp2, NAMEBANK  , PlatBankName);
+ TblInsertCurrent(T_temp2);
+end.
+.}
+ .{.?BANKFOOTER1;;false; .}
+.}
+ .{.?ORGFOOTER1;;false; .}
+ .{.?ORGFOOTER2;.}
+
+.}
+ .{.?FOOTER1;.}
+ .{.?FOOTER2;.}
+.begin
+FBasName :=GetStringParameter('Files','TmpFilesDirectory',0)+'reestr_plpor.xls';
+fmacros := GetStringParameter('Files','TmpFilesDirectory',0)+'macros.bas';
+DeleteFile(FBasName);
+xlCreateExcel(FBasName,true);
+xlSetActiveWorkBookByName('reestr_plpor');
+   xlGetSheetsCount(xx);
+   while xx > 1
+    do
+     {
+       xlSetActiveSheet(xx);
+       xlDeleteSheet(xx);
+       xlGetSheetsCount(xx);
+     }
+   xlSetSheetName(1,'Реестр');
+   xlSetActiveSheet(1);
+   pos_x:=1;
+   xlSetCellStringValue('Утверждаю', pos_x, 5, pos_x, 5);
+   xlMergeCells( pos_x, 5, pos_x, 6);
+   xlSetFontSize(10, pos_x, 1, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   pos_x:=pos_x+1;
+end.
+.var
+  wCommissionNum : word;
+.endvar
+.var
+  Председатель_комиссии_nRec      : comp;
+  Председатель_комиссии_ФИО       : string;
+  Председатель_комиссии_Табельный_Номер : string;
+  Председатель_комиссии_Должность : string;
+.endvar
+.var
+  Член_комиссии_nRec              : comp;
+  Член_комиссии_ФИО               : string;
+  Член_комиссии_Табельный_Номер   : string;
+  Член_комиссии_Должность         : string;
+.endvar
+
+.{?INTERNAL;iCommission.GetCommissionChairMan;
+.begin
+  wCommissionNum := 0;
+
+  Председатель_комиссии_nRec      := 0;
+  Председатель_комиссии_ФИО       := '';
+  Председатель_комиссии_Табельный_Номер := '';
+  Председатель_комиссии_Должность := '';
+
+  Председатель_комиссии_nRec            := iCommission.GetComponentNRec(wCommissionNum);
+  Председатель_комиссии_ФИО             := iCommission.GetComponentFIO (wCommissionNum);
+  Председатель_комиссии_Табельный_Номер := iCommission.GetComponentTabN(wCommissionNum);
+  Председатель_комиссии_Должность       := iCommission.GetComponentPost(wCommissionNum);
+end.
+.fields
+.endfields
+.begin
+   xlSetCellStringValue(Председатель_комиссии_Должность+' '+sgettune('MyOrg') , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue(Председатель_комиссии_ФИО, pos_x, 7, pos_x, 7);
+   xlMergeCells( pos_x, 5, pos_x, 6);
+   xlMergeCells( pos_x, 7, pos_x, 8);
+   xlWrapText(pos_x, 1, pos_x, 8);
+   xlSetRowHeight(30, pos_x, 1, pos_x, 8);
+   xlAlignCellsEx( 2, 2, pos_x, 5, pos_x, 5);
+   xlAlignCellsEx( 3, 2, pos_x, 7, pos_x, 7);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlSetFontSize(10, pos_x, 1, pos_x, 8);
+   pos_x:=pos_x+3;
+end.
+.}
+.begin
+   xlSetCellStringValue(' Реестр платежей  ООО " Транснефтьстрой "', pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(datetostr(strtodate(dateend,'DD/MM/YYYY'),'DD Mon YYYY')+'г.', pos_x, 7, pos_x, 7);
+   xlSetFontSize(13, pos_x, 2, pos_x, 2);
+   xlSetFontSize(10, pos_x, 7, pos_x, 7);
+   xlMergeCells( pos_x, 2, pos_x, 6);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('Сальдо на начало дня:', pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 8);
+   xlMergeCells( pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 4, 2, pos_x, 8, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   pos_x:=pos_x+1;
+   end.
+.{while (y<=(TblRecords(T_temp2)-1))
+.begin
+if (TblGetIndex(T_temp2,y))
+ {
+  xlMergeCells( pos_x, 1, pos_x, 3);
+  xlMergeCells( pos_x, 4, pos_x, 6);
+  xlSetCellStringValue('Сальдо на начало:', pos_x, 1, pos_x, 1);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp2, NAMEBANK) , pos_x, 4, pos_x, 4);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp2, SCHBANK) , pos_x, 7, pos_x, 7);
+  xlWrapText(pos_x, 1, pos_x, 8);
+  xlSetRowHeight(30, pos_x, 1, pos_x, 8);
+  xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  3);
+  xlAlignCellsEx( 4, 2, pos_x, 4, pos_x,  6);
+  xlAlignCellsEx( 3, 2, pos_x, 7, pos_x,  7);
+  xlAlignCellsEx( 4, 2, pos_x, 8, pos_x,  8);
+  xlSetFontSize(10, pos_x, 1, pos_x, 8);
+
+  xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 3);
+  xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 6);
+  xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+  xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 8);
+
+  pos_x:=pos_x+1;
+ }
+  y:=y+1;
+end.
+.}
+.begin
+   pos_p:=pos_x;
+   xlSetCellFormula('=СУММ(H8:H'+doubletostr(pos_x-1,'666666666')+')', 7, 8, 7, 8);
+   xlSetCellStringValue('Финансирование от заказчика :', pos_x, 1, pos_x, 1);
+   xlSetCellFormula('=СУММ(H'+doubletostr(pos_x+1,'666666666')+':H'+doubletostr(pos_x+2,'666666666')+')', pos_x, 8, pos_x, 8);
+   xlSetFontSize(10, pos_x, 1, pos_x, 8);
+   xlMergeCells( pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 4, 2, pos_x, 8, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('Заказчик :', pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 8);
+   xlMergeCells( pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 4, 2, pos_x, 8, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('Заказчик :', pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 8);
+   xlMergeCells( pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 4, 2, pos_x, 8, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue(' Сальдо  всего :', pos_x, 1, pos_x, 1);
+   xlSetCellFormula('=H7+H'+doubletostr(pos_p,'666666666'), pos_x, 8, pos_x, 8);
+   xlSetFontSize(10, pos_x, 1, pos_x, 8);
+   xlMergeCells( pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 4, 2, pos_x, 8, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   pos_x:=pos_x+1;
+
+   xlSetCellStringValue('Номер'              , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Дата'               , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Сумма'              , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('в т.ч. НДС'         , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue('Валюта'             , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue('Получатель'         , pos_x, 6, pos_x, 6);
+   xlSetCellStringValue('Назначение платежа' , pos_x, 7, pos_x, 7);
+   xlSetCellStringValue('Примечание'         , pos_x, 8, pos_x, 8);
+
+   xlSetFontSize(10  , pos_x, 1, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 8);
+
+   xlSetColumnWidth( 8,  pos_x, 1, pos_x, 1);
+   xlSetColumnWidth(10,  pos_x, 2, pos_x, 2);
+   xlSetColumnWidth(15,  pos_x, 3, pos_x, 3);
+   xlSetColumnWidth(12,  pos_x, 4, pos_x, 4);
+   xlSetColumnWidth( 8,  pos_x, 5, pos_x, 5);
+   xlSetColumnWidth(25,  pos_x, 6, pos_x, 6);
+   xlSetColumnWidth(40,  pos_x, 7, pos_x, 7);
+   xlSetColumnWidth(15,  pos_x, 8, pos_x, 8);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+
+   xlWrapText(pos_x, 1, pos_x, 8);
+   pos_x:=pos_x+1;
+
+   xlSetCellStringValue(chr(39)+'1' , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+'2' , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+'3' , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue(chr(39)+'4' , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue(chr(39)+'5' , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue(chr(39)+'6' , pos_x, 6, pos_x, 6);
+   xlSetCellStringValue(chr(39)+'7' , pos_x, 7, pos_x, 7);
+   xlSetCellStringValue(chr(39)+'8' , pos_x, 8, pos_x, 8);
+
+   xlSetFontSize(10  , pos_x, 1, pos_x, 8);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 8);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+
+   xlWrapText(pos_x, 1, pos_x, 8);
+   pos_num:=pos_x;
+   pos_x:=pos_x+1;
+
+StartNewVisual(vtRotateVisual, vfTimer, 'Выгрузка в Excel',0);
+end.
+.{while (x<=(TblRecords(T_temp)-1))
+.begin
+if (TblGetIndex(T_temp,x))
+ {
+  NextVisual();
+  SetVisualTitle('Выгрузка в Excel '+x);
+/*
+  if pr_kbk<>TblGfString(T_temp,KODKBK) or pr_co<>TblGfString(T_temp,CO) or pr_schet<>TblGfString(T_temp,SCHET)
+   {
+    if summa_kbk <> 0
+     {
+//      xlWrapText(pos_x, 1, pos_x, 8);
+      xlSetCellStringValue(chr(39)+'Итого по коду:' , pos_x, 1, pos_x, 1);
+      xlSetCellStringValue(chr(39)+pr_namkbk , pos_x, 5, pos_x, 5);
+      xlSetCellStringValue(summa_kbk , pos_x, 3, pos_x, 3);
+      xlSetCellStringValue(sumnds_kbk , pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+      xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+      xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+      xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  2);
+      xlAlignCellsEx( 4, 2, pos_x, 3, pos_x,  4);
+      xlAlignCellsEx( 2, 2, pos_x, 5, pos_x,  8);
+      xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+      xlSetFontSize(10, pos_x, 1, pos_x, 8);
+      xlMergeCells( pos_x, 1, pos_x, 2);
+      xlMergeCells( pos_x, 5, pos_x, 8);
+      pos_x:=pos_x+1;
+      summa_kbk := 0;
+      sumnds_kbk := 0;
+     }
+      pr_kbk:='';
+   }
+*/
+
+  if pr_co<>TblGfString(T_temp,CO) or pr_schet<>TblGfString(T_temp,SCHET)
+   {
+    if summa_co <> 0
+     {
+      xlSetCellStringValue(chr(39)+'Итого по филиалу:' , pos_x, 1, pos_x, 1);
+      xlSetCellStringValue(chr(39)+pr_co , pos_x, 5, pos_x, 5);
+      xlSetCellStringValue(summa_co , pos_x, 3, pos_x, 3);
+      xlSetCellStringValue(sumnds_co , pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+      xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+      xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+      xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  2);
+      xlAlignCellsEx( 4, 2, pos_x, 3, pos_x,  4);
+      xlAlignCellsEx( 2, 2, pos_x, 5, pos_x,  8);
+      xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+      xlSetFontSize(10, pos_x, 1, pos_x, 8);
+      xlMergeCells( pos_x, 1, pos_x, 2);
+      xlMergeCells( pos_x, 5, pos_x, 8);
+      pos_x:=pos_x+1;
+      summa_co := 0;
+      sumnds_co := 0;
+      summa_kbk := 0;
+      sumnds_kbk := 0;
+      }
+      pr_co := '';
+      pr_kbk := '';
+   }
+
+  if pr_schet<>TblGfString(T_temp,SCHET)
+   {
+    if summa_schet<>0
+     {
+      xlSetCellStringValue(chr(39)+'Итого по счету:' , pos_x, 1, pos_x, 1);
+      xlSetCellStringValue(chr(39)+'счет '+pr_schet , pos_x, 5, pos_x, 5);
+      xlSetCellStringValue(summa_schet , pos_x, 3, pos_x, 3);
+      xlSetCellStringValue(sumnds_schet , pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+      xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+      xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+      xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  2);
+      xlAlignCellsEx( 4, 2, pos_x, 3, pos_x,  4);
+      xlAlignCellsEx( 2, 2, pos_x, 5, pos_x,  8);
+      xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+      xlSetFontSize(10, pos_x, 1, pos_x, 8);
+      xlMergeCells( pos_x, 1, pos_x, 2);
+      xlMergeCells( pos_x, 5, pos_x, 8);
+
+      TblClearBuffer(T_temp2);
+      TblSfString (T_temp2, SCHBANK , pr_schet);
+      if  TblGetEqual(T_temp2)
+       {
+        TblSfString (T_temp2, POS, TblGfString(T_temp2,POS)+'-C'+doubletostr(pos_x,'666666666'));
+        TblUpDateCurrent(T_temp2);
+       }
+
+      pos_x:=pos_x+1;
+
+      summa_co  := 0;
+      sumnds_co := 0;
+      summa_kbk := 0;
+      sumnds_kbk  := 0;
+      summa_schet := 0;
+      sumnds_schet := 0;
+      }
+    pr_co := '';
+    pr_kbk := '';
+    pr_schet := '';
+   }
+
+  if pr_co<>TblGfString(T_temp,CO)
+   {
+      xlSetCellStringValue(chr(39)+TblGfString(T_temp,CO) , pos_x, 1, pos_x, 1);
+      xlAlignCellsEx( 3, 2, pos_x, 1, pos_x,  8);
+      xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+      xlSetFontSize(11, pos_x, 1, pos_x, 8);
+      xlMergeCells( pos_x, 1, pos_x, 8);
+      xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 8);
+      pos_x:=pos_x+1;
+   }
+
+  if pr_kbk<>TblGfString(T_temp,KODKBK)
+   {
+    xlSetCellStringValue(chr(39)+TblGfString(T_temp,NAMEKBK) , pos_x, 1, pos_x, 1);
+    xlAlignCellsEx( 3, 2, pos_x, 1, pos_x,  8);
+    xlMergeCells( pos_x, 1, pos_x, 8);
+    xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+    xlSetFontSize(10, pos_x, 1, pos_x, 8);
+    xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 8);
+    pos_x:=pos_x+1;
+   }
+
+  xlSetCellStringValue(chr(39)+(x+1) , pos_x, 1, pos_x, 1);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,DATDOK) , pos_x, 2, pos_x, 2);
+  xlSetCellStringValue(TblGfDouble(T_temp,SUMDOK) , pos_x, 3, pos_x, 3);
+  xlSetCellStringValue(TblGfDouble(T_temp,SUMNDS) , pos_x, 4, pos_x, 4);
+  xlSetCellStringValue('руб.'                             , pos_x, 5, pos_x, 5);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,ORGDOC) , pos_x, 6, pos_x, 6);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,NAMDOC) , pos_x, 7, pos_x, 7);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,KODKBK) , pos_x, 8, pos_x, 8);
+  xlWrapText(pos_x, 1, pos_x, 8);
+  xlAlignCellsEx( 3, 2, pos_x, 1, pos_x,  2);
+  xlAlignCellsEx( 4, 2, pos_x, 3, pos_x,  4);
+  xlAlignCellsEx( 3, 2, pos_x, 5, pos_x,  5);
+  xlAlignCellsEx( 2, 2, pos_x, 6, pos_x,  7);
+  xlAlignCellsEx( 3, 2, pos_x, 8, pos_x,  8);
+  xlSetFontSize(10, pos_x, 1, pos_x, 8);
+
+  xlFrameCells(8,2,7,0,pos_x, 1, pos_x, 8);
+  xlFrameCells(3,2,7,0,pos_x, 1, pos_x, 1);
+  xlFrameCells(3,2,7,0,pos_x, 2, pos_x, 2);
+  xlFrameCells(3,2,7,0,pos_x, 3, pos_x, 3);
+  xlFrameCells(3,2,7,0,pos_x, 4, pos_x, 4);
+  xlFrameCells(3,2,7,0,pos_x, 5, pos_x, 5);
+  xlFrameCells(3,2,7,0,pos_x, 6, pos_x, 6);
+  xlFrameCells(3,2,7,0,pos_x, 7, pos_x, 7);
+  xlFrameCells(3,2,7,0,pos_x, 8, pos_x, 8);
+
+  pos_x:=pos_x+1;
+
+  summa_co     := summa_co     + TblGfDouble(T_temp,SUMDOK);
+  sumnds_co    := sumnds_co    + TblGfDouble(T_temp,SUMNDS);
+  summa_schet  := summa_schet  + TblGfDouble(T_temp,SUMDOK);
+  sumnds_schet := sumnds_schet + TblGfDouble(T_temp,SUMNDS);
+  summa_kbk    := summa_kbk    + TblGfDouble(T_temp,SUMDOK);
+  sumnds_kbk   := sumnds_kbk   + TblGfDouble(T_temp,SUMNDS);
+  summa_it     := summa_it     + TblGfDouble(T_temp,SUMDOK);
+  sumnds_it    := sumnds_it    + TblGfDouble(T_temp,SUMNDS);
+
+  pr_co     := TblGfString(T_temp,CO) ;
+  pr_schet  := TblGfString(T_temp,SCHET) ;
+  pr_kbk    := TblGfString(T_temp,KODKBK);
+  pr_namkbk := TblGfString(T_temp,NAMEKBK);
+ }
+  x:=x+1;
+end.
+.}
+.begin
+    if summa_kbk <> 0
+     {
+//      xlWrapText(pos_x, 1, pos_x, 8);
+      xlSetCellStringValue(chr(39)+'Итого по коду:' , pos_x, 1, pos_x, 1);
+      xlSetCellStringValue(chr(39)+pr_namkbk , pos_x, 5, pos_x, 5);
+      xlSetCellStringValue(summa_kbk , pos_x, 3, pos_x, 3);
+      xlSetCellStringValue(sumnds_kbk , pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+      xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+      xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+      xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  2);
+      xlAlignCellsEx( 4, 2, pos_x, 3, pos_x,  4);
+      xlAlignCellsEx( 2, 2, pos_x, 5, pos_x,  8);
+      xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+      xlSetFontSize(10, pos_x, 1, pos_x, 8);
+      xlMergeCells( pos_x, 1, pos_x, 2);
+      xlMergeCells( pos_x, 5, pos_x, 8);
+      pos_x:=pos_x+1;
+     }
+    if summa_co <> 0
+     {
+      xlSetCellStringValue(chr(39)+'Итого по филиалу:' , pos_x, 1, pos_x, 1);
+      xlSetCellStringValue(chr(39)+pr_co , pos_x, 5, pos_x, 5);
+      xlSetCellStringValue(summa_co , pos_x, 3, pos_x, 3);
+      xlSetCellStringValue(sumnds_co , pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+      xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+      xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+      xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  2);
+      xlAlignCellsEx( 4, 2, pos_x, 3, pos_x,  4);
+      xlAlignCellsEx( 2, 2, pos_x, 5, pos_x,  8);
+      xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+      xlSetFontSize(10, pos_x, 1, pos_x, 8);
+      xlMergeCells( pos_x, 1, pos_x, 2);
+      xlMergeCells( pos_x, 5, pos_x, 8);
+      pos_x:=pos_x+1;
+      }
+    if summa_schet<>0
+     {
+      xlSetCellStringValue(chr(39)+'Итого по счету:' , pos_x, 1, pos_x, 1);
+      xlSetCellStringValue(chr(39)+'счет '+pr_schet , pos_x, 5, pos_x, 5);
+      xlSetCellStringValue(summa_schet , pos_x, 3, pos_x, 3);
+      xlSetCellStringValue(sumnds_schet , pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+      xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+      xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+      xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+      xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  2);
+      xlAlignCellsEx( 4, 2, pos_x, 3, pos_x,  4);
+      xlAlignCellsEx( 2, 2, pos_x, 5, pos_x,  8);
+      xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+      xlSetFontSize(10, pos_x, 1, pos_x, 8);
+      xlMergeCells( pos_x, 1, pos_x, 2);
+      xlMergeCells( pos_x, 5, pos_x, 8);
+
+      TblClearBuffer(T_temp2);
+      TblSfString (T_temp2, SCHBANK , pr_schet);
+      if  TblGetEqual(T_temp2)
+       {
+        TblSfString (T_temp2, POS, TblGfString(T_temp2,POS)+'-C'+doubletostr(pos_x,'666666666'));
+        TblUpDateCurrent(T_temp2);
+       }
+
+      pos_x:=pos_x+1;
+      }
+
+stopvisual('Выгрузка закончена...',0);
+TblDeleteTable(T_temp);
+xlSetCellStringValue('Всего платежей:', pos_x, 1, pos_x, 1);
+xlSetCellStringValue(summa_it-sum_kbk , pos_x, 3, pos_x, 3);
+xlSetCellStringValue(sumnds_it-sum_kbk_nds, pos_x, 4, pos_x, 4);
+xlSetFontSize(10, pos_x, 1, pos_x, 8);
+xlMergeCells( pos_x, 1, pos_x, 2);
+xlMergeCells( pos_x, 5, pos_x, 8);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 2);
+xlAlignCellsEx( 4, 2, pos_x, 3, pos_x, 4);
+xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+pos_x:=pos_x+1;
+xlWrapText(pos_x, 1, pos_x, 2);
+xlSetCellStringValue('Кроме того перевод собственных средств на сумму:', pos_x, 1, pos_x, 1);
+xlSetCellStringValue(sum_kbk , pos_x, 3, pos_x, 3);
+xlSetCellStringValue(sum_kbk_nds, pos_x, 4, pos_x, 4);
+xlSetRowHeight(45, pos_x, 1, pos_x, 8);
+xlSetFontSize(10, pos_x, 1, pos_x, 8);
+xlMergeCells( pos_x, 1, pos_x, 2);
+xlMergeCells( pos_x, 5, pos_x, 8);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 2);
+xlAlignCellsEx( 4, 2, pos_x, 3, pos_x, 4);
+xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+pos_x:=pos_x+1;
+xlWrapText(pos_x, 1, pos_x, 2);
+xlSetCellStringValue('В т.ч.платежей в  у.е.,на сумму:', pos_x, 1, pos_x, 1);
+xlSetRowHeight(45, pos_x, 1, pos_x, 8);
+xlSetFontSize(10, pos_x, 1, pos_x, 8);
+xlMergeCells( pos_x, 1, pos_x, 2);
+xlMergeCells( pos_x, 5, pos_x, 8);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 2);
+xlAlignCellsEx( 4, 2, pos_x, 3, pos_x, 4);
+xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 2);
+xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 8);
+pos_x:=pos_x+1;
+xlSetCellStringValue('Сальдо на конец дня:', pos_x, 1, pos_x, 1);
+xlSetFontSize(10, pos_x, 1, pos_x, 8);
+xlMergeCells( pos_x, 1, pos_x, 7);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 7);
+xlAlignCellsEx( 4, 2, pos_x, 8, pos_x, 8);
+xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 7);
+xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+pos_x:=pos_x+1;
+y:=0;
+pos_n:=8;
+end.
+.{while (y<=(TblRecords(T_temp2)-1))
+.begin
+if (TblGetIndex(T_temp2,y))
+ {
+  xlMergeCells( pos_x, 1, pos_x, 3);
+  xlMergeCells( pos_x, 4, pos_x, 6);
+  xlSetCellStringValue('Сальдо на конец операционного дня:', pos_x, 1, pos_x, 1);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp2, NAMEBANK) , pos_x, 4, pos_x, 4);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp2, SCHBANK) , pos_x, 7, pos_x, 7);
+  if TblGfString(T_temp2, SCHBANK) = nom_sch
+   {
+    xlSetCellFormula('='+'H'+doubletostr(pos_n,'666666666')+'+H'+doubletostr(pos_p,'666666666')+'-'+trim(substr(TblGfString(T_temp2,POS),2,250)), pos_x, 8, pos_x, 8);
+   }
+  else
+   {
+    if trim(substr(TblGfString(T_temp2,POS),2,250))<>''
+    {
+    xlSetCellFormula('='+'H'+doubletostr(pos_n,'666666666')+'-'+trim(substr(TblGfString(T_temp2,POS),2,250)), pos_x, 8, pos_x, 8);
+    }
+    else
+     {
+     xlSetCellFormula('='+'H'+doubletostr(pos_n,'666666666'), pos_x, 8, pos_x, 8);
+     }
+   }
+  xlWrapText(pos_x, 1, pos_x, 8);
+  xlSetRowHeight(30, pos_x, 1, pos_x, 8);
+  xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  3);
+  xlAlignCellsEx( 4, 2, pos_x, 4, pos_x,  6);
+  xlAlignCellsEx( 3, 2, pos_x, 7, pos_x,  7);
+  xlAlignCellsEx( 4, 2, pos_x, 8, pos_x,  8);
+  xlSetFontSize(10, pos_x, 1, pos_x, 8);
+
+  xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 3);
+  xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 6);
+  xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+  xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 8);
+  pos_x:=pos_x+1;
+  pos_n:=pos_n+1;
+ }
+  y:=y+1;
+end.
+.}
+.begin
+xlMergeCells( pos_x, 2, pos_x, 3);
+xlMergeCells( pos_x, 4, pos_x, 8);
+xlSetCellStringValue('ООО "Транснефтьстрой"', pos_x, 2, pos_x, 2);
+xlSetFontStyle( 1, pos_x, 1, pos_x, 8);
+xlAlignCellsEx( 3, 2, pos_x, 2, pos_x,  3);
+xlSetFontSize(10, pos_x, 1, pos_x, 8);
+xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 8);
+pos_x:=pos_x+2;
+xlMergeCells( pos_x, 2, pos_x, 4);
+xlMergeCells( pos_x, 5, pos_x, 6);
+end.
+.{?INTERNAL;iCommission.GetSelection <> comp(0);
+.begin
+  wCommissionNum := 1;
+end.
+.{while wCommissionNum <= iCommission.GetComponentsCount
+.begin
+  // * Члены_комиссии:
+  Член_комиссии_nRec            := 0;
+  Член_комиссии_ФИО             := '';
+  Член_комиссии_Табельный_Номер := '';
+  Член_комиссии_Должность       := '';
+
+  Член_комиссии_nRec            := iCommission.GetComponentNRec(wCommissionNum);
+  Член_комиссии_ФИО             := iCommission.GetComponentFIO (wCommissionNum);
+  Член_комиссии_Табельный_Номер := iCommission.GetComponentTabN(wCommissionNum);
+  Член_комиссии_Должность       := iCommission.GetComponentPost(wCommissionNum);
+end.
+.fields
+.endfields
+.begin
+xlSetCellStringValue(Член_комиссии_Должность, pos_x, 2, pos_x, 2);
+xlSetCellStringValue(Член_комиссии_ФИО, pos_x, 7, pos_x, 7);
+xlWrapText(pos_x, 1, pos_x, 8);
+xlSetRowHeight(30, pos_x, 1, pos_x, 8);
+xlAlignCellsEx( 2, 2, pos_x, 2, pos_x,  4);
+xlAlignCellsEx( 4, 2, pos_x, 5, pos_x,  6);
+xlSetFontSize(10, pos_x, 1, pos_x, 8);
+xlFrameCells(8,2,7,0,pos_x, 5, pos_x, 7);
+pos_x:=pos_x+1;
+xlMergeCells( pos_x, 2, pos_x, 4);
+xlMergeCells( pos_x, 5, pos_x, 6);
+
+wCommissionNum := wCommissionNum + 1;
+end.
+.} // while wCommissionNum <= iCommission.GetComponentsCount
+.} // ?INTERNAL;iCommission.GetSelection <> comp(0);
+.begin
+DeleteFile(Fmacros);
+if not LogStrToFile(Fmacros, 'Sub macros()') message('Ошибка записи файла макроса '+fmacros);
+LogStrToFile(Fmacros, '    With ActiveSheet.PageSetup                                        ');
+/*
+LogStrToFile(Fmacros, '        .PrintTitleRows = "$'+doubletostr(pos_num-1,'666666666')+':$'+doubletostr(pos_num,'666666666')+'"');
+LogStrToFile(Fmacros, '        .RightFooter = "&""Arial,обычный""&8╤ЄЁрэшЎр &P"              ');
+LogStrToFile(Fmacros, '        .LeftMargin = Application.InchesToPoints(0.2)                 ');
+LogStrToFile(Fmacros, '        .RightMargin = Application.InchesToPoints(0.2)                ');
+LogStrToFile(Fmacros, '        .TopMargin = Application.InchesToPoints(0.4)                  ');
+LogStrToFile(Fmacros, '        .BottomMargin = Application.InchesToPoints(0.4)               ');
+LogStrToFile(Fmacros, '        .HeaderMargin = Application.InchesToPoints(0)                 ');
+LogStrToFile(Fmacros, '        .FooterMargin = Application.InchesToPoints(0.2)               ');
+LogStrToFile(Fmacros, '        .Orientation = xlLandscape                                    ');
+*/
+LogStrToFile(Fmacros, '    Columns("C:C").NumberFormat = "#,##0.00"                          ');
+LogStrToFile(Fmacros, '    Columns("D:D").NumberFormat = "#,##0.00"                          ');
+LogStrToFile(Fmacros, '    Columns("H:H").NumberFormat = "#,##0.00"                          ');
+LogStrToFile(Fmacros, '    Rows("'+doubletostr(pos_num,'666666666')+':'+doubletostr(pos_num,'666666666')+'").NumberFormat = "@"');
+LogStrToFile(Fmacros, '    End With                                                          ');
+LogStrToFile(Fmacros, 'End Sub                                                               ');
+if not xlImportModule(Fmacros) message ('Ошибка загрузки макроса');
+if not xlRunMacro('macros') message('Ошибка запуска макроса');
+DeleteFile(Fmacros);
+xlKillExcel;
+end.
+.endform

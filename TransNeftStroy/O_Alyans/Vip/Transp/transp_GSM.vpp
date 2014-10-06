@@ -1,0 +1,252 @@
+function InsToplivo(const wPUTLST_NOMER:string[50];const wTRANSP_MARKA:string[50] ;
+     const wtoplivo:string;klins :boolean;const wkod:string[20];const wed:string[20]; wcvidgsm:comp; wnrec:comp;wcolumn:word) :boolean ;
+{  InsToplivo:=true ;
+   if (getfirst My_Toplivo where (( wPUTLST_NOMER == My_Toplivo.PUTLST_NOMER 
+         and wTRANSP_MARKA == My_Toplivo.TRANSP_MARKA 
+         and wtoplivo == My_Toplivo.Toplivo_Name      )) <> 0)
+   {
+    if klins
+    { insert into My_Toplivo set
+        My_Toplivo.PUTLST_NOMER := wPUTLST_NOMER 
+       ,My_Toplivo.TRANSP_MARKA := wTRANSP_MARKA 
+       ,My_Toplivo.Toplivo_Name := wToplivo
+       ,My_Toplivo.Column := wcolumn
+       ,My_Toplivo.TOPLIVO_NMED := wed
+       ,My_Toplivo.TOPLIVO_KOD := wkod
+       ,My_Toplivo.TOPLIVO_CVIDGSM := wcvidgsm
+       ,My_Toplivo.TOPLIVO_NREC := wnrec
+//KatMc_BARKOD       
+       ;
+    }
+    else  InsToplivo:=false  
+  }  //if getfirst My_Toplivo
+} //function InsToplivo(const wPUTLST_NOMER:string;const wTRANSP_MARKA:string ;...
+
+Function Filtr_GSMChk :boolean;   
+{ Filtr_GSMChk:=false
+   if (filtr_tp and 1)>0 and (GetFirst My_Podrazdelenie  Where ((My_WorkGsm.KatPodr_Name == My_Podrazdelenie.KatPodr_Name)) )<>tsOk 
+   { exit }
+   if (filtr_tp and 2+16)>0
+   { if getfirst  My_transp_spis where (( My_WorkGsm.Transp_nrec == My_transp_spis.Transp_nrec )) <>0 then exit;
+   }  
+   
+#IFDEF Transp_GSM_FLT    
+   if (filtr_tp_dop and 1)>0
+   { if getfirst pick where (( 19874 == Pick.wList and  My_WorkGsm.Toplivo_nrec == Pick.crec ))<>0 then exit;
+   }
+   if (filtr_tp_dop and 2)>0
+   { if getfirst pick where (( 19877 == pick.wlist and My_WorkGsm.toplivo_cvidgsm == pick.crec )) <>0 then exit;
+   }
+#endif
+  Filtr_GSMChk:=true;
+}      
+//1,11 - ЛЗВ. 2 путевые
+function GetGSMData(wtp: word) : boolean ;
+var var_Npp:word;
+    wc_myorg :comp
+    wtp_dop : word; // 0 - свои заправки, 1 - талоны , 2 что то еще
+{
+   wc_myorg:=coGetTune('MYORG')
+   //delete from pick where (( 19877 == pick.wlist ));
+   /*
+   if getfirst pick where (( 19877 == pick.wlist ))<>0
+   { insert pick (wlist,crec )
+       select 19877,vidgsm.nrec from vidgsm where VIDGSM.TIPRS>0 ;
+   } 
+   */
+   wtp_dop:=wtp div 10;
+   wtp:=wtp mod 10;
+  // message(string(wtp_dop)+'/'+string(wtp))
+  inextvisual('Сбор данных')
+  if (wtp and 1)>0
+  {  Modifier Insert My_WorkGsm
+     select
+       0,
+       '',
+       LIMZAPL.CPUTLST    , //1
+       PUTLST.NPL     ,//2
+       Transp.MARKA    ,//3
+       KatPodr.name    ,//4
+       0 ,              //5
+       LIMZAPL.KOL     ,//6
+       0 ,              //7
+       LIMZAPL.DATEZAP ,//8
+       Toplivo.Name    ,//9
+       KatMc.BARKOD    ,//10
+//       LIMZAPL.NOMER   ,//11
+       Transp.NOMER     ,//11
+       KNDRIVER.name   ,//12
+       knDriver.TABN   ,//13
+       KatOs.InNum     ,//14
+       toplivo.CVIDGSM ,//15
+       toplivo.nrec    ,//16
+       transp.nrec     , //17
+       kated.abbr      ,//18
+       0, //19
+       longint(trim(LIMZAPH.NOMDOVE)),  //20
+       LIMZAPH.NUM, //21
+       LIMZAPH.NOMDOVE , //22
+       LIMZAPL.TIMEZAP ,  //23 времы заправки
+       LIMZAPH.CORG , //24
+       if(LIMZAPH.CORG=0 or LIMZAPH.CORG=wc_myorg,if(LIMZAPH.CORGTO>0 and LIMZAPH.CORGTO<>wc_myorg,1,0),10), // 25 LIMZAPH_TYPE
+       TOPLIVO.KODGSM,    //26
+       LIMZAPL.TEMP4+if(LIMZAPH.LASTUSER<>'',longint(LIMZAPH.LASTUSER),0),  //27 показания счетчика
+       LIMZAPL.NREC  //28 LIMZAPL.NREC
+     from limzapl,limzaph,transp,toplivo,katmc,kndriver,katos,kated  ,katpodr
+     Where ((
+             dtb    <<=  LIMZAPL.DATEZAP    and
+             dte    >>=  LIMZAPL.DATEZAP  and
+             0 == LIMZAPH.WHATIS (noindex) and
+             LIMZAPL.CLIMZAP   /== LIMZAPH.nrec  and
+             //LIMZAPH.cPodrFrom  == Katpodr.Nrec  and
+             if(LIMZAPL.CTRANSP>0,Transp.cpodr,LIMZAPH.cPodrFrom) == KatPodr.nrec and
+             LIMZAPL.CTOPLIVO  /== Toplivo.Nrec  and
+             LIMZAPL.CPUTLST    == PutLst.Nrec   and
+             LIMZAPL.CDRIVER    == knDriver.nrec and
+             LIMZAPL.CTRANSP    == Transp.nrec   and // убрал "/"
+             Transp.CKATOS    == KatOs.nrec        And
+             Toplivo.CKATMC    /== KatMc.Nrec and
+             toplivo.cotped == kated.nrec
+              and toplivo.cvidgsm==vidgsm.nrec
+             ))  
+         //    and             Not (IsValidAll(tnPutLst)) 
+     ;
+   }  //if (wtp and 1)>0
+   /*
+   external _loop My_WorkGsm 
+  { if getfirst pick where (( 19877 == pick.wlist and My_WorkGsm.toplivo_cvidgsm == pick.crec )) <>0
+      delete current My_WorkGsm  ;
+   }
+   */
+   if (wtp and 2)>0
+   { Modifier Insert My_WorkGsm
+     select
+      0,
+      '',
+      PUTLST.Nrec    , //1 nrec ПЛ 
+      PUTLST.NPL     , //2 Номер Путевого Листа 
+      TRANSP.MARKA   , //3 Марка АМ
+      KATPODR.NAME   , //4 Наименование Подразделения
+//20081217      
+      PUTGSM.FAKTT    ,//5 факт
+      0               ,//6
+      PUTLST.PROBEGALL,//7
+      Putgsm.Zaprdn  , //8 дата заправки
+      Toplivo.Name   , //9 Наименование Топлива
+      KatMc.BARKOD   , //11 Код Топлива
+      PUTLST.NOMER   , //12 Гос.Номер АМ
+//    Save_Drv.Fio   , //ФИО Водителя
+//    Save_Drv.Tabn  ,  //ТН Водителя
+      kndriver.name ,  //12
+      kndriver.tabn ,  //13
+      KatOs.InNum ,    //14
+      toplivo.CVIDGSM, //15
+      Toplivo.nrec ,    //16
+      transp.nrec     , //17
+      kated.abbr     , //18
+      PUTGSM.VIDT    ,//19 факт
+      0    ,//20
+      '' ,//21
+      '' ,//22
+      PUTGSM.ZAPRCH ,//23 время заправки
+      PUTGSM.CORG  , //24
+      if(PUTGSM.CORG=0 or PUTGSM.CORG=wc_myorg,0,10), //25
+      TOPLIVO.KODGSM,    //26
+      0, // 27 LIMZAPL_TEMP4  
+      0  //28 LIMZAPL.NREC
+    from putlst,transp,katpodr,putgsm,toplivo,katmc,kndriver,kated,vidgsm  ,katos
+    where (( 
+           Dtb <<= PutLst.Datobr and
+           Dte >>= PutLst.Datobr and
+           PUTLST.CTRANSP   /== TRANSP.nrec       and //связка с ПЛ с //транспортом
+           Putlst.cPaketPl == kndriver.nrec and
+           PutLst.Nrec /==PutGsm.CPUTLST        and //связка c ПЛ "Учет ГСМ в путевых"
+           PUTLST.cpol == KatPodr.Nrec      and //подразделение
+           PutGsm.CTOPLIVO  /== Toplivo.Nrec      and //топливо
+           Transp.CKATOS    == KatOs.nrec        And
+           Toplivo.CKATMC   /== KatMc.Nrec and
+             toplivo.cotped == kated.nrec
+             and toplivo.cvidgsm==vidgsm.nrec
+          ))      and //Для номенклатурного номера
+           putlst.STATPL     = 1      
+         ;
+   }//if (wtp and 2)>0
+   external _loop My_WorkGsm
+   { if not nextvisual then exit;
+     if logfilekl
+       mylogwrite(false, My_WorkGsm.LIMZAPH_NUM+'/'+string(wtp_dop)+'/'+string(My_WorkGsm.LIMZAPH_CORG))
+     if not Filtr_GSMChk delete current My_WorkGsm;
+     if wtp_dop=0 
+     {  if (wc_myorg<>My_WorkGsm.LIMZAPH_CORG and My_WorkGsm.LIMZAPH_CORG>0) delete current My_WorkGsm;
+       mylogwrite(false,'111')
+     }
+     else
+     { if (wc_myorg=My_WorkGsm.LIMZAPH_CORG or My_WorkGsm.LIMZAPH_CORG=0) delete current My_WorkGsm;
+        mylogwrite(false,'222')
+     } 
+   
+   } //external _loop My_WorkGsm
+   if (wtp and 4)>0
+   { delete My_WorkGsm_Group where ((1==pa));
+     Delete All My_Toplivo;
+     wPUTLST_nrec:=0 ;
+    var_Npp:=0 ;
+    if getfirst My_WorkGsm<>0
+    { 
+      message('Нет данных')
+      exit ;
+    }
+    _loop My_WorkGsm where ((0==My_WorkGsm.pa)) ordered by index index2
+    { 
+      if not nextvisual then break ;
+      if getfirst My_WorkGsm_Group where (( 1==My_WorkGsm_Group.pa and My_WorkGsm.PUTLST_NOMER == My_WorkGsm_Group.PUTLST_NOMER 
+         and My_WorkGsm.TRANSP_marka == My_WorkGsm_Group.TRANSP_marka )) <>0  // тут бы надо по нреку
+      { insert into My_WorkGsm_Group set
+         My_WorkGsm_Group.pa:=1
+          ,My_WorkGsm_Group.TRANSP_MARKA:=My_WorkGsm.TRANSP_MARKA    
+          ,My_WorkGsm_Group.PUTLST_NOMER:=My_WorkGsm.PUTLST_NOMER
+          ,My_WorkGSM_Group.transp_nrec:=My_WorkGSM.TRANSP_nrec
+          ,My_WorkGsm_Group.INV_NOM :=My_WorkGsm.INV_NOM 
+          ,My_WorkGsm_Group.PUTLST_npl:='';
+       _loop NormGsm where ((  0 == normgsm.whatis
+          and 0 == normgsm.CMARAVT 
+          and My_WorkGsm.TRANSP_nrec == normgsm.ctransp
+          and 0 << normgsm.CSPECOB (noindex)
+        ))
+      { if getfirst toplivo where (( NormGsm.ctoplivo == toplivo.nrec )) <>0 continue ;
+        if getfirst kated where (( toplivo.cotped == kated.nrec )) <>0 {} ;
+        if getfirst pick where  (( 19877 == pick.wlist and toplivo.cvidgsm == pick.crec ))<>0 continue ;
+      InsToplivo(My_WorkGsm.PUTLST_NOMER,My_WorkGsm.TRANSP_MARKA,Toplivo.Name,true,toplivo.KODGSM,kated.abbr,toplivo.CVIDGSM,toplivo.nrec,var_Npp) ;
+        update current My_toplivo set  My_toplivo.Norma:=normgsm.LINNRM ;
+  logstrtofile('c:\ss\log9.txt','норма '+My_Toplivo.PUTLST_NOMER+'/'+My_WorkGsm.TRANSP_MARKA +','+Toplivo.Name+','+string(normgsm.LINNRM)+','+string(My_toplivo.Norma) )
+//        NORMGSM_SPEC.LINNRM - основная
+        InsToplivo('Итого','Итого',Toplivo.Name,true,toplivo.kodgsm,kated.abbr,toplivo.CVIDGSM,toplivo.nrec,var_Npp) ;
+      }
+     }
+     if wPUTLST_nrec<>My_WorkGsm.PUTLST_nrec 
+     { update current My_WorkGsm_Group   
+        set My_WorkGsm_Group.Putgsm_PROBEGALL:= My_WorkGsm_Group.Putgsm_PROBEGALL+My_WorkGsm.Putgsm_PROBEGALL
+       wPUTLST_nrec:=My_WorkGsm.PUTLST_nrec
+     }
+     wPUTLST_nrec:=My_WorkGsm.PUTLST_nrec ;
+     if My_WorkGsm.PUTLST_nrec=0 and pos(My_WorkGsm.PUTLST_npl,My_WorkGsm_Group.PUTLST_npl)=0
+     { update current My_WorkGsm_Group set My_WorkGsm_Group.PUTLST_npl:=My_WorkGsm_Group.PUTLST_npl+','+My_WorkGsm.PUTLST_npl
+     }
+     update current My_WorkGsm_Group set 
+        My_WorkGsm_Group.PutGsm_Rashod :=My_WorkGsm_Group.PutGsm_Rashod+My_WorkGsm.PutGsm_Rashod
+       ,My_WorkGsm_Group.PutGsm_VidT :=My_WorkGsm_Group.PutGsm_VidT+My_WorkGsm.PutGsm_VidT
+       ,My_WorkGsm_Group.Zarpl_VidT  :=My_WorkGsm_Group.Zarpl_VidT +My_WorkGsm.Zarpl_VidT ;
+     if My_WorkGsm.Toplivo_Nrec<>0 and My_WorkGsm.Zarpl_Vidt<>0// ЛЗВ
+     { 
+      InsToplivo(My_WorkGsm.PUTLST_NOMER,My_WorkGsm.TRANSP_MARKA,My_WorkGsm.Toplivo_Name,true,My_WorkGsm.KatMc_BARKOD,My_WorkGsm.TOPLIVO_NMED,My_WorkGsm.toplivo_CVIDGSM,My_WorkGsm.toplivo_nrec,var_Npp) ;
+      update current My_Toplivo 
+        set My_Toplivo.Vid:=My_Toplivo.Vid+My_WorkGsm.Zarpl_Vidt;
+logstrtofile('c:\ss\log9.txt','выдано '+My_Toplivo.PUTLST_NOMER+'/'+My_WorkGsm.TRANSP_MARKA+','+Toplivo.Name+','+string(My_Toplivo.Vid)+','+string(My_WorkGsm.Zarpl_Vidt) )
+      InsToplivo('Итого','Итого',My_WorkGsm.Toplivo_Name,true,My_WorkGsm.KatMc_BARKOD,My_WorkGsm.TOPLIVO_NMED,My_WorkGsm.toplivo_CVIDGSM,My_WorkGsm.toplivo_nrec,var_Npp) ;
+    }
+   } //_loop My_WorkGsm orderred by index2
+  } //if (wtp and 4)>0 
+  GetGSMData :=true;
+}
+
+

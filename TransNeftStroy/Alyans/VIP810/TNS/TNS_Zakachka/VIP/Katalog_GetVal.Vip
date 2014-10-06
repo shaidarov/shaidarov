@@ -1,0 +1,1751 @@
+/*
+ получить значение из справочников
+
+*/
+//функции по работе с каталогами
+#include Katalog_GetVal.Vih
+Interface Katalog_GetValue ;
+
+//Function GetPersonsNrecByFio(const w:string): comp ;forward;
+
+table struct tmp_spr
+( wtable :word ,
+  kod   :string[30] ,
+  kod1  :string[30] ,
+  name  :string[100] ,
+  crec   :comp
+) with index
+( tmp_spr01 = wtable +kod ,
+  tmp_spr02 = wtable +kod1,
+  tmp_spr03 = wtable +name,
+  tmp_spr04 = wtable +crec
+)  ;
+table struct tmpCatal
+( name :string[200],
+  mainlink:comp,
+  catnrec :comp,
+  cparent :comp
+) with index
+(
+  SortByname = Name(length=100),
+  SortbyLinkName = Mainlink+name(length=100)
+);  
+create view vKatalog_GetValue
+var 
+ logfilenm :string ;
+ wnrec:comp ;
+ need_update :boolean ;
+as select
+ katmc.nrec
+from
+  tmp_spr 
+  ,katmc // МЦ
+  ,KlassOs,kodof,gros,SPOSOB,ISPOS,VIDNORMA //
+  ,Katorg //Контрагенты
+  ,katbank//Банки для организаций
+  ,KatED//Единицы измерения
+  ,GRNAL//Каталог групп налогов
+  ,KlResHr//Ресурсы хранения
+  ,StZatr//Каталог статей затрат
+  ,KaElem//справочник элементов затрат
+  ,TypeMc//Типы матценностей
+  ,GroupMc//Группы матценностей
+  ,GroupUsl//Группы услуг
+  ,Katpodr//Подразделения
+  ,KatDrag//Каталог драгметаллов
+  ,KATOTPED//Отпускные единицы измерения
+  ,KatDopEd//Каталог дополнительных единиц измерения
+  ,MASKMC // шаблон MЦ
+//  ,SpDopEd//Спецификация доп. единиц измерения
+//  ,Naldrag//Наличие драгметалов в ИК
+  ,KatMol//Материально-ответственные лица
+  ,Katnazna//Каталог назначений
+  ,KatState//Каталог стран
+  ,Katcity//Каталог городов
+  ,Persons // картотека сотрудников
+  ,Dogovor // договор
+  ,CalPlan // кал.план
+  ,KatNotes // статус документа
+  ,ResInfo //Таблица шаблонов заявок
+  ,FarInfo //Приоритет заявки
+  ,KatPayment //Форма оплаты
+  ,Shipment //Каталог условий отгрузки
+  ,katparty // партия
+  ,KlVal // валюта
+  ,Katusl// каталог услуг
+  ,STATDOC//состояние документа
+  ,KlShtraf //Штрафы
+  ,KlPrice // прайс листы
+  ,sklorder// складской ордер
+  ,SPSOPR // спецификация накладной
+  ,katsopr // накладная
+  ,basedoc // ДО, ЛЗК
+  ,grpodr // группа подразделений
+  ,DEPFUNC // производственная функция
+  ,catalogs,tmpCatal,ExtCatLinks // кадры
+  ,osalg
+  ,prsb // признак собственности
+  ,groupsch//группы договоров
+  ,FPCO // центр ответсвенности
+  ,KatVidD//Вид договора
+  ,HOZOPER
+  ,MBPWRITE // методика списания в МБП
+  ,Katkau,SPKAU,katos
+  ,KatStroy
+  ,VEKSL
+  ,KATORGDESCR
+  ,SchFact
+  ,SPDOCNAL // спец.налоги
+  ,SPECMTR // целевой учет
+  ,KITKAU //Набор КАУ для привязки МТР
+  ,Passports // паспорт
+  ,noper 
+  ,SLOJ
+ ;
+Procedure Set_Update(w:boolean) ;
+{ need_update:=w ;
+}
+Function Get_Update: boolean ;
+{ Get_Update:=need_update ;
+}
+ 
+Procedure Ins_Tmp_Spr(wwtable :word ;wkod:string ;wkod1:string ;wname:string;wcrec:comp)  ;
+{ insert into tmp_spr set
+    tmp_spr.wtable :=wwtable 
+   ,tmp_spr.crec:=wcrec
+   ,tmp_spr.kod:=wkod
+   ,tmp_spr.kod1:=wkod1
+   ,tmp_spr.name:=wname ;
+
+} //Ins_Tmp_Spr
+// выделить число, wdirect=false - с конца
+Function GetDigit(w:string;wdirect:boolean) :string ;
+var k,i,wlen:word ;
+    wch:string ;
+{ w:=replace(w,' ','') ; k:=0 ;
+  wlen:=length(w) ;
+  
+  for(i:=1;i<=wlen;i:=i+1)
+  { if wdirect
+    { wch:=substr(w,i,1)
+    }
+    else
+    { wch:=substr(w,1+wlen-i,1)
+    }
+    if pos(wch,'1234567890,. `')=0
+    { k:=i ;
+      break ;
+    }
+  }
+  if wdirect
+  { GetDigit:=substr(w,1,k-1)
+  }
+  else
+  { GetDigit:=substr(w,k+1,wlen)
+  }
+} //Function GetDigit
+Function Find_Tmp_Spr(wwtable :word ;w:string ;wtp:word) : comp ;
+{ Find_Tmp_Spr:=0
+  case wtp of 
+  0:
+  { if getfirst fastfirstrow tmp_spr where (( wwtable == tmp_spr.wtable
+     and w == tmp_spr.kod ))=0 then Find_Tmp_Spr:=tmp_spr.crec ;
+  }
+  1:
+  { if getfirst fastfirstrow tmp_spr where (( wwtable == tmp_spr.wtable
+     and w == tmp_spr.kod1 ))=0 then Find_Tmp_Spr:=tmp_spr.crec ;
+  }
+  else   
+  { if getfirst fastfirstrow tmp_spr where (( wwtable == tmp_spr.wtable
+     and w == tmp_spr.name ))=0 then Find_Tmp_Spr:=tmp_spr.crec ;
+  }
+  end;
+} //Function Find_Tmp_Spr(wwtable :word ;w:string ;wtp:word) : comp ;
+Procedure InitLogFile(w:string ) ;
+{ logfilenm:=w ;
+} 
+Function GetZaglBook(w:string):string ;
+{ GetZaglBook:=upcase(substr(w,1,1))+locase(substr(w,2,100))
+
+}
+//================================
+// проверить код группы
+//================================
+Function GroupMcKODCheck(w:string):string ;
+var i,j :word ;
+{ if w='' then w:='1000' ;
+  if length(w)>20 then w:=substr(w,1,20) ;
+  if substr(w,1,1)='0' then w:='1'+substr(w,2,length(w)-1) ;
+  
+  if length(w)>4 // код нормирован по 4 знака
+  { j:=(length(w) div 4)-1 ;
+    for(i:=j;i>=0;i:=i-1)
+    { if longint(substr(w,i*4+1,4))>0
+      { w:=substr(w,1,(i+1)*4) ;
+        break ;
+      }
+    }
+  }
+  GroupMcKODCheck:=w ;
+}
+
+//================================
+// получить по nrec kod
+//================================
+Function GetGROUPMCKOD(const w:comp):string ;
+{ GetGROUPMCKOD:=if(getfirst fastfirstrow groupmc where (( w == groupmc.nrec ))=0,string(GroupMc.kod),'') ;
+}
+Function GetGROUPUSLKOD(const w:comp):string ;
+{ GetGROUPUSLKOD:=if(getfirst fastfirstrow groupusl where (( w == GROUPUSL.nrec ))=0,string(GROUPUSL.kod),'') ;
+}
+Function GetKatEDABBR(const w:comp):string ;
+{ GetKatEDABBR:=if(getfirst fastfirstrow kated   where (( w == kated.nrec))=0,KatEd.Abbr,'') ;
+}
+Function GetKlRESHRKOD(const w:comp):string ;
+{ GetKlRESHRKOD:=if(getfirst fastfirstrow KlResHr where (( w == KlResHr.nrec))=0,KlResHr.Name,'') ;
+}
+Function GetTYPEMcKod(const w:comp):string ;
+{ GetTYPEMcKod:=if(getfirst fastfirstrow TypeMC  where (( w == TypeMC.nrec))=0,TypeMC.Kod,'') ;
+}
+Function GetKatpodrKod(const w:comp):string ;
+{ GetKatpodrKod:=if(getfirst fastfirstrow KatPodr where (( w == KatPodr.nrec))=0,KatPodr.kod,'') ;
+}
+Function GetGRNALKod(const w:comp):string ;
+{ GetGRNALKod:=if(getfirst fastfirstrow GRNal   where (( w == GRNal.nrec))=0,GRNal.kod,'') ;
+}
+Function GetSTZATRKod(const w:comp):string ;
+{ GetSTZATRKod:=if(getfirst fastfirstrow StZatr  where (( w == StZatr.nrec))=0,StZatr.kod,'') ;
+}
+Function GetKAELEMKod(const w:comp):string ;
+{ GetKAELEMKod:=if(getfirst fastfirstrow KaElem  where (( w == KaElem.nrec))=0,string(KaElem.Code),'') ;
+}
+Function GetMASKMCKod(const w:comp):string ;
+{ GetMASKMCKod:=if(getfirst fastfirstrow MaskMc  where (( w == MaskMc.nrec))=0,MaskMc.Name,'') ;
+}
+Function GetKatUSLKod(const w:comp):string ;
+{ GetKatUSLKod:=if(getfirst fastfirstrow Katusl  where (( w == Katusl.nrec))=0,Katusl.kod,'') ;
+}
+Function GetKatDOPEDKod(const w:comp):string ;
+{ GetKatDOPEDKod:=if(getfirst fastfirstrow KatDopEd  where (( w == KatDopEd.nrec))=0,KatDopEd.code,'') ;
+}
+Function GetKatMcKod(const w:comp):string ;
+{ GetKatMcKod:=if(getfirst fastfirstrow Katmc  where (( w == Katmc.nrec))=0,katmc.barkod,'') ;
+}
+Function GetKATDRAGKod(const w:comp):string ;
+{ GetKATDRAGKod:=if(getfirst fastfirstrow KatDrag  where (( w == KatDrag.nrec))=0,KatDrag.Kod,'') ;
+}
+Function GetKatORGKod(const w:comp):string ;
+{ GetKatORGKod:=if(getfirst fastfirstrow KatOrg  where (( w == Katorg.nrec))=0,KATORG.UNN,'') ;
+}
+Function GetKatNaznaKod(const w:comp):string ;
+{ GetKatnaznaKod:=if(getfirst fastfirstrow Katnazna  where (( w == Katnazna.Nrec))=0,Katnazna.NAZCODE,'') ;
+}
+Function GetKatCityKod(const w:comp):string ;
+{ GetKatCityKod:=if(getfirst fastfirstrow KatCity  where (( w == KatCity.nrec))=0,KatCity.Kod,'') ;
+} 
+Function GetKatCityName(const w:comp):string ; 
+{ GetKatCityName:=if(getfirst fastfirstrow KatCity  where (( w == KatCity.nrec))=0,KatCity.Name,'') ;
+} 
+Function GetKatStateKod(const w:comp):string ;
+{ GetKatStateKod:=if(getfirst fastfirstrow KatState  where (( w == KatState.nrec))=0,KatState.kod,'') ;
+} 
+Function GetKatMolKod(const w:comp):string ;
+{ GetKatMolKod:=if(getfirst fastfirstrow KatMol  where (( w == KatMol.nrec))=0,KatMol.kod,'') ;
+} 
+Function GetKatMolName(const w:comp):string ;
+{ GetKatMolName:=if(getfirst fastfirstrow KatMol  where (( w == KatMol.nrec))=0,KatMol.name,'') ;
+} 
+Function GetPersonsTabn(const w:comp):string ;
+{ GetPersonsTabn:=if(getfirst fastfirstrow Persons  where (( w == Persons.nrec))=0,string(Persons.tabnmb),'') ;
+} 
+Function GetKatNotesKod(const w:comp):string ;
+{ GetKatNotesKod:=if(getfirst fastfirstrow KatNotes where (( w == KatNotes.nrec))=0,KatNotes.code,'') ;
+} 
+Function GetKatNotesName(const w:comp):string ;
+{ GetKatNotesName:=if(getfirst fastfirstrow KatNotes  where (( w == KatNotes.nrec))=0,KatNotes.name,'') ;
+} 
+Function GetKatNotesStatus(const w:comp):string ;
+{ GetKatNotesStatus:=if(getfirst fastfirstrow KatNotes where (( w == KatNotes.nrec))=0,string(KatNotes.status),'') ;
+} 
+Function GetResInfoName(const w:comp):string ;
+{ GetResInfoName:=if(getfirst fastfirstrow ResInfo where (( w == ResInfo.nrec))=0,ResInfo.name,'') ;
+} 
+Function GetFarInfoKod(const w:comp):string ;
+{ GetFarInfoKod:=if(getfirst fastfirstrow FarInfo where (( w == FarInfo.nrec))=0,string(FarInfo.icode),'') ;
+} 
+Function GetFarInfoName(const w:comp):string ;
+{ GetFarInfoName:=if(getfirst fastfirstrow FarInfo where (( w == FarInfo.nrec))=0,FarInfo.name,'') ;
+} 
+Function GetKatPaymentKod(const w:comp):string ;
+{ GetKatPaymentKod:=if(getfirst fastfirstrow KatPayment where (( w == KatPayment.nrec))=0,KatPayment.code,'') ;
+} 
+Function GetShipmentKod(const w:comp):string ;
+{ GetShipmentKod:=if(getfirst fastfirstrow Shipment where (( w == Shipment.nrec))=0,Shipment.code,'') ;
+} 
+Function GetKatpartyName(const w:comp):string ;
+{ GetKatpartyName:=if(getfirst fastfirstrow Katparty where (( w == Katparty.nrec))=0,Katparty.name,'') ;
+} 
+Function GetKlValKod(const w:comp):string ;
+{ GetKlValKod:=if(getfirst fastfirstrow KlVal where (( w == KlVal.nrec))=0,KlVal.SIMVOLV,'') ;
+} 
+Function GetkatotpedABBR(wprmc: word ; wcmc: comp ; wced :comp ) :string  ; 
+{ GetkatotpedABBR:='' ;
+  if wprmc>2 then exit ;
+  if wcmc=0 then exit ;
+  if wced=0 then 
+  { if wprmc=1
+    { wced:= if(getfirst katmc where (( wcmc==katmc.nrec ))=0,katmc.ced,0) ;
+    
+    }
+    else
+    { wced:= if(getfirst katmc where (( wcmc==katmc.nrec ))=0,katmc.ced,0) ;
+    }
+    if wced>0
+     GetkatotpedABBR:=GetKatEDABBR(wced) ;
+    exit ; 
+  } ;
+  if getfirst fastfirstrow katotped where ((
+        wced == katotped.nrec ))=0 
+  then GetkatotpedAbbr:=katotped.ABBR ;
+}
+Function GetKatbankSchet1(const w:comp):string ;
+{ GetKatbankSchet1:=if(getfirst fastfirstrow Katbank where (( w == Katbank.nrec))=0,katbank.Schet1,'') ;
+} 
+Function GetSTATDOCKod(const w:comp):string ;
+{ GetSTATDOCKod:=if(getfirst fastfirstrow STATDOC where (( w == STATDOC.nrec))=0,STATDOC.STATCODE,'') ;
+} 
+Function GetKlShtrafKod(const w:comp):string ;
+{ GetKlShtrafKod:=if(getfirst fastfirstrow KlShtraf where (( w == KlShtraf.nrec))=0,KlShtraf.Name,'') ;
+} 
+Function GetKlPriceKey(const w:comp):string ;
+{ GetKlPriceKey:=if(getfirst fastfirstrow KlPrice where (( w== klprice.nrec ))=0, 
+      DateToStr(klprice.DPRICE,'YYYY/MM/DD')+klprice.name,'') ;
+} 
+// для работы с центром ответсственности
+Function GetFPCONAME(const w:comp):string;//cacheable;
+{ GetFPCONAME:='' ;
+  if getfirst fastfirstrow fpco where (( w == fpco.nrec))=0
+    GetFPCONAME:=fpco.name ;
+
+}
+Function GetFPCO_PODRNREC(const w:comp;var w_table:word):comp;//cacheable;
+{ GetFPCO_PODRNREC:=0;
+  w_table:=0 ;
+  if getfirst fastfirstrow fpco where (( w == fpco.nrec))=0
+  {  w_table:=fpco.COTABLE ; //2 подразделение,3 сотрудники,1 организация
+     GetFPCO_PODRNREC:=fpco.CMEAN
+  } 
+}
+// получить центр ответсвенности по подразделению w_table=1, орг. - 1, сотрудники - 3
+Function GetPodr_FPCONREC(const w:comp;w_table:word):comp;//cacheable;
+{ GetPodr_FPCONREC:=0;
+  if getfirst fastfirstrow fpco where (( 
+      w_table==fpco.COTABLE
+     and w == fpco.CMEAN ))=0
+  {    //2 подразделение,3 сотрудники,1 организация
+     GetPodr_FPCONREC:=fpco.nrec
+  } 
+}
+
+Function GetKatStroyNAME(const w:comp):string; 
+{ GetKatStroyName:='' ;
+  if getfirst fastfirstrow KatStroy where (( w == KatStroy.nrec))=0
+    GetKatStroyName:=KatStroy.name ;
+}
+
+//МихайловЮВ
+Function GetKatStroyAbbr(const w:comp):string; 
+{ GetKatStroyAbbr:='' ;
+  if getfirst fastfirstrow KatStroy where (( w == KatStroy.nrec))=0
+    GetKatStroyAbbr:=KatStroy.Abbr ;
+  if GetKatStroyAbbr = ''
+    GetKatStroyAbbr := GetKatStroyName(w);
+}
+//МихайловЮВ
+//================================
+// получить по kod nrec
+//================================
+Function GetGROUPMCNrec(const w:string):comp ;
+var w1:string ;
+{ if w='' then w:='1000'
+  wnrec:=Find_Tmp_Spr(coGroupMc,w,1)
+  if wnrec>0
+  { GetGROUPMCNrec:=wnrec ;
+    exit ;
+  }  
+  GetGROUPMCNrec:=0
+  w1:=GroupMcKODCheck(w) ;
+  if getfirst fastfirstrow groupmc where (( w1 == groupmc.kod ))<>0
+  { if need_update
+    { insert into groupmc set
+        groupmc.kod :=w1 ,groupmc.name:=w1;
+      logstrtofile(logfilenm,'Добавили группу МЦ с кодом '+groupmc.kod  )
+    }  else exit;
+  }
+  Ins_Tmp_Spr(coGroupMc,groupmc.kod,w,groupmc.name,groupmc.nrec)  ;
+  GetGROUPMCNrec:=GroupMc.nrec ;
+}
+Function GetGROUPUSLNrec(const w:string):comp ;
+{ GetGROUPUSLNrec:=if(getfirst fastfirstrow groupusl where (( w == GROUPUSL.kod ))=0,GROUPUSL.nrec,0) ;
+}
+Function GetGROUPUSLNrecByName(const w:string):comp ;
+{ GetGROUPUSLNrecByName:=if(getfirst fastfirstrow groupusl where (( w == GROUPUSL.name ))=0,GROUPUSL.nrec,0) ;
+}
+Function GetKatEDNrecByName(const w:string):comp ;
+{ if w='' then w:='штука'
+  GetKatEDNrecByName:=0
+  if(getfirst fastfirstrow kated   where (( w == kated.name))<>0)
+   if(getfirst fastfirstrow kated   where (( w == kated.abbr))<>0)
+   { if need_update
+     { insert into KatEd set kated.abbr:=w,kated.name:=w  ;
+       logstrtofile(logfilenm,'Добавили ед.измерения  '+kated.abbr  )
+     } else exit ;  
+   }
+  GetKatEDNrecByName:=kated.nrec ;
+}
+Function GetKatEDNrec(const w:string):comp ;
+{ if w='' then w:='шт'
+  wnrec:=Find_Tmp_Spr(coKated,w,0)
+  if wnrec>0
+  { GetKatEDNrec:=wnrec ; exit ;
+  }
+  if(getfirst fastfirstrow kated   where (( w == kated.abbr))<>0)
+  { GetKatEDNrec:=GetKatEDNrecByName(w) ;
+  }
+  else
+    GetKatEDNrec:=kated.nrec ;
+  Ins_Tmp_Spr(coGroupMc,kated.abbr,'',kated.name,kated.nrec)  ;
+}
+
+Function GetKlRESHRNrec(const w:string):comp ;
+{ GetKlRESHRNrec:=if(getfirst fastfirstrow KlResHr where (( w == KlResHr.name))=0,KlResHr.nrec,0) ;
+}
+Function GetTYPEMcNrec(const w:string):comp ;
+{ GetTYPEMcNrec:=if(getfirst fastfirstrow TypeMC  where (( w == TypeMC.kod))=0,TypeMC.nrec,0) ;
+}
+Function GetTYPEMcNrecByName(const w:string):comp ;
+var wkod :string ;
+   k:word ;
+{ GetTYPEMcNrecByName:=if(getfirst fastfirstrow TypeMC  where (( w == TypeMC.name))=0,TypeMC.nrec,0) ;
+  if GetTYPEMcNrecByName=0
+  { if w='' then exit ;
+    if getlast typemc ordered by index TypeMC05=0
+    { wkod:=lpad(string(word(typemc.kod)+1),4)
+     
+    } else wkod:='   1'
+    k:=0 ;
+    if wkod='' then wkod:='   1'
+    if getfirst typemc where (( wkod == typemc.kod ))=0
+    { do {
+        wkod:=lpad(string(word(wkod)+1),4) 
+        k:=k+1 ;
+        if k>1000 then exit ;   
+      } while (getfirst typemc where (( wkod == typemc.kod ))=0 )
+      if k>1000 then exit ;
+    }
+    if need_update
+    { insert into typemc set TypeMC.name:=w , typemc.kod := wkod ;
+    }
+    else exit;
+    GetTYPEMcNrecByName:=typemc.nrec ;
+  }
+}
+Function GetKatpodrNrec(const w:string):comp ;
+{ GetKatpodrNrec:=if(getfirst fastfirstrow KatPodr where (( w == KatPodr.kod))=0,KatPodr.nrec,0) ;
+}
+Function GetKatpodrNrecByName(const w:string):comp ;
+{ GetKatpodrNrecByName:=if(getfirst fastfirstrow KatPodr where (( w == KatPodr.name))=0,KatPodr.nrec,0) ;
+  if GetKatpodrNrecByName=0
+  { if need_update
+    { insert into katpodr set katpodr.name:=w , katpodr.kod:='???' ;
+    } else exit;
+    GetKatpodrNrecByName:=katpodr.nrec
+  }
+}
+Function GetGRNALNrec(const w:string):comp ;
+{ if w='' then w:='01' ;
+  GetGRNALNrec:=if(getfirst fastfirstrow GRNal   where (( w == GRNal.kod))=0,GRNal.nrec,0) ;
+}
+Function GetSTZATRNrec(const w:string):comp ;
+{ GetSTZATRNrec:=if(getfirst fastfirstrow StZatr  where (( w == StZatr.kod))=0,StZatr.nrec,0) ;
+}
+//Элементы затрат 5017
+Function GetKAELEMNrec(const w:string):comp ;
+{ GetKAELEMNrec:=if(getfirst fastfirstrow KaElem  where (( word(w) == KaElem.Code))=0,KaElem.nrec,0) ;
+}
+//Элементы затрат 5017
+Function GetKAELEMNrecByName(const w:string):comp ;
+var wkod :word ;
+{ GetKAELEMNrecByName:=0 ;
+  if getfirst fastfirstrow KaElem  where (( w == KaElem.Name))<>0
+  { wkod:=1 ;
+    if (getlast KAELEM ordered by KAELEM.code)=0 wkod:=KAELEM.code+1 ;
+    if need_update
+    {  insert into KAELEM set KAELEM.name:=w,KAELEM.code:=wkod ;
+    } else exit ;
+  }
+  GetKAELEMNrecByName:=KaElem.nrec ;
+}
+Function GetMASKMCNrec(const w:string):comp ;
+{ GetMASKMCNrec:=if(getfirst fastfirstrow MaskMc  where (( w == MaskMc.name))=0,MaskMc.nrec,0) ;
+}
+Function GetKatUSLNrec(const w:string):comp ;
+{ GetKatUslNrec:=if(getfirst fastfirstrow Katusl  where (( w == Katusl.kod))=0,Katusl.nrec,0) ;
+}
+Function GetKatUSLNrecByName(const w:string):comp ;
+{ GetKatUslNrecByName:=if(getfirst fastfirstrow Katusl  where (( w == Katusl.name))=0,Katusl.nrec,0) ;
+}
+Function GetKatDOPEDNrec(const w:string):comp ;
+{ GetKatDOPEDNrec:=if(getfirst fastfirstrow KatDopEd  where (( w == KatDopEd.code))=0,KatDopEd.nrec,0) ;
+}
+Function GetKatMcNrec(const w:string):comp ;
+{ GetKatMcNrec:=if(getfirst fastfirstrow Katmc  where (( w == Katmc.barkod))=0,katmc.nrec,0) ;
+}
+Function GetKatMcNrecByName(const w:string):comp ;
+{ GetKatMcNrecByName:=if(getfirst fastfirstrow Katmc  where (( w == Katmc.name))=0,katmc.nrec,0) ;
+}
+Function GetKatMcNrecByCodeName(const wcode:string ; const w:string):comp ;
+{
+ GetKatMcNrecByCodeName:=if((getfirst fastfirstrow Katmc  where (( wcode == Katmc.barkod))
+            and substr(trim(w),1,60)=substr(trim(katmc.name),1,60)) =0,katmc.nrec,0) ;
+ if GetKatMcNrecByCodeName=0
+ { w:=replace(w,'<','"')
+   w:=replace(w,'>','"')
+   GetKatMcNrecByCodeName:=if((getfirst fastfirstrow Katmc  where (( wcode == Katmc.barkod))
+            and substr(trim(w),1,60)=substr(trim(katmc.name),1,60)) =0,katmc.nrec,0) ;
+ }           
+}
+Function GetKatMcNrecByBON(const w:string;const w1:string;const w2:string):comp ;
+var wwnrec :comp ;
+{ wwnrec:=0 ;
+  GetKatMcNrecByBON:=0 ;
+  if w='' and w2='' then exit ;
+  if(getfirst fastfirstrow Katmc  where (( 
+    w  == Katmc.barkod 
+    and  w1 == Katmc.obozn(noindex)
+     and  w2 == Katmc.name(noindex)
+   ))=0)
+  then wwnrec:=katmc.nrec ;
+  if wwnrec=0 and w='' // если баркод 0 то можно попробовать поискать по наименованию
+  { if(getfirst fastfirstrow Katmc  where (( 
+        w2 == Katmc.name
+    and  w1 == Katmc.obozn(noindex)
+    ))=0)
+   then wwnrec:=katmc.nrec ;
+  }
+  GetKatMcNrecByBON:=wwnrec ;
+}
+// вид операции в платежных поручениях
+Function GetNoperCode ( w :string) :string ;
+var wstr :string ;
+{ GetNoperCode:=''
+  if getfirst noper where ((0 == noper.tidk and w == noper.NAMEOPER )) <>0
+  { wstr:='001'
+    if getlast noper where ((0 == noper.tidk )) ordered by index NOPER03=0
+    { wstr:=nextnumstr(NOPER.KODOPER)
+    }
+    if need_update
+    { insert into noper set noper.NAMEOPER :=w,NOPER.KODOPER:=wstr, noper.code:=wstr ;
+    } else exit ;
+  }
+  GetNoperCode:=NOPER.KODOPER ;
+}
+Function GetKATDRAGNrec(const w:string):comp ;
+{ GetKATDRAGNrec:=if(getfirst fastfirstrow KatDrag  where (( w == KatDrag.Kod))=0,KatDrag.nrec,0) ;
+}
+Function GetKATDRAGNrecByName(const w:string):comp ;
+{ GetKATDRAGNrecByName:=if(getfirst fastfirstrow KatDrag  where (( w == KatDrag.name))=0,KatDrag.nrec,0) ;
+}
+Function GetKatORGNrec(const w:string):comp ;
+{ GetKatORGNrec:=if(getfirst fastfirstrow katorg  where (( w == Katorg.UNN))=0,KATORG.NREC,0) ;
+}
+Function GetKatORGNrecByName(const w:string):comp ;
+{ GetKatORGNrecByName:=if(getfirst fastfirstrow katorg  where (( w == Katorg.Name))=0,KATORG.NREC,0) ;
+}
+
+Function GetKatNaznaNrec(const w:string):comp ;
+{ GetKatnaznaNrec:=if(getfirst fastfirstrow Katnazna  where (( w == Katnazna.NAZCODE))=0,Katnazna.NREC,0) ;
+}
+Function GetKatCityNrec(const w:string):comp ;
+{ GetKatCityNrec:=if(getfirst fastfirstrow KatCity  where (( w == KatCity.Kod))=0,KatCity.NREC,0) ;
+} 
+Function GetKatCityNrecByName(const w:string):comp ;
+{ w:=GetZaglBook(trim(replace(w,'г.','')))
+  
+  GetKatCityNrecByName:=if(getfirst fastfirstrow KatCity  where (( w == KatCity.Name))=0,KatCity.NREC,0) ;
+  if GetKatCityNrecByName=0
+  { if need_update
+    { insert into KatCity set KatCity.Name:=w ;
+    } else exit;
+    GetKatCityNrecByName:=KatCity.NREC ;
+  }
+} 
+Function GetKatStateNrec(const w:string):comp ;
+{ if w='' then w:='643'
+  GetKatStateNrec:=if(getfirst fastfirstrow KatState  where (( w == KatState.Kod))=0,KatState.NREC,0) ;
+} 
+Function GetKatStateNrecByName(const w:string):comp ;
+{ if w='' then w:='643'
+  GetKatStateNrecByName:=if(getfirst fastfirstrow KatState  where (( w == KatState.name))=0,KatState.NREC,0) ;
+} 
+Function GetKatMolNrec(const w:string):comp ;
+{ GetKatMolNrec:=if(getfirst fastfirstrow KatMol  where (( w == KatMol.Kod))=0,KatMol.NREC,0) ;
+} 
+Function GetKatMolNrecByName(const w:string):comp ;
+{ GetKatMolNrecByName:=if(getfirst fastfirstrow KatMol  where (( w <<= KatMol.Name and w+chr(255)>>=Katmol.name ))=0,KatMol.NREC,0) ;
+  if GetKatMolNrecByName=0
+  { if need_update
+    { insert into katmol set katmol.name :=w,katmol.CPERSONS:=GetPersonsNrecByFio(w) ;
+    } else exit;
+    GetKatMolNrecByName:=katmol.nrec ;
+  }
+} 
+Function GetKatMolNrecByNameSKL(const w:string; wcpodr : comp):comp ;
+{ GetKatMolNrecByNameSKL:=if(getfirst fastfirstrow KatMol  where ((
+         wcpodr == katmol.cskl and
+         w <<= KatMol.Name and w+chr(255)>>=Katmol.name ))=0,KatMol.NREC,0) ;
+  if GetKatMolNrecByNameSKL=0
+  { GetKatMolNrecByNameSKL:=GetKatMolNrecByName(w)
+    if GetKatMolNrecByNameSKL=0  
+    { if need_update
+      { insert into katmol set katmol.name :=w,katmol.CPERSONS:=GetPersonsNrecByFio(w),katmol.cskl:=wcpodr ;
+      } else exit;
+      GetKatMolNrecByNameSKL:=katmol.nrec ;
+    } 
+  }
+} 
+Function Getkatotpednrec(wprmc: word ; wcmc: comp ; wced :string ) :comp  ; 
+var w:comp ;
+    wakt:word ;
+{ Getkatotpednrec:=0 ;
+  if wprmc>2 then exit ;
+  if wcmc=0 then exit ;
+  if wced='' then 
+  { wced:='шт'
+//    exit ;
+  }  
+  w:=GetKatEDNrec(wced)
+  if getfirst fastfirstrow katotped where ((
+        wprmc == katotped.prmc and
+        wcmc == katotped.cmcusl and
+        wced == katotped.abbr
+  )) <>0
+  if getfirst fastfirstrow katotped where ((
+        wprmc == katotped.prmc and
+        wcmc == katotped.cmcusl and
+        kated.name == katotped.name
+  )) <>0
+  { if getfirst fastfirstrow katotped where ((
+        wprmc == katotped.prmc and
+        wcmc == katotped.cmcusl and
+        1 == katotped.akt ))<>0 
+    then wakt:=1 else wakt:=0 ;   
+    if need_update
+    {
+      insert into katotped set 
+        katotped.prmc:=wprmc
+       ,katotped.cmcusl:=wcmc
+       ,katotped.abbr :=wced
+       ,katotped.ckated:=w 
+       ,katotped.name := kated.name
+       ,katotped.akt  :=wakt
+       ,katotped.koef :=1 ;
+    } else exit ;   
+//    logstrtofile(logfilenm,'Добавлена отпускная единица '+ katotped.name+' к МЦ '+GetKatMcKod(wcmc)) ;  
+  }
+  Getkatotpednrec:=katotped.nrec ;
+}
+Function GetPersonsNrec(const w:string): comp ;
+{ GetPersonsNrec:=if(getfirst fastfirstrow Persons  where (('С'==persons.ISEMPLOYEE and longint(w) == Persons.tabnmb))=0,Persons.nrec,0) ;
+} 
+Function GetPersonsNrecByFio(const w:string): comp ;
+{ GetPersonsNrecByFio:=if(getfirst fastfirstrow Persons  where (('С'==persons.ISEMPLOYEE and w == Persons.fio))=0,Persons.nrec,0) ;
+} 
+Function GetMBPWRITENrec(w:string) : comp ; // методика списания в МБП
+{ GetMBPWRITENrec:=0;
+  if getfirst fastfirstrow MBPWRITE where (( w == MBPWRITE.name )) <>0
+  { if need_update
+    { insert into MBPWRITE set MBPWRITE.name:=w ;
+    } else exit ;
+  }
+  GetMBPWRITENrec:=MBPWRITE.nrec ;
+}
+Function GetKatosNrecByName(wtidk:word ;w: string) : comp ;
+{ if getfirst katos where (( wtidk == katos.tidk and 0 == katos.CHIGHEROS and w == katos.nameos )) =0
+    GetKatosNrecByName:=katos.nrec 
+  else  
+    GetKatosNrecByName:=0 ;
+}
+Function GetKatosNrecByINNum(wtidk:word ;w: string) : comp ;
+{ if getfirst katos where (( wtidk == katos.tidk and 0 == katos.CHIGHEROS and w == katos.innum )) =0
+    GetKatosNrecByINNum:=katos.nrec 
+  else  
+    GetKatosNrecByINNum:=0 ;
+}
+Function GetKatNotesNrec(const wviddoc:word ;const w:string): comp ;
+{ GetKatNotesNrec:=if(getfirst fastfirstrow KatNotes 
+ where (( wviddoc==KatNotes.viddoc and w == KatNotes.code(noindex) ))=0,KatNotes.nrec,0) ;
+} 
+Function GetKatNotesNrecByName(const wviddoc:word ;const w:string): comp ;
+{ GetKatNotesNrecByName:=if(getfirst fastfirstrow KatNotes 
+ where (( wviddoc==KatNotes.viddoc and w == KatNotes.name(noindex) ))=0,KatNotes.nrec,0) ;
+} 
+Function GetKatNotesNrecByStatus(const wviddoc:word ;const w:string): comp ;
+{ GetKatNotesNrecByStatus:=if(getfirst fastfirstrow KatNotes 
+ where (( wviddoc==KatNotes.viddoc and word(w) == KatNotes.Status ))=0,KatNotes.nrec,0) ;
+} 
+Function GetResInfoNrec(const w:string): comp ;
+{ if w='' then w:='АСУПР'
+  GetResInfoNrec:=if(getfirst fastfirstrow ResInfo where (( w == ResInfo.name(Noindex)))=0,ResInfo.nrec,0) ;
+} 
+Function GetFarInfoNrec(const w:string): comp ;
+{ GetFarInfoNrec:=if(getfirst fastfirstrow FarInfo where (( longint(w) == FarInfo.ICODE(noindex)))=0,FarInfo.nrec,0) ;
+} 
+Function GetFarInfoNrecByName(const w:string): comp ;
+{ GetFarInfoNrecByName:=if(getfirst fastfirstrow FarInfo where (( w == FarInfo.name))=0,FarInfo.nrec,0) ;
+} 
+Function GetKatPaymentNrec(const w:string): comp ;
+{ GetKatPaymentNrec:=if(getfirst fastfirstrow KatPayment where (( w == KatPayment.code(noindex) ))=0,KatPayment.nrec,0) ;
+} 
+Function GetShipmentNrec(const w:string): comp ;
+{ GetShipmentNrec:=if(getfirst fastfirstrow Shipment where (( w == Shipment.code))=0,Shipment.nrec,0) ;
+} 
+Function GetKatpartyNrec(const wcmc:comp ;const w:string): comp ;
+var wkod :string ;
+{ GetKatpartyNrec:=0 ;
+  if w='' then exit ;
+  wkod:='' ;
+  GetKatpartyNrec:=if(getfirst fastfirstrow Katparty where ((wcmc == katparty.cmc and w == Katparty.name))=0,Katparty.nrec,0) ;
+  if GetKatpartyNrec=0
+  { GetKatpartyNrec:=if(getfirst fastfirstrow Katparty where (( w == Katparty.name))=0,Katparty.nrec,0) ;
+    if GetKatpartyNrec=0
+    { if getlast katparty ordered by katparty.kod=0
+      { wkod:=nextnumstr(katparty.kod) ;
+      }
+      else wkod:='0000001' ;
+      if wkod='' then wkod:='0000001' ;
+      if (getfirst fastfirstrow Katparty where (( wkod == Katparty.kod))=0)
+      {  exit ; // фокус не удался
+        
+      }
+      if need_update
+      {
+        insert into katparty set katparty.cmc:=wcmc , katparty.name:=w , katparty.kod:=wkod ;
+      } else exit; 
+      GetKatpartyNrec:=katparty.nrec ;
+    }  
+  }
+} 
+Function GetKlValNrec(const w:string): comp ;
+{ GetKlValNrec:=if(getfirst fastfirstrow KlVal where (( w == KlVal.SIMVOLV))=0,KlVal.nrec,0) ;
+} 
+Function GetKatbankNrec(const wcorg:comp ;const w:string): comp ;
+{ if w<>''
+  { GetKatbankNrec:=if(getfirst fastfirstrow Katbank where ((
+     wcorg == katbank.corg and w == Katbank.schet1(noindex) ))=0,katbank.nrec,0) ;
+  }  
+  else
+  { GetKatbankNrec:=if(getfirst fastfirstrow Katbank where ((
+     wcorg == katbank.corg  ))=0,katbank.nrec,0) ;
+  }  
+  
+} 
+Function GetSTATDOCNrec(const w:string): comp ;
+{ GetSTATDOCNrec:=if(getfirst fastfirstrow STATDOC where (( w == STATDOC.STATCODE))=0,STATDOC.nrec,0) ;
+} 
+Function GetKlShtrafNrec(const w:string): comp ;
+{ GetKlShtrafNrec:=if(getfirst fastfirstrow KlShtraf where (( w == KlShtraf.Name))=0,KlShtraf.Nrec,0) ;
+} 
+Function GetKlPriceNrec(const w:string): comp ;
+{ GetKlPriceNrec:=if(getfirst fastfirstrow KlPrice where (( 
+       StrToDate(substr(w,1,10),'YYYY/MM/DD') == klprice.DPRICE
+   and substr(w,11,100) == klprice.name))=0,klprice.Nrec,0) ;
+} 
+//Центры ответственности
+Function GetKatStroyNrecByName(w:string) :comp ;
+{ GetKatStroyNrecByName:=0 ;
+  if w='' then exit ;
+  if getfirst KatStroy where (( w == KatStroy.name )) <>0
+  { if need_update
+    { insert into KatStroy set KatStroy.name:=w,KATSTROY.code:='ZAK' ;
+    } else exit; 
+  }
+  GetKatStroyNrecByName:=KatStroy.nrec ;
+}
+//Центры ответственности
+Function GetFPCONrecByName(w:string) :comp ;
+{ GetFPCONrecByName:=0 ;
+  if w='' then exit ;
+  if getfirst FPCO where (( w == fpco.name(noindex) )) <>0
+  { if need_update
+    {insert into fpco set fpco.name:=w ;
+    } else exit;
+  }
+  GetFPCONrecByName:=fpco.nrec ;
+}
+//Признаки собственности ОС
+Function GetPrSBNrecByName(wtidk:word ; w :string) :comp ;
+{ GetPrSBNrecByName:=0
+  if w='' then exit ;
+  if getfirst PrSB where ((
+      wtidk == prsb.tidk and  w == PrSB.name )) <>0
+  { if need_update
+    {insert into PrSB set PrSB.name:=w ;
+    } else exit;
+  }
+  GetPrSBNrecByName:=PrSB.nrec ;
+
+}
+// группа организаций
+Function GetKATORGDESCRNrecByName( w :string) :comp ;
+{ GetKATORGDESCRNrecByName:=0 ;
+  if getfirst KATORGDESCR where 
+       (( 1 ==KatOrgDescr.code and 0 == KATORGDESCR.CGROUP 
+      and w == KatOrgDescr.NAME))<>0  
+  { if need_update
+    {insert into KatOrgDescr
+         set KatOrgDescr.cGroup:=0
+            ,KatOrgDescr.name  :=w
+            ,KatOrgDescr.shortname  :='ZAKACHKA'
+            ,KatOrgDescr.Code  :=1 //longint(group_level)
+         ;
+    }else exit;    
+  
+  }   
+  GetKATORGDESCRNrecByName:=KATORGDESCR.Nrec ;
+}
+// слой аналитики планирования
+Function GetSlojNrecByName( w :string) :comp;
+{ GetSlojNrecByName:=if(getfirst fastfirstrow sloj where ((2 == sloj.razdel and 0 == sloj.csloj 
+    and substr(w,1,20) == sloj.name(length=20) ))=0,sloj.nrec,0)
+}
+//▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+// генерация дополнительных записей для документов
+// сгенерить запись о налоге для спецификации
+Function MakeSpDocNal(wtipdoc:word;wspdoc:comp;wcdoc:comp;
+   wstnds:double;wsunds:double;wcgrnal:comp;
+   wcnalog:comp;worg:comp) :comp ;
+{ MakeSpDocNal:=0
+  if getfirst spdocnal where (( wtipdoc == spdocnal.tipdoc and
+    wSPDOC == spdocnal.CSPDOC ))<>0
+  { if need_update
+    {
+      clearbuffer(tnspdocnal)
+      spdocnal.CSPDOC:=wspdoc ;               
+      spdocnal.TIPDOC:=wtipdoc;
+      insert current spdocnal ;
+    }
+    else exit;  
+  }  
+  spdocnal.CSPDOC:=wspdoc ;               
+  spdocnal.TIPDOC:=wtipdoc;
+  spdocnal.CDOC:=wcdoc ;
+  spdocnal.CGRNAL:=wcgrnal ;               
+  spdocnal.CNALOG:=wcnalog ;               
+  spdocnal.NALOG:=trunc(wstnds*100,0) 
+  spdocnal.SUMNAL:=wsunds
+  spdocnal.CVAL:=0 ;                 
+  spdocnal.SUMVAL:=wsunds
+  spdocnal.SUMMA:=wsunds ;                
+  spdocnal.ISAGREG:=False ;              
+  spdocnal.CORG:=worg ;                 
+  spdocnal.VALCURSE:=1 ;             
+  spdocnal.CROSCURSE:=1 ;            
+  spdocnal.NPP:=0 ;                  
+  spdocnal.ISCUSTOM:=0             
+  update current spdocnal ;
+  MakeSpDocNal:=spdocnal.nrec
+}
+// Целевой учет
+Function MakeSpecmtr(wtable :word ;wNREC:comp;wCSALDTUNE:comp;wcobj:comp;
+   wckau1:comp;wckau2:comp;wckau3:comp ;
+   wckau4:comp;wckau5:comp;wckau6:comp ;
+   wckau7:comp;wckau8:comp;wckau9:comp    ):comp ;
+{ MakeSpecmtr:=0 ;
+  if wCSALDTUNE=0 or wcobj=0
+  { exit ;
+  } 
+  if getfirst specmtr where ((
+    wtable == specmtr.COTABLE and
+    wNREC == specmtr.CSPEC )) <>0
+  { insert into specmtr set
+       specmtr.COTABLE:=wtable ;
+       specmtr.CSPEC  :=wNREC ;
+  }  
+    specmtr.CSALDTUNE :=wCSALDTUNE //
+    specmtr.COBJ :=wcobj
+    specmtr.CKAU[1]:=wckau1
+    specmtr.CKAU[2]:=wckau2
+    specmtr.CKAU[3]:=wckau3
+    specmtr.CKAU[4]:=wckau4
+    specmtr.CKAU[5]:=wckau5
+    specmtr.CKAU[6]:=wckau6
+    specmtr.CKAU[7]:=wckau7
+    specmtr.CKAU[8]:=wckau8
+    specmtr.CKAU[9]:=wckau9
+    update current specmtr    ;
+//Набор КАУ для привязки МТР    
+  if getfirst kitkau where ((
+        specmtr.CSALDTUNE ==kitkau.CSALDTUNE //
+    and specmtr.COBJ ==kitkau.cobj
+    and specmtr.CKAU[1]==kitkau.ckau[1]
+    and specmtr.CKAU[2]==kitkau.ckau[2]
+    and specmtr.CKAU[3]==kitkau.ckau[3]
+    and specmtr.CKAU[4]==kitkau.ckau[4]
+    and specmtr.CKAU[5]==kitkau.ckau[5]
+    and specmtr.CKAU[6]==kitkau.ckau[6]
+    and specmtr.CKAU[7]==kitkau.ckau[7]
+    and specmtr.CKAU[8]==kitkau.ckau[8]
+    and specmtr.CKAU[9]==kitkau.ckau[9]
+  )) <>  0
+  { clearbuffer(#kitkau) ;
+    kitkau.CSALDTUNE:=specmtr.CSALDTUNE  //
+    kitkau.cobj:=specmtr.COBJ 
+    kitkau.ckau[1]:=specmtr.CKAU[1] ;
+    kitkau.ckau[2]:=specmtr.CKAU[2] ;
+    kitkau.ckau[3]:=specmtr.CKAU[3] ;
+    kitkau.ckau[4]:=specmtr.CKAU[4] ;
+    kitkau.ckau[5]:=specmtr.CKAU[5] ;
+    kitkau.ckau[6]:=specmtr.CKAU[6] ;
+    kitkau.ckau[7]:=specmtr.CKAU[7] ;
+    kitkau.ckau[8]:=specmtr.CKAU[8] ;
+    kitkau.ckau[9]:=specmtr.CKAU[9] ;
+    insert current kitkau ;
+  
+  }
+  MakeSpecmtr:=specmtr.nrec ;
+}  //Function MakeSpecmtr
+
+//====== найти документ 
+// вексель
+Function GetVEKSLNrecByNODOC(wtidk:word;w :string ) :comp ;
+{ GetVEKSLNrecByNODOC:=0 ;
+  if getfirst VEKSL where (( wtidk == VEKSL.tidk
+    and w == VEKSL.nodoc (noindex) ))=0
+    GetVEKSLNrecByNODOC:=VEKSL.nrec ;
+} 
+Function GetDogovorKey(const wdogovor :comp  ) :string ;
+{ GetDogovorKey:='' ;
+  if wdogovor=0 then exit ;
+  if getfirst  fastfirstrow dogovor where (( wdogovor == dogovor.nrec )) =0
+  { GetDogovorKey:=DateToStr(dogovor.ddoc,'YYYY/MM/DD') + dogovor.nodoc ;
+  }
+}
+Function GetDogovorNrec(const wupdogovor :comp ;const w:string ) :comp ;
+{ GetDogovorNrec:=0 ;
+  if w='' then exit ;
+  if StrToDate(substr(w,1,10),'YYYY/MM/DD')= date(0,0,0)
+  {
+  }
+  if getfirst  fastfirstrow dogovor where (( wupdogovor == dogovor.cdogovor
+   and StrToDate(substr(w,1,10),'YYYY/MM/DD') == dogovor.ddoc
+   and substr(w,11,100) == dogovor.nodoc
+   ))=0
+  { GetDogovorNrec:=dogovor.nrec ;
+  } 
+}
+Function GetCalPlanKey(const wcalplan :comp  ) :string ;
+{ GetCalPlanKey:='' ;
+  if wcalplan=0 then exit ;
+  if getfirst  fastfirstrow calplan where (( wcalplan == calplan.nrec )) =0
+  { GetCalPlanKey:=DateToStr(calplan.dinput,'YYYY/MM/DD') + calplan.nodoc ;
+  }
+}
+Function GetCalPlanNrec(const wcdogovor:comp; const wcappdogovor:comp;wcalplan :string ) :comp ;
+{ GetCalPlanNrec:=0 ;
+  if wcdogovor=0 then exit ;
+  if wcappdogovor>0
+  {wcdogovor:=wcappdogovor ;
+  }
+  if getfirst  fastfirstrow calplan where (( wcdogovor == calplan.cdogovor
+   and substr(wcalplan,11,100) ==calplan.nodoc 
+// а может и не надо по дате?   
+   and StrToDate(substr(wcalplan,1,10),'YYYY/MM/DD') == calplan.dinput(noindex)
+   )) =0
+  { GetCalPlanNrec:= calplan.nrec ;
+  }
+}
+Function GetKatSoprKey(const wkatsopr :comp  ) :string ;
+{ GetkatsoprKey:='' ;
+  if wkatsopr=0 then exit ;
+  if getfirst  fastfirstrow katsopr where (( wkatsopr == katsopr.nrec )) =0
+  { GetkatsoprKey:=DateToStr(katsopr.dsopr,'YYYY/MM/DD') + katsopr.nsopr ;
+  }
+}
+Function GetSchFactNrecByNum(const wviddoc :word ;const w:string ) :comp ;
+{ GetSchFactNrecByNum:=0
+  if wviddoc=0
+  { if getfirst schfact where (( w == SCHFACT.NUM(noindex) ))=0
+     GetSchFactNrecByNum:=SchFact.Nrec
+  }
+  
+}
+Function GetKatsoprNrec(const wviddoc :word ;const w:string ) :comp ;
+{ GetKatsoprNrec:=0 ;
+  if w='' then exit ;
+  if StrToDate(substr(w,1,10),'YYYY/MM/DD')= date(0,0,0)
+  { exit ;
+  }
+  if getfirst  fastfirstrow katsopr where (( wviddoc == katsopr.vidsopr
+   and StrToDate(substr(w,1,10),'YYYY/MM/DD') == katsopr.dsopr
+   and substr(w,11,100) == katsopr.nsopr
+   ))=0
+  { GetkatsoprNrec:=katsopr.nrec ;
+  } 
+}
+Function GetBasedocKey(const wbasedoc :comp  ) :string ;
+{ GetBasedocKey:='' ;
+  if wBasedoc=0 then exit ;
+  if getfirst  fastfirstrow Basedoc where (( wbasedoc == basedoc.nrec )) =0
+  { GetBasedocKey:=DateToStr(Basedoc.ddoc,'YYYY/MM/DD') + Basedoc.nodoc ;
+  }
+}
+Function GetBasedocNrec(const wviddoc :word ;const w:string ) :comp ;
+{ GetBasedocNrec:=0 ;
+  if w='' then exit ;
+  if StrToDate(substr(w,1,10),'YYYY/MM/DD')= date(0,0,0)
+  { exit ;
+  }
+  if getfirst  fastfirstrow Basedoc where (( wviddoc == Basedoc.viddoc
+   and StrToDate(substr(w,1,10),'YYYY/MM/DD') == Basedoc.ddoc
+   and substr(w,11,100) == Basedoc.nodoc
+   ))=0
+  { GetBasedocNrec:=Basedoc.nrec ;
+  } 
+}
+Function GetSKLORDERKey(const wsklorder :comp  ) :string ;
+{ GetsklorderKey:='' ;
+  if wsklorder=0 then exit ;
+  if getfirst  fastfirstrow sklorder where (( wsklorder == sklorder.nrec )) =0
+  { GetsklorderKey:=DateToStr(sklorder.dord,'YYYY/MM/DD') + sklorder.NORDER ;
+  }
+}
+Function GetSpSoprKey(const wSpSopr :comp  ) :string ;
+{ GetSpSoprKey:='' ;
+  if wSpSopr=0 then exit ;
+  if getfirst  fastfirstrow SpSopr where (( wSpSopr == SpSopr.nrec )) =0
+  { GetSpSoprKey:=string(SpSopr.NPP) ;
+  }
+}
+//другие справочники
+// справочник статусов документа
+Function FindNote(wtidk :word;wname :string;wstat:word):comp ;
+{ FindNote:=0 ;
+ if getfirst katnotes where (( wtidk == KATNOTES.VIDDOC and
+  0 == katnotes.cowner and
+  wname == KATNOTES.name ))<>0
+ { if not need_update then exit ;
+   clearbuffer(tnkatnotes)
+   KATNOTES.VIDDOC:=wtidk
+   KATNOTES.name:=wname
+   KATNOTES.CODE:=string(wstat) ;
+   KATNOTES.isleaf:=1 ;
+   KatNotes.Status:=wstat ;
+   KATNOTES.SNAME:=substr(wname,1,5) ;
+   insert current KATNOTES ;
+ } 
+ FindNote:=KATNOTES.nrec ;
+} 
+// справочник видов
+Function FindKatVid(wname :string;wdirect:word) : comp ;
+{FindKatVid:=0 ;
+ if getfirst katvidd where (( wname == katvidd.name(noindex)
+  and wdirect ==katvidd.DIRECT(noindex)
+  )) <>0
+ { if not need_update then exit ;
+   clearbuffer(tnkatvidd) ;
+   katvidd.COWNER:=0
+   katvidd.DIRECT:=wdirect ;
+   katvidd.ISLEAF:=1 ;
+   katvidd.NAME:=wname ;
+   katvidd.ROLE1:=''
+   katvidd.ROLE2:=''
+   katvidd.SNAME:=wname ;
+   katvidd.VIDDOG:=0
+   insert current katvidd ;
+ }
+ FindKatVid:=katvidd.nrec ; 
+}
+//найти хозоперацию
+Function FindHozoper(wtidk:word ; wkod:string) :comp ;
+{ FindHozoper:=0
+ if getfirst hozoper where (( wtidk == hozoper.tidk
+  and wkod == hozoper.CODE ))<>0
+ { if not need_update then exit ;
+   clearbuffer(tnhozoper)
+   hozoper.tidk:=wtidk ;
+   hozoper.code:=wkod ;
+   hozoper.name1:=wkod ;
+   insert current hozoper ;
+ } 
+ FindHozoper:=hozoper.nrec ;
+}
+//найти группу счетов
+Function FindGroupSch(wnameup :string ; wname :string) :comp ;
+var wnrec :comp ;
+{  FindGroupSch:=0
+   wnrec:=0 ;
+   if wnameup<>''
+   { if getfirst groupsch where (( 0 == groupsch.cnode and
+          wnameup == groupsch.name )) <>0
+     { if not need_update then exit ;
+       insert into groupsch set groupsch.cnode:=0 , 
+            groupsch.name:=wnameup ,groupsch.kod :=substr(wnameup,1,10) ;
+      logstrtofile(logfilenm,'Добавили группу договоров '+wnameup  )
+            
+     }     
+     wnrec:=groupsch.nrec ;
+   }
+   if getfirst groupsch where (( wnrec == groupsch.cnode and
+          wname == groupsch.name )) <>0
+   { if getfirst groupsch where (( 
+        wname == groupsch.name(noindex) )) <>0
+     { if not need_update then exit ;
+       insert into groupsch set groupsch.cnode:=wnrec , 
+            groupsch.name:=wname ,groupsch.kod :=substr(wname,1,10) ;
+        logstrtofile(logfilenm,'Добавили группу договоров '+wname  )
+     }   
+   }
+   FindGroupSch:=groupsch.nrec ;
+}
+
+//NEW 20071220
+Function GetGRPODRNrec(const w:string):comp ;
+{ GetGRPODRNrec:=0
+  if w='' then w:='штука'
+  if(getfirst fastfirstrow GRPODR   where (( w == GRPODR.name))<>0)
+  { if not need_update then exit ;
+    insert into GRPODR set GRPODR.name:=w  ;
+    logstrtofile(logfilenm,'Добавили группу подразделений '+GRPODR.name  )
+  }
+  GetGRPODRNrec:=GRPODR.nrec ;
+}
+Function GetDepFuncNrec(const w:string):comp ;
+var wcfunc :word ;
+{ if w='' then w:='штука'
+  GetDepFuncNrec:=0;
+  if(getfirst fastfirstrow DepFunc   where (( w == DepFunc.NMFUNC))<>0)
+  { if getlast depfunc ordered by index DepFunc01=0
+    { wcfunc:=depfunc.cfunc+1 
+    } else wcfunc:=1 ;
+    if not need_update then exit ;
+    
+    insert into DepFunc set DepFunc.NMFUNC:=w,DEPFUNC.CFUNC:=wcfunc  ;
+    logstrtofile(logfilenm,'Добавили функцию '+DepFunc.NMFUNC  )
+  }
+  GetDepFuncNrec:=DepFunc.nrec ;
+}
+
+Function GetGROUPMCNrecByName(const w:string;wkod:string):comp ;
+var k :longint ;
+{ if w='' then w:='1000'
+  GetGROUPMCNrecByName:=0
+  wnrec:=Find_Tmp_Spr(coGroupMc,w,1)
+  if wnrec>0
+  { GetGROUPMCNrecByName:=wnrec ;
+    exit ;
+  }  
+//  w1:=GroupMcKODCheck(w) ;
+  if getfirst fastfirstrow groupmc where (( w == groupmc.name ))<>0
+  { if wkod=''
+    { if getlast groupmc ordered by index GroupMC02=0
+      { wkod:=NextNumStr(groupmc.kod)
+        k:=0 ;
+        if (getfirst groupmc where (( wkod == groupmc.kod))=0 )
+        do 
+        { wkod:=word(wkod)+1 ;
+          k:=k+1 ;
+          if k>1000 then exit ;
+        } while (getfirst groupmc where (( wkod == groupmc.kod))=0 )
+      } 
+    }
+    else
+    { if getfirst groupmc where (( wkod == groupmc.kod)) =0
+      { GetGROUPMCNrecByName:=GroupMc.nrec ;
+        exit ;
+      }
+    }
+   if not need_update then exit ;
+
+    insert into groupmc set
+      groupmc.kod :=wkod ,groupmc.name:=w;
+    logstrtofile(logfilenm,'Добавили группу МЦ с кодом '+groupmc.kod  )
+  }
+  Ins_Tmp_Spr(coGroupMc,groupmc.kod,w,groupmc.name,groupmc.nrec)  ;
+  GetGROUPMCNrecByName:=GroupMc.nrec ;
+}
+Function GetGRNALNrecByName(const w:string):comp ;
+{ if w='' then w:='18%' ;
+  GetGRNALNrecByName:=if(getfirst fastfirstrow GRNal   where (( w == GRNal.name(noindex)  ))=0,GRNal.nrec,0) ;
+  if GetGRNALNrecByName=0
+  { if not need_update then exit ;
+    insert into grnal set grnal.name:=w,grnal.kod:=w ;
+    GetGRNALNrecByName:=grnal.nrec
+  }
+}
+//====================================
+//staff
+//====================================
+Function Catalogs_GetMainLink(w :integer):comp;
+{
+ Catalogs_GetMainLink:=0 ;
+ if getfirst Catalogs where (( w == catalogs.syscode ))=0
+   Catalogs_GetMainLink:=Catalogs.nrec ;
+}
+Function GetCatalNrec1(nmfld :string ; MainL : comp ;nmcode :string ) :comp ;
+var w:string ;
+  wParent :comp ;
+  wnrecw :comp ; 
+//  wmainl:longint ;
+{  w:=nmfld ;
+  GetCatalNrec1:=0 ;
+  if w='' and nmcode='' then exit ; 
+  if nmcode='' then nmcode:='?????' ;
+  wParent:=0 ;
+  GetCatalNrec1:=0 ;
+  if w='ERROR' and nmcode='?????' then exit ;
+  if w='' or w='???' then exit ;
+  if w='ERROR' then w:=w+' '+string(MainL)
+  if (mainl<>0) and (Getfirst Catalogs where (( Mainl == catalogs.syscode ))=tsok)
+  { wParent :=Catalogs.nrec ;
+  }
+  else wParent:=MainL ;
+  if wparent>0 and Getfirst Catalogs where (( 
+//     wParent== catalogs.mainlink and
+     wParent== catalogs.cparent and
+     substr(w,1,100) ==  catalogs.name (length=100) )) =tsok
+  { wnrecw := catalogs.nrec ;
+  } else
+  { if Getfirst tmpCatal where (( wParent== tmpcatal.mainlink and
+     substr(w,1,100) ==  tmpcatal.name (length=100) )) =tsok
+    { wnrecw := tmpcatal.catnrec ;
+    } else
+    { if Getfirst tmpCatal where ((substr(w,1,100) ==  tmpcatal.name (length=100) )) =tsok
+      { wnrecw := tmpcatal.catnrec ;}
+      else
+      { logstrtofile('!kadry.txt',nmfld+'===='+w+' нет в справочнике каталогов') ;
+        if wparent>0
+        { if not need_update then exit ;
+          clearbuffer(tncatalogs)
+          catalogs.cparent:=wparent ;
+          catalogs.mainlink:=wparent ;
+          catalogs.name:=w ;
+          catalogs.code:=nmcode ;
+          catalogs.catdata:=w ;
+          
+          insert current catalogs;
+          wnrecw:=catalogs.nrec ;
+          insert into tmpCatal
+            set  tmpCatal.name :=Catalogs.name,
+                 tmpCatal.mainlink:=Catalogs.mainlink,
+                 tmpCatal.catnrec  :=Catalogs.nrec,
+                 tmpCatal.cparent  :=Catalogs.cparent ;
+
+        }
+      }  
+    }
+  }
+  if getfirst catalogs where (( wnrecw == catalogs.nrec ))=0
+  GetCatalNrec1:=catalogs.nrec ;
+  if MainL=-11 // подразделения
+  { if getfirst katpodr where (( trim(catalogs.name) == katpodr.name ))<>0
+    { if not need_update then exit ;
+
+      insert into katpodr set katpodr.name:=trim(catalogs.name) , katpodr.kod:=catalogs.code ;
+      logstrtofile('!kadry.txt','Добавили в katpodr запись с  '+katpodr.name)
+    }
+    if katpodr.kod<>catalogs.code and katpodr.kod<>''
+    { logstrtofile('!kadry.txt','изм.в структурных единицах код с   '+catalogs.code+' на '+katpodr.kod)
+       if not need_update then exit ;
+       update current catalogs set catalogs.code := katpodr.kod ;
+    }
+    // сразу проверим и на связку
+    if getfirst ExtCatLinks where ((
+       11 == ExtCatLinks.ObjType 
+       and catalogs.nrec == ExtCatLinks.StaffCat
+       and 1 == ExtCatLinks.ModType
+       and katpodr.nrec == ExtCatLinks.ExtCat ))<>0
+    {  if not need_update then exit ;
+       insert into  ExtCatLinks set 
+             ExtCatLinks.ObjType:=11
+             ,ExtCatLinks.ModType:=1
+             ,ExtCatLinks.StaffCat:=catalogs.nrec
+             ,ExtCatLinks.ExtCat:=katpodr.nrec ;
+    }
+  } //if MainL=-11 // подразделения
+} //Function GetCatalNrec1(nmfld :string ; MainL : comp ;nmcode :string ) :comp ;
+// получить тип пасспорта
+Function GetTypePassPorts(w:string) :word ;
+{ GetTypePassPorts:=21 ;
+  if w='Иностранный паспорт'
+  then GetTypePassPorts:=10 ;
+}
+Function PassPIns(WSYSCODE:integer;PersNrec:comp;
+WSER:string;//ПАСПОРТ СЕРИЯ
+WNMB:string;//Паспорт номер
+WGIVENBY:string;//Паспорт: кем выдан   
+WGIVENDATE:date;//Паспорт: дата выдачи 
+WGIVENPODR:string;//Паспорт: код подразлеления 
+WTODATE:date;//Паспорт: срок действия    
+WKIND:string;//Вид паспорта      
+WSEQNMB:string;//Документы: N п/п
+WKLDOC:STRING // код документа
+) :comp ;    
+var 
+//wstr:string ;
+ wcParent:comp ;
+ wwkind:char;
+{
+  if getfirst PassPorts where ((PersNrec == Passports.person and
+    wsyscode == Passports.syscode     ))<>0
+  { clearbuffer(tnPassPorts)
+    Passports.syscode:=wsyscode
+    Passports.Person:=PersNrec
+    insert Current Passports ;
+  }  
+  Passports.SER:=WSER
+  Passports.NMB:=WNMB
+  Passports.GIVENBY:=WGIVENBY
+  Passports.GIVENDATE:=WGIVENDATE 
+  Passports.GIVENPODR:=WGIVENPODR 
+  Passports.TODATE:=WTODATE
+  wwkind:=char(substr(wkind,1,1))
+  Passports.KIND:=WWKIND      
+  Passports.SEQNMB:=word(WSEQNMB)
+  wcParent:=Catalogs_GetMainLink(-3) ;
+  if getfirst catalogs where 
+    (( wsyscode == catalogs.syscode and
+//       wkldoc  ==CATALOGS.CODE(noindex) ))<>0
+       wkind  ==CATALOGS.CODE(noindex) ))<>0
+  { clearbuffer(tncatalogs)
+    catalogs.syscode:=wsyscode ;
+    Catalogs.cparent:=wcParent ;
+    catalogs.mainlink:=wcparent ;
+    catalogs.code:=wkind ;
+    case wsyscode of
+    502:{
+     catalogs.name:='Паспорт гражданина России' ;
+     CATALOGS.CATDATA:='99 99!999999'
+     CATALOGS.BMULTI:=1
+    }
+    505:{
+     catalogs.name:='ИНН' ;
+     CATALOGS.CATDATA:=''
+     CATALOGS.BMULTI:=0
+    }
+    501:{
+     catalogs.name:='Страховое свидетельство' ;
+     CATALOGS.CATDATA:='999-999-999 99'
+     CATALOGS.BMULTI:=0
+    }
+    else
+     catalogs.name:=WKLDOC ;
+    end;
+
+    insert current catalogs ; 
+  }
+  Passports.DOCNAME:=catalogs.nrec ;
+  update current PassPorts ;
+  PassPIns:=PassPorts.nrec;
+}
+
+Function CreaTmpCat : boolean ;
+var ichet :longint ;
+//    wdom :comp ;
+{
+ ichet:=0 ;
+ delete all tmpCatal ;
+ CreaTmpCat:=false ;
+ if getfirst Catalogs=0 
+ do {
+   inc(ichet)
+   if ichet mod 100=0 then nextvisual ;
+    insert into tmpCatal
+     set  tmpCatal.name :=Catalogs.name,
+          tmpCatal.mainlink:=Catalogs.mainlink,
+          tmpCatal.catnrec  :=Catalogs.nrec,
+          tmpCatal.cparent  :=Catalogs.cparent ;
+  } while getnext Catalogs=0
+ CreaTmpCat:=true ;
+}
+Function GalDepartmentNrec(cStaffDep : comp) : comp;
+var 
+ cDepNrec : comp;
+ bNotFind : boolean;
+ ctmp:comp ;
+{
+  cTmp := cStaffDep;
+  bNotFind := True;
+  cDepNrec := 0;
+  do
+  { if (GetFirst ExtCatLinks where ((
+//                          epStaffDepartment 
+                          11== ExtCatLinks.ObjType and
+//                          moStaff  
+                          1         == ExtCatLinks.ModType and
+                          cTmp              == ExtCatLinks.StaffCat
+                                            )) = tsOk)
+    { bNotFind := False;
+      cDepNrec := ExtCatLinks.ExtCat;
+    }
+    else
+    { if (GetFirst Catalogs where ((
+                           cTmp     == Catalogs.nRec
+                                              )) = tsOk)
+        cTmp := Catalogs.cParent;
+      else
+        bNotFind := False;
+    }
+  } while (bNotFind);
+  GalDepartmentNrec := cDepNrec;
+}
+Function GetCatalogsName(wnrec : comp) : string;
+{ GetCatalogsName:=if(getfirst catalogs where (( wnrec == catalogs.nrec ))=0,catalogs.name,'')
+ 
+
+}
+
+//=========================
+// основные
+//=========================
+Function FindOkof (wkod : string ; wnm :string ) :comp ;
+{ //Коды ОС по ОКОФ
+  FindOkof:=0
+  if wkod<>''
+  { if getfirst kodof where (( wkod == kodof.KOD_OF))=0
+    { FindOkof:=Kodof.Nrec ;
+      exit ;
+    }  
+  }
+  else wkod:=wnm ;
+  if getfirst kodof where (( wnm == kodof.NAME_OF))<>0
+      
+  {  if not need_update then exit ;
+
+     clearbuffer(tnkodof) ;
+     kodof.KOD_OF:=wkod ;
+     kodof.NAME_OF:=wnm ;
+     insert current kodof ;
+  }
+  FindOkof:=Kodof.Nrec
+} 
+// метод начисления амортизации
+Function FindOSALG(wtidk:word; wnm:string) :comp ;
+{ FindOSALG:=0; 
+  if getfirst osalg where ((wtidk == osalg.tidk and wnm == osalg.name ))<>0
+  { if not need_update then exit ;
+    insert into osalg set osalg.name:=wnm ;
+  }
+  FindOSALG:=osalg.nrec ;
+}
+Function FindKlassOs(wkod : string ; wnm :string ) :comp ;
+{ //Коды ОС по ОКОФ
+  FindKlassOs:=0
+  if wkod<>''
+  { if getfirst KlassOs where (( 1 ==KlassOs.tidk and
+     wkod == KlassOs.KOD))=0
+    { FindKlassOs:=KlassOs.Nrec ;
+      exit ;
+    }   
+  }  
+  if getfirst KlassOs where (( 1 ==KlassOs.tidk and
+     wnm == KlassOs.Name ))<>0
+  {  if not need_update then exit ;
+     clearbuffer(tnKlassOs) ;
+     KlassOs.tidk:=1 ;
+     KlassOs.KOD:=wkod ;
+     KlassOs.NAME:=wnm ;
+     insert current KlassOs ;
+  }
+  FindKlassOs:=KlassOs.Nrec
+}
+Function FindGrOs(wkod : string ; wnm :string ) :comp ;
+var k:word ;
+{ //Коды ОС по ОКОФ
+//  if wkod='' then exit ;
+  FindGROS:=0 ;
+  if wkod<>''
+  { if getfirst GROS where (( wkod == GROS.KODGR))=0
+    FindGROS:=GROS.Nrec ; exit ;
+  }
+  if wkod=''
+  { if getlast GROS ordered by index GrOS01=0
+    { wkod:=lpad(string(word(trim(GROS.KODGR))+1),2)
+    } else wkod:=' 1'
+    if wkod='' then wkod:=' 1'
+    k:=0 ;
+    if (getfirst Gros where (( wkod == GROS.KODGR ))=0)
+    { do {
+       k:=k+1 ; if(k>99) then exit
+       wkod:=wkod:=lpad(string(k),2)
+      
+      } while (getfirst Gros where (( wkod == GROS.KODGR ))=0)
+    }  
+  }
+  if getfirst GROS where (( wnm == GROS.NAMEGR))<>0
+  {  if not need_update then exit ;
+     clearbuffer(tnGROS) ;
+     GROS.KODGR:=wkod ;
+     GROS.NAMEGR:=wnm ;
+     insert current GROS ;
+  } 
+  FindGROS:=GROS.Nrec
+}
+Function FindISPOS(wkod : string ; wnm :string ;wtidk:word ) :comp ;
+{ //Признак использования
+  FindISPOS:=0;
+  if wkod='' then exit ;
+  if wtidk=0 wtidk:=15 ;
+  if getfirst ISPOS where ((
+     wtidk ==   ISPOS.tidk and
+     wkod == ISPOS.PRISP))<>0
+  if getfirst ISPOS where ((
+     wtidk ==   ISPOS.tidk and
+     wnm == ISPOS.NAMEIS(noindex) ))<>0
+  {  if not need_update then exit ;
+     clearbuffer(tnISPOS) ;
+     ISPOS.tidk:=wtidk ;
+     ISPOS.PRISP:=wkod ;
+     ISPOS.NAMEIS:=wnm ;
+     ISPOS.ISLEAF:=0 ;
+     insert current ISPOS ;
+  }
+  FindISPOS:=ISPOS.Nrec
+}
+Function FindSposob(w :string ):comp ;
+{  FindSposob:=0
+   if getfirst SPOSOB where (( w ==  SPOSOB.NAMESB ))<>0
+   { if not need_update then exit ;
+     insert into SPOSOB set SPOSOB.NAMESB:=w ;
+   }
+   FindSposob:=SPOSOB.nrec
+}
+//Procedure GetNormOS(var wcnorma :comp ; var wcvid :comp ;wnorm :double ; wkod :string ) ;
+Procedure GetNormOS(var wcnorma :comp ; var wcvid :comp ;wnorm :double ; wkod :string ;wname:string;wtidk:word ) ;
+var wvidos :comp ;
+{ // получить норму и вид
+  wcnorma :=0 ; wcvid:=0;
+  wname:=wname ;
+  if wtidk=0 then wtidk:=15 ;
+  if getfirst vidnorma where ((
+    15 == vidnorma.tidk and
+    wkod == vidnorma.kod ))<>0
+  { if getfirst vidnorma where ((
+     15 == vidnorma.tidk and
+      substr(wkod,1,3) == vidnorma.kod ))<>0
+    { if not need_update then exit ;
+      clearbuffer(tnvidnorma)
+      vidnorma.tidk:=15 ;
+      vidnorma.kod :=substr(wkod,1,3) ;
+      VIDNORMA.NAME:=substr(wkod,1,3) ;
+      insert current VIDNORMA ;
+    }
+    if not need_update then exit ;
+      
+    wvidos:=VIDNORMA.nrec ;
+    clearbuffer(tnvidnorma)
+    vidnorma.tidk:=15 ;
+    vidnorma.kod :=wkod ;
+    VIDNORMA.NAME:=wkod ;
+    vidnorma.cvid:=wvidos ;
+    VIDNORMA.isleaf:=1 ;
+    VIDNORMA.NORMA:=wnorm ;
+    insert current VIDNORMA ;     
+  }
+  if VIDNORMA.NORMA<>wnorm and wnorm>0
+  { logstrtofile(logfilenm,'GetNormOS норма '+vidnorma.kod+' в справочнике не соотв.'+string(VIDNORMA.NORMA)+' берем '+string(wnorm))
+    VIDNORMA.NORMA:=wnorm
+    update current VIDNORMA ;
+  }
+  wcnorma:=VIDNORMA.nrec ;
+  wcvid :=VIDNORMA.cvid ;
+}
+//================================
+// системные
+//================================
+// получить наименование аналитики
+Function GetKatKauName(w : word) :string ;
+{ GetKatKauName:=if(getfirst  fastfirstrow katkau where (( w == katkau.kodgroup ))=0,katkau.name,'???'+string(w))
+}
+// получить код аналитики по наименованию
+Function GetKatKauTBLName(w : string) :word ;
+{ GetKatKauTBLName:=if(getfirst  fastfirstrow katkau where (( w == katkau.name(noindex) ))=0,katkau.kodgroup,0)
+}
+// получить код аналитики по аббревиатуре
+Function GetKatKauTBLAbbr(w : string) :word ;
+{ GetKatKauTBLAbbr:=if(getfirst  fastfirstrow katkau where (( w == katkau.code ))=0,katkau.kodgroup,0)
+}
+
+//GetAnaliticNrecByName - получить nrec аналитики по коду и наименованию
+Function GetAnaliticNrecByName(wtbl:word ;wname :string ) :comp ;
+var wnrec,wnrec1 :comp ;
+    sKau :string ;
+{ GetAnaliticNrecByName:=0 ;
+  wname:=wname ;
+  if substr(GetKatKauName(wtbl),1,3)='???' then exit ;
+//  KauStr2NrecWithGenEx(wtbl, '', wname, wnrec)
+  wnrec1:=0 ;
+  wnrec:=0 ;
+  sKau:='ZAK' ;
+  case KatKau.SysNum of
+  cgKatKau_User: {
+    if getfirst spkau where (( wtbl == SpKau.KodGrKau and wname == SpKau.name ))<>0
+    { if not need_update then exit ;
+      insert into spkau set
+         SpKau.Code      := sKau
+        ,SpKau.LevelCode := sKau
+        ,SpKau.Name      := wName
+        ,SpKau.KodGrKau  := wtbl ;
+
+    }
+    wnrec:=spkau.nrec ;
+  } //cgKatKau_User: {
+  cgKatKau_Table: // Системные аналитики
+  { case wtbl of
+    1:wnrec:=GetKatORGNrecByName(wname) ;//│ Организации                    │
+    2:wnrec:=GetKatpodrNrecByName(wname) ;// │ Подразделения                  │
+    3:wnrec:=GetPersonsNrecByFio(wname) ;// │ Сотрудники предприятия         │
+    4:wnrec:=GetKatMcNrecByName(wname) ;// │ Материальные ценности          │
+    5:wnrec:=GetKatUSLNrecByName(wname) ;// │ Услуги                         │
+    6:wnrec:=GetBasedocNrec(0,wname) ;// │ Документы-основания            │
+    7:wnrec:=0 ;// │ Производственные заказы        │
+    8:wnrec:=GetGROUPMCNrecByName(wname,'') ;// │ Группы МЦ                      │
+    9:wnrec:=GetGROUPUSLNrecByName(wname) ;// │ Группы услуг                   │
+   10:wnrec:=GetKatpartyNrec(0,wname) ;// │ Партии МЦ                      │
+   11:wnrec:=0 ;// │ Группы партий МЦ               │
+   12:wnrec:=FindGroupSch('',wname) ;// │ Группы ДО/Договоров            │
+   13:wnrec:=0 ;// │ Статьи расходов/доходов        │
+   14:wnrec:=GetDogovorNrec(0,wname) ;// │ Договоры                       │
+   15:wnrec:=GetKatosNrecByName(15,wname) ;// │ Основные средства              │ 
+   16:wnrec:=GetKatosNrecByName(16,wname) ; ;// │ Нематериальные активы          │ 
+   17:wnrec:=GetVEKSLNrecByNODOC(81,wname) ;// │ Векселя и ценные бумаги        │
+   18:{ wnrec:=0 ;// │ Виды основных средств          │
+     GetNormOS(wnrec,wnrec1,0,wname,wname,15) // код 
+   }  
+   19: {wnrec:=0 ;// │ Виды нематериальных активов    │
+     GetNormOS(wnrec,wnrec1,0,wname,wname,16) // код
+   }
+   20:wnrec:=0 ;// │ Статьи планов (бюджетов)       │
+   21:wnrec:=0 ;// │ Периоды планирования           │
+   22:wnrec:=GetFPCONrecByName(wname) ;// │ Центры ответственности         │
+   23:wnrec:=0 ;// │ Оборудование                   │
+   24:wnrec:=0 ;// │ Маршрутные карты               │
+   25:wnrec:=0 ;// │ Производственные спецификации  │
+   26:wnrec:=0 ;// │ Заявки                         │
+   27:wnrec:=0 ;// │ Графики                        │
+   28:wnrec:=0 ;// │ Планы производства             │
+   29:wnrec:=0 ;// │ Планы снабжения                │
+   30:wnrec:=0 ;// │ Планы сбыта                    │
+   34:wnrec:=0 ;// │ Источники финансирования       │
+   35:wnrec:=0 ;// │ Технологические операции       │
+   36:wnrec:=GetCatalNrec1(wname,-22,'') ;// │ Профессии                      │
+   37:wnrec:=0 ;// │ Потребности в материалах       │
+   38:wnrec:=0 ;// │ Потребности в трудовых ресурса │
+   39:wnrec:=0 ;// │ Потребности в производственных │
+   40:wnrec:=GetKatStroyNrecByName(wname) ;// │ Объекты строительства          │
+   41:wnrec:=0 ;// │ Конструкторские спецификации   │
+   42:wnrec:=0 ;// │ Виды ремонта                   │
+   43:wnrec:=0 ;// │ Коды причин постановки на учет │
+   44:wnrec:=0 ;// │ Бюджеты расчетов с ГНИ         │
+   45:wnrec:=0 ;// │ Типы платежей-начислений       │
+   46:wnrec:=0 ;// │ Наборы МЦ                      │
+   47:wnrec:=0 ;// │ Группы оборудования            │
+   48:wnrec:=0 ;// │ Виды работ                     │
+   49:wnrec:=0 ;// │ Корпоративные потребности      │
+   50:wnrec:=0 ;// │ Корпоративные планы поставок   │
+   51:wnrec:=0 ;// │ Корпоративные планы производст │
+   52:wnrec:=0 ;// │ Балансы движения продукции     │
+   53:wnrec:=0 ;// │ Варианты планирования          │
+   54:wnrec:=0 ;// │ Амортизационные группы         │
+   55:wnrec:=0 ;// │ Платежные средства             │
+   56:wnrec:=FindISPOS('',wname,15) ;// │ Признаки использования ОС      │
+   57:wnrec:=FindISPOS('',wname,16) ;// │ Признаки использования НМА     │
+   58:wnrec:=FindGrOs('',wname) ;// │ Группы ОС                      │
+   59:wnrec:=GetKatNaznaNrec(wname) ;// │ Назначения сопроводительных до │
+   60:wnrec:=GetKatMolNrecByName(wname) ;// │ Материально-ответственные лица │
+   61:wnrec:=0 ;// │ Позиции маршрутных карт        │
+   62:wnrec:=0 ;// │ Позиции производственных специ │
+   63:wnrec:=0 ;// │ Позиции конструкторских специф │
+   64:wnrec:=0 ;// │ Типы строительства             │
+   65:wnrec:=0 ;// │ Виды строительства             │
+   66:wnrec:=0 ;// │ Отрасли строительства          │
+   67:wnrec:=FindKatVid(wname,0) ;// │ Виды договоров/соглашений      │
+   68:wnrec:=GetKATORGDESCRNrecByName(wname) ;// │ Группы организаций             │
+   69:wnrec:=0 ;// │ Категории                      │
+   70:wnrec:=0 ;// │ Бригады                        │
+   71:wnrec:=GetVEKSLNrecByNODOC(85,wname) ;// │ Кредиты                        │
+   72:wnrec:=0 ;// │ Административно-территориально │
+   73:wnrec:=0 ;// │ Статьи затрат объектов строите │
+   74:wnrec:=0 ;// │ Классы объектов строительства  │
+   76:wnrec:=0 ;// │ Группы объектов ремонтов       │
+   77:wnrec:=0 ;// │ Типы объектов ремонтов         │
+   78:wnrec:=0 ;// │ Виды объектов ремонтов         │
+   79:wnrec:=GetSchFactNrecByNum(0,wname) ;// │ Счета-фактуры                  │
+   80:wnrec:=GetKatsoprNrec(0,wname) ;// │ Накладные/Акты                 │
+   81:wnrec:=GetGRPODRNrec(wname) ;// │ Группы подразделений           │
+   82:wnrec:=0 ;// │ Виды оплат                     │
+ 5001:wnrec:=0 ;// │ Пооперационные планы           │
+ 5002:wnrec:=0 ;// │ Сводные планы                  │
+ 5003:wnrec:=0 ;// │ Марки транспортных средств     │
+ 5004:wnrec:=0 ;// │ Направления инвестиций         │
+ 5005:wnrec:=GetKlPriceNrec(wname) ;// │ Прайс-листы                    │
+ 5006:wnrec:=GetPrSBNrecByName(15,wname) ;// │ Признаки собственности ОС      │
+ 5007:wnrec:=GetPrSBNrecByName(16,wname) ;// │ Признаки собственности НМА     │
+ 5008:wnrec:=GetTYPEMcNrecByName(wname) ;// │ Типы матценностей              │
+ 5009:wnrec:=0 ;// │ Локальные сметы                │
+ 5010:wnrec:=0 ;// │ Паспорта качества              │
+ 5011:wnrec:=0 ;// │ Варианты изготовления          │
+ 5012:wnrec:=0 ;// │ Пункты движения                │
+ 5013:wnrec:=0 ;// │ Транспортные средства          │
+ 5014:wnrec:=0 ;// │ Состояния транспортных средств │
+ 5015:wnrec:=0 ;// │ Маршруты движения              │
+ 5016:wnrec:=0 ;// │ Банки                          │
+ 5017:wnrec:=GetKAELEMNrecByName(wname) ;// │ Элементы затрат                │
+ 5018:wnrec:=0 ;// │ Операционные сметы             │
+ 5019:wnrec:=0 ;// │ Платежные документы            │
+ 5020:wnrec:=0 ;// │ Типы транспортных средств      │
+ 5022:wnrec:=0 ;// │ Пункты календарных планов      │
+   end ;
+  }
+  end ; //case KatKau.SysNum of
+  GetAnaliticNrecByName:=wnrec ;
+}
+Function GetAnaliticNrecByCode(wtbl:word ;wname :string ) :comp ;
+var wnrec :comp ;
+    sKau :string ;
+{ GetAnaliticNrecByCode:=0 ;
+  wname:=wname ;
+  if substr(GetKatKauName(wtbl),1,3)='???' then exit ;
+  wnrec := 0;
+  sKau := wname;
+  case KatKau.SysNum of
+  cgKatKau_User: {
+    if getfirst spkau where (( wtbl == SpKau.KodGrKau and wname == SpKau.code ))<>0
+    { if not need_update then exit ;
+      insert into spkau set
+         SpKau.Code      := wname
+        ,SpKau.LevelCode := sKau
+        ,SpKau.Name      := wName
+        ,SpKau.KodGrKau  := wtbl ;
+
+    }
+    wnrec:=spkau.nrec ;
+  } //cgKatKau_User: {
+  else
+  {
+    wnrec := 0
+  }
+  end;
+  GetAnaliticNrecByCode:=wnrec ;
+}
+HandleEvent
+cmInit : {
+ need_update:=true ;
+ ClearFuncCache ;
+}
+cmOnVipLoad:
+{ need_update:=true ;
+  ClearFuncCache ;
+}
+end;
+end.

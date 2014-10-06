@@ -1,0 +1,432 @@
+#include CalcRazn.vih
+#doc
+  Интерфейс для использования в алгоритмах расчета ПР и ВР в алгоритмах модуля Основные средства
+#end
+Interface CalcRazn;
+
+/*
+Оставшиеся недостатки
+ - если при модернизации ОС дата увеличения стоимости в различных методах различная,
+   то в сумма модернизации пройдет как ПР к начислению в месяце признания в одном методе и потом в месяце признания во втором методе
+   за период между этими датами будет неверно начисляться ПР.
+
+   ! если не проводить АЛ по модернизации в текущем периоде, а провести ее в следующем, то все будет ок.
+
+ - потеряется возникновение ПР к начислению если не провести операцию пересчета амортизации в месяце модернизации
+   но это не возможно, т.к. нужно учеть льготу в месяце модернизации.
+
+ => нужно видимо переходить на методик сбора разниц по операциям
+
+Устраненные недостатки
+ - не сработает если модернизация была в первое или последнее число месяца.
+ - не правильно сработает если в месяце была модернизация и переоценка.
+ - адаптировано к изменению законодательства об учете переоценки - приказ Минфина России от 24 декабря 2010 года № 186н.
+*/
+Create View
+Var
+  IznMBuh
+ ,IznMNal
+ ,StoimBuh
+ ,StoimNal
+ ,SumIznBuh
+ ,SumIznNal
+ ,StoimBuhArch
+ ,StoimNalArch
+ ,SumIznBuhArch
+ ,SumIznNalArch
+ ,EdinovrNVR
+ ,OstStoimBuh
+ ,OstStoimNal
+ ,OstStoimBuhArch
+ ,OstStoimNalArch
+  // ,sumL     // амортизационная льгота за отчетный период
+ ,StoimPereocBuh       //переоценка стоимости
+ ,IznPereocBuh         //переоценка износа
+ ,StoimPereocBuhCur    //переоценка стоимости в текущем месяце
+ ,IznPereocBuhCur      //переоценка износа в текущем месяце
+ ,pr_arc   // ПР накопленная из внешних атрибутов из предыдущего периода
+ ,pr_kat   // ПР накопленная из внешних атрибутов из отчетного периода
+ ,pr       // ПР к начислению/списанию в периоде
+ ,nnvr     // начислено НВР
+ ,pnvr     // погашено  НВР
+ ,nvr      // накопленная ВВР
+ ,nvvr     // начислено ВВР
+ ,pvvr     // погашено  ВВР
+ ,vvr      // накопленная ВВР
+              : double;
+  is_nouch               // признак "Не учитывается в налогооблагаемой базе"
+ ,is_arc      : boolean;                // в архиве есть внешний атрибут "ПР к начислению"
+
+as select *
+From
+    KatOS
+  , SpKatOS SpKatOSBuh
+  , SpKatOS SpKatOSNal
+  , ArcIznos ArcIznosBuh
+  , ArcIznos ArcIznosNal
+  , SpMoveOS
+  , SpMove
+  , OSRazn
+  , AttrVal
+  , AttrNam
+  , AttrVal AttrValIns
+;
+
+//подсчет сумм по разницам
+public function CalcSumRazn(buh, nal: comp; mode: word) : double;
+{
+  IznMBuh        :=0;
+  IznMNal        :=0;
+  StoimBuh       :=0;
+  StoimNal       :=0;
+  SumIznBuh      :=0;
+  SumIznNal      :=0;
+  StoimBuhArch   :=0;
+  StoimNalArch   :=0;
+  SumIznBuhArch  :=0;
+  SumIznNalArch  :=0;
+  StoimPereocBuh :=0;
+  IznPereocBuh   :=0;
+  StoimPereocBuhCur :=0;
+  IznPereocBuhCur   :=0;
+  OstStoimBuh    :=0;
+  OstStoimNal    :=0;
+  OstStoimBuhArch:=0;
+  OstStoimNalArch:=0;
+  EdinovrNVR     :=0;
+
+//  sumL  :=0;
+  pr_arc:=0;
+  pr_kat:=0;
+  pr    :=0;
+
+  nnvr  :=0;
+  pnvr  :=0;
+  nvvr  :=0;
+  pvvr  :=0;
+  vvr   :=0;
+  nvr   :=0;
+
+  is_nouch         := false;
+  is_arc           := false;
+//  ModernExists     := false;
+
+  if (getfirst SpKatOSBuh where ((buh   == SpKatOSBuh.nrec)) = tsOk)
+  {
+    IznMBuh    := SpKatOSBuh.SiznM;
+    StoimBuh   := SpKatOSBuh.Stoim;
+    SumIznBuh  := SpKatOSBuh.SumIzn;
+    if SpKatOSBuh.chozoper=comp('006400000000026Eh') // 3.3.10.  __- 010 Износ ОС на забалансовом счете
+    {
+      IznMBuh :=0;
+      SumIznBuh  :=0;
+    };
+
+    if (getfirst KatOS where ((SpKatOSBuh.cKatOS  == KatOS.nrec)) = tsOk)
+    { };
+
+    // Определим наличие переоценок за предыдущий период и сумму переоценки
+    _loop SpMoveOS where ((word(6)                     == SpMoveOS.sysoper
+                       and SpKatOSBuh.cNastrOS         == SpMoveOS.cNastrOS
+                       and SpKatOSBuh.cKatOS           == SpMoveOS.cKatOS
+                       and date(1, Month(Sub_Months(KatOS.OtchPer,1)), year(Sub_Months(KatOS.OtchPer,1)))
+                                                      <<= SpMoveOS.DatOb
+                       and date(Last_Day(Sub_Months(KatOS.OtchPer,1)), Month(Sub_Months(KatOS.OtchPer,1)), year(Sub_Months(KatOS.OtchPer,1)))
+                                                      >>= SpMoveOS.DatOb))
+    {
+      if (getfirst SpMove where ((     SpMoveOS.cSpMove == SpMove.NRec ))
+                                  and (SpMove.Proved = 1)
+         ) = tsOk  // Только проведенные
+      {
+        StoimPereocBuh  := StoimPereocBuh + SpMoveOS.NewStoim - SpMoveOS.OldStoim;
+        IznPereocBuh    := IznPereocBuh + SpMoveOS.NewSumIzn - SpMoveOS.OldSumIzn;
+      }
+    }
+    // Определим наличие переоценок за текущий период и сумму переоценки
+    _loop SpMoveOS where ((word(6)                     == SpMoveOS.sysoper
+                       and SpKatOSBuh.cNastrOS         == SpMoveOS.cNastrOS
+                       and SpKatOSBuh.cKatOS           == SpMoveOS.cKatOS
+                       and date(1, Month(KatOS.OtchPer), year(KatOS.OtchPer))
+                                                      <<= SpMoveOS.DatOb
+                       and date(Last_Day(KatOS.OtchPer), Month(KatOS.OtchPer), year(KatOS.OtchPer))
+                                                      >>= SpMoveOS.DatOb))
+    {
+      if (getfirst SpMove where ((     SpMoveOS.cSpMove == SpMove.NRec ))
+                                  and (SpMove.Proved = 1)
+         ) = tsOk  // Только проведенные
+      {
+        StoimPereocBuhCur  := StoimPereocBuhCur + SpMoveOS.NewStoim - SpMoveOS.OldStoim;
+        IznPereocBuhCur    := IznPereocBuhCur + SpMoveOS.NewSumIzn - SpMoveOS.OldSumIzn;
+      }
+    }
+
+    if (getfirst ArcIznosBuh where (( KatOS.nrec                    == ArcIznosBuh.cKatOS
+                                and SpKatOSBuh.cNastrOS             == ArcIznosBuh.cNastrOS
+                                and date(Last_Day(Sub_Months(KatOS.OtchPer,1)),Month(Sub_Months(KatOS.OtchPer,1)),year(Sub_Months(KatOS.OtchPer,1))) == ArcIznosBuh.data)) ) = tsOk
+    {
+      StoimBuhArch  := ArcIznosBuh.Stoim;                       // стоимость ОС на конец прошлого периода в БУ
+      SumIznBuhArch := ArcIznosBuh.SumIzn + ArcIznosBuh.SiznM;  // износ ОС на конец прошлого периода в БУ
+    }
+//    else                              некорректно, если нет архива то амортизация вообще не должна считаться, не может быть не модернизации ни переоценки
+//    {
+//      StoimBuhArch  := StoimBuh;
+//      SumIznBuhArch := SumIznBuh;
+//    }
+    ;
+  };
+
+  if (getfirst SpKatOSNal where ((nal   == SpKatOSNal.nrec)) = tsOk)
+  {
+    IznMNal    := SpKatOSNal.SiznM;
+    StoimNal   := SpKatOSNal.Stoim;
+    SumIznNal  := SpKatOSNal.SumIzn;
+
+    if SpKatOSNal.cisp = comp('0064000000000065h')   // 82 Аморт. имущ, ам. по кот. не уч. при форм. нал базы
+      is_nouch:=true;
+
+    // Определим наличие модернизаций за период и сумму модернизации
+//    _loop SpMoveOS where ((word(3)                     == SpMoveOS.sysoper
+//                       and SpKatOSNal.cNastrOS         == SpMoveOS.cNastrOS
+//                       and SpKatOSNal.cKatOS           == SpMoveOS.cKatOS
+//                       and KatOS.OtchPer              >>= SpMoveOS.DatOb
+//                       and Add_Day(date(Last_Day(Sub_Months(KatOS.OtchPer,1)), Month(Sub_Months(KatOS.OtchPer,1)), year(Sub_Months(KatOS.OtchPer,1))),1)
+//                                                      <<= SpMoveOS.DatOb))
+//    {
+//      if (getfirst SpMove where ((     SpMoveOS.cSpMove == spMove.NRec ))
+//                                  and (SpMove.Proved = 1)
+//         ) = tsOk // Только проведенные
+//      {
+//        sumL           := sumL + SpMoveOS.Rashod;
+//      }
+//    }
+
+    if (getfirst ArcIznosNal where (( KatOS.nrec                   == ArcIznosNal.cKatOS
+                                and SpKatOSNal.cNastrOS            == ArcIznosNal.cNastrOS
+                                and date(Last_Day(Sub_Months(KatOS.OtchPer,1)),Month(Sub_Months(KatOS.OtchPer,1)),year(Sub_Months(KatOS.OtchPer,1)))
+                                                          == ArcIznosNal.data)) ) = tsOk
+    {
+      StoimNalArch  := ArcIznosNal.Stoim;                        // стоимость ОС на конец прошлого периода в НУ
+      SumIznNalArch := ArcIznosNal.SumIzn + ArcIznosNal.SiznM;   // износ ОС на конец прошлого периода в НУ
+    }
+//    else                             см. бух. метод
+//    {
+//      StoimNalArch  := StoimNal;
+//      SumIznNalArch := SumIznNal;
+//    }
+    ;
+  };
+
+  // получаем накопленную ПР из внешнего атрибута к картотеке
+  if (getfirst AttrNam where ((word(3000)         == AttrNam.wTable
+                              and 'ПР к начислению'  == AttrNam.name)) ) = tsOk
+  {
+    if ( GetFirst FastFirstRow AttrVal where (( word(3000)   == AttrVal.wTable  
+                                            and KatOS.nrec   == AttrVal.crec
+                                            and AttrNam.nrec == AttrVal.cAttrNam )) <> tsOk )
+    {
+      // Эта конструкция нужна для случая, когда только начинается учет постоянных разниц через внешние атрибуты
+      // Данная формула дает хороший результат только для случаев до модернизации с изменением сроков либо стоимости
+      // Поэтому, преимущественно, рекомендуется рассчитать данный показатель за пределами системы и загрузить в систему
+
+      // вычислим единовременные ННВР. эту сумму обычно в месяце ввода вбивают в поле ННВР
+      _loop OSRazn where ((word(15)     == OSRazn.tidk
+                       and KatOS.nrec   == OSRazn.cdoc
+                       and date(Last_Day(KatOS.datek),Month(KatOS.datek),year(KatOS.datek))  == OSRazn.data))
+        { EdinovrNVR := OSRazn.NVRNACHM; }
+
+      // ПР равна разница между стоимостью БУ и НУ за вычетом разовых НВР умноженные на процент износа
+      pr_kat := (StoimBuh - StoimNal - EdinovrNVR) * (StoimBuh - SumIznBuh) / StoimBuh;
+
+      ClearBuffer(#AttrValIns);
+      AttrValIns.wTable   := word(3000);
+      AttrValIns.crec     := KatOS.nrec;
+      AttrValIns.cAttrNam := AttrNam.nrec;
+      AttrValIns.vdouble  := pr_kat;
+      insert current AttrValIns;
+    }
+    else
+      pr_kat := AttrVal.vdouble;
+  }
+
+  if (getfirst ArcIznosBuh  where ((      KatOS.nrec         == ArcIznosBuh.cKatOS
+                              and SpKatOSBuh.cNastrOS        == ArcIznosBuh.cNastrOS
+                              and date(Last_Day(Sub_Months(KatOS.OtchPer,1)),Month(Sub_Months(KatOS.OtchPer,1)),year(Sub_Months(KatOS.OtchPer,1)))
+                                                             == ArcIznosBuh.data)) = tsOk )
+  {
+    is_arc:=true;
+    if (getfirst AttrNam where ((word(3006)            == AttrNam.wTable
+                                and 'ПР к начислению'  == AttrNam.name))  = tsOk)
+    {
+      if ( getfirst FastFirstRow AttrVal where (( word(3006)         == AttrVal.wTable 
+                                              and ArcIznosBuh.nrec   == AttrVal.crec
+                                              and AttrNam.nrec       == AttrVal.cAttrNam )) <> tsOk )
+      {
+        pr_arc := pr_kat;
+
+        ClearBuffer(#AttrValIns);
+        AttrValIns.wTable   := word(3006);
+        AttrValIns.crec     := ArcIznosBuh.nrec;
+        AttrValIns.cAttrNam := AttrNam.nrec;
+        AttrValIns.vdouble  := pr_arc;
+        insert current AttrValIns;
+      }
+      else
+        pr_arc := AttrVal.vdouble;
+    };
+  };
+  //////////////////////////////////////////////
+
+/*  if is_arc
+  {
+    StoimBuhArch  := StoimBuhArch + StoimPereocBuh;
+    SumIznBuhArch := SumIznBuhArch + IznPereocBuh;
+  };
+*/
+  OstStoimBuh     := StoimBuh - SumIznBuh;
+  OstStoimNal     := StoimNal - SumIznNal;
+  OstStoimBuhArch := StoimBuhArch - SumIznBuhArch;
+  OstStoimNalArch := StoimNalArch - SumIznNalArch;
+
+  // постоянную разницу возникшую в месяце можем посчитать только в случае, если есть архив по картотеке
+  if is_arc
+  {
+    // Определяем возникновение постоянных разниц к начислению:
+    // если разница между первоначальными стоимостями в БУ и НУ изменилась с прошлого месяца
+    // значит имела место возникновение ПР
+    var IzmDiffOstStoimNoModern : double;
+    var IzmDiffOstStoimModern   : double;
+
+    IzmDiffOstStoimModern   := round((OstStoimBuh-OstStoimNal) - (OstStoimBuhArch-OstStoimNalArch),2) - round(StoimPereocBuhCur - IznPereocBuhCur,2);
+    IzmDiffOstStoimNoModern := round(StoimPereocBuh - IznPereocBuh,2);
+
+    // Переоценки учесть при расчете ПР в текущем периоде
+    pr_arc := pr_arc + IzmDiffOstStoimNoModern;
+
+    // Определяем ПР к начислению в текущем месяце
+    // Смысл данной формулы: Берется износ за месяц в БУ и умножается на долю остатка ПР в остатке стоимости по БУ
+    pr := round (IznMBuh * pr_arc / (StoimBuhArch - SumIznBuhArch), 2);
+
+    // Изменение остаточной стоимости в ходе модернизации (т.е. возникновение ПР) учесть при в ПРв следующем периоде,
+    pr_kat := pr_arc + IzmDiffOstStoimModern;
+
+    // Уменьшаем сумму ПР к начислению на сумму начисленной ПР в текущем периоде
+//    pr_kat := pr_kat - pr;     это делаем ниже
+  }
+
+//////////////////////////////////////////////
+
+  // рассчитаем накопленные ВВР и НВР по предыдущим периодам
+  _loop OSRazn where ((word(15)       == OSRazn.tidk
+                   and KatOS.nrec     == OSRazn.cdoc
+                   and KatOS.OtchPer  >> OSRazn.data))
+  {
+    vvr := vvr + OSRazn.VVRNACHM - OSRazn.VVRPOGM;
+    nvr := nvr + OSRazn.NVRNACHM - OSRazn.NVRPOGM;
+  };
+
+  if (IznMBuh - IznMNal - pr > 0)
+      // бухгалтерская амортизация больше налоговой: или погашение НВР или начисление ВВР
+  {
+    if (nvr > 0)
+    {
+      if (nvr > IznMBuh-IznMNal-pr)
+        pnvr := IznMBuh-IznMNal-pr
+      else
+      {
+        pnvr := nvr;
+        nvvr := IznMBuh - IznMNal - pr - nvr;
+      };
+    }
+    else
+      nvvr := IznMBuh - IznMNal - pr;
+  }
+  else
+  {  // бухгалтерская амортизация меньше налоговой: или погашение ВВР или начисление НВР
+    if (vvr>0)
+    {
+      if (vvr>-(IznMBuh-IznMNal-pr))
+        pvvr:=-(IznMBuh-IznMNal-pr)
+      else
+      {
+        pvvr:=vvr;
+        nnvr:=-(IznMBuh-IznMNal-pr)-vvr;
+      };
+    }
+    else
+      nnvr := -(IznMBuh-IznMNal-pr);
+  };
+
+  // начисления временных разниц в одну копейку быть не может
+  if round(nvvr,2) = 0.01
+  {
+    pr := pr + nvvr;
+    nvvr:=0;
+  };
+  if round(nnvr,2) = 0.01
+  {
+    pr := pr - nnvr;
+    nnvr:=0;
+  };
+  // Уменьшаем сумму ПР к начислению на сумму начисленной ПР в текущем периоде
+  pr_kat := pr_kat - pr;
+
+
+  if (abs(IznMNal) < 0.01)
+    is_nouch:=false;
+
+  // если бухгалтерская остаточная стоимость и налоговая остаточная стоимость равны нулю
+  if ((StoimBuh - SumIznBuh < 0.01) or (StoimNal - SumIznNal < 0.01))    //еще нужно проанализировать пограничный момент
+  {
+    pr   := pr + nvvr;
+    nvvr := 0;
+    pr   := pr - nnvr;
+    nnvr := 0;
+  };
+
+  // если не учитывается в налогооблагаемой базе
+  // и бухгалтерская остаточная стоимость не равна нулю
+  if is_nouch and (abs(StoimBuh-SumIznBuh) >= 0.01)
+  {
+    pr   := IznMBuh;
+    nvvr := -pvvr;
+    pvvr := 0;
+    nnvr := -pnvr;
+    pnvr := 0;
+  };
+
+  // если не учитывается в налогооблагаемой базе
+  // и бухгалтерская остаточная стоимость равна нулю
+  if is_nouch and (abs(StoimBuh - SumIznBuh) < 0.01)
+  {
+    pr   := 0;
+    nvvr := -pvvr;
+    pvvr := 0;
+    nnvr := -pnvr;
+    pnvr := 0;
+  };
+
+  ////////////////////////////////////
+
+  if GetFirst AttrNam where ((word(3000)         == AttrNam.wTable
+                         and 'ПР к начислению'   == AttrNam.name)) = tsOk
+  {
+     if ( GetFirst FastFirstRow AttrVal where (( word(3000)   == AttrVal.wTable  // FastFirstRow
+                                             and KatOS.nrec   == AttrVal.crec
+                                             and AttrNam.nrec == AttrVal.cAttrNam )) = tsOk )
+     {
+        set AttrVal.vdouble  := pr_kat;
+        update current AttrVal;
+     };
+  }
+  /////////////////////////////////////
+  CalcSumRazn := case(mode;
+                      1 : pr    ,
+                      2 : nvvr  ,
+                      3 : pvvr  ,
+                      4 : nnvr  ,
+                      5 : pnvr
+                      ;0
+                      )
+  /////////////////////////////////////
+}
+end.

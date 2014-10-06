@@ -1,0 +1,1548 @@
+//******************************************************************************
+//      Галактика - 8.1
+//  Включение дополнительных колонок
+//  в справку о зарплате в разрезе начислений и удержаний
+//  через плагины
+//******************************************************************************
+#include ZarNachislUder.vih
+vipinterface ZarNachislUder_Gruppodr implements IZarNachislUder;
+vipinterface ZarNachislUder_OKATO implements IZarNachislUder;
+vipinterface ZarNachislUder_KPP implements IZarNachislUder;
+vipinterface ZarNachislUder_Datan implements IZarNachislUder;
+vipinterface ZarNachislUder_Datok implements IZarNachislUder;
+vipinterface ZarNachislUder_Otnoshenie_P4 implements IZarNachislUder;
+vipinterface ZarNachislUder_Proc implements IZarNachislUder;
+vipinterface ZarNachislUder_NBlist implements IZarNachislUder;
+vipinterface ZarNachislUder_TBlist implements IZarNachislUder;
+vipinterface ZarNachislUder_OKVD implements IZarNachislUder;
+vipinterface ZarNachislUder_13ZP implements IZarNachislUder;
+vipinterface ZarNachislUder_Kateg_KSU implements IZarNachislUder;
+vipinterface ZarNachislUder_Kod_Analit40 implements IZarNachislUder;
+vipinterface ZarNachislUder_Chas_OsnVO implements IZarNachislUder;
+vipinterface ZarNachislUder_Day_OsnVO implements IZarNachislUder;
+vipinterface ZarNachislUder_DopAn_Podr_Uder implements IZarNachislUder;
+vipinterface ZarNachislUder_KAU1 implements IZarNachislUder;
+vipinterface ZarNachislUder_KAU2 implements IZarNachislUder;
+//vipinterface*****************************************************************
+#doc
+Включение дополнительных колонок в справку о зарплате
+в разрезе начислений и удержаний через плагины
+#end
+//******************************************************************************
+//  Группа подразделений
+//******************************************************************************
+interface ZarNachislUder_Gruppodr '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((Nachisl.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Grpodr where ((Katpodr.Cgrpodr == Grpodr.nrec)) = tsOk
+                      GetValue := string(Grpodr.name);
+                    }
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((NeNach.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Grpodr where ((Katpodr.Cgrpodr == Grpodr.nrec)) = tsOk
+                      GetValue := string(Grpodr.name);
+                    }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((SumVidOp.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Grpodr where ((Katpodr.Cgrpodr == Grpodr.nrec)) = tsOk
+                      GetValue := string(Grpodr.name);
+                    }
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((Uder.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Grpodr where ((Katpodr.Cgrpodr == Grpodr.nrec)) = tsOk
+                      GetValue := string(Grpodr.name);
+                    }
+                }
+    coSumVidUd: if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((SumVidUd.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Grpodr where ((Katpodr.Cgrpodr == Grpodr.nrec)) = tsOk
+                      GetValue := string(Grpodr.name);
+                    }
+                }
+   coPEREVOD: if getfirst PEREVOD where (( parNrec == PEREVOD.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((PEREVOD.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Grpodr where ((Katpodr.Cgrpodr == Grpodr.nrec)) = tsOk
+                      GetValue := string(Grpodr.name);
+                    }
+                }
+    coPEREVODTEK: if getfirst PEREVODTEK where (( parNrec == PEREVODTEK.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((PEREVODTEK.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Grpodr where ((Katpodr.Cgrpodr == Grpodr.nrec)) = tsOk
+                      GetValue := string(Grpodr.name);
+                    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Группа подразделений';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Группа подразделений';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Процент
+//******************************************************************************
+interface ZarNachislUder_Proc '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                      GetValue := string(Nachisl.Proc);
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                      GetValue := string(NeNach.Proc);
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                      GetValue := string(SumVidOp.Proc);
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                      GetValue := string(Uder.Proc);
+                }
+    coSumVidUd: if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                      GetValue := string(SumVidUd.Proc);
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Процент';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Процент';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Дата начала
+//******************************************************************************
+interface ZarNachislUder_Datan '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(Nachisl.Datan,'DD.MM.YYYY');
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(NeNach.Datan,'DD.MM.YYYY');
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(SumVidOp.Datan,'DD.MM.YYYY');
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(Uder.Datan,'DD.MM.YYYY');
+                }
+    coSumVidUd: if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(SumVidUd.Datan,'DD.MM.YYYY');
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Дата начала';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Дата начала';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Дата окончания
+//******************************************************************************
+interface ZarNachislUder_Datok '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(Nachisl.Datok,'DD.MM.YYYY');
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(NeNach.Datok,'DD.MM.YYYY');
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(SumVidOp.Datok,'DD.MM.YYYY');
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(Uder.Datok,'DD.MM.YYYY');
+                }
+    coSumVidUd: if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                      GetValue := Datetostr(SumVidUd.Datok,'DD.MM.YYYY');
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Дата окончания';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Дата окончания';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Входимость в 13-зп
+//******************************************************************************
+interface ZarNachislUder_13ZP '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((Nachisl.vidopls == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if (string(KlVidOpl.VHVO[18]) = '+') {GetValue := 'Входит';}
+                      if (string(KlVidOpl.VHVO[18]) = '-') {GetValue := 'Не входит';}
+                      if (string(KlVidOpl.VHVO[18]) = '') {GetValue := 'Не входит';}
+                    }
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((NeNach.vidopls == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if (string(KlVidOpl.VHVO[18]) = '+') {GetValue := 'Входит';}
+                      if (string(KlVidOpl.VHVO[18]) = '-') {GetValue := 'Не входит';}
+                      if (string(KlVidOpl.VHVO[18]) = '') {GetValue := 'Не входит';}
+                    }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((SumVidOp.vidopl == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if (string(KlVidOpl.VHVO[18]) = '+') {GetValue := 'Входит';}
+                      if (string(KlVidOpl.VHVO[18]) = '-') {GetValue := 'Не входит';}
+                      if (string(KlVidOpl.VHVO[18]) = '') {GetValue := 'Не входит';}
+                    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Входимость в 13-зп';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Входимость в 13-зп';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Отношение к П-4
+//******************************************************************************
+interface ZarNachislUder_Otnoshenie_P4 '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((Nachisl.vidopls == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if (string(KlVidOpl.VHVOE[3]) = 'В') {GetValue := 'ФОТ в котором';}
+                      if (string(KlVidOpl.VHVOE[3]) = 'З') {GetValue := 'ФОТ за который';}
+                      if (string(KlVidOpl.VHVOE[22]) = '+') {GetValue := 'Соц. выплаты';}
+                      if (string(KlVidOpl.VHVOE[3]) <> '-' and string(KlVidOpl.VHVOE[22]) = '+') {GetValue := 'ФОТ и Соц. выплаты';}
+                    }
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((NeNach.vidopls == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if (string(KlVidOpl.VHVOE[3]) = 'В') {GetValue := 'ФОТ в котором';}
+                      if (string(KlVidOpl.VHVOE[3]) = 'З') {GetValue := 'ФОТ за который';}
+                      if (string(KlVidOpl.VHVOE[22]) = '+') {GetValue := 'Соц. выплаты';}
+                      if (string(KlVidOpl.VHVOE[3]) <> '-' and string(KlVidOpl.VHVOE[22]) = '+') {GetValue := 'ФОТ и Соц. выплаты';}
+                    }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((SumVidOp.vidopl == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if (string(KlVidOpl.VHVOE[3]) = 'В') {GetValue := 'ФОТ в котором';}
+                      if (string(KlVidOpl.VHVOE[3]) = 'З') {GetValue := 'ФОТ за который';}
+                      if (string(KlVidOpl.VHVOE[22]) = '+') {GetValue := 'Соц. выплаты';}
+                      if (string(KlVidOpl.VHVOE[3]) <> '-' and string(KlVidOpl.VHVOE[22]) = '+') {GetValue := 'ФОТ и Соц. выплаты';}
+                    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Отношение к П-4';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Отношение к П-4';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  ОКАТО
+//******************************************************************************
+interface ZarNachislUder_OKATO '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  var ctemp : comp;
+  GetValue := '';
+  case NumbTable of
+    coNachisl : if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((Nachisl.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+	            {
+                              if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                              GetValue := string(Sterr.CATDATA);
+                            }
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=Nachisl.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CUSER=0;
+                      if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+                      {
+                         if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                         GetValue := string(Sterr.CATDATA);
+                      }
+                    }
+                }
+    coNeNach : if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((NeNach.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+	            {
+                              if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                              GetValue := string(Sterr.CATDATA);
+                            }
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=NeNach.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CUSER=0;
+                      if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+                      {
+                         if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                         GetValue := string(Sterr.CATDATA);
+                      }
+                    }
+                }
+    coSumVidOp : if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((SumVidOp.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+	            {
+                              if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                              GetValue := string(Sterr.CATDATA);
+                            }
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=SumVidOp.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CUSER=0;
+                      if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+                      {
+                         if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                         GetValue := string(Sterr.CATDATA);
+                      }
+                    }
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((Uder.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+	            {
+                              if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                              GetValue := string(Sterr.CATDATA);
+                            }
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=Uder.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CUSER=0;
+                      if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+                      {
+                         if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                         GetValue := string(Sterr.CATDATA);
+                      }
+                    }
+                }
+    coSumVidUd : if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((SumVidUd.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+	            {
+                              if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                              GetValue := string(Sterr.CATDATA);
+                            }
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=SumVidUd.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CUSER=0;
+                      if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+                      {
+                         if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                         GetValue := string(Sterr.CATDATA);
+                      }
+                    }
+                }
+    coPEREVOD : if getfirst PEREVOD where (( parNrec == PEREVOD.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((PEREVOD.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+	            {
+                              if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                              GetValue := string(Sterr.CATDATA);
+                            }
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=PEREVOD.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CUSER=0;
+                      if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+                      {
+                         if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                         GetValue := string(Sterr.CATDATA);
+                      }
+                    }
+                }
+    coPEREVODTEK : if getfirst PEREVODTEK where (( parNrec == PEREVODTEK.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((PEREVODTEK.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+	            {
+                              if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                              GetValue := string(Sterr.CATDATA);
+                            }
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=PEREVODTEK.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CUSER=0;
+                      if getfirst Addressn where ((Katpodr.CUSER == Addressn.nrec)) = tsOk
+                      {
+                         if getfirst Sterr where ((Addressn.Csterr == Sterr.nrec)) = tsOk
+                         GetValue := string(Sterr.CATDATA);
+                      }
+                    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'ОКАТО';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'ОКАТО';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  КПП
+//******************************************************************************
+interface ZarNachislUder_KPP '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  var ctemp : comp;
+  GetValue := '';
+  case NumbTable of
+    coNachisl : if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((Nachisl.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                          GetValue := string(KATKOD.KOD);
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=Nachisl.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CKPP=0;
+                      if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                      GetValue := string(KATKOD.KOD);
+                    }
+                }
+    coSumVidOp : if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((SumVidOp.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                          GetValue := string(KATKOD.KOD);
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=SumVidOp.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CKPP=0;
+                      if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                      GetValue := string(KATKOD.KOD);
+                    }
+                }
+    coNeNach : if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((NeNach.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                          GetValue := string(KATKOD.KOD);
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=NeNach.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CKPP=0;
+                      if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                      GetValue := string(KATKOD.KOD);
+                    }
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((Uder.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                          GetValue := string(KATKOD.KOD);
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=Uder.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CKPP=0;
+                      if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                      GetValue := string(KATKOD.KOD);
+                    }
+                }
+    coSumVidUd: if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((SumVidUd.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                          GetValue := string(KATKOD.KOD);
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=SumVidUd.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CKPP=0;
+                      if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                      GetValue := string(KATKOD.KOD);
+                    }
+                }
+    coPEREVOD: if getfirst PEREVOD where (( parNrec == PEREVOD.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((Perevod.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                          GetValue := string(KATKOD.KOD);
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=PEREVOD.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CKPP=0;
+                      if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                      GetValue := string(KATKOD.KOD);
+                    }
+                }
+    coPEREVODTEK: if getfirst PEREVODTEK where (( parNrec == PEREVODTEK.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((Perevodtek.OldClSch == Otpdop.Nrec and 2==Otpdop.Tbld[1](noindex))) = tsOk
+                    {
+                      if getfirst Katpodr where ((Otpdop.CKAUD[1] == Katpodr.Nrec)) = tsOk
+                        {
+                          if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                          GetValue := string(KATKOD.KOD);
+                        }
+                    }
+                  else
+                    {
+                      ctemp:=PEREVODTEK.cexoz;
+                      do
+                        if getfirst Katpodr where ((ctemp == Katpodr.Nrec)) = tsOk
+                          {
+                            ctemp:=Katpodr.Cpodr;
+                          }
+                      While Katpodr.CKPP=0;
+                      if getfirst KATKOD where ((Katpodr.CKPP == KATKOD.nrec)) = tsOk
+                      GetValue := string(KATKOD.KOD);
+                    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'КПП';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'КПП';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Номер больничного листа
+//******************************************************************************
+interface ZarNachislUder_NBlist '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+	  if getfirst Blisnet where (( Nachisl.Cpodr == Blisnet.Nrec )) = tsOk
+	    {
+                      GetValue := string(Blisnet.Nonlist);
+	    }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+	  if getfirst Blisnet where (( SumVidOp.Cpodroz == Blisnet.Nrec )) = tsOk
+	    {
+                      GetValue := string(Blisnet.Nonlist);
+	    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Номер больничного листа';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Номер больничного листа';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Тип больничного листа
+//******************************************************************************
+interface ZarNachislUder_TBlist '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+	  if getfirst Blisnet where (( Nachisl.Cpodr == Blisnet.Nrec )) = tsOk
+	    {
+                      if (string(Blisnet.Uchet) = '0') {GetValue := 'Первич';}
+                      if (string(Blisnet.Uchet) = '1') {GetValue := 'Прод';}
+	    }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+	  if getfirst Blisnet where (( SumVidOp.Cpodroz == Blisnet.Nrec )) = tsOk
+	    {
+                      if (string(Blisnet.Uchet) = '0') {GetValue := '';}
+                      if (string(Blisnet.Uchet) = '1') {GetValue := 'Прод';}
+	    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Тип больничного листа';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Тип больничного листа';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  ОКВЭД
+//******************************************************************************
+interface ZarNachislUder_OKVD '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  var ctemp : comp;
+  GetValue := '';
+  case NumbTable of
+    coNachisl : if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((Nachisl.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Catalogs where ((Katpodr.CREC == Catalogs.Nrec)) = tsOk
+                        {
+                          GetValue := string(Catalogs.Name);
+                        }
+                    }
+                }
+    coSumVidOp : if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((SumVidOp.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Catalogs where ((Katpodr.CREC == Catalogs.Nrec)) = tsOk
+                        {
+                          GetValue := string(Catalogs.Name);
+                        }
+                    }
+                }
+    coNeNach : if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((NeNach.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Catalogs where ((Katpodr.CREC == Catalogs.Nrec)) = tsOk
+                        {
+                          GetValue := string(Catalogs.Name);
+                        }
+                    }
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((Uder.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Catalogs where ((Katpodr.CREC == Catalogs.Nrec)) = tsOk
+                        {
+                          GetValue := string(Catalogs.Name);
+                        }
+                    }
+                }
+    coSumVidUd: if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((SumVidUd.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Catalogs where ((Katpodr.CREC == Catalogs.Nrec)) = tsOk
+                        {
+                          GetValue := string(Catalogs.Name);
+                        }
+                    }
+                }
+    coPEREVOD: if getfirst PEREVOD where (( parNrec == PEREVOD.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((PEREVOD.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Catalogs where ((Katpodr.CREC == Catalogs.Nrec)) = tsOk
+                        {
+                          GetValue := string(Catalogs.Name);
+                        }
+                    }
+                }
+    coPEREVODTEK: if getfirst PEREVODTEK where (( parNrec == PEREVODTEK.Nrec )) = tsOk
+                {
+                  if getfirst Katpodr where ((PEREVODTEK.cexoz == Katpodr.Nrec)) = tsOk
+                    {
+                      if getfirst Catalogs where ((Katpodr.CREC == Catalogs.Nrec)) = tsOk
+                        {
+                          GetValue := string(Catalogs.Name);
+                        }
+                    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'ОКВЭД';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'ОКВЭД';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Категория РСС и рабочие
+//******************************************************************************
+interface ZarNachislUder_Kateg_KSU '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if (Nachisl.KATEG = 1) {GetValue := 'РСС';}
+                  if (Nachisl.KATEG = 2) {GetValue := 'РСС';}
+                  if (Nachisl.KATEG = 3) {GetValue := 'РСС';}
+                  if (Nachisl.KATEG = 4) {GetValue := 'Рабочие';}
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if (NeNach.KATEG = 1) {GetValue := 'РСС';}
+                  if (NeNach.KATEG = 2) {GetValue := 'РСС';}
+                  if (NeNach.KATEG = 3) {GetValue := 'РСС';}
+                  if (NeNach.KATEG = 4) {GetValue := 'Рабочие';}
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if (SumVidOp.KATEG = 1) {GetValue := 'РСС';}
+                  if (SumVidOp.KATEG = 2) {GetValue := 'РСС';}
+                  if (SumVidOp.KATEG = 3) {GetValue := 'РСС';}
+                  if (SumVidOp.KATEG = 4) {GetValue := 'Рабочие';}
+                }
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                  if (Uder.KATEG = 1) {GetValue := 'РСС';}
+                  if (Uder.KATEG = 2) {GetValue := 'РСС';}
+                  if (Uder.KATEG = 3) {GetValue := 'РСС';}
+                  if (Uder.KATEG = 4) {GetValue := 'Рабочие';}
+                }
+    coSumVidUd: if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                  if (SumVidUd.KATEG = 1) {GetValue := 'РСС';}
+                  if (SumVidUd.KATEG = 2) {GetValue := 'РСС';}
+                  if (SumVidUd.KATEG = 3) {GetValue := 'РСС';}
+                  if (SumVidUd.KATEG = 4) {GetValue := 'Рабочие';}
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Категория РСС и рабочие';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Категория РСС и рабочие';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Код объекта строительства
+//******************************************************************************
+interface ZarNachislUder_Kod_Analit40 '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  var i : byte;
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  for (i := 1; i<=6; i := i+1)
+                  {
+                    if(Nachisl.TBLD[i]=40)
+                    {
+                      if(GetAnyKAU(cgAkNoDef, 40, Nachisl.CKAUD[i]))
+                      {
+                        GetValue := GivenAnName(cgAnCode);
+                      }
+                      else
+                      {
+                        GetValue := '';
+                      }
+                    }
+                  }
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  for (i := 1; i<=6; i := i+1)
+                  {
+                    if(NeNach.TBLD[i]=40)
+                    {
+                      if(GetAnyKAU(cgAkNoDef, 40, NeNach.CKAUD[i]))
+                      {
+                        GetValue := GivenAnName(cgAnCode);
+                      }
+                      else
+                      {
+                        GetValue := '';
+                      }
+                    }
+                  }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  for (i := 1; i<=6; i := i+1)
+                  {
+                    if(SumVidOp.TBLD[i]=40)
+                    {
+                      if(GetAnyKAU(cgAkNoDef, 40, SumVidOp.CKAUD[i]))
+                      {
+                        GetValue := GivenAnName(cgAnCode);
+                      }
+                      else
+                      {
+                        GetValue := '';
+                      }
+                    }
+                  }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Код объекта строительства';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Код объекта строительства';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Часы по основным ВО
+//******************************************************************************
+interface ZarNachislUder_Chas_OsnVO '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  // Добавлены новые коды видов оплат (124, 175, 307, 41, 42)
+                  // 19.02.13
+                  // Инициатор: Синицына Е.В. (Тюмень)
+                  if(
+                    Nachisl.VIDOPLS=1
+                    or Nachisl.VIDOPLS=6
+                    or Nachisl.VIDOPLS=7
+                    or Nachisl.VIDOPLS=124
+                    or Nachisl.VIDOPLS=175
+                    or Nachisl.VIDOPLS=307
+                    or Nachisl.VIDOPLS=41
+                    or Nachisl.VIDOPLS=42
+                    )
+                  {
+                    GetValue := Nachisl.Chasf;
+                  }
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if(
+                    NeNach.VIDOPLS=1
+                    or NeNach.VIDOPLS=6
+                    or NeNach.VIDOPLS=7
+                    or NeNach.VIDOPLS=124
+                    or NeNach.VIDOPLS=175
+                    or NeNach.VIDOPLS=307
+                    or NeNach.VIDOPLS=41
+                    or NeNach.VIDOPLS=42
+                    )
+                  {
+                    GetValue := NeNach.Chasf;
+                  }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if(
+                    SumVidOp.VIDOPL=1
+                    or SumVidOp.VIDOPL=6
+                    or SumVidOp.VIDOPL=7
+                    or SumVidOp.VIDOPL=124
+                    or SumVidOp.VIDOPL=175
+                    or SumVidOp.VIDOPL=307
+                    or SumVidOp.VIDOPL=41
+                    or SumVidOp.VIDOPL=42
+                    )
+                  {
+                    GetValue := SumVidOp.Chasf;
+                  }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Часы по основным ВО';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Часы по основным ВО';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Дни по основным ВО
+//******************************************************************************
+interface ZarNachislUder_Day_OsnVO '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl:  if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  // Добавлены новые коды видов оплат (124, 175, 307, 41, 42)
+                  // 19.02.13
+                  // Инициатор: Синицына Е.В. (Тюмень)
+                  if(
+                    Nachisl.VIDOPLS=1
+                    or Nachisl.VIDOPLS=6
+                    or Nachisl.VIDOPLS=7
+                    or Nachisl.VIDOPLS=124
+                    or Nachisl.VIDOPLS=175
+                    or Nachisl.VIDOPLS=307
+                    or Nachisl.VIDOPLS=41
+                    or Nachisl.VIDOPLS=42
+                    )
+                  {
+                    GetValue := Nachisl.KOLDN;
+                  }
+                }
+    coNeNach:   if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+                  if(
+                    NeNach.VIDOPLS=1
+                    or NeNach.VIDOPLS=6
+                    or NeNach.VIDOPLS=7
+                    or NeNach.VIDOPLS=124
+                    or NeNach.VIDOPLS=175
+                    or NeNach.VIDOPLS=307
+                    or NeNach.VIDOPLS=41
+                    or NeNach.VIDOPLS=42
+                    )
+                  {
+                    GetValue := NeNach.KOLDN;
+                  }
+                }
+    coSumVidOp: if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                  if(
+                    SumVidOp.VIDOPL=1
+                    or SumVidOp.VIDOPL=6
+                    or SumVidOp.VIDOPL=7
+                    or SumVidOp.VIDOPL=124
+                    or SumVidOp.VIDOPL=175
+                    or SumVidOp.VIDOPL=307
+                    or SumVidOp.VIDOPL=41
+                    or SumVidOp.VIDOPL=42
+                    )
+                  {
+                    GetValue := SumVidOp.KOLDN;
+                  }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Дни по основным ВО';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Дни по основным ВО';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  Доп. аналитика по подразделению для удержаний
+//******************************************************************************
+interface ZarNachislUder_DopAn_Podr_Uder '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  var i : byte;
+  GetValue := '';
+  case NumbTable of
+    coUder : if getfirst Uder where (( parNrec == Uder.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((Uder.OldClSch == Otpdop.Nrec)) = tsOk
+                    {
+                      for (i := 1; i<=6; i := i+1)
+                      {
+                        if(Otpdop.TBLD[i]=2)
+                        {
+                          if(GetAnyKAU(cgAkNoDef, 2, Otpdop.CKAUD[i]))
+                          {
+                            GetValue := GivenAnName(1);
+                          }
+                          else
+                          {
+                            GetValue := '';
+                          }
+                        }
+                      }
+                    }
+                }
+    coSumVidUd : if getfirst SumVidUd where (( parNrec == SumVidUd.Nrec )) = tsOk
+                {
+                  if getfirst Otpdop where ((SumVidUd.OldClSch == Otpdop.Nrec)) = tsOk
+                    {
+                      for (i := 1; i<=6; i := i+1)
+                      {
+                        if(Otpdop.TBLD[i]=2)
+                        {
+                          if(GetAnyKAU(cgAkNoDef, 2, Otpdop.CKAUD[i]))
+                          {
+                            GetValue := GivenAnName(1);
+                          }
+                          else
+                          {
+                            GetValue := '';
+                          }
+                        }
+                      }
+                    }
+                }
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Доп. аналитика по подразделению для удержаний';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Доп. аналитика по подразделению для удержаний';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+//******************************************************************************
+//  КАУ 1 из КВО
+//******************************************************************************
+interface ZarNachislUder_KAU1 '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl : if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((Nachisl.vidopls == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if getfirst Spkau where ((klvidopl.CKAUD[1] == spkau.Nrec)) = tsOk
+
+
+                                  GetValue := string(Spkau.Name);
+
+                     }
+                 }
+
+    coNeNach : if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+             if getfirst KlVidOpl where ((NeNach.vidopls == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if getfirst Spkau where ((klvidopl.CKAUD[1] == spkau.Nrec)) = tsOk
+
+                              GetValue := string(Spkau.Name);
+                            }
+                        }
+
+
+    coSumVidOp : if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                 if getfirst KlVidOpl where ((SumVidOp.vidopl == KlVidOpl.vidopl)) = tsOk
+                    {
+                     if getfirst Spkau where ((klvidopl.CKAUD[1] == spkau.Nrec)) = tsOk
+
+                              GetValue := string(Spkau.Name);
+                            }
+                        }
+
+     coPEREVOD: if getfirst PEREVOD where (( parNrec == PEREVOD.Nrec )) = tsOk
+                               GetValue := 'Учитывается при налогообложении прибыли';
+
+    coPEREVODTEK: if getfirst PEREVODTEK where (( parNrec == PEREVODTEK.Nrec )) = tsOk
+                               GetValue := 'Учитывается при налогообложении прибыли';
+
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Аналитика 1 из КВО';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Аналитика 1 из КВО';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.
+
+//******************************************************************************
+//  КАУ 2 из КВО
+//******************************************************************************
+interface ZarNachislUder_KAU2 '' EscClose;
+create view;
+
+function GetValue(ParNrec : comp; NumbTable :longint ):string;
+{
+  GetValue := '';
+  case NumbTable of
+    coNachisl : if getfirst Nachisl where (( parNrec == Nachisl.Nrec )) = tsOk
+                {
+                  if getfirst KlVidOpl where ((Nachisl.vidopls == KlVidOpl.vidopl)) = tsOk
+                    {
+                      if klvidopl.TBLD[2] =5017
+     {
+                      if getfirst kaelem where ((klvidopl.CKAUD[2] == kaelem.Nrec)) = tsOk
+
+                      GetValue := string(kaelem.Name);
+       }
+     else
+     {
+                      if getfirst spkau where ((klvidopl.CKAUD[2] == spkau.Nrec)) = tsOk
+
+                      GetValue := string(spkau.Name);
+       }
+
+                     }
+                 }
+
+    coNeNach : if getfirst NeNach where (( parNrec == NeNach.Nrec )) = tsOk
+                {
+             if getfirst KlVidOpl where ((NeNach.vidopls == KlVidOpl.vidopl)) = tsOk
+
+                    {
+    if klvidopl.TBLD[2] =5017
+     {
+                      if getfirst kaelem where ((klvidopl.CKAUD[2] == kaelem.Nrec)) = tsOk
+
+                      GetValue := string(kaelem.Name);
+       }
+     else
+     {
+                      if getfirst spkau where ((klvidopl.CKAUD[2] == spkau.Nrec)) = tsOk
+
+                      GetValue := string(spkau.Name);
+       }
+
+                            }
+
+                        }
+
+
+    coSumVidOp : if getfirst SumVidOp where (( parNrec == SumVidOp.Nrec )) = tsOk
+                {
+                 if getfirst KlVidOpl where ((SumVidOp.vidopl == KlVidOpl.vidopl)) = tsOk
+                    {
+                     if klvidopl.TBLD[2] =5017
+     {
+                      if getfirst kaelem where ((klvidopl.CKAUD[2] == kaelem.Nrec)) = tsOk
+
+                      GetValue := string(kaelem.Name);
+       }
+     else
+     {
+                      if getfirst spkau where ((klvidopl.CKAUD[2] == spkau.Nrec)) = tsOk
+
+                      GetValue := string(spkau.Name);
+       }
+                            }
+                        }
+
+     coPEREVOD: if getfirst PEREVOD where (( parNrec == PEREVOD.Nrec )) = tsOk
+                               GetValue := 'Страховые взносы с 2010 года';
+
+    coPEREVODTEK: if getfirst PEREVODTEK where (( parNrec == PEREVODTEK.Nrec )) = tsOk
+                               GetValue := 'Страховые взносы с 2010 года';
+
+  end; //case
+}
+
+function SetColName: string;
+{
+  SetColName := 'Аналитика 2 из КВО';
+}
+
+function GetDescription: string;
+{
+  GetDescription := 'Аналитика 2 из КВО';
+}
+
+HandleEvent
+cmInit:
+{
+  Abort;
+}
+end;
+end.

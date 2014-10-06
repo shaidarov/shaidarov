@@ -1,0 +1,183 @@
+#include memget.vih
+
+interface MemGet;
+
+create view
+var
+  cLink: Comp;
+  attr_table :word ;
+  attr_crec :comp ;
+  attr_nm :string ;
+  str_save:string ;
+from DocInfo,AttrVal ,
+AttrVal AttrVal1 ,AttrNam
+,OBJRDEF,ObjRemDoc
+where 
+(( 
+  cLink == DOCINFO.nREC
+and clink == OBJRDEF.nrec
+and cLink == AttrVal.nrec
+and  attr_table == attrnam.wtable
+and  attr_nm == attrnam.name
+and attrnam.nrec == AttrVal1.cAttrNam
+and attr_table == AttrVal1.wtable
+and attr_crec   ==  AttrVal1.crec
+
+)); 
+
+File FMemo; 
+
+function InitMem(wtable :word ; cRec: Comp): Boolean; 
+{ 
+  InitMem := false; 
+  cLink := cRec; 
+  case wtable of
+  coOBJREMDOC :
+  { if GetFirst  fastfirstrow OBJREMDOC = tsOK 
+    { if FMemo.OpenMemo(OBJREMDOC.MEMO)
+      { FMemo.Seek(0); 
+      //  if Fmemo.eof message('1')
+        InitMem := true; 
+      } 
+    }
+  }
+  coOBJRDEF :
+  { if GetFirst  fastfirstrow OBJRDEF = tsOK 
+    { if FMemo.OpenMemo(OBJRDEF.MEMO)
+      { FMemo.Seek(0); 
+        InitMem := true; 
+      } 
+    }
+  }
+  coDocInfo :
+  { if GetFirst  fastfirstrow DocInfo = tsOK 
+    { 
+      if FMemo.OpenMemo(DocInfo.TEXTDATA)
+      { 
+        FMemo.Seek(0); 
+        InitMem := true; 
+      } 
+    }
+  } 
+  coAttrVal:{
+   if GetFirst  fastfirstrow AttrVal = tsOK 
+    { 
+      if FMemo.OpenMemo(AttrVal.VLVAR)
+      { 
+        FMemo.Seek(0); 
+        InitMem := true; 
+      } 
+    }
+  }
+  end ;
+} 
+function InitMemAttr(wtable :word ; cRec: Comp;nmattr :string ): Boolean; 
+{  
+  set attr_table :=wtable ;
+  set attr_crec :=crec ;
+  set attr_nm :=nmattr ;
+  InitMemAttr:=false ;
+  if getfirst fastfirstrow AttrVal1=0
+   InitMemAttr:=InitMem(coAttrVal,AttrVal1.nrec )
+
+}
+procedure DoneMemo;
+{ 
+  FMemo.Close; 
+} 
+
+function GetAllStringFromMemo(wtable :word ; cRec: Comp;var S: String): Boolean; 
+var s1 :string ;
+{ 
+  GetALLStringFromMemo := false; 
+  S := ''; 
+  if not InitMem(wtable, cRec) then exit ;
+  while not FMemo.EOF 
+  { 
+    FMemo.Readln(s1); 
+    S:=S+s1
+  } 
+  GetAllStringFromMemo := true; 
+  FMemo.Close; 
+} 
+function GetAllStringFromMemoAttr(nmattr :string ;wtable :word ; cRec: Comp;var S: String): Boolean; 
+var s1 :string ;
+{ GetAllStringFromMemoAttr:=false ;
+  if not InitMemAttr(wtable,crec,nmattr) then exit
+  S:=''
+  while not FMemo.EOF 
+  { 
+    FMemo.Readln(s1); 
+    S:=S+s1
+  } 
+//logstrtofile('!attrmemmo.log','1 '+nmattr+'/'+string(wtable)+'/'+string(crec)+'/'+s)
+  GetAllStringFromMemoAttr := true; 
+  FMemo.Close; 
+
+
+}
+//=======================================
+// читаем кусками по 200 символов
+// true пока не кончиться поле.
+// поле не закроется пока все не вычитаем
+//=======================================
+function GetAllStrFMemoAPart(nmattr :string ;wtable :word ; cRec: Comp;var S: String): Boolean; 
+var s1 :string ;
+    wlen : word ;
+{ S:=''
+  wlen:=200 ;
+  GetAllStrFMemoAPart:=false ;
+  if  attr_table<>wtable 
+  or attr_crec<>crec 
+  or attr_nm<>nmattr 
+  { str_save:='' 
+  //здесь еще нужно бы проверить на предмет открытия
+    if not InitMemAttr(wtable,crec,nmattr) then exit ;
+    
+  }  
+  S:=str_save ;
+  while not FMemo.EOF 
+  { 
+    FMemo.Readln(s1); 
+    if length(S)+length(s1)>wlen
+    { S:=S+substr(s1,1,wlen-length(S))
+      str_save:=substr(s1,wlen-length(S)+1,300) ;
+      GetAllStrFMemoAPart:=true ;
+      exit ;
+    }
+    S:=S+s1
+  } 
+//logstrtofile('!attrmemmo.log','1 '+nmattr+'/'+string(wtable)+'/'+string(crec)+'/'+s)
+  GetAllStrFMemoAPart := false; 
+  FMemo.Close; 
+
+
+}
+
+function GetOneStringFromMemo(wtable :word ; cRec: Comp;var S: String): Boolean; 
+{ 
+  GetOneStringFromMemo := false; 
+  S := '';
+  wtable:=wtable ;
+  crec :=crec ; 
+//    message('!!!! 111'+S )
+  if not FMemo.EOF 
+  { 
+    FMemo.Readln(S); 
+//    message('!!!! '+S )
+    GetOneStringFromMemo := true; 
+  } 
+//  DoneMemo;
+} 
+
+HandleEvent 
+cmOnVipLoad: 
+{ 
+  //cRec := Comp(0); 
+  cLink := Comp(0); 
+} 
+cmOnVipUnload: 
+{ 
+} 
+end; 
+end.

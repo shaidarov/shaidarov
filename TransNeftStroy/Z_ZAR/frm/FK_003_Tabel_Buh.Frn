@@ -1,0 +1,98 @@
+.create view vBuh
+var
+ wc_planssch :comp;
+ w_sch       :string[20]
+ w_kodgrkau  :word;
+as select PlansSch.Nrec
+From 
+    PlansSch, BuhSchet (BUHSCHET02)
+  , SpKau(SPKAU05)
+  , KatPodr
+where ((
+  wc_planssch == PlansSch.Nrec
+and PlansSch.Kod+w_sch == BuhSchet.Schet
+and w_kodgrkau == spkau.kodgrkau
+));  
+!==========================================
+.Procedure PrintAnalitik;
+!==========================================
+var 
+  ww_log:boolean;
+  jj,ll:word;
+begin
+  if not XlSetActiveSheetByName('Счета') then exit;
+  //"Настройки Галактики \ Бухгалтерский контур \ Консолидация \ Текущий план счетов"
+  vBuh.wc_planssch:=coGetTune('KONSOLID.CPLANSSCH')
+  if vBuh.getfirst planssch<>0
+  {  ww_log:=logfilekl
+     logfilekl:=True;
+     mylogwrite('Установите настройку "Настройки Галактики \ Бухгалтерский контур \ Консолидация \ Текущий план счетов"')
+     logfilekl:=ww_log
+  }
+  MyxlWrite(vBuh.PlansSch.Name,2,1,3) 
+  rowcur:=4
+  MyXlCreaMatrix(100,20) ;
+  rowcur:=rowcur-1;
+  
+  Sbor_init(10) // tmp_sbor.vpp
+  // собираем таблицу нужных аналитик
+  for(jj:=1;jj<=5;jj++)
+  { case jj of
+    1: vBuh.w_sch:='20';
+    2: vBuh.w_sch:='23';
+    3: vBuh.w_sch:='25';
+    4: vBuh.w_sch:='26';
+    5: vBuh.w_sch:='29';
+    end;
+    Sbor_Add(10,string(2,10),'','',0,0,0)
+    vBuh._loop Buhschet
+    {
+      rowcur++;colcur:=1;
+      MyxlWrite(substr(vBuh.BuhSchet.Schet,2,100),rowcur,colcur,3) 
+      MyxlWrite(vBuh.BuhSchet.SUBSCH,rowcur,colcur,3) 
+      for(ll:=1;ll<=6;ll++)
+      { MyxlWrite(string(vBuh.BuhSchet.KODTABLE[ll]),rowcur,colcur,3) 
+        if ll>2 and 
+         ( vBuh.BuhSchet.KODTABLE[ll]>=10000 OR
+           (vBuh.BuhSchet.KODTABLE[ll]>99 
+            and vBuh.BuhSchet.KODTABLE[ll]<5000
+           )
+         )  
+         Sbor_Add(10,string(vBuh.BuhSchet.KODTABLE[ll],10),'','',0,0,0)
+      } //for(ll:=1;ll<=6)
+    } //vBuh._loop Buhschet
+  
+  } //for(jj:=1;jj<=5;jj++)
+  MyxlWriteMatrix(rowcur);
+  xlFreeMatrix;
+  matrixkl:=False
+  if not XlSetActiveSheetByName('Аналитика') then exit;
+  vtmp_rep1.wwpa:=10;
+  jj:=0;
+  vtmp_rep1._loop tmp_sbor
+  { jj++
+    MyxlWrite(vtmp_rep1.tmp_sbor.SorTname,3,jj*2,3) 
+    vBuh.w_kodgrkau:=word(trim(vtmp_rep1.tmp_sbor.SorTname))
+    rowcur:=4;
+     
+    case vBuh.w_kodgrkau of
+    100..5000,10000..100000:
+    { vBuh._loop SPKau
+      { rowcur++;colcur:=jj*2-1;
+        MyxlWrite(vBuh.spkau.code,rowcur,colcur,3) 
+        MyxlWrite(vBuh.spkau.name,rowcur,colcur,3) 
+      }
+    }
+    2:
+    { vBuh._loop KatPodr
+      where katpodr.sklad=0 ordered by katpodr.kod 
+      { rowcur++;colcur:=jj*2-1;
+        MyxlWrite(vBuh.katpodr.kod,rowcur,colcur,3) 
+        MyxlWrite(vBuh.katpodr.name,rowcur,colcur,3) 
+      }
+    } 
+    end;  
+  }//vtmp_rep1._loop tmp_sbor
+// .Procedure PrintAnalitik; 
+ end.
+!==========================================

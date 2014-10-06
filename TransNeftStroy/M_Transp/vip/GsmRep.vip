@@ -1,0 +1,375 @@
+Interface GsmRep;
+table struct FullGSM(gosnomer	  :string,
+                     marka	    :string,
+                     invnum	    :string,
+                     numputlst	:string,
+                     dateputlst	:date,	
+                     timeputlst	:time,	
+                     speedstart	:double,
+                     probeg	    :double,
+                     speedend	  :double,
+                     motostart	:double,
+                     moto	      :double,
+                     motoend	  :double,
+                     voditel	  :string,
+                     timeAZSbeg	:time,	
+                     timeAZSend	:time,	
+                     nachost	  :double,
+                     prihod	    :double,
+                     AZS1	      :double,
+                     AZS2	      :double,
+                     AZS3	      :double,
+                     AZS4	      :double,
+                     rashod	    :double,
+                     norma	    :double,
+                     ostatok	  :double,
+                     kontragent	:string)
+  with index (ind1=gosnomer+numputlst);
+
+table struct ItogGSM(gosnomer	:string,
+                     marka	:string,
+                     invnum	:string,
+                     speedstart	:double,
+                     probeg	:double,
+                     speedend	:double,
+                     motostart	:double,
+                     moto	:double,
+                     motoend	:double,
+                     nachost	:double,
+                     voditel	:string,
+                     prihod	:double,
+                     AZS1	:double,
+                     AZS2	:double,
+                     AZS3	:double,
+                     AZS4	:double,
+                     rashod	:double,
+                     norma	:double,
+                     ostatok	:double,
+                     datebeg	:date,  
+                     timebeg  : time,
+                     timeend  : time,
+                     dateend	:date)
+  with index (ind1=gosnomer);
+
+create view
+var
+  dateFrom    	:date;
+  dateTo      	:date;
+  curstr	:integer;
+  typeGSM	:string;
+  typeGSMselect	:byte;
+  typeReport	:byte;
+  toplivovid	:string;
+  myOrg		: comp;
+  xlRes		: boolean;
+  cpodrazd	: comp;
+
+as select *
+from PUTLST,PUTGSM,SAVE_DRV
+where ((1 		== 	PUTLST.STATPL	and
+        dateFrom 	<<=	PUTLST.DATPL	and
+        dateTo		>>=	PUTLST.DATPL	and
+        0		==	PUTGSM.TIPINFO	and
+        PUTLST.NREC	==	PUTGSM.CPUTLST	and
+        PUTGSM.CTOPLIVO	/==	TOPLIVO.NREC	and
+	(toplivovid	=	TOPLIVO.KODVID) and
+        PUTLST.NREC	==	SAVE_DRV.CPUTLST));
+
+parameters
+  dateFrom,
+  dateTo,
+  typeGSMselect,
+  typeReport,
+  cpodrazd;
+
+var   itogi		: array [1..10] of double;
+
+#include functions.vil
+
+procedure PrintCurrentStrItog(n: integer);
+{
+  xlRes := xlcreateMatrix(1, 17); 			if not xlRes break;
+  xlRes := xlstWriteToMatrix(1, 1,  n); 		if not xlRes break;
+  xlRes := xlstWriteToMatrix(1, 2,  ItogGSM.gosnomer); 	if not xlRes break;
+  xlRes := xlstWriteToMatrix(1, 3,  ItogGSM.voditel); 	if not xlRes break;
+  xlRes := xlstWriteToMatrix(1, 4,  ItogGSM.invnum); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 5,  ItogGSM.nachost);  	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 6,  ItogGSM.AZS1); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 7,  ItogGSM.AZS2); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 8,  ItogGSM.AZS3); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 9,  ItogGSM.AZS4); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 10, ItogGSM.AZS1 + ItogGSM.AZS2 + ItogGSM.AZS3 + ItogGSM.AZS4); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 11, ItogGSM.norma); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 12, ItogGSM.rashod); 	if not xlRes break;
+  xlRes := xldoWriteToMatrix(1, 13, ItogGSM.ostatok); 	if not xlRes break;
+  if (ItogGSM.speedend > 0)
+  {
+    xlRes := xldoWriteToMatrix(1, 14, ItogGSM.speedstart);	if not xlRes break;
+    xlRes := xldoWriteToMatrix(1, 15, ItogGSM.speedend); 	if not xlRes break;
+    xlRes := xldoWriteToMatrix(1, 16, ItogGSM.speedend - ItogGSM.speedstart); 		if not xlRes break;
+  }
+  else
+  {
+    xlRes := xldoWriteToMatrix(1, 14, ItogGSM.motostart);	if not xlRes break;
+    xlRes := xldoWriteToMatrix(1, 15, ItogGSM.motoend); 	if not xlRes break;
+    xlRes := xldoWriteToMatrix(1, 16, ItogGSM.moto); 		if not xlRes break;
+  }
+  xlRes := xlstWriteToMatrix(1, 17, ''); 		if not xlRes break;
+
+  xlwriteMatrixToExcel(curstr, 1); 			if not xlRes break;
+  curstr := curstr + 1;
+}
+
+Procedure AddItogi;
+{
+  var str	: string;
+  var i		: word;
+  xlRes := xlcreateMatrix(1, 10); 	if not xlRes break;
+  for (i := 1; i <= 9; i := i+1)
+    xlRes := xldoWriteToMatrix(1, i, itogi[i]); 	if not xlRes break;
+  xlRes := xlwriteMatrixToExcel(curstr, 5); 	if not xlRes break;
+  xlSetFontStyle(1, curstr, 5, curstr, 13); 
+  xlFrameCells(31, 3, 7, 0, curstr, 5, curstr, 13);
+  xlsetCellStringValue('ИТОГО РАСХОД:', curstr + 2, 3, curstr + 2, 3);
+  xlcreateMatrix(1, 2);
+  xlRes := xlstWriteToMatrix(1, 1, '');
+  xlRes := xldoWriteToMatrix(1, 2, itogi[8]); 	if not xlRes break;
+  xlwriteMatrixToExcel(curstr + 2, 5);
+  xlsetCellStringValue('литров', curstr + 2, 7, curstr + 2, 7);
+  xlFrameCells(31, 3, 7, 0, curstr + 2, 6, curstr + 2, 7);
+  xlsetCellStringValue(TypeGSM, curstr + 2, 5, curstr + 2, 5);
+  xlFrameCells(31, 3, 7, 0, curstr + 2, 5, curstr + 2, 5);
+  xlSetFontStyle(1, curstr + 2, 2, curstr + 2, 10);
+}
+
+function GetTypeAZS(ckontragent:comp) : word;
+{
+  case(ckontragent) of
+    281474976714566 : GetTypeAZS := 2;
+    281474976717995 : GetTypeAZS := 2;
+    281474976720951 : GetTypeAZS := 2;
+    281474976711690 : GetTypeAZS := 3;
+    281474976715613 : GetTypeAZS := 1;
+    281474976717398 : GetTypeAZS := 1;
+    281474976717399 : GetTypeAZS := 1;
+    281474976717400 : GetTypeAZS := 1;
+    281474976717401 : GetTypeAZS := 1;
+    281474976717402 : GetTypeAZS := 1;
+    281474976717404 : GetTypeAZS := 1;
+    281474976717405 : GetTypeAZS := 1;
+    else  GetTypeAZS := 4;            
+  end;
+}
+
+procedure GetReport;
+{
+  var typeazs 	: word;
+  var n,i	: integer;
+  var azs_1	: double;
+  var azs_2	: double;
+  var azs_3	: double;
+  var azs_4	: double;
+  var str	: string;
+  curstr := 9;
+
+  StartNewVisual(vtNumericVisual,vfBreak,'Формирование отчета ...',0);
+
+  for (i := 1; i <= 10; i := i+1) itogi[i] := 0;
+  delete all from ItogGSM;
+  delete all from FullGSM;
+
+  case (typeGSMselect) of
+    0 :  { typeGSM:='A-80'; toplivovid := '0203'; }
+    1 :  { typeGSM:='A-92'; toplivovid := '0201'; }
+    2 :  { typeGSM:='ДТ';   toplivovid := '0202'; }
+    else { typeGSM:='ДТ';   toplivovid := '0202';  }
+  end;
+
+  _loop PUTLST
+  {
+    if cpodrazd <> 0 and PUTLST.CPOL <> cpodrazd continue;
+    if cpodrazd = 0 and PUTLST.CORGTC <> myOrg	 continue;
+    _loop PUTGSM
+    {
+      typeazs := GetTypeAZS(PUTGSM.CORG);
+      case (typeazs) of
+        1 :  { azs_1 := PUTGSM.VIDT; azs_2 := 0; azs_3 := 0; azs_4 := 0; }
+        2 :  { azs_2 := PUTGSM.VIDT; azs_1 := 0; azs_3 := 0; azs_4 := 0; }
+        3 :  { azs_3 := PUTGSM.VIDT; azs_2 := 0; azs_1 := 0; azs_4 := 0; }
+        else { azs_4 := PUTGSM.VIDT; azs_2 := 0; azs_3 := 0; azs_1 := 0; }
+      end;
+
+      if tsOk = GetFirst FullGSM where ((PUTLST.CTRANSP->NOMER == FullGSM.gosnomer and
+                                         PUTLST.NPL == FullGSM.numputlst      ))
+      {
+        update current FullGSM set
+                     FullGSM.prihod 	:= FullGSM.prihod + PUTGSM.VIDT,
+                     FullGSM.AZS1	:= FullGSM.AZS1 + azs_1,
+                     FullGSM.AZS2	:= FullGSM.AZS2 + azs_2,
+                     FullGSM.AZS3	:= FullGSM.AZS3 + azs_3,
+                     FullGSM.AZS4	:= FullGSM.AZS4 + azs_4,
+                     FullGSM.rashod	:= FullGSM.rashod + PUTGSM.FAKTT,
+                     FullGSM.norma	:= FullGSM.norma + PUTGSM.NORMT;
+        if PUTGSM.ZAPRCH < timeAZSbeg
+          update current FullGSM set
+                     FullGSM.timeAZSbeg	:= PUTGSM.ZAPRCH,
+                     FullGSM.nachost	:= PUTGSM.OW;
+        if PUTGSM.ZAPRCH > timeAZSend
+          update current FullGSM set
+                     FullGSM.timeAZSend	:= PUTGSM.ZAPRCH,
+                     FullGSM.ostatok	:= PUTGSM.OWV;
+
+      }
+      else insert into FullGSM set
+                     FullGSM.gosnomer	:= PUTLST.CTRANSP->NOMER,
+                     FullGSM.marka	:= TRANSP.CMARKA->NM,
+                     FullGSM.invnum	:= PUTLST.CTRANSP->CKATOS->INNUM,
+                     FullGSM.numputlst	:= PUTLST.NPL,
+                     FullGSM.dateputlst	:= PUTLST.DATPL,
+                     FullGSM.timeputlst	:= PUTLST.EXITCH,
+                     FullGSM.voditel	:= SAVE_DRV.FIO,
+                     FullGSM.speedstart	:= PUTLST.SPEEDEXI,
+                     FullGSM.probeg	:= PUTLST.PROBEGALL,
+                     FullGSM.speedend	:= PUTLST.SPEEDRET,
+                     FullGSM.motostart	:= PUTLST.NPVIRVAL,
+                     FullGSM.moto	:= PUTLST.TIMESPEC,
+                     FullGSM.motoend	:= PUTLST.FKVIRVAL,
+                     FullGSM.nachost	:= PUTGSM.OW,
+                     FullGSM.prihod	:= PUTGSM.VIDT,
+                     FullGSM.AZS1	:= azs_1,
+                     FullGSM.AZS2	:= azs_2,
+                     FullGSM.AZS3	:= azs_3,
+                     FullGSM.AZS4	:= azs_4,
+                     FullGSM.rashod	:= PUTGSM.FAKTT,
+                     FullGSM.norma	:= PUTGSM.NORMT,
+                     FullGSM.ostatok	:= PUTGSM.OWV,
+                     FullGSM.timeAZSbeg	:= PUTGSM.ZAPRCH,
+                     FullGSM.timeAZSend	:= PUTGSM.ZAPRCH;
+    }
+  }
+
+  _loop FullGSM
+  {
+      if tsOk = GetFirst ItogGSM where ((FullGSM.gosnomer == ItogGSM.gosnomer))
+      {
+        update current ItogGSM set
+                     ItogGSM.prihod 	:= FullGSM.prihod + ItogGSM.prihod,
+                     ItogGSM.AZS1	:= FullGSM.AZS1 + ItogGSM.AZS1,
+                     ItogGSM.AZS2	:= FullGSM.AZS2 + ItogGSM.AZS2,
+                     ItogGSM.AZS3	:= FullGSM.AZS3 + ItogGSM.AZS3,
+                     ItogGSM.AZS4	:= FullGSM.AZS4 + ItogGSM.AZS4,
+                     ItogGSM.rashod	:= FullGSM.rashod + ItogGSM.rashod,
+                     ItogGSM.norma	:= FullGSM.norma + ItogGSM.norma,
+                     ItogGSM.moto	:= FullGSM.moto + ItogGSM.moto,
+                     ItogGSM.probeg	:= FullGSM.probeg + ItogGSM.probeg;
+
+        if (ItogGSM.datebeg > FullGSM.dateputlst) or
+           (ItogGSM.datebeg = FullGSM.dateputlst and ItogGSM.timebeg > FullGSM.timeputlst)
+          update current ItogGSM set
+                     ItogGSM.datebeg 	:= FullGSM.dateputlst,
+                     ItogGSM.timebeg 	:= FullGSM.timeputlst,
+                     ItogGSM.nachost	:= FullGSM.nachost,
+                     ItogGSM.motostart	:= FullGSM.motostart,
+                     ItogGSM.speedstart	:= FullGSM.speedstart;
+
+        if (ItogGSM.dateend < FullGSM.dateputlst) or
+           (ItogGSM.dateend = FullGSM.dateputlst and ItogGSM.timeend < FullGSM.timeputlst)
+          update current ItogGSM set
+                     ItogGSM.dateend 	:= FullGSM.dateputlst,
+                     ItogGSM.timeend 	:= FullGSM.timeputlst,
+                     ItogGSM.ostatok	:= FullGSM.ostatok,
+                     ItogGSM.motoend	:= FullGSM.motoend,
+                     ItogGSM.speedend	:= FullGSM.speedend;
+      }
+
+      else insert into ItogGSM set
+                     ItogGSM.gosnomer	:= FullGSM.gosnomer,
+                     ItogGSM.marka	:= FullGSM.marka,
+                     ItogGSM.invnum	:= FullGSM.invnum,
+                     ItogGSM.voditel	:= FullGSM.voditel,
+                     ItogGSM.speedstart	:= FullGSM.speedstart,
+                     ItogGSM.probeg	:= FullGSM.probeg,
+                     ItogGSM.speedend	:= FullGSM.speedend,
+                     ItogGSM.motostart	:= FullGSM.motostart,
+                     ItogGSM.moto	:= FullGSM.moto,
+                     ItogGSM.motoend	:= FullGSM.motoend,
+                     ItogGSM.nachost	:= FullGSM.nachost,
+                     ItogGSM.prihod	:= FullGSM.prihod,
+                     ItogGSM.AZS1	:= FullGSM.AZS1,
+                     ItogGSM.AZS2	:= FullGSM.AZS2,
+                     ItogGSM.AZS3	:= FullGSM.AZS3,
+                     ItogGSM.AZS4	:= FullGSM.AZS4,
+                     ItogGSM.rashod	:= FullGSM.rashod,
+                     ItogGSM.norma	:= FullGSM.norma,
+                     ItogGSM.ostatok	:= FullGSM.ostatok,
+                     ItogGSM.datebeg 	:= FullGSM.dateputlst,
+                     ItogGSM.timebeg := FullGSM.timeputlst,
+                     ItogGSM.timeend := FullGSM.timeputlst,
+                     ItogGSM.dateend 	:= FullGSM.dateputlst;
+  }
+  var sBookName, sSheetName : string;
+
+  do
+  {
+    sBookName := translatePath('%StartPath%XLS\USER\GsmItog.xlt');
+    sSheetName := 'ведомость списание';
+
+    if not xlCreateExcelWithTemplate(sBookName, true)
+    {
+      xlRes := xlOpenWorkBook(sBookName);
+      if not xlRes
+      {
+        Message('Не открылась книга Excel');
+      }
+    }
+
+    xlRes := xlSetActiveSheetByName(sSheetName);
+    if not xlRes
+    {
+      Message('Нет листа ' + sSheetName);
+      break;
+    }
+
+    str:='Ведомость расхода ГСМ за период с ' + DateToStr(dateFrom,'DD Mon YYYY') + ' г по ' + DateToStr(dateTo,'DD Mon YYYY') + ' г';
+    xlsetCellStringValue(str, 3, 7, 3, 7);
+
+    xlsetCellStringValue(typeGSM, 7, 6, 7, 6);
+    xlsetCellStringValue(typeGSM, 7, 7, 7, 7);
+    xlsetCellStringValue(typeGSM, 7, 8, 7, 8);
+    xlsetCellStringValue(typeGSM, 7, 9, 7, 9);
+    xlsetCellStringValue(typeGSM, 7, 10, 7, 10);
+
+    n := 1;
+    _loop ItogGsm
+    {
+      if(not NextVisual) exit;
+      PrintCurrentStrItog(n);
+      n := n + 1;
+
+      itogi[1] := itogi[1] + ItogGSM.nachost;
+      itogi[2] := itogi[2] + ItogGSM.AZS1;
+      itogi[3] := itogi[3] + ItogGSM.AZS2;
+      itogi[4] := itogi[4] + ItogGSM.AZS3;
+      itogi[5] := itogi[5] + ItogGSM.AZS4;
+      itogi[6] := itogi[6] + ItogGSM.AZS1 + ItogGSM.AZS2 + ItogGSM.AZS3 + ItogGSM.AZS4;
+      itogi[7] := itogi[7] + ItogGSM.norma;
+      itogi[8] := itogi[8] + ItogGSM.rashod;
+      itogi[9] := itogi[9] + ItogGSM.ostatok;
+    }
+
+    AddItogi;
+  }
+  while false;
+
+  StopVisual('',0);
+  xlkillExcel;
+}
+
+handleEvent
+   cmInit :
+   {
+     myOrg    := coGetTune('MYORG');
+     GetReport;
+   }
+end;
+end.

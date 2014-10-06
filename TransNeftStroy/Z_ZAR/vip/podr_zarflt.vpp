@@ -1,0 +1,43 @@
+table struct tmp_USERRIGHTS
+( crecds :comp 
+)
+with index
+(  tmp_USERRIGHTS01 =crecds 
+) ;
+create view vzar_flt
+var  wusername :string ;
+     wc_podr : comp ;
+     wneed_flt : boolean ;
+as select zar_user.nrec
+from zar_user, USERRIGHTS , tmp_USERRIGHTS
+where (( 
+  wusername == zar_user.OWNNAME
+//  and wc_podr /== USERRIGHTS.crecds
+  and wusername == USERRIGHTS.OWNNAME
+  and wc_podr == tmp_USERRIGHTS.crecds
+)) ;
+// инициализировать фильтр
+Procedure  Zar_InitFltPodr ;
+{ vzar_flt.wusername:=username ;
+  vzar_flt.wneed_flt:=false
+  if vzar_flt.getfirst zar_user=0
+    if vzar_flt.ZAR_USER.PODRSHARE = '+'
+    {  vzar_flt.wneed_flt:=true ;
+    } else exit ;
+  vzar_flt.resetbounds(vzar_flt.tntmp_USERRIGHTS)
+  vzar_flt.delete all tmp_USERRIGHTS ;      
+  vzar_flt._loop fullcache USERRIGHTS
+  { vzar_flt.insert into tmp_USERRIGHTS set tmp_USERRIGHTS.crecds := USERRIGHTS.crecds ;
+  }  
+  vzar_flt.setbounds(vzar_flt.tntmp_USERRIGHTS)
+} 
+// проверить фильтр
+Function Zar_CheckFltPodr(wwc_podr :comp ) :boolean ;
+{ Zar_CheckFltPodr:=true ;
+  if not vzar_flt.wneed_flt then exit ;
+  set vzar_flt.wc_podr:=wwc_podr ;
+  if vzar_flt.getfirst fastfirstrow tmp_USERRIGHTS<>0
+  {  Zar_CheckFltPodr:=false ;
+  }
+ 
+}

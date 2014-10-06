@@ -1,0 +1,67 @@
+
+#include LinkMtr2Spec.vih
+
+Alter Interface LinkMtr2Spec 'Целевой учет для позиции спецификации' (, hcUKS_LokM_Chelev) EscClose;
+
+HandleEvent // Interface
+
+cmPick:
+{
+  if (not LicEdit )
+    exit;
+
+  if (pwPr = cgPr_EditA)
+    {
+      if (EventPick)
+        exit;
+    }
+
+  case CurField of
+
+    #vsNameTune:
+    {
+      var cSald: comp;
+      cSald := SpecMTR.cSaldTune;
+
+      if ( RunInterface('GetSaldTune', cSald, vwSald) = cmDefault )
+        {
+          if ( oDocInfo.IsDocUksOnly(pwTable,pcSpec) and (vwSald <> 1) ) {}
+//            message('Объект целевого учета не предназначен для модуля'#13 +
+//                    '"Управление капитальными вложениями и строительством"');
+//          else
+            {
+              if ( IsValid(#SpecMTR) )
+                if ( cSald <> SpecMTR.cSaldTune )
+                  DoDelete;
+
+              if (not isValid(#SpecMTR))
+                {
+                  ClearBuffer( #SpecMTR );
+                  oMTRFun.SpecMtrBufSetDefault( SpecMTR.buffer, pwTable, pcSpec, cSald );
+                }
+
+              set SpecMTR.cSaldTune := cSald;
+            }
+        }
+      else
+        FreeVipInterface(oLicEdit);
+    }
+
+    #vsKau1  : PickKau(1);
+    #vsKau2  : PickKau(2);
+    #vsKau3  : PickKau(3);
+    #vsKau4  : PickKau(4);
+    #vsKau5  : PickKau(5);
+    #vsKau6  : PickKau(6);
+    #vsKau7  : PickKau(7);
+    #vsKau8  : PickKau(8);
+    #vsKau9  : PickKau(9);
+    #vsKau10 : PickKau(10);
+  end;
+
+  RereadParam;
+}
+
+End;
+
+end.

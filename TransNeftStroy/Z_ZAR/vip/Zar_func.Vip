@@ -1,0 +1,52 @@
+/*
+Функции по обработке операции - начисления и выплаты
+*/
+#include Zar_func.Vih
+Interface Zar_func 'Функции по работе c зарплатой';
+create view vZar_func
+var
+ wc_lschet:comp;
+ dtb,dte:date;
+as select lschet.nrec 
+from lschet,MOVELSC(MOVELSC04)
+where ((
+    wc_lschet == lschet.nrec
+and wc_lschet == MOVELSC.CLSCHET
+and dte >>= MOVELSC.DATPOS
+and dtb <<= MOVELSC.DATUV(noindex)
+));
+//=================================
+#doc
+ Проверяет попадает ли заданный период в период работы
+ и при необходимости его сокращает.
+ Используется например в контроле занесения информации в операции - начисления и выплаты
+ на вход как правило идет целый месяц, на выходе период работы в рамках месяца
+#end
+Procedure PeriodCheck(wwc_lschet:comp; var ww_dtb :date;var ww_dte :date);
+{ wc_lschet:=wwc_lschet;
+  dtb:=ww_dtb;
+  dte:=ww_dte;
+
+  if getfirst fastfirstrow lschet<>0 then exit;
+  //displ(GetStrTabn(lschet.tabn,lschet.strtabn)+datetostr(dtb,' DD/MM/YYYY')
+  //  ++datetostr(lschet.datpos,' DD/MM/YYYY')  )
+  if lschet.datpos<=ww_dtb then exit;
+  if getlast fastfirstrow MOVELSC=0
+  { if MOVELSC.Datuv<ww_Dte
+      ww_dte:=MOVELSC.Datuv
+    if ww_dtb<MOVELSC.DatPos  
+      ww_dtb:=MOVELSC.DatPos
+  }
+  else
+  { if lschet.datpos<=ww_dte
+    {  ww_dtb:=lschet.datpos;
+       if longint(lschet.datuv)>0 and ww_dte>lschet.datuv
+       { ww_dte:=lschet.datuv
+       }
+    }
+    else
+    { displ('Для '+GetStrTabn(lschet.tabn,lschet.strtabn)+' не удалось определить период')
+    }
+  }
+} //Procedure PeriodCheck(wwc_lschet:comp; var ww_dtb :date;var ww_dtb :date);
+end.

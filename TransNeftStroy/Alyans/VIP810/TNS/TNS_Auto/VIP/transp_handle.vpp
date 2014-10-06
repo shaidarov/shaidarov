@@ -1,0 +1,137 @@
+Procedure MySetFormat ;
+{ if dtb=date(0,0,0) then dtb:=date(1,month(cur_date),year(cur_date))
+  if year_Reestr=0 then year_Reestr:=year(dtb)
+  if month_Reestr=0 then month_Reestr:=month(dtb) ;
+  if kvartal_Reestr=0 then kvartal_Reestr:= ((month_Reestr-1) div 3)+1 ;
+  case tp_period of
+  0 : 
+  { dtb:=date(1,1,year_Reestr) ; dte:=date(31,12,year_Reestr) ; 
+    clearFieldOption(#dtb, ofSelectable);
+    clearFieldOption(#dte, ofSelectable);
+  }
+  1 : 
+  { dtb:=date(1,month_Reestr,year_Reestr) ; dte:=date(last_day(dtb),month_Reestr,year_Reestr) ; 
+    clearFieldOption(#dtb, ofSelectable);
+    clearFieldOption(#dte, ofSelectable);
+  }
+  2 : 
+  { dtb:=date(1,(kvartal_Reestr-1)*3+1,year_Reestr) ; 
+    dte:=date(1,kvartal_Reestr*3,year_Reestr) ; 
+    dte:=date(last_day(dte),month(dte),year_Reestr) ; 
+    clearFieldOption(#dtb, ofSelectable);
+    clearFieldOption(#dte, ofSelectable);
+  }
+  3: {
+    SetFieldOption(#dtb, ofSelectable);
+    SetFieldOption(#dte, ofSelectable);
+    
+  }
+  end ;
+  if dtb>dte then dte:=dtb ;
+  RescanPanel(#PutLst) ;
+}  
+
+HandleEvent
+cmX1:
+{  StartNewVisual (vtNumericVisual,vfTimer+vfBreak,'отбор записей для отчета',1)
+   if fileexist(logfilenm) deletefile(logfilenm)
+   FormDoc ;
+   StopVisual('',0)
+   if VisualizationActive then StopVisual('',0);
+   if VisualizationActive then StopVisual('',0);
+}
+cmInit :
+{  zaglushka;
+   tp_period:=1;
+   InitServTxo(0);
+   Need_Norm_RasShifrovka:=false
+   Dop_Init;
+   //сбросил по просьбе паши
+   if (filtr_tp and 2)>0 filtr_tp:=filtr_tp-2;
+   StartNewVisual (vtRotateVisual,vfTimer,'подготовка запуска отчета',1)
+  //////////////
+  InitServTxo(0);
+#IFDEF Transp_MOL_VIB1 
+   cFiltr_Mol:=coGetTune('RARS_TRANSP.cSklad_GsmMol')
+   Filtr_Mol:=sGetTune('RARS_TRANSP.cSklad_GsmMol')
+#ENDIF   
+    myorg_nrec :=coGetTune('myorg')
+    Makr:=0
+    //Name_Get_Transp_Marker_lap:='TRANSPMARK' ;
+    //Get_Transp_Marker_lap := InitMarker(Name_Get_Transp_Marker_lap, 8, 10, 10);
+    //ClearMarker(Get_Transp_Marker_lap);
+    //DoneMarker(Get_Transp_Marker_lap, Name_Get_Transp_Marker_lap);
+    ReReadRecord ;
+    Month_Reestr := Month(Cur_date)-1
+    Year_Reestr  := Year(Cur_date)
+   ///////////////
+    InitPodrFiltr ;//transp_fun.vpp
+// тип техники    
+    Name_Get_TipTex_Marker_lap:='TipTex' ;
+    InitTipTexFiltr ;
+    Name_Get_Transp_Marker_lap:='Name_Get_Transp_Marker_lap' ;
+    InitTranspFiltr ;
+   ///////////  АЗС
+#IFDEF Transp_GSM_AZS
+    InitAzsFiltr;
+#ENDIF    
+#IFDEF Transp_GSM_FLT
+    InitGSMFiltr
+    InitGSMVIDFiltr
+#ENDIF        
+// комиссия
+   if (NullVipRef(iCommission))
+   { LoadVipInterface(iCommission);
+     iCommission.InitCommission(cgCommission_Sklad ); //cgCommission_OS
+   }
+   set sCommission := iCommission.GetSelectionName;
+
+   StopVisual('The End',vfTimer);
+   MySetFormat ;
+   ReReadRecord
+  RescanPanel(#PutLst) ;
+}
+cmCheckField:
+{
+  case curfield of 
+  #tp_period, #year_Reestr, #month_Reestr,
+  #kvartal_Reestr:  MySetFormat ;
+  end ;
+}
+cmPick:
+{ 
+  Dop_Pick ;
+  transp_pick ;
+}
+cmDelOnProtect:
+{ case CurField of
+  #sCommission :
+  { set sCommission := iCommission.ClearSelection;
+  }
+#IFDEF Transp_MOL_VIB1
+  #filtr_mol:
+  { filtr_mol:='';cFiltr_Mol:=0;
+  }
+#ENDIF  
+  #filtr_Podr:
+   {
+    Delete All My_Podr_Main ;
+    Delete All My_Podrazdelenie ;
+    Modifier insert My_Podrazdelenie
+         Select KatPodr.Nrec , KatPodr.Name from katpodr;
+    MakePodrFiltr ;
+   }
+  End;
+}
+cmDone :
+{  Dop_Done 
+  DoneServTxo;
+}
+cmDefault :
+{  Dop_Default ;
+}
+cmValue60: // для того чтобы компилятор не ругался
+{ GetTranspSpis ;
+  GetNorma ;
+}
+end;

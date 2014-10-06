@@ -1,0 +1,69 @@
+//=================================================
+// формирорование списка декретников
+//=================================================
+
+//=================================================
+table struct tmp_decret
+//=================================================
+( cLsch : comp
+ ,datan : date
+ ,datok : date
+ ,UO    :string[5]
+) 
+with index
+( tmp_decret01 = cLsch+datan
+);
+
+
+//=================================================
+create view vtmp_decret
+//=================================================
+as select tmp_decret.*
+from tmp_decret
+;
+
+
+
+
+//=================================================
+// Заполнить список декретников
+//=================================================
+Procedure Decret_Fill(ww_dtb:date; ww_dte:date);
+//=================================================
+{ vtmp_decret.delete all tmp_decret;
+  vtmp_decret.insert into tmp_decret
+    select otpusk.clsch,otpusk.datan,otpusk.datok,klotpusk.days //UOWRKTABEL.NUM
+    from otpusk,klotpusk//,UOWRKTABEL
+    where (( ww_dte >> otpusk.datan (noindex)
+     and ww_dtb<<=otpusk.datok  (noindex)
+     and otpusk.kotpus /==klotpusk.kotpus
+     and (KLOTPUSK.DAYS='ОЖ' or KLOTPUSK.DAYS='ОЧ' OR KLOTPUSK.DAYS='Р')
+     //and KLOTPUSK.DAYS /== UOWRKTABEL.NUM
+     //and (UOWRKTABEL.COLNUM='ОЖ' or UOWRKTABEL.COLNUM='ОЧ' OR UOWRKTABEL.COLNUM='Р')
+    )); 
+  vtmp_decret.insert into tmp_decret
+    select blisnet.clsch,blisnet.datan,blisnet.datok
+        ,KLVIDPOS.DAYS //UOWRKTABEL.NUM
+    from blisnet,KLVIDPOS //,UOWRKTABEL
+    where (( ww_dte >> blisnet.datan (noindex)
+     and ww_dtb<<=blisnet.datok  (noindex)
+     and blisnet.vidpos /==KLVIDPOS.VIDPOS
+     and (KLVIDPOS.DAYS='ОЖ' or KLVIDPOS.DAYS='ОЧ' OR KLVIDPOS.DAYS='Р')
+     //and KLVIDPOS.DAYS  /== UOWRKTABEL.NUM
+     //and (UOWRKTABEL.COLNUM='ОЖ' or UOWRKTABEL.COLNUM='ОЧ' OR UOWRKTABEL.COLNUM='Р')
+    )); 
+} //Procedure Decret_Fill(wdtb:date; wdte:date);
+
+//=================================================
+// проверить список декретников
+//=================================================
+function Decret_Check(ww_cLsch:comp;ww_dtb:date; ww_dte:date):boolean;
+//=================================================
+{ Decret_Check:=( vtmp_decret.getfirst tmp_decret 
+   where (( 
+       ww_cLsch == tmp_decret.cLsch
+   and ww_dte  >>= tmp_decret.datan
+   and ww_dtb  <<= tmp_decret.datok(noindex) 
+   )) =0 );  
+}
+

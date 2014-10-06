@@ -1,0 +1,369 @@
+/*
+ общие функции для работы с excel
+*/
+! DEFINE _EXCEL_MES_ приведет к дополнительным сообщения
+
+// для печати отладочного протокола
+Procedure MyLogWrite(wkl :boolean ;w :string ) ;
+{ 
+//ExcelInit  nmlogfile:=GetStringParameter('Files','OutputFilesDirectory',0) +'excellog.txt' ;
+  if logfilekl
+  { if wkl then  deletefile(logfilenm) ;
+    LogStrToFile(logfilenm,w) ;
+  }
+}
+Function MyXlCreaMatrix(wrow :longint;wcol:longint) :boolean ;
+{
+  MyXlCreaMatrix:=XLCREATEMATRIX(wrow,wcol) ;
+  xlClearMatrix ;
+  matrixsdvig:=wexrow-1 ;
+  matrixkl:=true ;
+  matrixlen:=wrow ;
+  matrixrow:=0 ;
+}            
+Function MyxlWriteMatrix(wrow:longint) :boolean ;
+{
+  MyxlWriteMatrix:=xlWriteMatrixToExcel(matrixsdvig+1,0) ;
+  xlClearMatrix ;
+  matrixsdvig:=wrow-1 ;
+}
+
+// выводим рамку
+Function MyxlFrameCells(wtpcell : word ; wtype :word  ; w1:longint ;w2:longint ; rowb :longint ; colb:longint ;
+               rowe:longint ; cole :longint) : boolean ;
+var wtpcelld :word ;               
+{
+   wtpcelld:=xlBorderL or xlBorderR or xlBorderT or xlBorderB ;
+   if rowb<rowe
+     wtpcelld:=wtpcelld or xlInsideH ;
+   if colb<cole
+     wtpcelld:=wtpcelld or xlInsideV ;
+   wtpcelld:=wtpcell and wtpcelld ;     
+   MyxlFrameCells:=xlFrameCells(wtpcelld, wtype,w1,w2,rowb, colb, rowe,cole) ;
+}               
+
+// вывод в файл
+Function MyPutExcel(w:string ;//var wrow:longint ;var wcol:longint ;
+  fontsize:byte ;fontstyle :byte ;fontcolor:longint ;wbackcolor :longint ):word ;
+{ MyPutExcel:=1 ;
+  if matrixkl
+  { if wexrow-matrixsdvig>matrixlen
+    { MyxlWriteMatrix(wexrow) ;  
+       
+    }
+    XLSTWRITETOMATRIX(wexrow-matrixsdvig,wexcol,w) 
+    wexcol:=wexcol+1 ;
+//        XLDOWRITETOMATRIX(wrow-matrixsdvig,wcol,double(trim(w)) ) 
+    exit ;
+  }
+
+
+  if (fontsize>0)
+  { if not xlSetFontSize(fontsize, wexrow, wexcol, wexrow, wexcol) then exit ; 
+  }
+  MyPutExcel:=2 ;
+  if (fontstyle>0)
+  { if not xlSetFontStyle(fontstyle, wexrow, wexcol, wexrow, wexcol) then exit ; 
+  }
+  MyPutExcel:=3 ;
+  if (fontcolor >-1)
+  { if not xlSetFontcolor(fontcolor, wexrow, wexcol, wexrow, wexcol) then exit ; 
+  }
+  MyPutExcel:=4 ;
+  if (wbackcolor >-1)
+  { if not xlSetbackcolor(wbackcolor, wexrow, wexcol, wexrow, wexcol) then exit ; 
+  }
+  MyPutExcel:=5 ;
+  if not xlSetCellStringValue(w,wexrow,wexcol,wexrow,wexcol) then exit;
+  MyPutExcel:=0 ;
+  wexcol:=wexcol+1 ;
+}
+
+Function MyPutExcelNumber(w:double ;//var wrow:longint ;var wcol:longint ;
+  razr:word ; fontsize:byte ;fontstyle :byte ;fontcolor:longint ;wbackcolor :longint ):word ;
+var i:word  ;
+   wnumformat:string ;
+   wwexcol: longint ;
+{ MyPutExcelNumber:=1 ;
+//  if w=0 
+  if (w=0) and (not matrixkl)
+  { 
+#IFDEF EXCEL_0
+    MyPutExcelNumber:=MyPutExcel('0',fontsize,fontstyle,fontcolor,wbackcolor ) ;
+#ELSE   
+    MyPutExcelNumber:=MyPutExcel('-',fontsize,fontstyle,fontcolor,wbackcolor ) ;
+#ENDIF    
+    exit ;
+  }
+  wwexcol:=wexcol ;
+  wexcol:=wexcol+1 ;
+  if matrixkl
+  { if wexrow-matrixsdvig>matrixlen
+    { MyxlWriteMatrix(wexrow) ;  
+       
+    }
+    XLDOWRITETOMATRIX(wexrow-matrixsdvig,wwexcol,w ) 
+    exit ;
+  }
+
+
+  if (fontsize>0)
+  { if not xlSetFontSize(fontsize, wexrow, wwexcol, wexrow, wwexcol) then 
+    {mylogwrite(false,'MyPutExcelNumber '+string(MyPutExcelNumber)) ;  exit ;     }
+  }
+  MyPutExcelNumber:=2 ;
+  if (fontstyle>0)
+  { if not xlSetFontStyle(fontstyle, wexrow, wwexcol, wexrow, wwexcol) then 
+    {mylogwrite(false,'MyPutExcelNumber '+string(MyPutExcelNumber)) ;  exit ;     }
+  }
+  MyPutExcelNumber:=3 ;
+  if (fontcolor >-1)
+  { if not xlSetFontcolor(fontcolor, wexrow, wwexcol, wexrow, wwexcol) then
+    {mylogwrite(false,'MyPutExcelNumber '+string(MyPutExcelNumber)) ;  exit ;     }
+  }
+  MyPutExcelNumber:=4 ;
+  if (wbackcolor >-1)
+  { if not xlSetbackcolor(wbackcolor, wexrow, wwexcol, wexrow, wwexcol) then 
+    {mylogwrite(false,'MyPutExcelNumber '+string(MyPutExcelNumber)) ;  exit ;     }
+  }
+  MyPutExcelNumber:=5 ;
+  if not xlSetCellNumberValue(w,wexrow,wwexcol,wexrow,wwexcol) then 
+  {mylogwrite(false,'MyPutExcelNumber '+string(MyPutExcelNumber)) ;  exit ;     }
+//так работает без вопросов  wnumformat:='0'+wpoint
+  wnumformat:='# ##0'+if(razr>0,wpoint,'')
+  
+  for(i:=1;i<= razr;i:=i+1)
+  { wnumformat:=wnumformat+'0' ;
+  }
+  MyPutExcelNumber:=6 ;
+  if not xlSetNumberFormat(wnumformat,wexrow,wwexcol,wexrow,wwexcol) then 
+  {mylogwrite(false,'MyPutExcelNumber '+string(MyPutExcelNumber)+
+     '/'+string(wexrow)+'/'+string(wwexcol)) ;  exit ;     }
+  MyPutExcelNumber:=0 ;
+}
+
+
+function MyRPos(const w :string ;const ws :string) : word ;
+var i,k:word ;
+{ MyRPos:=0 ;
+  k:=length(ws) ;
+  for (i:=k;i>0;i:=i-1)
+  { if Pos(w,substr(ws,i,k))>0
+    { MyRPos:=i
+      exit ;
+    }
+  }
+
+}
+// получить ожидаемое имя книги из файла
+Function  GetbookNamefromFile(w:string) :string ;
+var i,k :word ;
+begin
+  i:=myrpos('.',w) ;
+  k:=myrpos('\',w) ;
+  k:=k+1 ;
+  if i=0 then i:=length(w)+1 ;
+  GetbookNamefromFile:=substr(w,k,i-k) ;
+end ;
+
+ 
+// инициализация
+Function ExcelInit(wnmfile:string ; fromtemplate :boolean ; wwyear:word ) : word ;
+var
+  XlRes    : Boolean;
+  aFileName,wstr: String;
+  akolfile :longint;
+  aFileName1: string ;
+{ wexrow:=1 ;wexcol:=1;wexlist:=0 ;  wwyear:=0 ;
+  XLKILLEXCEL ;
+  // для отладки
+!#DEFINE _EXCELINIT_  
+//  MyLogWrite(true,'Инициализация Excel') ;
+  ExcelInit:=1 ;
+  if not logfilekl
+    if fileExist(logfilenm) deletefile(logfilenm) ;
+  if logfilenm=''
+  { logfilenm:='!excellog.txt' ;
+    MyLogWrite(true,'Начало печати - '+TimeToStr (Cur_Time, 'HH.MM.SS.SSS'));
+  }
+  else  
+    MyLogWrite(False,'Начало печати - '+TimeToStr (Cur_Time, 'HH.MM.SS.SSS'));
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'Инициализация Excel') ;
+#ENDIF  
+//  xlOpenExcel(True) ; // так проинициализируем
+  wcurbook:=GetbookNamefromFile(wnmfile) ;
+//  message(wcurbook) ;
+/* if xlSetActiveWorkBookByName(wcurbook)
+  { message('Уже открыт файл с таким именем '+wcurbook) ;
+    exit ;
+  
+  }
+  xlKillExcel ;
+*/  
+  XlRes := True;
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'1') ;
+#ENDIF  
+  aFileName := GetStringParameter('Files','OutputFilesDirectory',0) + wnmfile;
+//  message(afilename+'/'+wnmfile) ;
+  ExcelInit:=2 ;
+//  MyLogWrite(false,'удаляем файл '+aFileName) ;
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'2 удаление '+aFileName) ;
+#ENDIF  
+  akolfile:=0 ;
+  if FileExist(aFileName)
+  { 
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'21 удаление '+aFileName) ;
+#ENDIF
+  
+    if not DeleteFile(aFileName)
+    { do 
+      { akolfile:=akolfile+1 ;
+        if akolfile>20 then
+        { akolfile:=0 ;
+        }
+        aFileName1:=substr(aFileName,1,pos('.',aFileName)-1)+'d'+string(akolfile)+'.xls';
+        if FileExist(aFileName1)
+        { DeleteFile(aFileName1)
+        }
+      } while fileexist(aFileName1)
+      if akolfile=0
+      { message('Ошибка при удалении файла '+chr(13)+wnmfile+
+        chr(13)+'возможно он открыт другой программой') ;
+        exit ;
+      }
+      else aFileName:=aFileName1 ;  
+    }
+  }
+    
+//  MyLogWrite(false,'открытие excel '+aFileName) ;
+  ExcelInit:=3 ;
+  if path_template=''
+  {  if (wwyear>=2008) or wwyear=0
+     { wstr:=translatepath('%StartPath%XLS_ED\')+wnmfile ;  }
+     else
+     { wstr:=translatepath('%StartPath%XLS_ED_2007\')+wnmfile ;  }
+  }
+  else
+  { wstr:=path_template+'\'+wnmfile ;  
+  }
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'3 template = '+wstr) ;
+//  message(wstr) ;
+#ENDIF  
+  if fromtemplate
+  {  if not fileexist(wstr)
+     { message('Нет образчика '+wstr)
+       exit ;
+     }  
+     //XlRes := xlCreateExcelWithTemplate(wstr, True);
+     //new
+     XlRes := xlOpenNewExcel(True);
+     if not XLRes
+     { message('Ошибка инициализации Excel ') ;
+       exit ;
+     }
+     
+     XlRes := xlOpenWorkBook(wstr)
+     //end new
+     if not XLRes
+     { message('Ошибка открытия template '+wstr) ;
+       exit ;
+     }
+     else
+     {  xlGetActiveWorkBookName(wcurbook) ;
+        xlSetActiveWorkBookByName(wcurbook) ;
+        xlCloseWorkBookByName('Книга1')
+        xlSetActiveWorkBookByName(wcurbook) ;
+        //xlSaveAsWorkBookByName(wcurbook,aFileName);
+     }   
+  }
+  else  
+    XlRes := xlCreateExcel(aFileName, True);
+// в следующей версии   xlDisplayAlerts(false) ;
+//  MyLogWrite(false,'проверка на корректность '+aFileName) ;
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'4') ;
+#ENDIF  
+
+  if (XlRes) XlRes := xlIsExcelValid;
+  if not xlres then exit; 
+  wcurbook:='' ;
+//  MyLogWrite(false,'имя текущей книги '+aFileName) ;
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'5') ;
+#ENDIF  
+  xlGetActiveWorkBookName(wcurbook) ;
+  ExcelInit:=5 ;
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'6') ;
+#ENDIF  
+  if pos(upcase(GetbookNamefromFile(wnmfile)),upcase(wcurbook))=0
+  { message('выходной файл  уже открыт  '+wstr) ;
+    xlKillExcel;
+    exit ;  
+  }
+  xlSaveAsWorkBookByName(wcurbook, aFileName)
+
+  if matrix_main=1
+  { MyXlCreaMatrix(10000,30) ;
+    matrixkl:=true ;
+  }
+  else matrixkl:=false ;
+  
+#IFDEF _EXCELINIT_  
+  MyLogWrite(false,'7 - end ExcelInit') ;
+#ENDIF  
+//  MyLogWrite(false,wcurbook) ;
+  ExcelInit:=0 ;
+}
+
+
+// MyXlCreaMatrix(10000,30)
+Function MyXlEnd :boolean ;
+var wPictBook,fbasname:string ;
+{
+  if matrixkl then
+  { MyxlWriteMatrix(wexrow) ;
+    xlFreeMatrix ;
+  }
+  xlRunMacro('AfterForm') ;
+  XLGETACTIVEWORKBOOKNAME(wPictBook) ;
+  fbasname:=GetStringParameter('Files','OutputFilesDirectory',0)+wPictbook+'.xls' ;
+  if fileexist(fbasname) deletefile(fbasname) 
+  xlSaveAsWorkBookByName(wPictbook, fbasname)
+  XLKILLEXCEL ;
+  MyXlEnd:=true ;
+#IFDEF _EXCEL_MES_
+  message('Переключитесь в Excel и смотрите отчет') ;
+#ENDIF  
+ if fileexist(logfilenm) and logfilekl
+ { message('В процесе формирования обнаружены ошибки'+chr(13)+
+    'смотрите "'+logfilenm+'" в рабочей папке ярлыка на запуск Галактики')
+     ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+              logfilenm+' Протокол ошибок');
+ 
+ }  
+}
+
+Function Excel_Edit(wnmfile:string  ) : word ;
+var
+  wstr: String;
+  
+{ wstr:=translatepath('%StartPath%XLS_ED\')+wnmfile ; 
+  Excel_Edit:=0 ;
+  if not fileexist(wstr)
+  { message('нет файла '+wstr)
+    exit ;
+  } 
+ // xlOpenExcel(wstr, True);
+ //  XLKILLEXCEL ;
+ ExecProgram (wstr,'',
+      'редактирование шаблона '+wstr,0);
+
+
+}
+   

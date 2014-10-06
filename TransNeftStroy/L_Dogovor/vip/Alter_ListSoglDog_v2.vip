@@ -1,0 +1,217 @@
+
+alter interface ListSoglDog;
+
+Const
+  LS_NameAttr9 = 'Лист согласования. 9. Дата реестра' ;
+end;
+
+create view
+var
+_papa         : comp
+LS_dReestr    : date
+ as select
+  * from
+  KatPodr KatPodr_Alt
+, synonym Appointments MainAppoint
+, synonym Catalogs     MainPostCat
+, synonym Dogovor      DogovorPapa
+, synonym AttrDog      AttrDog_Alt
+;
+
+  overload
+    DataStream dsLS;
+    Function GetPersInfo(pRec: comp; var sFIO, sCat: string): boolean;
+    Function CheckAttrsLS: boolean;
+    Procedure GetAttrsLS;
+!    Function SetPosition(aDogovor: comp; aCanModifyDog: boolean): boolean;
+  end;
+
+  OverloadFormats scListSogl;
+
+  DataStream dsLS (
+    [Boss]             GetSurnameWithInitials( sGetTune('BOSS') );
+    [BossDolzh]        if(GetFirst MainPostCat where (( coGetTune('BOSS')   == Persons.nRec
+                                                    and Persons.AppointCur  == MainAppoint.nRec
+                                                    and MainAppoint.Post    == MainPostCat.nRec
+                                                     )) = tsOk
+                      , MainPostCat.Name
+                      , '');
+    KatOrg.UNN;
+    [DogDBeg]          if (Dogovor.dBeg > LongInt(0), Dogovor.dBeg, '');
+    [DogDEnd]          if (Dogovor.dEnd > LongInt(0), Dogovor.dEnd, '');
+    Dogovor.Summa;
+    AttrDog.Sign_my_osn;
+
+    [cDogPapa]         Dogovor.cDogovor;
+
+    [DogNom]           Dogovor.NoDoc;
+    [DogDat]           if (Dogovor.dInput > LongInt(0)    , Dogovor.dInput    , '');
+
+    [DogPapaNom]       if (_papa > 0, DogovorPapa.NoDoc, '');
+    [DogPapaDat]       if (_papa > 0, if (DogovorPapa.dInput > LongInt(0), DogovorPapa.dInput, ''), LongInt(0) );
+
+    [strLS_dInput]     if (LS_dInput > LongInt(0)    , LS_dInput        , '');
+    [strLS_dVozv]      if (LS_dVozv > LongInt(0)     , LS_dVozv         , '');
+    [strLS_dFactVozv]  if (LS_dFactVozv > LongInt(0) , LS_dFactVozv     , '');
+    [strLS_NoDoc]      if (LS_NoDoc > '',LS_NoDoc,'Б/Н 0000');
+                       //if (oExtAttr.sGetAttr(coDogovor, Dogovor.nRec, LS_NameAttr2)>'','01234','0000');
+                       //if (LS_NoDoc > '',LS_NoDoc,'0')
+    [TNFaddr]          AttrDog.Cont_Addr;
+    [TNFfio]           AttrDog.Cont_FIO;
+    [IspAddr]          AttrDog.Cont_My_Addr;
+    [IspFio]           AttrDog.Cont_My_FIO;
+
+    [KontragentRuch]   Dogovor.ShipAddTerms;
+
+    [SmetaSum]         oExtAttr.doGetAttrID(coDogovor, Dogovor.nRec, Attr_SmetaSum );
+
+    [NameFil]          if (GetFirst GrDescr where ((Dogovor.DesGr == GrDescr.DesGr))  = tsOk
+                       , GrDescr.Name
+                       , 'группа не определена');
+
+    [Name_DesGr]       if (Dogovor.DesGr<>'',Dogovor.DesGr,'филиал не определен');
+    [FIOSotrud]        if (GetFirst x$Users where ((Dogovor.Descr == x$Users.xu$LoginName))  = tsOk
+                       , x$Users.xu$FullName + '/'+Dogovor.DesGr+'/'
+                       , 'сотрудник не определен');
+  )
+  end;
+
+
+Function GetPersInfo(pRec: comp; var sFIO, sCat: string): boolean;
+{
+  Result := GetFirst FastFirstRow Persons where (( pRec == Persons.nRec )) = tsOk;
+
+  if not Result
+    sFIO := sCat := ''
+  else
+    {
+      sFIO := Persons.FIO;
+
+      if ( GetFirst FastFirstRow Appointments where (( Persons.AppointCur == Appointments.nRec )) = tsOk )
+        if ( GetFirst FastFirstRow Catalogs where (( Appointments.Post == Catalogs.nRec )) = tsOk )
+          sCat := Catalogs.Name;
+
+      if ( GetFirst FastFirstRow KatPodr_Alt where (( Persons.GalDep == KatPodr_Alt.nRec )) = tsOk ) {
+            sCat := sCat + ' ' + KatPodr_Alt.Name;
+      }
+    }
+}
+
+Function CheckAttrsLS: boolean;
+{
+  Result := TRUE;
+
+  if (inherited :: CheckAttrsLS) then {
+      if (GetLast AttrDog_Alt
+           where ((sGetTune('USER.DESGR') == AttrDog_Alt.Sign_Post (noIndex) )) = tsOK ) {
+             AttrDog.Cont_Addr := AttrDog_Alt.Cont_Addr;
+             AttrDog.Cont_FIO  := AttrDog_Alt.Cont_FIO;
+        }
+
+      AttrDog.Sign_Post := sGetTune('USER.DESGR');
+      Update current AttrDog;
+
+      RereadRecord(#AttrDog);
+
+      oExtAttr.CreateAttr(coDogovor, LS_NameAttr9, cgAttrType_Date);
+    }
+}
+
+Procedure GetAttrsLS;
+{
+  LS_dReestr   := oExtAttr.dGetAttr(coDogovor, pDogovor, LS_NameAttr9);
+!  LS_NoDoc     := oExtAttr.sGetAttr(coDogovor, Dogovor.nRec, LS_NameAttr2);
+  Message(''#3''+'GetAttr-1 .№ Реестра'    +oExtAttr.sGetAttr(coDogovor, Dogovor.nRec, LS_NameAttr1)+''#13''+
+          ''#3''+'GetAttr-2. № Листа'      +oExtAttr.sGetAttr(coDogovor, Dogovor.nRec, LS_NameAttr2)+''#13''+
+          ''#3''+'GetAttr-3. Дата выдачи'  +oExtAttr.sGetAttr(coDogovor, Dogovor.nRec, LS_NameAttr3)+''#13''+
+!          ''#3''+'GetAttr-4. Статус'       +LS_NameAttr4+''#13''+
+!          ''#3''+'GetAttr-5. Дата взвр'    +LS_NameAttr5+''#13''+
+!          ''#3''+'GetAttr-6. Факт дата взв'+LS_NameAttr6+''#13''+
+!          ''#3''+'GetAttr-7. Примечание'   +LS_NameAttr7+''#13''+
+!          ''#3''+'GetAttr-8. Ссылка на ста'+LS_NameAttr8+''#13''+
+          ''#3''+'GetAttr-9. Дата реестра' +oExtAttr.sGetAttr(coDogovor, Dogovor.nRec, LS_NameAttr9)+''#13
+,OkButton);
+
+  inherited :: GetAttrsLS;
+}
+
+/*
+Function SetPosition(aDogovor: comp; aCanModifyDog: boolean): boolean; {
+  inherited :: SetPosition;
+
+  SetFieldProtected(#LS_dReestr  , not CanModifyDog);
+}
+*/
+Panel panList
+  NoTableNavigation;
+
+Screen scListSogl ('Лист согласования',, sci13Esc);
+!  show at (,,,4)
+
+Fields
+  LS_NoReestr  (,, sci1Esc): NoProtect;
+  LS_dInput    : NoProtect;
+  LS_dVozv     : NoProtect;
+  LS_NoDoc     ('Номер соглашения',, sci1Esc): noProtect;
+  LS_dReestr   : NoProtect;
+  LS_dFactVozv ('Фактическая дата выдачи',,), NoProtect;
+  LS_StatusName ('Статус',,), Protect, PickButton;
+  LS_State: Skip, { Font = { Bold = TRUE; } };
+  AttrDog.Cont_Addr    ('Должность сотрудника'    ,, sci1Esc ), noProtect;
+  AttrDog.Cont_FIO     ('ФИО сотрудника'          ,, sci1Esc ), noProtect;
+  Dogovor.ShipAddTerms ('Контрагент (ручной ввод)',, sci1Esc ), noProtect;
+<<
+`№ реестра` .@@@@@@@@@@   `Дата выдачи`  .@@@@@@@@@@    `Дата возврата`.@@@@@@@@@@
+`№ листа`   .@@@@@@@@@@   `Дата реестра` .@@@@@@@@@@       `фактически`.@@@@@@@@@@
+`Статус`    .@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`от ТНФ:`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Контрагент (ручной ввод)` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end;  // Screen scListSogl ('Лист согласования',, sci13Esc);
+
+HandleEvent
+cmCheckField: {
+  case CurField of
+    #LS_dReestr  : oExtAttr.dSetAttr (coDogovor, pDogovor, LS_NameAttr9, LS_dReestr );
+  end;
+
+  inherited::handleEvent (cmCheckField);
+  }
+end;        // Panel HandleEvent
+
+end;  // Panel panList
+
+
+HandleEvent // Interface
+  cmPrintDoc: {
+//  Message(''#3''+'PRN ' +' '+LS_NoDoc,OkButton);
+    _papa := Dogovor.cDogovor;
+
+    while ( GetFirst DogovorPapa where (( _papa == DogovorPapa.nRec )) = tsOK ) {
+       if DogovorPapa.cDogovor > 0 {
+       _papa := DogovorPapa.cDogovor;
+       } else {
+         break;
+         }
+    }
+
+  inherited::handleEvent (cmPrintDoc);
+  }
+
+  cmCheckField : {
+  inherited::handleEvent (cmCheckField);
+    case CurField of
+      #AttrDog.Cont_Addr
+    , #AttrDog.Cont_FIO
+    : {
+           UpDate current AttrDog;
+      }
+      #Dogovor.ShipAddTerms : {
+           UpDate current Dogovor;
+        }
+    end;
+  }
+
+End;
+
+end.

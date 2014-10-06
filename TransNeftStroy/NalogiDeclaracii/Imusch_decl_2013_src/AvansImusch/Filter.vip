@@ -1,0 +1,1071 @@
+#include GetKau.vih
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface SelectKPP 'Выберите КПП' DoAccept,EscClose,cyan,AlwaysReturn;
+Show at(1,1,82,26);
+var
+  SelKPP:string;
+  NrecKPP:comp;
+create view
+from KatKod
+where
+((
+   word(6)  ==  KatKod.wType
+))
+;
+
+parameters
+  SelKPP, NrecKPP;
+
+  browse brKPP
+    show at (,,,);
+  fields
+    KatKod.Name : Protect;
+    KatKod.Kod  : Protect;
+  end;
+
+ HandleEvent
+
+  cmDone:
+  {
+    SelKPP  := KatKod.Kod;
+    NrecKPP := KatKod.Nrec;
+    CloseInterface(cmDefault);
+    stop;
+  }
+ end;
+end.
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface SelectGNI 'Выберите ГНИ' DoAccept,EscClose,cyan,AlwaysReturn;
+Show at(1,1,82,25);
+var
+  InsKod, SelGNI, _UNN :string
+  NrecGNI              :comp
+
+create view
+from KatOrg, KatKod;
+
+parameters
+  SelGNI, NrecGNI, _UNN, InsKod;
+
+  browse brGNI
+    show at (,,,);
+  fields
+    KatOrg.UNN  'ИНН': [15],Protect;
+    KatOrg.Code 'Код': [10],Protect;
+    KatOrg.Name 'Организация': [30], Protect;
+  end;
+
+  HandleEvent
+    cmDone:
+    {
+      _UNN    := '';
+
+      SelGNI  := KatOrg.Name;
+      NrecGNI := KatOrg.Nrec;
+
+      _UNN    := KatOrg.UNN;
+      InsKod  := SubStr(KatOrg.UNN,1,4);
+
+      if ( trim(KatOrg.UNN) = '' )
+        message('Код ИНН для налоговой организации не задан!');
+
+      // если выбранная организация привязана к справочнику ГНИ, то код берём из справочника ГНИ
+      if ( GetFirst KatKod where (( word(2) == KatKod.wType and NrecGNI == KatKod.cOrg3 )) = tsOk )
+        InsKod := KatKod.KOD;
+
+
+      CloseInterface(cmDefault);
+      stop;
+    }
+  end;
+end.
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface fOKATO 'Заполните фильтры по ОКАТО' DoAccept,EscClose,cyan,AlwaysReturn;
+Show at(1,1,75,31);
+var
+
+  dFrom
+, dTo         : date
+
+  nomer
+, Mesto       : word
+
+  sName
+, sMaska
+, sMaska1
+, sMaska2
+, InsKod      : string
+
+  bInsMode
+, bYES
+, bEditMode   : boolean
+
+  iGetKau     : GetKau
+
+create view
+from
+  UserDeskRep
+, UserDeskRep UserDeskRep2
+, STerr
+, STerr STerrATD
+, Oborot
+, AttrNam
+, AttrVal
+, SaldMoun
+, FpPeriod
+
+where
+((
+        nomer                       ==  UserDeskRep.nRep
+   and  Mesto+'-'+sName+'-'+InsKod  ==  UserDeskRep.RepName     (length = 20)
+   and  UserDeskRep.ResComp[1]      ==  STerr.nRec
+
+   and  integer(2201)               ==  STerrATD.SysCode
+
+   and  UserDeskRep.nRep            ==  UserDeskRep2.nRep
+   and  UserDeskRep.RepName         ==  UserDeskRep2.RepName    (length = 20)
+   and  UserDeskRep.ResComp[1]      ==  UserDeskRep2.ResComp[1] (NoIndex)
+   and  ( UserDeskRep.nRec <> UserDeskRep2.nRec )
+
+   and  word(3108)                  ==  AttrNam.wTable
+   and  'ОКАТО'                     ==  AttrNam.name
+
+   and  AttrNam.nRec                ==  AttrVal.cAttrNam
+   and  UserDeskRep.ResComp[1]      ==  AttrVal.vComp     (NoIndex)
+
+   and  Oborot.KAUOS[2]             ==  FpPeriod.nRec
+))
+;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+parameters
+  nomer, Mesto, sName, InsKod, dFrom, dTo
+;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+procedure GetOKATO( bDELL : boolean );
+{
+  var s : string;
+  var kol : integer;
+
+  if ( sMaska = '' )
+  {
+    message('маска не заполнена');
+    exit;
+  }
+
+  if ( length(sMaska) > 11 )
+  {
+    message('маска заполнена некорректно. кол-во символов более 11.');
+    exit;
+  }
+
+  // делаем две границы для выборки ОКАТО
+  sMaska1 := PadCh(sMaska,'0',11);
+  sMaska2 := PadCh(sMaska,'9',11);
+
+  if ( bDELL )
+   s := 'Список ОКАТО будет ОЧИЩЕН и заполнен по маске'+chr(13)+'Продолжить?';
+  else
+   s := 'Список ОКАТО будет ДОПОЛНЕН по маске'+chr(13)+'Продолжить?';
+
+  if ( Message( s, yesNo+Confirmation) <> cmYes )
+   exit;
+
+  if ( bDELL )
+   delete all UserDeskRep;
+
+!  message( sMaska1 + ' - ' + sMaska2 );
+
+  StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm, 'Выбор ОКАТО по маске', 1);
+
+  kol := 0;
+
+  _loop STerr where (( STerrATD.nRec == STerr.cRec and sMaska1 <<= STerr.sCode (NoIndex) and sMaska2 >>= STerr.sCode (NoIndex) ))
+  {
+    NextVisual;
+
+    ClearBuffer(#UserDeskRep);
+     set UserDeskRep.ResComp[1] := STerr.nRec;
+     set UserDeskRep.ResCode[1] := STerr.sCode;
+     set UserDeskRep.ResName[1] := STerr.sName;
+
+    if ( GetFirst UserDeskRep2 <> tsOk ) // дубли учитываем
+    {
+      insert current UserDeskRep;
+      ++kol;
+    }
+  }
+
+  StopVisual('', 0);
+
+  ReReadRecord(#UserDeskRep);
+
+  if ( bDELL )
+   s := 'Создан список из '+kol+' ОКАТО';
+  else
+   s := 'Список дополнен ' +kol+' ОКАТО';
+
+  message(s);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+screen sMaska;
+ show at(,1,,7);
+  fields
+    sMaska  : NoProtect;
+
+    dFrom   : Protect;
+    dTo     : Protect;
+
+  buttons
+    cmButOk;
+    cmButClear;
+    cmValue21;
+    cmValue22;
+<<
+  `маска ОКАТО для заполнения списка` .@@@@@@@@@@@@
+   указать первые символы в коде ОКАТО, которые нужно выбрать
+   <. Новый список по маске    .>  <. Очистить список ОКАТО     .>
+
+   <. Дополнить ОКАТО по маске .>  <. Убрать ОКАТО без движения .>
+
+                     отчётный период: .@@@@@@@@@@@@  .@@@@@@@@@@@@
+>>
+end;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+HandleEvent
+cmInit:
+{
+  if ( GetFirst STerrATD <> tsOk )
+  {
+    message('Не найден справочник STERR с системным кодом 2201 - Справочник ОКАТО (для модуля "Капитальное строительство")');
+    exit;
+  }
+
+  if ( GetFirst fastfirstrow AttrNam <> tsOk )
+  {
+    message('Не заведен внешний атрибут "ОКАТО" для элементов стоимости объектов'
+             +chr(13)+'(раздел финансирования карточки ОС)' );
+    exit;
+  }
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmButClear:
+{
+  if ( Message('Список ОКАТО будет очищен'+chr(13)+'Продолжить?', yesNo+Confirmation) <> cmYes )
+   exit;
+
+  delete all UserDeskRep;
+
+  ReReadRecord(#UserDeskRep);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmButOk:
+{
+  GetOKATO( TRUE );  // с очисткой списка
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmValue21:
+{
+  GetOKATO( FALSE ); // без удаления списка ОКАТО
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmValue22:
+{
+  var kol : integer;
+
+  if ( Message( 'Удалить из списка ОКАТО без движения ??', yesNo+Confirmation) <> cmYes )
+   exit;
+
+
+  StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm, 'Удаление ОКАТО без движения', 1);
+
+  kol := 0;
+
+  _loop UserDeskRep
+  {
+    nextvisual;
+
+    bYES := FALSE; // нет операций
+
+    // 801
+    _loop Oborot where (( 'N801' == Oborot.SchetO and UserDeskRep.ResComp[1] == Oborot.KAUOS[3] ))
+     if ( GetFirst fastfirstrow FpPeriod = tsOk )
+      if ( FpPeriod.dBeg <= dTo and dFrom <= FpPeriod.dEnd )
+      {
+        bYES := TRUE;
+        continue;
+      }
+
+    // источники финансирования - внешние атрибуты
+    if ( GetFirst fastfirstrow AttrVal = tsOk )
+    {
+      bYES := TRUE;
+      continue;
+    }
+
+    // сальдо
+    if ( GetFirst fastfirstrow SaldMoun where ((      'T01'                   ==  SaldMoun.SchetO
+                                                 and  UserDeskRep.ResComp[1]  ==  SaldMoun.KauOS[3]
+                                                 and  dFrom                  <<=  SaldMoun.DateSal
+                                                 and  dTo                    >>=  SaldMoun.DateSal   )) = tsOk )
+    {
+      bYES := TRUE;
+      continue;
+    }
+
+    if ( GetFirst fastfirstrow SaldMoun where ((      'T02'                   ==  SaldMoun.SchetO
+                                                 and  UserDeskRep.ResComp[1]  ==  SaldMoun.KauOS[3]
+                                                 and  dFrom                  <<=  SaldMoun.DateSal
+                                                 and  dTo                    >>=  SaldMoun.DateSal   )) = tsOk )
+    {
+      bYES := TRUE;
+      continue;
+    }
+
+    if ( GetFirst fastfirstrow SaldMoun where ((      'T03'                   ==  SaldMoun.SchetO
+                                                 and  UserDeskRep.ResComp[1]  ==  SaldMoun.KauOS[3]
+                                                 and  dFrom                  <<=  SaldMoun.DateSal
+                                                 and  dTo                    >>=  SaldMoun.DateSal   )) = tsOk )
+    {
+      bYES := TRUE;
+      continue;
+    }
+
+    if ( GetFirst fastfirstrow SaldMoun where ((      'T010'                  ==  SaldMoun.SchetO
+                                                 and  UserDeskRep.ResComp[1]  ==  SaldMoun.KauOS[5]
+                                                 and  dFrom                  <<=  SaldMoun.DateSal
+                                                 and  dTo                    >>=  SaldMoun.DateSal   )) = tsOk )
+    {
+      bYES := TRUE;
+      continue;
+    }
+
+    /// удаляем по необходимости - не было обнаружено данных для данного ОКАТО
+    if not bYES
+    {
+      ++kol;
+      delete current UserDeskRep;
+    }
+  }
+
+  StopVisual('', 0);
+  ReReadRecord(#UserDeskRep);
+
+  message('Из списка ОКАТО удалено ' + kol + ' записей без движения');
+
+}
+end;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+browse brwOKATO2 (,,);
+  show at (,8,,);
+  table UserDeskRep;
+
+fields
+  UserDeskRep.ResCode[1]    #3'Код',#3'OKATO'            ('Код OKATO')          : [11], Protect,PickButton;
+  UserDeskRep.ResName[1]    #3'Наименование',#3'OKATO'   ('Наименование OKATO') : [20], Protect,PickButton;
+
+  UserDeskRep.ResDouble[1]  #3'Сумма по коду льготы 2012000',#3'строка 200 (КВИ3) для ОКАТО'
+                             ('Сумма по коду льготы 2012000 строка 200 (КВИ3) для ОКАТО') : [15], NoProtect;
+end;
+//------------------------------------------------------------------------------
+tableEvent
+  table UserDeskRep
+
+cmPick:
+{
+  if ( CurField = #UserDeskRep.ResCode[1] or CurField = #UserDeskRep.ResName[1] )
+  {
+    iGetKau.GetCodeKau( cgiPick, cgKau_ATD, UserDeskRep.ResComp[1] );
+
+    if ( GetFirst STerr = tsOk )
+    {
+      set UserDeskRep.ResCode[1] := STerr.sCode;
+      set UserDeskRep.ResName[1] := STerr.sName;
+
+      if ( GetFirst UserDeskRep2 = tsOk )
+      {
+        message('Такой ОКАТО уже выбран');
+
+        set UserDeskRep.ResComp[1] := comp(0);
+        set UserDeskRep.ResCode[1] := '';
+        set UserDeskRep.ResName[1] := '';
+
+!        delete current UserDeskRep;
+      }
+      else
+      {
+        if ( not IsNew )
+         UpDate current UserDeskRep;
+      }
+    }
+
+    RescanPanel(brwOKATO2);
+  }
+}
+
+cmUpdateRecord:
+{
+  if ( update current UserDeskRep <> tsOk )
+    message('Ошибка при выполнении операции.' + chr(13) +
+            'Повторите ввод данных.'    , OkButton+Error);
+}
+
+cmInsertRecord:
+{
+  if ( insert current UserDeskRep <> tsOk )
+    message('Ошибка при выполнении операции.' + chr(13) +
+            'Повторите ввод данных.'    , OkButton+Error);
+}
+
+cmDeleteRecord:
+{
+  if ( delete current UserDeskRep <> tsOk )
+    message('Ошибка при выполнении операции.' + chr(13) +
+            'Повторите удаление данных.', OkButton+Error);
+}
+
+end; // handleEvent
+end.
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+const
+  cmButOk    = 323244;
+  cmButClear = 432341;
+end;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface Filter 'Настройки отчета "Авансовый расчёт по налогу на имущество" [2013]' AlwaysReturn;
+show at (1,1,75,32);
+create view
+var
+  iGetKau    : GetKau
+
+  i          : LongInt
+
+  dFrom
+, dFrom801
+, dTo801
+, dTo
+, dOtch     : date
+
+  SelKPP
+, SelGNI
+, InsKod
+, SelStruct
+, fFileXML  // полное имя файла
+, fFile
+, fPath
+, OKATO
+, sYear
+, Kod_Nal_130
+, Kod_Nal_160
+, Kod_Nal_190
+, Nal_stav
+, Nal_stav2
+, telefon
+, FIO_Pred
+, DOK_PRED
+, sBigOKATO
+, _UNN       : string
+
+  cKau
+, cBigOKATO
+, NrecKPP
+, NrecGNI    : comp
+
+  fXML
+, fNULL
+, f068
+, fBIG  // формировать укрупнённо
+, wNew
+, Vers
+, nomer
+, mesto
+, period     : word
+
+
+from
+  KatOrg
+, UserDeskRep
+, SpKau
+, KatKod
+, STerr
+where
+((
+       coGetTune('MYORG')          ==  KatOrg.nRec
+  and  cKau                        ==  SpKau.nRec
+
+  and  nomer                       ==  UserDeskRep.nRep
+  and  Mesto+'-'+SelKPP+'-'+InsKod ==  UserDeskRep.RepName (length = 20)
+
+  and  cBigOKATO                   ==  STerr.nRec
+))
+;
+
+parameters
+  SelGNI
+, InsKod
+, dOtch
+, dFrom
+, dTo
+, f068
+, fXML
+, fFile
+, fFileXML
+, nomer
+, Mesto
+, SelKPP
+, Kod_Nal_130
+, Kod_Nal_160
+, Kod_Nal_190
+, Nal_stav
+, Nal_stav2
+, Vers
+, telefon
+, FIO_Pred
+, DOK_PRED
+, cBigOKATO
+, dFrom801
+, dTo801
+, fNULL
+;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+screen SFilter;
+ show at(,,,);
+  fields
+    dOtch    : NoProtect;
+    dFrom    : NoProtect;
+    dTo      : NoProtect;
+
+    wNew     : NoProtect;
+
+    dFrom801 : NoProtect;
+    dTo801   : NoProtect;
+
+    Vers     : NoProtect;
+
+    fNULL    ( 'Не выводить в протокол нулевые значения',,sci1Esc): NoProtect;
+
+    telefon  : NoProtect;
+    FIO_PRED : NoProtect;
+    DOK_PRED : NoProtect;
+
+    // коды места нахождения (учета) Приложение N 1 к Порядку заполнения налоговой декларации по налогу на имущество организаций
+    mesto       : [LIST 000 'Нет выбора',
+                        213 '213 - По месту учета крупнейшего налогоплательщика',
+                        214 '214 - По месту нахождения российской организации',
+                        221 '221 - По месту нахождения обособленного подразделения российской организации, имеющего отдельный баланс',
+                        245 '245 - По месту постановки на учет в налоговом органе иностранной организации',
+                        281 '281 - По месту нахождения объекта недвижимого имущества' ], Protect;
+
+
+    SelKPP      :Protect,PickButton;
+    SelGNI      :Protect,PickButton;
+
+    OKATO       :Protect,PickButton;
+
+    fBIG        ( 'Формировать укрупнённо' ,) : NoProtect;
+    sBigOKATO   :Protect,PickButton;
+
+    Kod_Nal_130 :Protect,PickButton;
+    Kod_Nal_160 :Protect,PickButton;
+
+    Nal_stav    :NoProtect;
+    Nal_stav2   :NoProtect;
+
+    fXML     ( 'Формировать файл XML',,sci1Esc): NoProtect;
+    fFile    ( 'Формируемый XML файл'        ,): Protect;
+    fPath    ( 'Формируемый XML файл'        ,): Protect;
+
+    f068     ( 'Формировать бух.справки',,sci1Esc): NoProtect;
+
+  buttons
+    cmButOk;
+    cmButClear;
+<<
+  `Дата отчета`.@@@@@@@@@@                                v. АПРЕЛЬ 2013
+   Период   `с`.@@@@@@@@@@  `по`.@@@@@@@@@@  (нарастающим с начала года)
+
+  [.] Уточняющая декларация`              `с`.@@@@@@@@@@ `по`.@@@@@@@@@@
+   `Номер корректировки` .@@@@              период для отбора проводок по 801
+  [.] Не выводить в протокол нулевые значения`
+  `номер контактного телефона`       `представитель (1: Ф.И.О.; 2: документ)`
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  1.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                                    2.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  `Код места учета`.@@@@@@@@@@@@@@@@@@@@@@@@ `КПП`.@@@@@@@@@@@@@@@@@@@@@
+              `ГНИ`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  `Список ОКАТО для отчета по выбранному КПП и ГНИ`
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  [.] формировать УКРУПНЁННО`   `указывать ОКАТО:` .@@@@@@@@@@@@
+
+                       Коды налоговых льгот (КНЛ)
+  `Код налоговой льготы (КНЛ)`             .@@@@@@@@@  [стр.130]
+  `КНЛ (в виде понижения налоговой ставки)`.@@@@@@@@@  [стр.160]
+
+  `Основная налоговая ставка` .@@@@  (пример ввода: "2.20")
+  `Налоговая ставка 0.4`      .@@@@  (пример ввода: "0.4")
+
+  [.] Формировать XML файл`
+  `Генерируемый файл`
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Путь для файла XML`
+  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  [.] Формировать бух.справки по 068 счету (данные для декларации)`
+  <. Сформировать .>  <. Отменить .>
+
+>>
+
+end;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+HandleEvent
+cmInit:
+{
+  ReadMyDsk(telefon,'telefon',true);
+
+  ReadMyDsk(Kod_Nal_130,'avans_Kod_Nal_130',true);
+  ReadMyDsk(Kod_Nal_160,'avans_Kod_Nal_160',true);
+  ReadMyDsk(Kod_Nal_190,'avans_Kod_Nal_190',true);
+
+  dFrom := dTo := date(0,0,0);
+  cKau := comp(0);
+  i := 0;
+
+  wNew  := 0;
+  Vers  := 0;
+  fBIG  := 0;
+  f068  := 0;
+  fNULL := 1;
+
+  sBigOKATO := '';
+  cBigOKATO := comp(0);
+
+  dOtch := Cur_Date;
+  sYear := DateToStr( Sub_Months(Cur_Date,12), 'YYYY' );
+
+  OKATO := 'Нужно выбрать КПП и ГНИ перед заполнение списка ОКАТО'
+
+  SelKPP := _UNN := InsKod := SelGNI := '';
+
+  dFrom := date(01,01,Year(Cur_Date));
+
+
+  if ( month(Cur_Date) > 3 )
+  {
+    Period  := 1;
+    dTo   := date(31,03,Year(Cur_Date));
+  }
+
+  if ( month(Cur_Date) > 6 )
+  {
+    Period  := 2;
+    dTo   := date(30,06,Year(Cur_Date));
+  }
+
+  if ( month(Cur_Date) > 9 )
+  {
+    Period  := 3;
+    dTo   := date(30,09,Year(Cur_Date));
+  }
+
+  if ( month(Cur_Date) < 3 )
+  {
+    Period  := 4;
+    dTo   := date(31,12,Year(Cur_Date)-1);
+  }
+
+  if ( GetFirst KatOrg <> tsOk )
+  {
+    message('Укажите в общесистемных настройках собственную организацию');
+    CloseInterface(cmCancel);
+    stop;
+  }
+  else
+  {
+    if ( KatOrg.KodPlatNDS = '' )
+    {
+      message('Для собственной организации не указан код КПП');
+      CloseInterface(cmCancel);
+      stop;
+    }
+
+    if ( KatOrg.UNN = '' )
+    {
+      message('Для собственной организации не указан код УНН');
+      CloseInterface(cmCancel);
+      stop;
+    }
+  }
+
+  Nal_stav  := '2.20'
+  Nal_stav2 := '0.4'
+
+  fPath  := GetStringParameter('files','OutputFilesDirectory',0)+'xml\';
+  fFile  := 'задайте все параметры';
+  fXML := 0;
+
+  ClearFieldOption(#OKATO , ofSelectable);
+  ClearFieldOption(#SelKPP, ofSelectable);
+  ClearFieldOption(#SelGNI, ofSelectable);
+  ClearFieldOption(#sBigOKATO, ofSelectable);
+
+  if ( fXML = 1 )
+  {
+    SetFieldOption(#fFile, ofSelectable);
+    SetFieldOption(#fPath, ofSelectable);
+  }
+  else
+  {
+    ClearFieldOption(#fFile, ofSelectable);
+    ClearFieldOption(#fPath, ofSelectable);
+  }
+
+  if ( wNew = 1 )
+    SetFieldOption(#Vers, ofSelectable);
+  else
+    ClearFieldOption(#Vers, ofSelectable);
+
+  if ( fBIG = 1 )
+    SetFieldOption(#sBigOKATO, ofSelectable);
+  else
+  {
+    ClearFieldOption(#sBigOKATO, ofSelectable);
+    set sBigOKATO := '';
+    cBigOKATO := comp(0);
+  }
+
+  dFrom801 := dFrom;
+  dTo801   := dTo;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmDelOnProtect:
+{
+  if ( CurField = #SelGNI or CurField = #SelKPP )
+  {
+    SelKPP  := SelGNI := _UNN := InsKod := '';
+    NrecKPP := NrecGNI := comp(0);
+  }
+
+  if ( CurField = #Kod_Nal_130 )
+   Kod_Nal_130 := '';
+
+  if ( CurField = #Kod_Nal_160 )
+   Kod_Nal_160 := '';
+
+  if ( CurField = #sBigOKATO )
+  {
+    set sBigOKATO := '';
+    cBigOKATO := comp(0);
+  }
+
+  ProcessCommand(cmCheckField);
+  ReScanPanel(SFilter);
+
+} // cmDelOnProtect
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmCheckField:
+{
+  Nal_stav := Replace(Nal_stav,',','.');
+  Nal_stav2 := Replace(Nal_stav2,',','.');
+
+
+  if ( length(trim(Mesto)) <> 3 )
+    Mesto := 0;
+
+  if ( Mesto = 0 )
+    SelKPP := SelGNI := _UNN := InsKod := '';
+
+  if ( Mesto <> 0 )
+    SetFieldOption(#SelKPP, ofSelectable);
+  else
+    ClearFieldOption(#SelKPP, ofSelectable);
+
+  if ( SelKPP <> '' )
+    SetFieldOption(#SelGNI, ofSelectable);
+  else
+    ClearFieldOption(#SelGNI, ofSelectable);
+
+  if ( _UNN <> '' )
+    SetFieldOption(#OKATO , ofSelectable);
+  else
+    ClearFieldOption(#OKATO , ofSelectable);
+
+  if ( fXML = 1 )
+  {
+    SetFieldOption(#fFile, ofSelectable);
+    SetFieldOption(#fPath, ofSelectable);
+  }
+  else
+  {
+    ClearFieldOption(#fFile, ofSelectable);
+    ClearFieldOption(#fPath, ofSelectable);
+  }
+
+  if ( wNew = 1 )
+    SetFieldOption(#Vers, ofSelectable);
+  else
+  {
+    ClearFieldOption(#Vers, ofSelectable);
+    Vers := 0;
+  }
+
+  if ( fBIG = 1 )
+    SetFieldOption(#sBigOKATO, ofSelectable);
+  else
+  {
+    ClearFieldOption(#sBigOKATO, ofSelectable);
+    set sBigOKATO := '';
+    cBigOKATO := comp(0);
+  }
+
+
+  fFileXML := fFile := '';
+
+  if ( _UNN <> '' )
+  {
+    if ( GetFirst KatOrg <> tsOk )
+    {
+      message('Укажите в общесистемных настройках собственную организацию');
+      CloseInterface(cmCancel);
+      stop;
+    }
+    else
+    {
+      if ( KatOrg.KodPlatNDS = '' )
+      {
+        message('Для собственной организации не указан код КПП');
+        CloseInterface(cmCancel);
+        stop;
+      }
+
+      if ( KatOrg.UNN = '' )
+      {
+        message('Для собственной организации не указан код УНН');
+        CloseInterface(cmCancel);
+        stop;
+      }
+
+    }
+
+
+    fFile    := 'NO_IMUR_'+InsKod+'_'+InsKod+'_'
+                +KatOrg.UNN+SelKPP+'_'+DateToStr(dOtch,'YYYYMMDD')+'_'
+                +DateToStr(Cur_Date,'DDMMYYYY')+TimeToStr(Cur_Time,'HHMMSS')
+                +'.xml';
+
+    fFileXML := startpathname + 'out\xml\' + fFile;
+  }
+  else
+  {
+    fFile := 'задайте все параметры';
+    fFileXML := '';
+  }
+
+  if ( fXML = 0 )
+   fFile := 'файл не формируется'
+
+  i := 0;
+
+  if ( SelKPP <> '' and InsKod <> '' )
+   _loop UserDeskRep
+    ++i;
+
+  if ( i = 0 )
+    OKATO := 'Не заполнен фильтр для ОКАТО';
+  else
+    OKATO := 'Занесено ' + string(i) + ' ОКАТО для Кода места учета '+Mesto+' - КПП '+SelKPP+' - ГНИ '+InsKod;
+
+  if ( SelKPP = '' )
+    OKATO := 'Нужно выбрать КПП перед заполнение списка ОКАТО';
+
+  if ( InsKod = '' )
+    OKATO := 'Нужно выбрать ГНИ перед заполнение списка ОКАТО';
+
+  if ( SelKPP = '' and InsKod = '' )
+    OKATO := 'Нужно выбрать КПП и ГНИ перед заполнение списка ОКАТО';
+
+
+  if ( InStr('.', trim(Nal_stav) ) <> 2 )
+    message('Проверьте правильность ввода "Налоговой ставки"'+chr(13)+'Неверный ввод. Образец ввода: "2.10"');
+
+  if ( length(trim(Nal_stav)) > 4 )
+    message('Проверьте правильность ввода "Налоговой ставки"'+chr(13)+'Слишком длинная строка. Образец ввода: "2.10"');
+
+  if ( ABS(Year(Cur_date) - double(sYear)) > 3 )
+    message('Проверьте правильность ввода отчетного года.');
+
+  if ( length(trim(Kod_Nal_130)) > 7 )
+    message('Проверьте правильность ввода "Код налоговой льготы" стр.160'+chr(13)+'Слишком длинная строка. Допустимо не более 7 символов.');
+
+  if ( length(trim(Kod_Nal_160)) > 7 )
+    message('Проверьте правильность ввода "Код налоговой льготы" стр.160'+chr(13)+'Слишком длинная строка. Допустимо не более 7 символов.');
+
+  if ( length(trim(Kod_Nal_190)) > 7 )
+    message('Проверьте правильность ввода "Код налоговой льготы" стр.160'+chr(13)+'Слишком длинная строка. Допустимо не более 7 символов.');
+
+  RescanPanel(SFilter);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmPick:
+{
+  cKau := comp(0);
+
+  ///////////////////////////////////////////////////////////////////////
+  if ( CurField = #SelKPP )
+    if ( RunInterface(SelectKPP,SelKPP,NrecKPP) <> cmCancel ) {};
+
+  ///////////////////////////////////////////////////////////////////////
+  if ( CurField = #SelGNI )
+  {
+    RunInterface(SelectGNI,SelGNI,NrecGNI,_UNN,InsKod);
+
+    if (GetFirst KatOrg where (( NrecGNI == KatOrg.nRec )) = tsok)
+      InsKod  := SubStr(KatOrg.UNN,1,4);
+    else
+      InsKod  := '';
+
+    if ( GetFirst KatKod where (( word(2) == KatKod.wType and NrecGNI == KatKod.cOrg3 )) = tsOk )
+     InsKod := KatKod.KOD;
+  }
+
+  ///////////////////////////////////////////////////////////////////////
+  if ( CurField = #OKATO )
+  {
+    RunInterface( fOKATO, nomer, Mesto, SelKPP, InsKod, dFrom, dTo ); // для декларации по налогу на имущество пользуем этот код для таблицы UserDeskRep
+
+    i := 0;
+
+    _loop UserDeskRep
+     if ( UserDeskRep.ResComp[1] = comp(0) )
+      ++i;
+
+    if ( i > 0 )
+    {
+      message( 'список ОКАТО заполнен некорректно'         +chr(13)+
+               'удалено '+i+' записей без привязанных АТД' +chr(13)+
+               'перепроверьте настройку списка ОКАТО'                 );
+
+      delete UserDeskRep where ((
+                                        nomer                       ==  UserDeskRep.nRep
+                                   and  Mesto+'-'+SelKPP+'-'+InsKod ==  UserDeskRep.RepName    (length = 20)
+                                   and  comp(0)                     ==  UserDeskRep.ResComp[1] (NoIndex)
+                               ));
+    }
+  }
+
+  ///////////////////////////////////////////////////////////////////////
+  // Kod_Nal_130
+  if ( CurField = #Kod_Nal_130 )
+   if (iGetKau.GetCodeKau(cgiPick, 20108, cKau) <> 0)
+    if ( GetFirst SpKau = tsOk )
+      Kod_Nal_130 := SpKau.CODE;
+    else
+      Kod_Nal_130 := '';
+
+  // Kod_Nal_160
+  if ( CurField = #Kod_Nal_160 )
+   if (iGetKau.GetCodeKau(cgiPick, 20108, cKau) <> 0)
+    if ( GetFirst SpKau = tsOk )
+      Kod_Nal_160 := SpKau.CODE;
+    else
+      Kod_Nal_160 := '';
+
+  // Kod_Nal_190
+  if ( CurField = #Kod_Nal_190 )
+   if (iGetKau.GetCodeKau(cgiPick, 20108, cKau) <> 0)
+    if ( GetFirst SpKau = tsOk )
+      Kod_Nal_190 := SpKau.CODE;
+    else
+      Kod_Nal_190 := '';
+
+  ///////////////////////////////////////////////////////////////////////
+  if ( CurField = #fFileXML )
+    fFileXML := GetFileName ('*.XML', 'Задайте файл XML для выгрузки ') ;
+
+  ///////////////////////////////////////////////////////////////////////
+  if ( CurField = #sBigOKATO )
+  {
+    iGetKau.GetCodeKau( cgiPick, cgKau_ATD, cBigOKATO );
+
+    if ( cBigOKATO = comp(0) )
+     set sBigOKATO := '';
+
+    if ( GetFirst STerr = tsOk )
+     sBigOKATO := STerr.sCode;
+    else
+    {
+      set sBigOKATO := '';
+      cBigOKATO := comp(0);
+    }
+  }
+
+  ///////////////////////////////////////////////////////////////////////
+  CheckFields;
+  ProcessCommand(cmCheckField);
+  ReScanPanel(SFilter);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmButOK:
+{
+  if ( fXML = 1 and fFileXML = '' )
+  {
+    message('Не задано имя файла для формирования XML');
+    exit;
+  }
+
+  if ( SelKPP = '' )
+  {
+    message('Не выбрано КПП');
+    exit;
+  }
+
+  if ( dTo < dFrom )
+  {
+    message('Не корректно задан период');
+    exit;
+  }
+
+  if ( wNew = 1 and Vers < 1 )
+  {
+    message('Введите номер корректировки');
+    exit;
+  }
+
+  i := 0;
+
+  _loop UserDeskRep
+    i := i + 1;
+
+  if ( i = 0 )
+   if ( Message('Не заполнены фильтры по ОКАТО'+chr(13)+'Продолжить?', yesNo+Confirmation) <> cmYes )
+    exit;
+
+  if ( fBIG = 1 and cBigOKATO = comp(0) )
+   if ( Message('Не задано ОКАТО для укрупнения'+chr(13)+'Продолжить?', yesNo+Confirmation) <> cmYes )
+    exit;
+
+  SaveMyDsk(Kod_Nal_130,'avans_Kod_Nal_130');
+  SaveMyDsk(Kod_Nal_160,'avans_Kod_Nal_160');
+  SaveMyDsk(Kod_Nal_190,'avans_Kod_Nal_190');
+
+  SaveMyDsk(telefon,'telefon');
+
+  CloseInterface(cmDefault);
+  stop;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmCancel:
+{
+  CloseInterface(cmCancel);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+cmButClear:
+{
+  CloseInterface(cmCancel);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+end;
+end.
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////

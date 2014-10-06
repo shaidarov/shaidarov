@@ -1,0 +1,273 @@
+Interface getOrgNP AlwaysReturn;
+create view
+var
+  OrgName
+, INN
+        :string;
+
+/*from TuneDef, TuneVal, KatOrg
+where ((
+                    129==Tunedef.NN(Noindex)
+             and TuneDef.Nrec==TuneVal.cTune
+             and TuneVal.compVal==KatOrg.Nrec
+           ))and 0!=TuneVal.compVal;*/
+
+from KatOrg
+where ((
+             coGetTune('MYORG')==KatOrg.Nrec
+           ));
+
+parameters
+  OrgName,INN
+
+  HandleEvent
+    cmInit:{
+      if (GetFirst  KatOrg = tsok){
+        OrgName:=KatOrg.Name;
+        INN:=KatOrg.Unn;
+      } else {
+        OrgName:='';
+        INN:='';
+      }
+      abort;
+    }
+  end;
+end.
+
+
+Interface CreateOtchet;
+create view
+var
+  NastrOSNrec
+             :comp;
+
+CurIndex
+, Npp
+         :integer;
+
+  DFrom
+, DTo
+         :date;
+
+  Sum1
+, Sum2
+         :double;
+
+  OrgName
+, INN
+, NameCO       // фильтр филиалы
+        :string;
+
+from TabKatOS,TabStoimStruct, KatOS
+where ((
+                    TabKatOS._NrecKatOS==TabStoimStruct.cTabKatOS
+             and TabKatOS._NrecKatOS==KatOs.Nrec
+           ));
+
+parameters
+  DFrom,DTo, NameCO;       // фильтр филиалы  + NameCO
+
+function GetMonthName (NoMonth : word) : string;
+{
+  if (NoMonth=1) GetMonthName:='Январь';
+  if (NoMonth=2) GetMonthName:='Февраль';
+  if (NoMonth=3) GetMonthName:='Март';
+  if (NoMonth=4) GetMonthName:='Апрель';
+  if (NoMonth=5) GetMonthName:='Май';
+  if (NoMonth=6) GetMonthName:='Июнь';
+  if (NoMonth=7) GetMonthName:='Июль';
+  if (NoMonth=8) GetMonthName:='Август';
+  if (NoMonth=9) GetMonthName:='Сентябрь';
+  if (NoMonth=10) GetMonthName:='Октябрь';
+  if (NoMonth=11) GetMonthName:='Ноябрь';
+  if (NoMonth=12) GetMonthName:='Декабрь';
+}
+
+  HandleEvent
+    cmInit:{
+      xlCreateExcel('report.xls',true);
+      xlCreateMatrix(5000,11);
+
+
+      //xlSetColumnWidth(25,1,1,1,1);
+      //xlSetFontStyle(1,1,1,1,1);
+      //xlAlignCellsEx(3,2,1,1,1,1);
+      //xlMergeCells(CurIndex,2,CurIndex,3);
+      //xlSTWriteToMatrix(1,1,'Оплаченность отгрузок за период с '+dBeg+' по '+dEnd);
+
+
+      xlSetColumnWidth(4,1,1,1,1);
+      xlSetColumnWidth(10,1,2,1,2);
+      xlSetColumnWidth(20,1,3,1,3);
+      xlSetColumnWidth(10,1,4,1,17);
+      xlSetColumnWidth(20,1,9,1,9);
+      xlSetColumnWidth(15,1,7,1,7);
+      xlSetColumnWidth(15,1,11,1,11);
+
+      CurIndex:=1;
+
+      xlMergeCells(CurIndex,1,CurIndex,3);
+      xlSTWriteToMatrix(CurIndex,1,DateToStr(Cur_Date,'DD.MM.YYYY') +' '+TimeToStr(Cur_Time,'HH:MM:SS'));
+      CurIndex:=CurIndex+1;
+
+      RunInterface(getOrgNP,OrgName,INN);
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'Наименование организации налогоплательщика: '+OrgName);
+      CurIndex:=CurIndex+1;
+
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'ИНН налогоплательщика: '+INN);
+      CurIndex:=CurIndex+2;
+
+       //Фильтр филиалы   ---->>>>
+      xlMergeCells(CurIndex,1,CurIndex,14);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,14);
+      xlSTWriteToMatrix(CurIndex,1,'По филиалу: '+NameCO);
+      CurIndex:=CurIndex+2;
+      //Фильтр филиалы   <<<----
+
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'Дата составления "__" ___________200_г.');
+      CurIndex:=CurIndex+2;
+
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSetFontSize(12,1,1,2,1);
+      xlSTWriteToMatrix(CurIndex,1,'Регистр №Р 2.4.2. Определение сумм записей по счетам НУ по расходам на страхование имущества и');
+      CurIndex:=CurIndex+1;
+
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSetFontSize(12,1,1,1,1);
+      xlSTWriteToMatrix(CurIndex,1,'гражданской ответственности за период с '+dateToStr(dFrom,'DD.MM.YYYY')+' по '+dateToStr(dTo,'DD.MM.YYYY'));
+      CurIndex:=CurIndex+1;
+
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,11);
+      xlSetFontStyle(1,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+      xlSTWriteToMatrix(CurIndex,2,'Инв. №');
+      xlSTWriteToMatrix(CurIndex,3,'Наименование объекта по справочнику "Объекты расходов будущих периодов"');
+      xlSTWriteToMatrix(CurIndex,4,'Номер договора');
+      xlSTWriteToMatrix(CurIndex,5,'Дата договора');
+      xlSTWriteToMatrix(CurIndex,6,'Месяц отчетного (налогового) периода');
+      xlSTWriteToMatrix(CurIndex,7,'Сумма оплаченного расхода за период, подлежащая признанию, итого по договору');
+      xlSTWriteToMatrix(CurIndex,8,'Дебет счета НУ для признания расходов');
+      xlSTWriteToMatrix(CurIndex,9,'КАУ "Виды продукции, работ, услуг", "Подразделения"');
+      xlSTWriteToMatrix(CurIndex,10,'Процент распределения');
+      xlSTWriteToMatrix(CurIndex,11,'Сумма оплаченного расхода за период, подлежащая признанию, исходя из доли');
+      CurIndex:=CurIndex+1;
+
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'1');
+      xlSTWriteToMatrix(CurIndex,2,'2');
+      xlSTWriteToMatrix(CurIndex,3,'3');
+      xlSTWriteToMatrix(CurIndex,4,'4');
+      xlSTWriteToMatrix(CurIndex,5,'5');
+      xlSTWriteToMatrix(CurIndex,6,'6');
+      xlSTWriteToMatrix(CurIndex,7,'7');
+      xlSTWriteToMatrix(CurIndex,8,'8');
+      xlSTWriteToMatrix(CurIndex,9,'9');
+      xlSTWriteToMatrix(CurIndex,10,'10');
+      xlSTWriteToMatrix(CurIndex,11,'11');
+      CurIndex:=CurIndex+1;
+
+      Sum1:=0;
+      Sum2:=0;
+
+      Npp:=1;
+
+      _loop TabKatOS{
+        xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+        xlAlignCellsEx(4,2,CurIndex,7,CurIndex,7);
+        xlAlignCellsEx(4,2,CurIndex,11,CurIndex,11);
+        xlAlignCellsEx(3,2,CurIndex,1,CurIndex,1);
+
+        xlSTWriteToMatrix(CurIndex,1,Npp);
+        xlSetNumberFormat ( '@', CurIndex, 2, CurIndex, 2 );
+        xlSTWriteToMatrix(CurIndex,2,KatOs.InNum);
+        xlSetFontStyle(1,CurIndex,3,CurIndex,3);
+        xlSTWriteToMatrix(CurIndex,3,TabKatOS._NameKatOS);
+        xlSTWriteToMatrix(CurIndex,4,TabKatOS._NoDog);
+        if (TabKatOS._DDog!=date(0,0,0)) xlSTWriteToMatrix(CurIndex,5,DateToStr(TabKatOS._DDog,'DD.MM.YYYY'));
+        if month(dFrom) = month(dto)
+          xlSTWriteToMatrix(CurIndex,6,GetMonthName(month(dFrom)))
+        else
+          xlSTWriteToMatrix(CurIndex,6,GetMonthName(month(dFrom))+' - '+GetMonthName(month(dto)));
+        xlSetNumberFormat ( '# ##0,00', CurIndex, 7, CurIndex, 7 );
+        xlSTWriteToMatrix(CurIndex,7,TabKatOS._Sum);
+        if (GetFirst TabStoimStruct !=tsok)
+        {
+          xlSTWriteToMatrix(CurIndex,8,TabKatOS._Schet);
+          xlSTWriteToMatrix(CurIndex,9,TabKatOS._Vid);
+          xlSTWriteToMatrix(CurIndex,10,100);
+          xlSetNumberFormat ( '# ##0,00', CurIndex, 11, CurIndex, 11 );
+          xlSTWriteToMatrix(CurIndex,11,TabKatOS._Sum);
+          Sum2:=Sum2+TabKatOS._Sum;
+          CurIndex:=CurIndex+1;
+        }
+        Sum1:=Sum1+TabKatOS._Sum;
+        Npp:=Npp+1;
+
+        _loop TabStoimStruct
+        {
+          xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+          xlAlignCellsEx(4,2,CurIndex,7,CurIndex,7);
+          xlAlignCellsEx(4,2,CurIndex,11,CurIndex,11);
+
+          xlSTWriteToMatrix(CurIndex,8,TabStoimStruct.Schet);
+
+          if TabStoimStruct.Vid <> ''
+            xlSTWriteToMatrix(CurIndex,9,TabStoimStruct.Vid+'/'+TabStoimStruct.Podrazd);
+          else
+            xlSTWriteToMatrix(CurIndex,9,TabStoimStruct.Podrazd);
+          if month(dFrom) = month(dto)
+            xlSTWriteToMatrix(CurIndex,6,GetMonthName(month(dFrom)))
+          else
+            xlSTWriteToMatrix(CurIndex,6,GetMonthName(month(dFrom))+' - '+GetMonthName(month(dto)));
+
+          xlSetNumberFormat ( '# ##0,00', CurIndex, 10, CurIndex, 10 );
+          xlSTWriteToMatrix(CurIndex,10,TabStoimStruct.Percent);
+          xlSetNumberFormat ( '# ##0,00', CurIndex, 11, CurIndex, 11 );
+          xlSTWriteToMatrix(CurIndex,11,TabKatOS._Sum*TabStoimStruct.Percent/double(100));
+
+          Sum2:=Sum2+TabKatOS._Sum*TabStoimStruct.Percent/double(100);
+          CurIndex:=CurIndex+1;
+        }
+      }
+
+
+      xlSetFontStyle(1,CurIndex,1,CurIndex,11);
+      xlMergeCells(CurIndex,1,CurIndex,2);
+      xlSTWriteToMatrix(CurIndex,1,'ВСЕГО:');
+      xlSetNumberFormat ( '# ##0,00', CurIndex, 7, CurIndex, 7 );
+      xlSTWriteToMatrix(CurIndex,7,Sum1);
+      xlSetNumberFormat ( '# ##0,00', CurIndex, 11, CurIndex, 11 );
+      xlSTWriteToMatrix(CurIndex,11,Sum2);
+
+      xlWrapText(3,1,CurIndex,11);
+      xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,8,1,CurIndex,11);
+
+      CurIndex:=CurIndex+2;
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      CurIndex:=CurIndex+1;
+      xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+      CurIndex:=CurIndex+1;
+
+      xlWriteMatrixToExcel(1,1);
+      xlFreeMatrix;
+      xlKillExcel;
+
+      abort;
+    }
+  end;
+end.

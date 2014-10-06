@@ -1,0 +1,288 @@
+//by ABSOLUTO
+create view vStaff
+var 
+ wc_attrnam :comp;
+ wc_podr :comp;
+ wc_post :comp;
+ dtb,dte:date;
+as select StaffStruct.Nrec
+from
+   ExtCatlinks
+  ,StaffStruct
+  ,AttrNam AttrNam_SH
+  ,AttrNam AttrNam_Post
+  ,AttrVal AttrVal_Sh
+  ,AttrVal AttrVal_Post
+  ,Catalogs
+where ((
+      wc_attrnam ==AttrNam_SH.Nrec
+  and 11==extcatlinks.objtype and 1 ==extcatlinks.modtype
+  and wc_podr==extcatlinks.EXTCAT
+
+
+  and wc_Post == StaffStruct.Post
+  and extcatlinks.staffcat ==StaffStruct.DepartMent
+  and dte>>=StaffStruct.dInPut
+  and ( StaffStruct.dClose=0 or dtb<= StaffStruct.dClose)
+  
+  and coCatalogs ==  AttrNam_Post.wTable
+  and AttrNam_SH.Name  == AttrNam_Post.Name
+
+  and wc_attrnam       == AttrVal_Sh.cAttrNam
+  and coStaffStruct    == AttrVal_Sh.wTable
+  and StaffStruct.Nrec == AttrVal_Sh.cRec
+
+  and AttrNam_Post.Nrec== AttrVal_Post.cAttrNam
+  and coCatalogs       == AttrVal_Post.wTable
+  and wc_post          == AttrVal_Post.cRec
+  and wc_post          == Catalogs.Nrec
+)) ; 
+   
+create view vStaff1
+from 
+ StaffStruct, klfilter
+where ((      
+ StaffStruct.CPODR == klfilter.nrec 
+ ))
+ ;
+ 
+
+Function GetAttrStaffByCexDol(wwc_Attrnam:comp;wwc_podr:comp;wwc_post:comp):comp;
+var 
+   ww_kl:boolean;
+   ww_nrec :comp;
+{ GetAttrStaffByCexDol:=0;
+  vStaff.wc_Podr:=wwc_podr;
+  vStaff.wc_Post:=wwc_post;
+  vStaff.wc_attrnam:=wwc_attrnam
+  ww_kl:=false
+  if logfilekl
+    mylogwrite(false,'GetAttrStaffByCexDol='
+            +string(wwc_Attrnam)+', '+string(wwc_podr)+', '+string(wwc_post)
+            )
+  if vStaff.getfirst fastfirstrow extcatlinks=0
+  { if logfilekl  mylogwrite(false,'1 '+string(vStaff.extcatlinks.staffcat) )
+    if vStaff.getfirst fastfirstrow StaffStruct=0
+    { if logfilekl  mylogwrite(false,'2')
+      if vStaff.getfirst  fastfirstrow AttrVal_Sh=0
+      { if logfilekl  mylogwrite(false,'3')
+    
+        GetAttrStaffByCexDol:=vStaff.AttrVal_Sh.vComp
+        ww_kl:=True
+      } 
+    }
+  }     
+  if not ww_kl
+  { if logfilekl  mylogwrite(false,'4')
+    
+    if vStaff.getfirst fastfirstrow AttrNam_Sh=0
+    { if logfilekl  mylogwrite(false,'5')
+    
+      if vStaff.getfirst fastfirstrow AttrNam_Post=0
+      { if logfilekl  mylogwrite(false,'6')
+    
+        if vStaff.getfirst  fastfirstrow AttrVal_Post=0
+        { GetAttrStaffByCexDol:=vStaff.AttrVal_Post.vComp
+          ww_kl:=True
+        }
+        else // Найдем по подразделению
+        { vStaff.wc_post:=vStaff.extcatlinks.staffcat;
+          if logfilekl  mylogwrite(false,'7')
+    
+          do {
+            if vStaff.getfirst  fastfirstrow AttrVal_Post=0
+            { GetAttrStaffByCexDol:=vStaff.AttrVal_Post.vComp
+              ww_kl:=True
+              break;
+            }
+            if vStaff.getfirst  fastfirstrow Catalogs<>0
+            { break
+            }
+            if logfilekl  mylogwrite(false,'8 '+vStaff.Catalogs.Name)
+            if vStaff.Catalogs.SysCode<>0 or vStaff.Catalogs.cparent=0
+            { break
+            }
+            ww_nrec :=vStaff.Catalogs.cparent
+            vStaff.wc_post :=ww_nrec;
+          }  while true;
+        } //else if vStaff.getfirst  fastfirstrow AttrVal_Post=0
+      } //if vStaff.getfirst fastfirstrow AttrNam_Post=0
+    }  //if vStaff.getfirst fastfirstrow AttrNam_Sh=0  
+  }  //if not ww_kl  
+  if GetAttrStaffByCexDol=0
+  { 
+    wcc_podr:=wwc_podr;
+    if getfirst katpodr=0 {}
+    vStaff.wc_post:=wwc_post;
+    if vStaff.getfirst Catalogs=0 {}
+    {
+      MyLogWrite(false,'!? Не нашли ВА к ШР, к должности, к СЕШР '+Katpodr.name+', '+vStaff.Catalogs.name)
+    } 
+    //GetAttrStaffByCexDol:='Нет ВА к ШР, к должности, к СЕШР '+Katpodr.name+', '+Catalogs.name;
+  }
+}//Function GetAttrStaffByCexDol(wwc_Attrnam:comp;wwc_podr:comp;wwc_post:comp):comp;
+
+
+// получить katpodr.nrec по СЕ ЩР
+Function GetGalPodrByStaffDepart(ww_nrec:comp):comp;
+{ Result:=comp(GetNameSpr(7,coKatpodr,ww_nrec) )
+
+} //Function GetGalPodrByStaffDepart(ww_nrec:comp):comp;
+
+
+
+
+//=========================
+Function InsStaffGr0 :boolean;
+VAR
+  WCKAU:COMP;
+  wtbl :word;
+  kl_vihod : boolean;
+  i,j,k : word;
+  ww_analitik_lev:word;
+  ww_str:string;
+{ Result:=True
+  for(i:=1;i<=Grp_Count+1;i:=i+1) //if(UserDeskRep.ResWord[39] =7,0,1)
+  { wc_lev:=0; // wNameGr:='';
+   
+    if i<=Grp_Count
+    {case mTable[i] of
+     coKatPodr:
+     { case UserDeskRep.ResWord[11+(i-1)*2] of
+       12://'Подразделение+доп/аналитика' //12
+       { wc_lev:=GetKatpodrIe(
+              GetPodrNrecByCexDopAn(GetGalPodrByStaffDepart(vStaff1.StaffStruct.DepartMent) , 0)
+              ,mIeSvertka[i],wNameGr)
+             }
+       else 
+       { wc_lev:=GetKatpodrIe(GetGalPodrByStaffDepart(vStaff1.StaffStruct.DepartMent), mIeSvertka[i] ,wNameGr)
+       }
+       end;
+       
+       
+     }
+     coKlKatego:
+     { wc_lev:=vStaff1.StaffStruct.EmpCategory
+       if  i=Grp_Count
+         wNameGr:=GetKategName(GetKategKod(vStaff1.StaffStruct.EmpCategory))
+       
+     }
+     coPersons:
+     { wc_lev:=0; //lstab.tperson
+       if  i=Grp_Count
+         wNameGr:='';
+     }
+     coTmpKatalog:
+     { wsch :=''
+       wsubsch:=''
+       if vStaff1.getfirst klfilter=0
+       { wsch :=vStaff1.klfilter.CSCHETD ; wsubsch:=vStaff1.klfilter.csubschd;
+       }
+       case   mGroup[i] of //:=ww_gr //UserDeskRep.ResWord[11+(i-1)*2] of
+       5: //ВА к штатному/должности
+       { wTBL := ATTRNAM_SH.ROBJECT
+         /*
+         wckau:=GetAttrStaffByCexDol(UserDeskRep.ResComp[20]
+           ,if(change=0,lstab.Cexoz,perexod.cexp)
+           ,if(change=0,lstab.cAppoint,perexod.cAppoint)
+           )
+         */  
+         wckau:=comp(GetNameSpr(4 , wTBL
+            ,GetGalPodrByStaffDepart(vStaff1.StaffStruct.DepartMent)
+            ,vStaff1.StaffStruct.Department
+           ) );
+         wc_lev:=Analitik_InsValue(CurCode,wtbl,wckau,mHierar[i], mIeSvertka[i],wNameGr,if((UserDeskRep.ResWord[40] and 2)>0,1,0))
+         if logfilekl  mylogwrite(false,'== '+string(wtbl)+','+string(wckau)+','+string(wc_lev) )
+    
+       }  
+       6: //Категория с иерархией
+       { wTBL := 69
+         wckau:=vStaff1.StaffStruct.EmpCategory
+         wc_lev:=Analitik_InsValue(CurCode,wtbl,wckau,mHierar[i], mIeSvertka[i],wNameGr,if((UserDeskRep.ResWord[40] and 2)>0,1,0))
+       } 
+       7:{//'По месяцу начисления' //27
+         //wc_lev:=InsTmpKatalog(CurCode,UserDeskRep.ResWord[11+(i-1)*2], string(Lstab.mesn,2));
+         wc_lev:=InsTmpKatalog(CurCode,i, string(0,2));
+        
+       }
+       8:{//,'По счету/субсчету'                   //8
+         wsch :=''
+         wsubsch:=''
+       
+         if vStaff1.getfirst klfilter=0
+         { wsch :=vStaff1.klfilter.CSCHETD ; wsubsch:=vStaff1.klfilter.csubschd;
+         }
+         wc_lev:=InsTmpKatalog(CurCode,i,wsch+'/'+wsubsch)
+
+       }
+       9: //
+       { wsch   :=GetKategSovmName(GetKategKod(vStaff1.StaffStruct.EmpCategory), 0)
+         //wc_lev:=InsTmpKatalog(CurCode,UserDeskRep.ResWord[11+(i-1)*2],wsch)
+         wc_lev:=InsTmpKatalog(CurCode,i,wsch)
+       }
+       10://'Регион(c уч.доп.аналитики)' //10
+       { ww_str   :=GetRegionNameByCexDopAn(GetGalPodrByStaffDepart(vStaff1.StaffStruct.DepartMent), 0)
+         //wc_lev:=InsTmpKatalog(CurCode,UserDeskRep.ResWord[11+(i-1)*2],wsch)
+         wc_lev:=InsTmpKatalog(CurCode,i,ww_str)
+       }
+       11://'ОКВЭД (c уч.доп.аналитики)'  //11
+       { ww_str   :=GetOKVEDNameByCexDopAn(GetGalPodrByStaffDepart(vStaff1.StaffStruct.DepartMent), 0)
+         //wc_lev:=InsTmpKatalog(CurCode,UserDeskRep.ResWord[11+(i-1)*2],wsch)
+         wc_lev:=InsTmpKatalog(CurCode,i,ww_str)
+       }
+       13: // должность
+       { ww_str:=GetNameSpr(2,coCatalogs,vStaff1.StaffStruct.Post)
+         wc_lev:=InsTmpKatalog(CurCode,i,ww_str)
+       }
+       14: // объект строительства
+       { ww_str:='=='
+         wckau:=0;
+         if vStaff1.getfirst klfilter=0
+         for(k:=1;k<=6;k++)
+         { if vStaff1.KlFilter.TBLD[k]=40
+           { wckau:=vStaff1.KlFilter.CKAUD[k]
+             if getfirst fastfirstrow katstroy where (( wckau == katstroy.nrec )) =0
+                ww_str:=katstroy.name+'='+DateToStr(katstroy.DENDPROEKT,'DD/MM/YYYY')
+           }
+         }
+         if wckau=0
+         { wckau:=GetGalPodrByStaffDepart(vStaff1.StaffStruct.DepartMent)
+           if getfirst katpodr where (( wckau == katpodr.nrec ))=0
+             ww_str:=katpodr.name
+         }
+         wc_lev:=InsTmpKatalog(CurCode,i,ww_str);
+         
+       }
+
+       else
+       { wc_lev:=0
+         ww_analitik_lev:=Analitik_GetLevel(wsch,wsubsch)
+         if vStaff1.getfirst klfilter=0
+         { wckau:=vStaff1.KlFilter.CKAUD[ww_analitik_lev]
+           wTBL:=vStaff1.KlFilter.TBLD[ww_analitik_lev]
+           wc_lev:=Analitik_InsValue(CurCode,wtbl,wckau,mHierar[i], mIeSvertka[i],wNameGr,if((UserDeskRep.ResWord[40] and 2)>0,1,0))
+         }  
+       }
+       end;  
+       if  i=Grp_Count
+         wNameGr:=TmpKatalog.name;
+       
+     } //coTmpKatalog:
+     end;
+    }else
+    { continue;
+
+    } 
+     
+
+     case i of
+     1: wc_cut1:=wc_lev;
+     2: wc_cut2:=wc_lev;
+     3: wc_cut3:=wc_lev;
+     4: wc_cut4:=wc_lev;
+     5: wc_cut5:=wc_lev;
+     6: wc_cut6:=wc_lev;
+     end;
+  } //for(i:=1;i<=6;i:=i+1) 
+  Tobot_Ins;
+} //Function InsStaffGr0;

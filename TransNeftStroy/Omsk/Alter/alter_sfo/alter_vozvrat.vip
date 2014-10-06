@@ -1,0 +1,125 @@
+#component "F_SFO"
+
+alter interface SFOACTOFOUT;
+
+var
+reqsfo_nrec : comp;
+proc_iznos  : double;
+
+Create view t1
+from
+REQSFO,
+perssfo,
+mbpin,
+attrval,
+attrval attrval1,
+attrval attrval2,
+attrnam,
+attrnam attrnam1,
+attrnam attrnam2
+
+where ((
+             reqsfo_nrec            == reqsfo.nrec
+         and reqsfo.nrec            == perssfo.CMBPMOVE
+         and perssfo.CDOPREC        == mbpin.nrec
+         and perssfo.cperscard      == perscard.nrec
+         and perscard.clschet       == lschet.nrec
+         and lschet.tperson         == persons.nrec
+         and word(2001)             == AttrNam.wTable
+         and 'Предыдущий работник'  == AttrNam.Name
+         and word(2001)             == AttrVal.wTable
+         and mbpin.nrec             == AttrVal.cRec
+         and AttrNam.Nrec           == AttrVal.cAttrNam
+         and word(2001)             == AttrNam1.wTable
+         and 'Процент износа'       == AttrNam1.Name
+         and word(2001)             == AttrVal1.wTable
+         and mbpin.nrec             == AttrVal1.cRec
+         and AttrNam1.Nrec          == AttrVal1.cAttrNam
+         and word(2001)             == AttrNam2.wTable
+         and 'Процент износа'       == AttrNam2.Name
+         and word(2001)             == AttrVal2.wTable
+         and perssfo.CDOCMBPIN      == AttrVal2.cRec
+         and AttrNam2.Nrec          == AttrVal2.cAttrNam
+       ))
+;
+
+window SFODOCWINDOW
+
+HandleEvent
+
+cmDone:
+  {
+   if (inherited::handleEvent (cmDone) = heAbort )
+   Abort;
+   reqsfo_nrec := reqsfo.nrec;
+   if t1.getfirst reqsfo = tsok
+    {
+     t1._loop perssfo
+      {
+       if t1.getfirst mbpin = tsok
+        {
+         if t1.getfirst perscard = tsok
+         if t1.getfirst lschet = tsok
+         if t1.getfirst persons = tsok
+         if t1.getfirst attrnam = tsok
+          {
+           if t1.getfirst attrval = tsok
+            {
+             if t1.attrval.vcomp <> t1.persons.nrec
+              {
+               t1.attrval.vcomp := t1.persons.nrec;
+               t1.attrval.vstring := t1.persons.tabnmb+', '+t1.persons.fio;
+               if t1.update current attrval = tsok {}
+              }
+            }
+            else
+             {
+              t1.ClearBuffer(t1.tnattrval);
+              t1.AttrVal.wTable    := word(2001);
+              t1.AttrVal.cRec      := t1.mbpin.nrec
+              t1.AttrVal.cAttrNam  := t1.attrnam.nrec;
+              t1.AttrVal.Vcomp     := t1.persons.nrec;
+              t1.attrval.vstring   := t1.persons.tabnmb+', '+t1.persons.fio;
+              t1.insert current attrval;
+             }
+          }
+
+           proc_iznos:=0;
+           proc_iznos:=(Months_Between(t1.perssfo.EXPLDATE,t1.perssfo.SPISDATE)*100)/t1.perssfo.srok;
+
+           if t1.getfirst attrnam1 = tsok
+            {
+           if t1.getfirst attrval1 = tsok
+            {
+             if t1.getfirst attrnam2 = tsok
+             if t1.getfirst attrval2 = tsok
+              {
+               if t1.attrval2.vdouble<>0
+                {
+                proc_iznos:= proc_iznos*(100-t1.attrval2.vdouble)/100;
+                }
+              }
+             if t1.attrval1.vdouble <> proc_iznos
+              {
+               t1.attrval1.vdouble := proc_iznos;
+               if t1.update current attrval1 = tsok {}
+              }
+            }
+            else
+             {
+              t1.ClearBuffer(t1.tnattrval1);
+              t1.AttrVal1.wTable    := word(2001);
+              t1.AttrVal1.cRec      := t1.mbpin.nrec
+              t1.AttrVal1.cAttrNam  := t1.attrnam1.nrec;
+              t1.AttrVal1.Vdouble   := proc_iznos;
+              t1.insert current attrval1;
+             }
+            }
+        }
+      }
+    }
+  }
+
+end;
+end;
+end.

@@ -1,0 +1,448 @@
+#component "L_Sklad"
+
+
+
+Interface PrintOrdM4 '??§ÿ¢¬ R ý? ÿ ?4'EscClose DoAccept;
+var
+  xlRes    : boolean;
+ 
+  Shablon  : string;
+
+  Kolvo    : integer;
+  razn     : double;
+
+//----------------------------------------------------
+
+Table STRUCT OrdMain
+(
+ nRecT          : comp
+,Nomber         : string
+,Okyd           : string
+,Okpo           : string
+,NameOrg        : string
+,Sklad          : string
+,SklTo          : string
+,SklFrom        : string
+,Mol            : string
+,MolTo          : string
+,MolFrom        : string
+,Data           : date
+,Kontr          : string
+,Kod            : String
+,Schet          : string
+
+)
+with index
+(
+  TmpVib01 = nRecT
+);
+
+
+//----------------------------------------------------
+
+Table STRUCT OrdSpec
+(
+ npp           : integer
+,nRecPos       : comp
+,NameMC        : string
+,Barkod        : string
+,KodEd         : string
+,EdIzm         : string
+,Kol           : double
+,Cena          : double
+,Suma          : double
+,Nds           : double
+,SumaN         : double
+,shcSp         : string
+,Tip           : word
+
+)
+with index
+(
+  TmpVib01 = npp
+);
+//-------------------------------------------
+Create view MainView                 //         CREATE VIEW
+var
+nRecPered : comp;
+select *
+From
+
+  SklOrder
+ ,Sporder
+ ,KatOrg
+ ,KatPodr
+ ,KatMol
+ ,KatSopr
+ ,SpSopr
+ ,KatMc
+ ,KatEd
+ ,OrdSpec
+ ,OrdMain
+
+
+where ((
+
+      nRecPered == SklOrder.nRec(NOINDEX)
+
+));
+
+Parameters
+ nRecPered;  // - ?ò R ý? ÿ
+
+
+
+//----------------------------------------------------'?:-?"???-?? ??":??---------------------
+
+Function GetSpOrd (cNrec : comp; tip : word) : boolean;
+{
+ ClearBuffer(#OrdSpec);
+ _Loop SpOrder where cNrec = SpOrder.cSklOrder and tip = SpOrder.VidOrder
+     { //message('1');
+      _LOOP SpSopr where SpOrder.cSpSopr = SpSOpr.nRec
+           {//message('2');
+            razn := 0;
+            OrdSpec.nRecPos := SpSopr.cMcUsl;
+            OrdSpec.npp     := SpSopr.npp;
+            if getfirst KatSopr where (( SpSopr.cSopr == KatSopr.nRec(noindex) )) = tsOk
+               {
+                if (KatSopr.vHodNal = 2) 
+                   {
+                    OrdSpec.Kol   := spsopr.kolfact;
+                    OrdSpec.Cena  := SpSopr.Price;
+                    OrdSpec.Suma  := SpSopr.Price * spsopr.kolfact;
+                    OrdSpec.Nds   := SpSopr.SumNds;
+                    OrdSpec.SumaN := OrdSpec.Suma + OrdSpec.Nds;
+                   }
+                if (KatSopr.vHodNal = 1) 
+                   {
+                    OrdSpec.Kol   := spsopr.kolfact;
+                    OrdSpec.Cena  := SpSopr.Price;
+                    razn          := SpSopr.Price * spsopr.kolfact - SpSopr.SumNds; 
+                    OrdSpec.Suma  := razn;
+                    OrdSpec.Nds   := SpSopr.SumNds;
+                    OrdSpec.SumaN := SpSopr.Price * spsopr.kolfact;
+                   }
+                if (KatSopr.vHodNal = 0) 
+                   {
+                    OrdSpec.Kol   := spsopr.kolfact;
+                    OrdSpec.Cena  := SpSopr.Price;
+                    OrdSpec.Suma  := SpSopr.Price * spsopr.kolfact;
+                    OrdSpec.SumaN := OrdSpec.Suma;
+                   }
+
+                OrdSpec.Tip   := tip;
+               }//get katsopr
+
+           if getfirst KatMc where (( SpSopr.cMcUsl == KatMc.nRec(NOINDEX) )) = tsOk
+            {
+             OrdSpec.NameMC  := KatMc.Name; 
+             if ( sgettune('User.Descr') = 'ZhiNA')
+                {
+                 OrdSpec.shcSp   := '50.3';
+                }
+             else
+                {
+                 OrdSpec.shcSp   := '10.' + LTrim(SubStr(KatMc.Barkod,3,2), '0');
+                }
+             OrdSpec.Barkod  := KatMc.Barkod; //SubStr(KatMc.Barkod, 6, Length(KatMc.Barkod) - 5);
+             if getfirst KatEd where (( KatMc.cEd == KatEd.nRec(NOINDEX) )) = tsOk
+               {
+                OrdSpec.KodEd  := KatEd.Kod;
+                OrdSpec.EdIzm  := KatEd.Abbr;
+               }//get kated
+ 
+            }//get katmc
+ 
+           Insert current OrdSpec;
+           kolvo  := kolvo + 1;
+          }//loop spsopr
+    }//loop sporder
+
+}
+
+
+//------------------------------------------------------':??: ??":?? ? '?:-?"???-??---------------------\\
+//------------------------------------------------------------------------------------------------------\\
+Procedure GetInfoOrd;
+{
+ ClearBuffer(#OrdMain);
+ if getfirst SklOrder where (( nRecPered == SklOrder.nRec(NOINDEX) )) = tsOk
+    {
+     OrdMain.nRecT   := SklOrder.nRec;         
+     OrdMain.Nomber  := SklOrder.nOrder;      
+     OrdMain.Okyd    := '0315003';      
+      
+     if getfirst KatSopr where (( SklOrder.cSopr == KatSopr.nRec(NOINDEX) )) = tsOk   
+        {
+         if getfirst KatOrg where (( KatSopr.cOrgBase == KatOrg.nRec(NOINDEX) )) = tsOk
+            {
+             OrdMain.Kontr    := KatOrg.Name;
+             OrdMain.Kod      := KatOrg.Okpo;
+            }//get katorg
+         if getfirst KatOrg where (( KatSopr.cGruzTo == KatOrg.nRec(NOINDEX) )) = tsOk
+            {
+             OrdMain.NameOrg  := KatOrg.Name;
+             OrdMain.Okpo     := KatOrg.Okpo;
+            }//get org
+         if getfirst KatPodr where (( katSopr.cPodrTo == KatPodr.nRec(NOINDEX) )) = tsOk  
+            {
+             OrdMain.SklTo := KatPodr.Name
+            }//get skladTo  
+         if getfirst KatPodr where (( KatSopr.cPodrFrom == KatPodr.nRec(NOINDEX) )) = tsOk  
+            {
+             OrdMain.SklFrom := KatPodr.Name
+            }//get skladFrom 
+         if getfirst KatMol where (( KatSopr.cMolTo == KatMol.nRec(NOINDEX) )) = tsOk  
+            {
+             OrdMain.MolTo := KatMol.Name
+            }//get MolTo 
+         if getfirst KatMol where (( KatSopr.cMolFrom == KatMol.nRec(NOINDEX) )) = tsOk  
+            {
+             OrdMain.MolFrom := KatMol.Name
+            }//get MolFrom 
+        }//get katsopr
+     if ( KatSopr.VidSopr = word(101) ) 
+     if getfirst KatPodr where (( SklOrder.cPodr == KatPodr.nRec(NOINDEX) )) = tsOk  
+        {
+         OrdMain.Sklad := KatPodr.Name
+        }//get sklad  
+     if ( KatSopr.VidSopr = word(101) ) 
+     if getfirst KatMol where (( SklOrder.cMol == KatMol.nRec(NOINDEX) )) = tsOk  
+        {
+         OrdMain.Mol := KatMol.Name
+        }//get Mol              
+           
+     OrdMain.Data   := SklOrder.dOrd;  
+     if ( sgettune('User.Descr') = 'ZhiNA')
+         {
+         OrdMain.Schet  := '50.3'; 
+         }
+     else
+         {
+          OrdMain.Schet  := '60.1'; 
+         }        
+    
+     Insert current OrdMain;
+
+     GetSpOrd(SklOrder.nRec, SklOrder.vidorder);    
+
+    }//get order
+
+}
+
+
+
+//------------------------------------¢?-ð? ð ?ò¡?<¯
+Procedure PutIntoEx;
+var
+ ii,jj     : integer;
+ Kolspec
+,KolSum
+,KolNds
+,KolNdsS   : double;
+
+{
+  Shablon := TranslatePath('%ClientStartPath%\Xls\L_Sklad\PrihOrd_M4_ONGSS.xls');
+
+ ii       := 1;
+ JJ       := 0;
+ Kolspec  := 0;
+ KolSum   := 0;
+ KolNds   := 0;
+ KolNdsS  := 0;
+
+  XlRes := True;
+
+  XlRes := True; 
+  XlRes := xlCreateExcelWithTemplate(Shablon,true);
+  XlRes := xlIsExcelValid;
+  XlRes := xlSetActiveSheet(1); 
+
+//---------------------------------------------------------¨ÿôòÿ-----------
+  XlRes := xlSetCellStringValue(OrdMain.Nomber,3,7,3,7);
+  XlRes := xlSetCellStringValue(OrdMain.Okpo,6,12,6,12);
+  if ( OrdMain.NameOrg <> '')
+     XlRes := xlSetCellStringValue(OrdMain.NameOrg,6,3,6,3);
+  else
+     XlRes := xlSetCellStringValue('ŽŽŽ "Ž¬áª­¥äâ¥£ §á¯¥æáâà®©"',6,3,6,3);
+  XlRes := xlSetCellStringValue(OrdMain.Sklad,7,4,7,4);
+  XlRes := xlSetCellStringValue(OrdMain.Data,11,1,11,1);
+  XlRes := xlSetCellStringValue(OrdMain.Sklad,11,3,11,3);
+  XlRes := xlSetCellStringValue(OrdMain.Kod,11,6,11,6);
+  XlRes := xlSetCellStringValue(OrdMain.Kontr,11,4,11,4);
+  XlRes := xlSetCellStringValue(OrdMain.Schet,11,8,11,8);
+  if (OrdMain.Mol <> '')
+     XlRes := xlSetCellStringValue(OrdMain.Mol,20,7,20,7);
+  else
+     XlRes := xlSetCellStringValue(OrdMain.MolTo,20,7,20,7);
+      
+//--------------------------------------------------------¡ô?¦ð¤ðòÿ¦ð¯--------
+  XlRes := xlCreateMatrix(kolvo,13);
+  _LOOP OrdSpec
+        {
+         XlRes := xlStWriteToMatrix(ii,1, OrdSpec.NameMC);
+         XlRes := xlStWriteToMatrix(ii,3, OrdSpec.Barkod);
+         if (OrdSpec.KodEd <> '')
+         XlRes := xlStWriteToMatrix(ii,4, OrdSpec.KodEd);
+         XlRes := xlStWriteToMatrix(ii,5, OrdSpec.EdIzm);
+         XlRes := xlStWriteToMatrix(ii,7, OrdSpec.Kol);
+         XlRes := xlStWriteToMatrix(ii,8, OrdSpec.Cena);
+         XlRes := xlStWriteToMatrix(ii,9, OrdSpec.Suma);
+         XlRes := xlStWriteToMatrix(ii,10, OrdSpec.Nds);
+         XlRes := xlStWriteToMatrix(ii,11, OrdSpec.SumaN);
+ 
+         ii := ii + 1;
+         Kolspec := Kolspec + OrdSpec.Kol;
+         KolSum  := KolSum + OrdSpec.Suma;
+         KolNds  := KolNds + OrdSpec.Nds;
+        }//loop spec
+  case KatSopr.vHodNal of
+                        1: {KolNdsS := KolNds + KolSum;}
+                        2: {KolNdsS := KolNds + KolSum;}
+                        0: {KolNdsS := KolSum;}
+                     end;
+
+  XlRes := xlSetCellStringValue(Kolspec, 18, 7, 18, 7);
+  XlRes := xlSetCellStringValue(KolSum, 18, 9, 18, 9);
+  XlRes := xlSetCellStringValue(KolNds, 18, 10, 18, 10);
+  XlRes := xlSetCellStringValue(KolNdsS, 18, 11, 18, 11);
+
+//-----------¡¢ Ròð ð  ÿ¿òÿ-----
+
+ do
+   {
+    if(kolvo <> 1)
+      {
+       xlRes := xlRunMacro('AddSt');
+       jj := jj + 1;
+      }
+   }
+ while(jj < Kolvo - 1)
+
+//------------------------------
+
+  xlRes := xlWriteMatrixToExcel( 17, 1);
+
+//----------------------------------------------------------------------------
+  xlCloseWorkBookByName(Shablon);
+  xlKillExcel; 
+}
+
+
+//------------------------------------¢?-ð? ð ?ò¡?<¯
+Procedure PutIntoEx_R;
+var
+ ii,jj,str     : integer;
+ sF, sT        : string;
+
+
+{
+  Shablon := TranslatePath('%ClientStartPath%\Xls\L_Sklad\RashOrder_M11_ONGSS.xls');
+
+ ii       := 1;
+ JJ       := 0;
+ str      := 0;
+
+
+  XlRes := True;
+
+  XlRes := True; 
+  XlRes := xlCreateExcelWithTemplate(Shablon,true);
+  XlRes := xlIsExcelValid;
+  XlRes := xlSetActiveSheet(1); 
+
+//---------------------------------------------------------¨ÿôòÿ-----------
+  XlRes := xlSetCellStringValue(OrdMain.Nomber,5,7,5,7);
+  XlRes := xlSetCellStringValue(OrdMain.Okpo,7,10,7,10);
+ // XlRes := xlSetCellStringValue(OrdMain.Kontr,7,3,7,3);
+  XlRes := xlSetCellStringValue(OrdMain.SklFrom,11,4,11,4);
+  XlRes := xlSetCellStringValue(OrdMain.SklTo,11,7,11,7);
+  XlRes := xlSetCellStringValue(OrdMain.Data,11,2,11,2);
+     if ( sgettune('User.Descr') = 'ZhiNA')
+         XlRes := xlSetCellStringValue('71.1',11,9,11,9);
+//  message(OrdMain.MolFrom);
+  sF := SubStr(OrdMain.MolFrom,1,InStr(' ',OrdMain.MolFrom)-1) + SubStr(OrdMain.MolFrom,InStr(' ',OrdMain.MolFrom),2) + '.' + SubStr(SubStr(OrdMain.MoLfrom,InStr(' ',OrdMain.MolFrom) + 1,Length(OrdMain.MoLfrom) - InStr(' ',OrdMain.MolFrom)),InStr(' ',SubStr(OrdMain.MoLfrom,InStr(' ',OrdMain.MolFrom) + 1,Length(OrdMain.MoLfrom) - InStr(' ',OrdMain.MolFrom))),2) + '.';
+  sT := SubStr(OrdMain.MolTo,1,InStr(' ',OrdMain.MolTo)-1) + SubStr(OrdMain.MolTo,InStr(' ',OrdMain.MolTo),2) + '.' + SubStr(SubStr(OrdMain.MolTo,InStr(' ',OrdMain.MolTo) + 1,Length(OrdMain.MolTo) - InStr(' ',OrdMain.MolTo)),InStr(' ',SubStr(OrdMain.MolTo,InStr(' ',OrdMain.MolTo) + 1,Length(OrdMain.MolTo) - InStr(' ',OrdMain.MolTo))),2) + '.';
+  
+  XlRes := xlSetCellStringValue(sF,20,9,20,9);
+  XlRes := xlSetCellStringValue(sT,22,9,22,9);
+      
+//--------------------------------------------------------¡ô?¦ð¤ðòÿ¦ð¯--------
+  XlRes := xlCreateMatrix(kolvo,11);
+  _LOOP OrdSpec
+        {
+         if (OrdSpec.Kol <> 0)
+           {
+            XlRes := xlStWriteToMatrix(ii,1, OrdSpec.ShcSp);
+            XlRes := xlStWriteToMatrix(ii,3, OrdSpec.NameMC);
+            XlRes := xlStWriteToMatrix(ii,4, OrdSpec.Barkod);
+            if (OrdSpec.KodEd <> '')
+            XlRes := xlStWriteToMatrix(ii,5, OrdSpec.KodEd);
+            XlRes := xlStWriteToMatrix(ii,6, OrdSpec.EdIzm);
+            XlRes := xlStWriteToMatrix(ii,7, OrdSpec.Kol);
+            XlRes := xlStWriteToMatrix(ii,8, OrdSpec.Kol);
+            XlRes := xlStWriteToMatrix(ii,9, OrdSpec.Cena);
+            XlRes := xlStWriteToMatrix(ii,10, OrdSpec.Suma);
+            str   := str + 1;
+            ii := ii + 1;
+           }
+        }//loop spec
+
+
+
+//-----------¡¢ Ròð ð  ÿ¿òÿ-----
+
+ do
+   {
+    if(str <> 1)
+      {
+       xlRes := xlRunMacro('AddSt');
+       jj := jj + 1;
+      }
+   }
+ while(jj < str - 1)
+
+//------------------------------
+
+  xlRes := xlWriteMatrixToExcel( 18, 1);
+
+//----------------------------------------------------------------------------
+  xlCloseWorkBookByName(Shablon);
+  xlKillExcel; 
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+HandleEvent
+
+cmInit :
+{
+ //+++++++++++++++++++++++++++++++++++++?"'? ?? ???<?? ++++++++
+
+  Kolvo := 0;
+
+
+  GetInfoOrd;
+  if getfirst SklOrder where (( nRecPered == SklOrder.nRec(NOINDEX) )) = tsOk
+    {
+     case SklOrder.VIDORDER of
+                           0: PutIntoEx;
+                           1: PutIntoEx_R;
+                           end; 
+    }
+
+
+}
+cmOK :
+{
+  CloseInterface (cmOK) ;
+
+}
+//--------------------------------------------------------------------------------------------------------------------------------------------
+cmCancel  :
+{
+
+   CloseInterface (cmCancel) ;
+
+}
+end; // HandleEvent
+end. //Interface

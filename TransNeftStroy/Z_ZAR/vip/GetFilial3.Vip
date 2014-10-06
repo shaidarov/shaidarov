@@ -1,0 +1,137 @@
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+#endif
+
+interface GetFilial3 'Выбор филиала' cyan;
+
+var
+  pPodrnrec:comp
+  pPodrname:string;
+  fillmode:byte;
+  
+parameters
+  pPodrnrec,pPodrname,fillmode;
+
+Create View
+Var
+ cParent        : Comp;
+ wStatus        : Word;
+As Select * From 
+KATPODR ,
+katpodr katpodr2,
+katpodrorg, 
+katpodrorg katpodrorg2,
+KATPODRORG SUBKATPODR
+Where
+((  KATPODRORG.NREC == SUBKATPODR.CPODR and 
+    0 << Katpodr.corg (noindex) ))
+Bounds ByParent = cParent == KATPODRORG.CPODR;
+
+procedure FillKATPODRORG;
+var fladded,fladdedall:boolean;
+{
+  Delete All katpodrorg;
+  _loop katpodr
+  {
+    ClearBuffer(#KATPODRORG);
+    katpodrorg.NREC:=katpodr.nrec;
+    katpodrorg.CPODR:=katpodr.CPODR;
+    katpodrorg.ISLEAF:=katpodr.isleaf;
+    katpodrorg.NAME:=katpodr.name;
+    katpodrorg.KOD:=katpodr.kod;
+    katpodrorg.CODE:=katpodr.code;
+    Insert Current KATPODRORG;
+!    logstrtofile('c:\katpodr.txt',katpodr.name);
+  }
+  fladdedall:=false;
+  while not fladdedall do
+  {
+    fladded:=false;
+    _loop katpodrorg2
+    {
+      if (getfirst katpodrorg where ((katpodrorg2.cpodr==katpodrorg.nrec)) <> tsOk)
+      {
+        if (getfirst katpodr2 where ((katpodrorg2.cpodr==katpodr2.nrec)) = tsOk)
+        {
+          ClearBuffer(#KATPODRORG);
+          katpodrorg.NREC:=katpodr2.nrec;
+          katpodrorg.CPODR:=katpodr2.CPODR;
+          katpodrorg.ISLEAF:=katpodr2.isleaf;
+          katpodrorg.NAME:=katpodr2.name;
+          katpodrorg.KOD:=katpodr2.kod;
+          katpodrorg.CODE:=katpodr2.code;
+          Insert Current KATPODRORG;
+!          logstrtofile('c:\katpodr.txt',katpodr2.name);
+          fladded:=true;
+        } //getfirst katpodr2
+      } //getfirst katpodrorg
+    } //_loop
+    if not fladded
+      fladdedall:=true;
+  } //while
+}
+
+procedure FillKATPODRORG2;
+{
+  Delete All katpodrorg;
+  Modifier insert katpodrorg
+    select NREC,CPODR,ISLEAF,NAME,KOD,CODE from katpodr where substr(kod,5,7)='0.00000' or corg<>0;
+}
+
+!Screen pnlMain  
+panel pnlMain  
+!screen DateVvod
+!show at (,,,);
+
+Tree Tr1(,,sci14Tree);
+table katpodrorg;
+fields
+katpodrorg.name 'Наименование' ('Наименование'):[35], protect;
+katpodrorg.kod 'Код' ('Код'):[7], protect;
+end; //tree
+
+!end;  //screen
+end; //panel
+
+HandleEvent
+cmInit:
+{
+ case fillmode of
+ 0: FillKATPODRORG;
+ 1: FillKATPODRORG2;
+ end;
+ cParent := Comp(0);
+ AddBounds(tbByParent);
+ RereadRecord(#KATPODRORG);
+ TreeCloseAllOpenedNode(Tr1);
+ TreeCloseNode(Tr1);
+}
+CmTreeTop:
+{  cParent := Comp(0); }
+CmTreeDown:
+{  cParent := KATPODRORG.NREC; }
+cmTreeUp:
+{ cParent := KATPODRORG.CPODR; }
+cmTreeNodeType:
+{ if(Not IsValidAll(#SUBKATPODR))
+ {
+  TreeSetNodeType(Tr1, ntfText);
+ }
+}
+cmDefault:
+{
+!  pPodrNrec:= KatPodrORG.nrec;
+!  pPodrName:= Katpodrorg.name;
+  CloseInterface(-1);
+
+}
+cmDone:
+{
+ pPodrNrec:= KatPodrORG.nrec;
+ pPodrName:= Katpodrorg.name;
+ SubBounds(tbByParent);
+}
+
+
+end; // HE
+End.

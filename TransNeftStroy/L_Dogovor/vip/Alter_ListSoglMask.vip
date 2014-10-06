@@ -1,0 +1,33 @@
+
+alter interface ListSoglMask;
+
+create view
+as select *
+from KatPodr KatPodr_Alt
+;
+
+  overload
+    Function GetPersInfo(pRec: comp; var sFIO, sCat: string): boolean;
+  end;
+
+Function GetPersInfo(pRec: comp; var sFIO, sCat: string): boolean;
+{
+  Result := GetFirst FastFirstRow Persons where (( pRec == Persons.nRec )) = tsOk;
+
+  if not Result
+    sFIO := sCat := ''
+  else
+    {
+      sFIO := Persons.FIO;
+
+      if ( GetFirst FastFirstRow Appointments where (( Persons.AppointCur == Appointments.nRec )) = tsOk )
+        if ( GetFirst FastFirstRow Catalogs where (( Appointments.Post == Catalogs.nRec )) = tsOk )
+          sCat := Catalogs.Name;
+
+      if ( GetFirst FastFirstRow KatPodr_Alt where (( Persons.GalDep == KatPodr_Alt.nRec )) = tsOk ) {
+           sCat := sCat + ' ' + KatPodr_Alt.Name;
+      }
+    }
+}
+
+end.

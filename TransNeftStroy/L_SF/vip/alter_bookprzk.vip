@@ -1,0 +1,51 @@
+#component "L_SF"
+
+
+alter interface BOOKPRZK;
+
+ExtendFormats brBookPrZk;
+
+Window wPrBk
+
+HandleEvent
+cmOk :
+{
+   if ((pReg = 2) and (BegDateDop <= EndDate))
+  {
+    if Message('Период для дополнительной книги должен быть больше периода для основной, продолжить?', YesNo) = cmNo
+      {
+       Exit;
+      }
+  }
+      SaveMyDsk(toc, ID + 'toc');
+
+      if (pReg = 2)
+        VidReport := VidReport + 51; // Доп. лист
+      else
+      {
+        if (FiltVal = 0)
+          VidReport := VidReport + 37 + if (GloDirect = cwDirect_Sell and VidReport = 3, 1, 0); // Сводные книги (РФ)
+        else
+          VidReport := VidReport + 29 + if (GloDirect = cwDirect_Sell and VidReport = 4, 1, 0); // Книги покупок/продаж (РФ)
+      }
+
+      SaveMyDsk(VidReport, ID + 'VidReport');
+      wResult   := cmOk;
+      NeedPrint := True;
+      CloseWindow(wPrBk);
+
+}
+
+end;
+end;  // Window wPrBk
+
+Browse brBookPrZk ('Записи регистрации', hcBookPrZkInterface, sci178EnEsc);
+  table BookPrZk;
+Fields
+  {Font = {Color = if (BookPrZk.Summa < 0, ColorError, 0)}};
+  BookPrZkDesGr      #3'Группа дескр.'       (, , ):  [6], skip, NoAutoSize, Centered;
+  OtvPodr.Name       #3'Центр отв.'          (, , ): [20], skip, NoAutoSize, Centered;
+end;
+
+
+end.

@@ -1,0 +1,576 @@
+/*
+Закачка справочников
+
+20080116
+
+Банки.xls - есть
+БанковскиеСчета - есть
+Договора контрагентов
+ЕдиницыИзмерения номенклатуры
+Контактные данные контрагентов  -  есть
+Контрагенты   - есть
+Номенклатура
+ОКЕИ - есть
+ОС  - есть
+ос архив
+
+
+*/
+// для работы с иерархией организаций
+#include kofuncs.vih
+//функции по работе с каталогами
+#include Katalog_GetVal.Vih
+#include marker.vih
+
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+#endif
+
+VipInterface ZakachkaFromExcel licensed (FREE) ;
+
+Interface ZakachkaFromExcel 'Закачка из Excel', Escclose ;
+var iKatalog_GetValue    : Katalog_GetValue ;// функции по работе с каталогами
+var LL: KatOrgFuncsObj;
+var pMarker   : IMarker(marker) new;
+
+
+table struct tmp_excel
+( numrow : word ,
+  dmcell : array [1..100] of string  ,
+  level :word 
+)
+with index
+(  tmp_excel01 = numrow
+) ;
+table struct tmp_listsootv
+(  nmtable :string[20]
+  ,nmfld   :string[20]
+  ,oldval  :string
+  ,newval  :string
+)
+with index
+( tmp_listsootv01 =nmtable+nmfld+oldval
+
+) ;  
+table struct tmp_nmgroup
+( nrec :string[30]
+ ,name :string
+) with index
+( tmp_nmgroup01 = nrec 
+ ,tmp_nmgroup02 = name
+) ;
+table struct tmp_plan_sootv
+( sch_old :string[20]
+ ,sub_old :string[20]
+ ,sch_new :string[20]
+ ,sub_new :string[20] 
+ ,dmkau :array[1..6] of word
+ ,dmval :array[1..10] of string[200]
+ ,dmlev :array[1..6] of word
+ ,podr_need : word 
+ ,tbl :array[1..6] of word
+) 
+with index
+( tmp_plan_sootv01 = sch_old+sub_old
+ ,tmp_plan_sootv02 = sch_new+sub_new
+)   ;
+
+table struct tmp_nakl
+( nom :string[50] ,
+  nomin :string[50] ,
+  dtdoc :date  ,
+  nmorg :string  ,
+  su :double 
+)
+with index
+( tmp_nakl01=nom +dtdoc+su
+) ;  
+var dmkolopis: array[1..100] of string ;
+var group_level:word ;
+var group_c:array[1..10] of comp ;
+var group_s:array[1..10] of string ;
+var group_prev:boolean ;
+var kl_new :boolean
+create view vZakachkaFromExcel
+var
+ nmpath : string ;
+ nmfile : string ;
+ wkolrecs :longint ;
+ tpreport,tpreport1 :word ;
+ wtype    :word ;
+ logfilenm:string ;
+ LOGFILEKL : boolean ;
+ wexrow:longint ;
+ wtime:time ;
+ datemsk :string ;
+ chet:longint ;
+// спец.
+ osnmfile : string ;
+ osarcdat : date  ;
+ wnameos :string ;
+ myplansno :comp ;
+ whandle :longint ;
+ wvidsopr :word ;
+// проводки
+ prov_nmfile: string ;
+ prov_dt    : date ;
+//талица для атрибутов
+ tabattr : integer;
+ only_check : word;
+ marker:longint;
+ ind:longint;
+ codeSource:string;
+as select persons.nrec
+from persons,katpodr,katorg,katmc,groupmc
+//,fpco
+,KatOrgDescr ,KATB  ,KontrIer
+,KATSTROY,Katos
+,katbank,kated,addressn
+,arciznos
+,tmp_excel(tmp_excel01)
+,tmp_listsootv(tmp_listsootv01)
+//,PassPorts
+//,catalogs
+,PODRINFO 
+,tmp_nmgroup
+,lschet
+,KATUSL
+,KATOTPED
+,dogovor,attrdog,dogovor dogovor1   
+,spdocs,spdocnal , ierdog
+,katmbp
+,PERSCARD
+,MBPIN 
+,perssfo
+,plpor
+,soprhoz
+,katsopr
+,spsopr
+,planssch
+,KATMOL
+//,katkau
+,tmp_plan_sootv
+,OBOROT
+,katnalog
+,basefin
+,CASHBANK
+,USERSDOC
+,katsopr katsopr1,SOPRHOZ SOPRHOZ1
+,GROUPSFO
+,tmp_nakl
+,objrem
+,vidobj
+,tipobj
+,objremdescr
+,katkau katkau_soot
+,spkau spkau_soot
+,x$files
+,katkau katconv
+,spkau convobj
+,attrnam
+,katvidd
+,grpodr
+,katnazna
+,stzatr
+,kaelem
+,marka
+,transp
+,tiptex
+,tiptex tiptex2
+where ((
+     15 == nastros.tidk
+and wnameos== nastros.name
+and katos.nrec == spkatos.ckatos
+and nastros.nrec == spkatos.cnastros
+and myplansno == planssch.nrec 
+and myplansno == buhschet.cplanssch
+and  10 == plpor.tidkgal 
+and date(31,12,2007) == plpor.datvip 
+and ' ZAKACHKA' == plpor.NODOK
+and plpor.tidkgal == soprhoz.tidkgal
+and plpor.nrec == soprhoz.csoprdoc
+and 'NDS' == katnalog.KOD
+and wvidsopr == katsopr1.vidsopr
+and katsopr1.vidsopr ==  SOPRHOZ1.tipdoc
+and katsopr1.nrec == soprhoz1.csoprdoc
+and katkau_soot.kodgroup == spkau_soot.kodgrkau
+and 'КонвТабСоот' == katkau_soot.code
+and 'КонвОбъекты' == katconv.code
+and katconv.kodgroup == convobj.kodgrkau
+)) 
+order by convobj.kodgrkau, convobj.levelcode
+;
+var dmkau :array [1..20] of string ;
+var tbkau :array [1..6] of word ;
+var wckau :array [1..7] of comp ;
+#include addr_fun.vpp
+Procedure Saveparam ;
+{ 
+ SaveMyDsk(tpreport,'zak_tpreport');
+ SaveMyDsk(tpreport1,'zak_tpreport1');
+ SaveMyDsk(nmpath,'zak_nmpath');
+ SaveMyDsk(datemsk,'zak_datemsk');
+ SaveMyDsk(prov_nmfile,'zak_prov_nmfile');
+ SaveMyDsk(prov_dt,'zak_prov_dt');
+
+}
+Procedure ReadParam ;
+var wkl :boolean ;
+{
+
+ if not ReadMyDsk(tpreport,'zak_tpreport',wkl ) then tpreport:=0;
+ if not ReadMyDsk(tpreport1,'zak_tpreport1',wkl ) then tpreport1:=0;
+ if not ReadMyDsk(nmpath,'zak_nmpath',wkl ) then nmpath:='c:\1\SPR';
+ if not ReadMyDsk(datemsk,'zak_datemsk',wkl) then  datemsk:='DD.MM.YYYY';
+ if not ReadMyDsk(prov_nmfile,'zak_prov_nmfile',wkl) prov_nmfile:='';
+ if not ReadMyDsk(prov_dt,'zak_prov_dt',wkl) prov_dt:=date(0,0,0);
+
+}
+
+#include logtime1.vpp
+#include attr_Func.Vpp
+#include zakachka.vpp
+
+Function MyGetnmFile(wwtype:word ) :string ;
+var wstr :string ;
+{ wstr:='' ;
+  MyGetnmFile:='???' ;
+  case wwtype  of
+  1: wstr:='Склады.xls' ;
+  2: wstr:='СписокСотрудников.xls' ;//Справочник.xls' ;   
+  3: wstr:='Банки.xls' ;
+  4: wstr:='Контрагенты.xls' ;
+  5: wstr:='БанковскиеСчета.xls' ;
+  6: wstr:='Контактные данные контрагентов.xls' ;
+  7: wstr:='УЧЕТ ДОГОВОРОВ.xls' ;
+  8: wstr:='ОКЕИ.xls'
+  9: wstr:='НоменклатурныеГруппы.xls' ;
+  10: wstr:='Номенклатура.xls' ;
+  11: wstr:='ЕдиницыИзмерения номенклатуры.xls' ;
+  12: wstr:='ОбъектыСтроительства.xls' ;
+  13: wstr:='ОС.xls' ;
+  14: wstr:= osnmfile  ;
+  15: wstr:= 'СФО.XLS'  ;
+  16: wstr:='Остатки_МЦ_БухУчет.xls' ;
+  17: wstr:='ПланСчетов_Соотв.xls'
+  18: wstr:='Остатки_ПланСчетов_БухУчет.xls' ;   
+  19: wstr:='Заказы.xls' ;
+  20: wstr:='Платежи.xls' ;
+//  20 :wstr :='PPish.DBF' ;
+  21 :wstr :='PPvhod.DBF' ;
+  22 :wstr :='NaklPrih.xls' ;
+  23 :wstr :=prov_nmfile ;
+  24 :wstr :='Склад.xls' ;
+  25 :wstr :='СФО_OST.xls' ;
+  26 :wstr :='СФО_PERS.xls' ;
+  27 :wstr :=prov_nmfile ;
+  28 :wstr :='ОбъектыРемонта.xls' ;
+  29 :wstr :='СпецификацияДоговора.xls' ;
+  30 :wstr :='ВнешниеАтрибуты.xls';
+  end ;
+  case wwtype  of
+  23,27 : {}
+  else wstr:=nmpath+'\'+wstr ;
+  end ;
+  if not fileexist(wstr)
+  { message('Файл не найден '+wstr) ;
+  }
+  else MyGetnmFile:=wstr ;
+} //GetnmFile
+
+
+procedure FormDoc ;
+var wkl:boolean ;
+   wstr:string ;
+{  // logfilenm:='!zak.log'
+    SetLogFile('!zak.log') ; 
+    iKatalog_GetValue.InitLogFile(logfilenm) ;
+    if fileexist(logfilenm) deletefile(logfilenm)
+    delete all tmp_listsootv ;
+    nmfile :=nmpath+'\SOOTV.XLS' 
+    wtype:=0 ;
+    if fileexist(nmfile)
+    { message('Обнаружен лист замен')
+      if not ReadDataFromExcel then exit ;
+      _loop tmp_excel
+      { if tmp_excel.dmcell[1]+tmp_excel.dmcell[2]+tmp_excel.dmcell[3]+tmp_excel.dmcell[4]<>''
+        { insert into tmp_listsootv set 
+             tmp_listsootv.nmtable:=upcase(tmp_excel.dmcell[1])
+            ,tmp_listsootv.nmfld  :=upcase(tmp_excel.dmcell[2])
+            ,tmp_listsootv.oldval :=tmp_excel.dmcell[3]
+            ,tmp_listsootv.newval :=tmp_excel.dmcell[4] 
+            ;
+        }
+      }
+    } //if fileexist(nmfile)
+    pMarker.ExportTo(marker);
+/*    for(wtype:=1;wtype<=15;wtype:=wtype+1)
+    { if (tpreport and ( 1 shl (wtype-1) ))=0 then continue ;
+      nmfile:=MyGetnmFile(wtype)
+      logtime('==='+nmfile+'===')
+      if nmfile='???' then continue ;
+      logtime('===START===')
+      if not nextvisual then exit ;
+      delete all tmp_nmgroup ;
+      if not ReadDataFromExcel then exit ;
+      RestartVisual('Импорт',0);
+      case wtype of
+      1: wkl:=Imp_Katpodr ; //:='Склады.xls' ;
+      2: wkl:=Imp_Persons ; //'Справочник.xls' ;   
+      3: wkl:=Imp_Bank ;//wstr:='Банки.xls' ;
+      //20080116 - нет изменений
+      4: wkl:=Imp_Katorg;//'Контрагенты.xls' ;
+      5: wkl:=Imp_BankSchet;//wstr:='БанковскиеСчета.xls' ;//new
+      //new 20080116
+      6: wkl:=Imp_KatorgKontact;//wstr:='Контактные данные контрагентов.xls' ;
+      //new 20080116
+      7: wkl:=Imp_Dogovor;//wstr:='Договора контрагентов.xls' ;
+      //new 20080116
+      8: wkl:=Imp_OKEI; //wstr:='ОКЕИ.xls'
+      //new 20080116
+      9:wkl:=Imp_GroupMc ;// wstr:='НоменклатурныеГруппы.xls' ;
+      10:wkl:=Imp_Katmc ;// wstr:='Номенклатура.xls' ;
+      11: wkl:=Imp_KatMcOtp ;//wstr:='ЕдиницыИзмерения номенклатуры.xls' ;
+      12:wkl:=Imp_KATSTROY ;// wstr:='ОбъектыСтроительства.xls' ;
+      13:wkl:=Imp_Os ;// wstr:='ОС.xls' ;
+      14:{ 
+        if  osarcdat = date(0,0,0)  or osarcdat>=dgettune('OS.OTCHPERIOD')
+        { message('Дата периода не заполнена или больше отчетной!!')
+          continue ;
+        }
+        wkl:=Imp_OsArc ;// wstr:='ОС.xls' ; 
+      }
+      15: wkl:=Imp_SFO ; //СФО.xls
+      end;
+      if not wkl then exit ;
+    }  //for(wtype:=1;wtype<=8;wtype:=wtype+1)
+    for(wtype:=16;wtype<=30;wtype:=wtype+1)
+    { if (tpreport1 and ( 1 shl ((wtype-15)-1) ))=0 then continue ;
+      nmfile:=MyGetnmFile(wtype)
+      logtime('==='+nmfile+'===')
+      if nmfile='???' then continue ;
+      logtime('===START===')
+      if not nextvisual then exit ;
+      delete all tmp_nmgroup ;
+      case wtype of
+      20,21 : { if not ReadDataFromDBF then exit ;}
+      else{ if not ReadDataFromExcel then exit ;}
+      end ;
+      RestartVisual('Импорт',0);
+
+      case wtype of
+      16: wkl:=Imp_OstMC ; //Остатки_МЦ_БухУчет.xls
+      17: wkl:=Imp_PlanSootv ; //ПланСчетов_Соотв.xls
+      18: wkl:=Imp_OstBuh ; //Остатки_ПланСчетов_БухУчет.xls ;   
+      19: wkl:=Imp_DogDop ; //Заказы.xls_
+      20: wkl:=Imp_Plpor(1) ; //'Платежки.xls'
+      21: wkl:=Imp_Plpor(2) ; //'Платежки.xls'
+      22: wkl:=Imp_NaklVNNover ;//NaklPrih.xls
+      23: wkl:=Imp_Prov ;
+      24: 
+      {  if getfirst tmp_plan_sootv<>0
+         { wstr:='Загружать склад.xls вместе с ПланСчетов_Соотв.xls!!!'
+           logtime(wstr) ;
+           message(wstr) ;
+           exit ;
+        }
+        wkl:=Imp_Sklad ; //Склад.xls
+      }
+      25 : wkl:=Imp_SFO1(1) ; // СФО_OST.xls импорт остатков см 15 также
+      26 : wkl:=Imp_SFO1(2) ; // СФО_PERS.xls импорт по людям
+      27 : wkl:=Imp_Prov_Line ;
+      28 : wkl:=Imp_objrem ;
+      29 : wkl:=Imp_DogSpec ;
+      30 : wkl:=imp_ExtAttr ;
+      End;
+      case wtype of
+      20,21 :  dbfclose(whandle) ;
+      end ;
+      if not wkl then exit ;
+      
+    }*/
+    external _loop convobj 
+    { 
+      if not SearchMarker(marker, convobj.nrec, ind) then continue;
+      nmfile:=nmpath+'\'+convobj.name+'.xls'
+      logtime('==='+nmfile+'===')
+      if nmfile='???' then continue ;
+      logtime('===START===')
+      if not nextvisual then exit ;
+      delete all tmp_nmgroup ;
+      if not ReadDataFromExcel then exit ;
+      RestartVisual('Импорт',0);      
+      case convobj.code of
+      '1418': wkl:=Imp_Katorg ;
+      '1707': wkl:=Imp_Dogovor ;
+      '27001': wkl:=Imp_objrem ;
+      '1421': wkl:=Imp_BankSchet;
+      '1422': wkl:=Imp_Bank;
+      '1512': wkl:=Imp_KatorgKontact;
+      '1723': wkl:=Imp_DogSpec;
+      '9015': wkl:=Imp_Plpor;
+      '1006': wkl:=Imp_ExtAttr;
+      '1432': wkl:=Imp_GroupMC;
+      '4001': wkl:=Imp_GroupSFO;
+      '4002': wkl:=Imp_NormSFO;
+      '1454': wkl:=Imp_Transp;
+      '12001': wkl:=Imp_Marka;
+      '12000': wkl:=Imp_TipTex;
+      End;
+
+    }
+    message('Загрузка прошла!')
+    pMarker.UnSelectAll;
+    rescanPanel(#convobj)
+//====================
+    exit ;
+//====================
+    SetAttrDBF(0,'',0,'',0) ;   
+    SetAttrComp(0,'',0,0,'')
+} //FormDoc
+
+Browse brConvObj (, hcGkatalM1Curs, sci147EnEsc);
+  Show at (1, 1, 45, 22);
+  Table ConvObj;
+  recMarker = pMarker{convobj.nrec};
+Fields
+  ConvObj.Name #3'Объект' ('Объект конвертации')      : [28], Protect;
+End;
+
+Screen scrParam;
+  Show at (46, 1, 111, 22);
+table persons ;
+bevel b10 { 0, 1, 60, 9, bsRaised, bsFrame};
+fields
+ planssch.name :protect ;
+ only_check :noprotect;
+ CodeSource: noprotect;
+ datemsk  : noprotect ;
+ nmpath   : noprotect ;
+buttons
+  cmOK ,,,'Формировать документ';
+  cmCancel,,,'~О~тмена',hcconsocnal,sci1Esc;
+<<
+ Тек.план счетов .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   
+ 
+  [.] только контроль `
+ Код иС .@@@@@@@@@@@              Маска даты .@@@@@@@@@@@ 
+ Каталог с файлами .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+   <. Ввод .>              <.Отмена.>
+ 
+>>
+end;
+
+
+/*panel pnMain  ;
+screen scrMain
+table persons ;
+fields
+ planssch.name :protect ;
+ only_check :noprotect;
+ tpreport : noprotect ;
+ tpreport1 : noprotect ;
+ prov_nmfile: noprotect,pickbutton ;
+ prov_dt    : noprotect ;
+ prov_nmfile: noprotect,pickbutton ;
+ prov_dt    : noprotect ;
+ osnmfile : noprotect ;
+ osarcdat : noprotect ;
+ nmpath   : noprotect ;
+ datemsk  : noprotect ;
+buttons
+  cmOK ,,,'Формировать документ';
+  cmCancel,,,'~О~тмена',hcconsocnal,sci1Esc;
+//Справочник  
+<<
+ Выберите тип справочников            Тек.план счетов  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   [.] только контроль `
+ порядок важен         Имена файлов xls                 порядок важен         Имена файлов xls
+ 1 [.] Склады         ` Склады                                16 [.] Остатки МЦ         ` Остатки_МЦ_БухУчет.xls
+ 2 [.] Кадры-Картотека` СписокСотрудников                     17 [.] Соотв.плана счетов ` ПланСчетов_Соотв.xls
+ 3 [.] Банки          ` Банки                                 18 [.] Остатки Бухучет    ` Остатки_ПланСчетов_БухУчет.xls
+ 4 [.] Контрагенты    ` Контрагенты                           19 [.] Договора соглашения` Заказы.xls с 5 стр.
+ 5 [.] БанковскиеСчета` БанковскиеСчета                       20 [.] Плат/поручен.собст ` PPish.DBF
+ 6 [.] Контакт_данные ` Контактные данные контрагентов        21 [.] Плат/поручен.исх   ` PPvhod.DBF
+ 7 [.] Договор контр. ` УЧЕТ ДОГОВОРОВ.xls(c 4 строки)        22 [.] Вн.номера накладн. ` NaklPrih.xls(c 2 стр)
+ 8 [.] ОКЕИ           ` ОКЕИ                                  23 [.] Импорт пров. по зп ` .@@@@@@@@@@@@@@ дата .@@@@@@@@@@ 
+ 9 [.] Группы Мс      ` НоменклатурныеГруппы                  24 [.] Документы по складу` Склад.xls
+10 [.] справочник МЦ  ` Номенклатура                          25 [.] СФО остатки        ` СФО_OST.xls
+11 [.] Единицы Измер. ` ЕдиницыИзмерения номенклатуры         26 [.] СФО выдано         ` СФО_PERS.xls
+12 [.] Объект строит. ` ОбъектыСтроительства                  27 [.] Импорт пров.линейная` .@@@@@@@@@@@@@@ дата .@@@@@@@@@@
+13 [.] Основные средства` ОС                                  28 [.] Объекты ремонта    ` ОбъектыРемонта.xls
+14 [.] Ос.архив       `  .@@@@@@@@@@@@@@@@@@ дата .@@@@@@@@@@ 29 [.] Спецификация договора    ` СпецификацияДоговора.xls
+15 [.] СФО            `  СФО                                  30 [.] Атрибуты           ` ВнешниеАтрибуты.xls
+ Файл листа замен "SOOTV.XLS" со структурой
+ имя таблицы/поле/старое значение/новое значение 
+ Введите путь для импорта .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Маска даты .@@@@@@@@@@@ не найд.соотв. по полям идет в атрибуты
+   <. Ввод .>              <.Отмена.>
+>>
+end;
+end;//panel pnMain  ;*/
+HandleEvent
+cmInit:
+{ ReadParam ;
+  marker:=InitMarker('ConvMarker', 8, 100, 10)
+  GetVipRef(LL , 'KatOrgFuncs');
+  if not LoadVipInterface(iKatalog_GetValue)
+  { Message(' Ошибка! Не удалось инициализировать интерфейс по работе с каталогами Katalog_GetValue', Error);
+    Abort;
+  } ;
+  iKatalog_GetValue.CreaTmpCat ;
+  set wnameos:='Бухгалтерский учет'
+  if getfirst nastros<>0
+  { message('Заведите метод учета в основных '+wnameos)
+    closeinterface(cmDone) ;
+    abort ; exit ; 
+  }
+  set wnameos:='Налоговый учет'
+  if getfirst nastros<>0
+  { message('Заведите метод учета в основных '+wnameos)
+    closeinterface(cmDone) ;
+    abort ; exit ; 
+  } 
+  myplansno:=cogettune('FIN.USER.CPLANSSCH')
+  if myplansno=0 or getfirst planssch<>0
+  { message('Установите тек.план счетов'+chr(13)+
+     'Настройки Галактики \ Бухгалтерский контур-Текущий план счетов' )
+    closeinterface(cmDone) ;
+    abort ; exit ; 
+  }
+  if getfirst katnalog<>0
+  { message('Введите налог с кодом "НДС"' )
+    closeinterface(cmDone) ;
+    abort ; exit ; 
+  }
+}
+cmPick :
+{   case curfield of 
+    #nmpath:
+    { var TmpStr:string ;
+      TmpStr:= GetDirName('Выберите каталог для импорта');
+      if (TmpStr <> '') Set nmpath := TmpStr;
+    }
+/*    #prov_nmfile:
+    { var TmpStr:string ;
+      TmpStr:= GetFileName('*.xls','Выберите файл для импорта');
+      if (TmpStr <> '') Set prov_nmfile := TmpStr;
+    }*/
+    end ;
+}
+cmOk :
+{ SaveParam ;
+  StartNewVisual( vtNumericVisual, vfTimer+vfBreak,
+    ''#3'Идет обработка !!', 1);
+  FormDoc ;
+  Stopvisual('',0) ;
+  ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal, logfilenm+' протокол ошибок');
+  
+}
+cmDone:
+{ SaveParam ;
+  FreeVipInterface(LL);
+  FreeVipInterface(iKatalog_GetValue);
+}
+end ;
+end.

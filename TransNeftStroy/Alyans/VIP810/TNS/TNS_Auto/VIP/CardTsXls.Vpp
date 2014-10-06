@@ -1,0 +1,322 @@
+//------------------------------------------------------------------------------
+// Инит экселя
+//------------------------------------------------------------------------------
+function InitRep : boolean;
+{
+  Result := false;
+
+  if not(OpenXlsForm('CardTsXls.Xlt'))
+  {
+!   StopVisual('', 0);
+   exit;
+  }
+  Result := true;
+
+  ActiveSheet:=1;
+}
+
+//------------------------------------------------------------------------------
+// Донне екселя
+//------------------------------------------------------------------------------
+function DoneRep : boolean;
+{
+  xlKillexcel;
+  Result := true;
+}
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+function RepRun  : boolean;
+{
+ Result := true;
+}
+
+Function TSUR(s: String): String;
+{
+  Result := Replace(Upcase(Trim(s)),' ','');
+} // function TSUR
+
+
+//------------------------------------------------------------------------------
+// Сформировать только по одному ТС
+//------------------------------------------------------------------------------
+Procedure PrintOneTS(cRecIn: Comp);
+Var lCount, oldlCount: LongInt;
+    sName : String;
+    nPP: LongInt;
+    sMark : String;
+    doA: Array[1.20] of Double;
+    i :Word;
+    dOst: Double;
+{
+   For(i:=1;i<=20;i++)
+    doA[i]:=0;
+
+   dOst:=0;
+   if(GetFirst Transp Where ((cRecIn == Transp.Nrec))!=tsOk)
+   {
+    dLog('Не найдено ТС №'+Transp.Nomer +' Гаражный №'+Transp.GarNom);
+    exit;
+   }
+
+
+   sName:=TSUR(Transp.Nomer);
+   if(sName='')
+    sName:=TSUR(Transp.GarNom);
+
+   //xlSetActiveSheetByName('Шаблон'); // Текущий шаблон
+   xlRunMacro('CopySheet');
+   //xlRunMacro('SelectedPaste');
+
+   xlGetSheetsCount(lCount);
+
+   xlSetSheetName(lCount-1,sName);
+   xlSetActiveSheetByName(sName);      // Текущий лист
+
+   wRowMax:=13;
+   wRow   :=1;
+   xlCreateMatrix(1000,45);
+
+   nPP:=1;
+
+   StartNewVisual(vtRotateVisual ,vfTimer,'ТС №'+Transp.Nomer +' Гаражный №'+Transp.GarNom, 1);
+   xlSetCellStringValue(Transp.Nomer,5,3,5,3);
+   xlSetCellStringValue(Transp.GarNom,5,3,5,3);
+   xlSetCellStringValue(DateToStr(dBeg,'Month YYYY г.'),3,2,3,2);
+   xlSetCellStringValue(Transp.Marka,7,3,7,3);
+
+   if(GetFirst PutLst Where ((     cRecIn == PutLst.cTransp
+                        And dBeg <<= PutLst.ExitDn
+                        And Date(Last_Day(dBeg),Month(dBeg),Year(dBeg)) >>= PutLst.ExitDn
+                       ))=tsOk)
+   {
+     if(GetFirst PutGsm Where ((PutLst.Nrec == PutGsm.cPutLst))=tsOK)
+     { xlSetCellStringValue(Trim(String(PUTGSM.OW,100,3)),7,18,7,18);
+       dOst+=PUTGSM.OW;
+     }
+
+   }
+
+
+   _Loop PutLst Where ((     cRecIn == PutLst.cTransp
+                        And dBeg <<= PutLst.ExitDn
+                        And Date(Last_Day(dBeg),Month(dBeg),Year(dBeg)) >>= PutLst.ExitDn
+                       ))
+   {
+    Var Str: String;
+     wCol   :=1;
+     xlstWriteToMatrix(wRow,wCol++,nPP);
+     Str:= if(GetFirst MarAvt Where ((PutLst.cOrgAvt == MarAvt.cOrg (Noindex) )) =tsOk,NMARAVT,'');
+      xlstWriteToMatrix(wRow,wCol++,Str);
+     Str:=if(GetFirst TranInf  Where ((Putlst.cVal == TranInf.Nrec)) =tsOk,TranInf.NomKar1,'');
+     xlstWriteToMatrix(wRow,wCol++,Str);
+     xlstWriteToMatrix(wRow,wCol++,PutLst.Npl);
+
+     Str:='';
+     if(GetFirst Save_Drv Where ((PutLst.Nrec == Save_Drv.cPutlst ))=tsOK)
+      if(GetFirst KNDRIVER Where ((Save_Drv.cKNDRIVER == KNDRIVER.Nrec ))=tsOK)
+       Str:= KnDriver.Name;
+     xlstWriteToMatrix(wRow,wCol++,Str);
+
+     xlstWriteToMatrix(wRow,wCol++,DateTostr(PUTLST.EXITDN,'DD.MM')+DateTostr(PUTLST.RETURNDN,'-DD.MM'));
+     // Топливо
+     Str:='';
+     wCol++; // Статья затрат
+
+     Var boFist: Boolean; boFist:=false;
+     if(GetFirst PutGsm Where ((PutLst.Nrec == PutGsm.cPutLst))=tsOK)
+     {
+       boFist := true;
+       if(GetFirst KatMc Where ((PutGsm.cToplivo == Toplivo.Nrec))=tsOK)
+         Str:= Toplivo.Name;
+     }
+     xlstWriteToMatrix(wRow,wCol++,Str);
+
+
+     xldoWriteToMatrix(wRow,wCol++,CalcDaysBetweenDates(PUTLST.EXITDN,PUTLST.RETURNDN,false));
+     doA[9]+=CalcDaysBetweenDates(PUTLST.EXITDN,PUTLST.RETURNDN,false);
+     xldoWriteToMatrix(wRow,wCol++,PutLst.TimeAll); doA[10]+=PutLst.TimeAll;
+     xldoWriteToMatrix(wRow,wCol++,PUTLST.PROBEGALL);doA[11]+=PUTLST.PROBEGALL; // Пробег ТС
+     xldoWriteToMatrix(wRow,wCol++,PUTLST.GRUZTN);   doA[12]+=PUTLST.GRUZTN; // Масса груза
+
+
+     if(Round(PutLst.GruzTn,2) != 0)
+     {
+      doA[13]+=PutLst.GruzTnKm;
+      xldoWriteToMatrix(wRow,wCol++,PutLst.GruzTnKm);
+     }
+     else
+     {
+      doA[13]+=PutLst.TimeSpec;
+      xldoWriteToMatrix(wRow,wCol++,PutLst.TimeSpec);
+     }
+
+     if(boFist)
+     {
+      xldoWriteToMatrix(wRow,wCol++,PUTGSM.NORMT); doA[14]+=PutGsm.NORMT;
+      xldoWriteToMatrix(wRow,wCol++,PUTGSM.FAKTT); doA[15]+=PutGsm.FAKTT;
+      dOst-=PutGsm.FAKTT;
+
+     } else wCol+=2;
+
+
+     xldoWriteToMatrix(wRow,wCol++,PUTLST.SPEEDEXI);
+     xldoWriteToMatrix(wRow,wCol++,PUTLST.SPEEDRET);
+
+     if(boFist)
+     {
+      xldoWriteToMatrix(wRow,wCol++,PutGsm.Vidt); doA[18]+=PutGsm.Vidt;
+      dOst+=PutGsm.Vidt;
+     }
+     else wCol++;
+
+     xldoWriteToMatrix(wRow,wCol++,PutLst.ProbegGr);
+     WriteToMatrix;
+
+     if(GetNext PutGsm Where ((PutLst.Nrec == PutGsm.cPutLst))=tsOK)
+     do
+     {
+       Str:= if(GetFirst KatMc Where ((PutGsm.cToplivo == Toplivo.Nrec))=tsOK,Toplivo.Name,'');
+       xlstWriteToMatrix(wRow, 8,Str);
+       xldoWriteToMatrix(wRow,14,PutGsm.NORMT); doA[14]+=PutGsm.NORMT;
+       xldoWriteToMatrix(wRow,15,PutGsm.FAKTT); doA[15]+=PutGsm.FAKTT;
+       dOst-=PutGsm.FAKTT;
+       xldoWriteToMatrix(wRow,16,PutLst.SPEEDRET);
+       xldoWriteToMatrix(wRow,17,PUTLST.SPEEDRET);
+       xldoWriteToMatrix(wRow,18,PutGsm.Vidt);  doA[18]+=PutGsm.Vidt;
+       dOst+=PutGsm.Vidt;
+       WriteToMatrix;
+     }
+     While(GetNext PutGsm Where ((PutLst.Nrec == PutGsm.cPutLst))=tsOK)
+
+     nPP++;
+    }
+   wCol:=8;
+   xlstWriteToMatrix(wRow, 8,'ИТОГО');
+   xldoWriteToMatrix(wRow,18,PutGsm.Vidt);
+   xldoWriteToMatrix(wRow,9,doA[9]);
+   xldoWriteToMatrix(wRow,10,doA[10]);
+   xldoWriteToMatrix(wRow,11,doA[11]);
+   xldoWriteToMatrix(wRow,12,doA[12]);
+   xldoWriteToMatrix(wRow,13,doA[13]);
+   xldoWriteToMatrix(wRow,14,doA[14]);
+   xldoWriteToMatrix(wRow,15,doA[15]);
+   xldoWriteToMatrix(wRow,18,doA[18]);
+   xldoWriteToMatrix(wRow,19,doA[19]);
+   xldoWriteToMatrix(wRow,20,doA[20]);
+   WriteToMatrix;
+
+   xlWriteMatrixToExcel(wRowMax,1);
+
+   xlSetCellStringValue('кон. ост',wRowMax+wRow+2,17,wRowMax+wRow+2,17);
+   xlSetCellStringValue(Trim(String(dOst,100,3)),wRowMax+wRow+2,18,wRowMax+wRow+2,18);
+   xlFrameCells(xlBorderL + xlBorderR + xlBorderT + xlBorderB + xlInsideV + xlInsideH,
+                        xlThin, 1, 0,  wRowMax+wRow+2,18,wRowMax+wRow+2,18);
+
+   xlMergeCells(wRowMax+wRow+1,2,wRowMax+wRow+1,3);
+   xlSetCellStringValue('Карточку составил :',wRowMax+wRow+1,2,wRowMax+wRow+1,2);
+   xlFrameCells(xlBorderB + xlInsideV + xlInsideH,
+                        xlThin, 1, 0,  wRowMax+wRow+1,4,wRowMax+wRow+1,5);
+
+   xlMergeCells(wRowMax+wRow+3,2,wRowMax+wRow+3,3);
+   xlSetCellStringValue('Начальник ОЭ УМиАТ :',wRowMax+wRow+3,2,wRowMax+wRow+3,2);
+   xlFrameCells(xlBorderB + xlInsideV + xlInsideH,
+                        xlThin, 1, 0,  wRowMax+wRow+3,4,wRowMax+wRow+3,5);
+
+   xlSetFontStyle(xlBold, wRowMax+wRow-2,1,wRowMax+wRow-2,20);
+
+   xlFrameCells(xlBorderL + xlBorderR + xlBorderT + xlBorderB + xlInsideV + xlInsideH,
+                        xlThin, 1, 0,  13, 1, wRowMax+wRow-2, 20);
+   xlWrapText(13,1, wRowMax+wRow-1, 20);
+   xlAlignCellsEx(xlCenter, xlCenter, 13,1, wRowMax+wRow-1, 20);
+   xlSetNumberFormat('0',13,9, wRowMax+wRow-1, 11);
+   xlSetNumberFormat('0.000',13,12, wRowMax+wRow-1, 15);
+   xlSetNumberFormat('0',13,16, wRowMax+wRow-1, 17);
+   xlSetNumberFormat('0.000',13,18, wRowMax+wRow-1, 18);
+   xlSetNumberFormat('0',13,19, wRowMax+wRow-1, 20);
+
+
+   StopVisual('', 0);
+}
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Function RunRep1:boolean;
+{
+/*
+
+
+   wRowMax:=2;
+   wRow   :=1;
+
+   xlCreateMatrix(1000,45);
+
+   if (pRS.GetFirst() = tsOk)
+   do
+   {
+    wCol   :=1;
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovorNrec'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovorNoDoc'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovorNoDoc_ext'));
+    xlDtWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovordDoc'));
+    xlDtWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovordInput'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovorStatus'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('KatNotesName'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovorDescr'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('DogovorDesGr'));
+    if(GetLast KatSopr Where ((Comp(pRS.Row.Val('DogovorNrec')) == KatSopr.cDogovor And Date(0,0,0) << KatSopr.dSopr))=tsOK)
+    {
+      xldtWriteToMatrix(wRow,wCol++,KatSopr.dSopr);
+      xlStWriteToMatrix(wRow,wCol++,KatSopr.NSopr);
+      if(GetFirst KatDoc Where ((KatSopr.VidSopr == KatDoc.TidkGal))=tsOk)
+      xlstWriteToMatrix(wRow,wCol++,KatDoc.Name);
+      else
+      xlstWriteToMatrix(wRow,wCol++,KatSopr.VidSopr);
+      xlstWriteToMatrix(wRow,wCol++,KatSopr.Summa);
+    }
+    else wCol+=4;
+    if(GetLast BaseDoc Where ((Comp(pRS.Row.Val('DogovorNrec')) == BaseDoc.cDogovor And Date(0,0,0) << BaseDoc.dDoc (NoIndex)))=tsOK)
+    {
+      xldtWriteToMatrix(wRow,wCol++,BaseDoc.dDoc);
+      xlstWriteToMatrix(wRow,wCol++,Basedoc.NODOC);
+      xlstWriteToMatrix(wRow,wCol++,BaseDoc.SUMMA);
+    }
+    else wCol+=3;
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('McUslName'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('McUslCode'));
+    xldoWriteToMatrix(wRow,wCol++,Double(pRS.Row.Val('SpDocsKol')));
+    xldoWriteToMatrix(wRow,wCol++,Double(pRS.Row.Val('SpDocsPrice')));
+    xldoWriteToMatrix(wRow,wCol++,Double(pRS.Row.Val('SpDocsSumma')));
+    xldoWriteToMatrix(wRow,wCol++,Double(pRS.Row.Val('SpDocSSuMNds')));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('KatOrgName'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('KatOrgPlatName'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('KatOrgPolName'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('KatViddVidDog'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('KatViddName'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('AttrDogSubJect1'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('AttrDogSubJect2'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('AttrDogSubJect3'));
+    xlstWriteToMatrix(wRow,wCol++,pRS.Row.Val('SaldTuneName'));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTunewObj')),Comp(pRS.Row.Val('SpecMTRcObj'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau1')),Comp(pRS.Row.Val('SpecMTRcKau1'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau2')),Comp(pRS.Row.Val('SpecMTRcKau2'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau3')),Comp(pRS.Row.Val('SpecMTRcKau3'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau4')),Comp(pRS.Row.Val('SpecMTRcKau4'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau5')),Comp(pRS.Row.Val('SpecMTRcKau5'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau6')),Comp(pRS.Row.Val('SpecMTRcKau6'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau7')),Comp(pRS.Row.Val('SpecMTRcKau7'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau8')),Comp(pRS.Row.Val('SpecMTRcKau8'))));
+    xlstWriteToMatrix(wRow,wCol++,gKau(Word(pRS.Row.Val('SaldTuneWkau9')),Comp(pRS.Row.Val('SpecMTRcKau9'))));
+
+    WriteToMatrix;
+   }
+   While (pRS.GetNext() = tsOk)
+   xlWriteMatrixToExcel(wRowMax,1);
+   xlKillexcel;
+
+   StopVisual('', 0);
+   FreeVipInterface(pRS);
+*/
+}

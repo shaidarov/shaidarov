@@ -1,0 +1,120 @@
+const
+#include fldcolor.inc
+end;
+#define Sumformat '\2p[|-]3666`666`667.88'
+
+Interface Avans 'Перенос зарплаты за 1-ю половину месяца в аванс';
+Show at (,,100,25);
+
+view
+var
+ c1:comp;
+ kff: double;
+
+  as select
+     lschet.tabn,persons.fio,shtraf.vidud,shtraf.sumudall,lschet.avplan,lschet.avfakt
+     from lschet,persons,shtraf,katpodr,grpodr
+     where ((lschet.tperson==persons.nrec
+	and lschet.nrec==shtraf.CLSCH
+	and 206<<=shtraf.vidud
+	and lschet.cex==katpodr.nrec
+	))
+	and shtraf.pometka='+'
+	order by lschet.tabn
+//	bounds AU as c1/==katpodr.cgrpodr;
+	condition AU as katpodr.cgrpodr=c1;
+
+Browse b_lschet
+Show at (,,,20);
+table lschet;
+fields lschet.tabn 'таб. номер' : [8], Protect;
+       persons.fio ' Ф.И.О. ' : [35], Protect;
+       lschet.avplan 'плановый аванс' : [12,#Sumformat], NoProtect;
+       lschet.avfakt 'фактический аванс' : [12,#Sumformat], NoProtect;
+       shtraf.vidud 'вид перечисления' : [10], Protect;
+       shtraf.sumudall 'сумма перечисления' : [12,#Sumformat], Protect;
+end;
+
+Screen s_param
+Show at (,21,,);
+
+fields
+ kff  : [5,#Sumformat], NoProtect;
+
+Buttons
+cmGetSum;
+cmGetNewPar;
+cmGetCanc;
+
+<<
+     .@@@@@@@@@@@@
+  <.   Итоги   .>           <. Выполнить .>            <.   Выход   .>
+>>
+End;
+
+function fGetPlanSum : Double;
+{
+ fGetPlanSum :=0;
+ _loop lschet
+ {
+  fGetPlanSum:=fGetPlanSum+lschet.avplan;
+ }
+}  //end fGetPlanSum
+
+function fGetFaktSum : Double;
+{
+ fGetFaktSum :=0;
+ _loop lschet
+ {
+  fGetFaktSum:=fGetFaktSum+lschet.avfakt;
+ }
+}  //end fGetFaktSum
+
+function fGetPerSum : Double;
+{
+ fGetPerSum :=0;
+ _loop lschet
+ {
+  fGetPerSum:=fGetPerSum+shtraf.sumudall;
+ }
+}  //end fGetPerSum
+
+
+TableEvent table lschet
+           cmUpdateRecord : Update current lschet;
+end;
+
+HandleEvent
+cmInit : {
+	c1:=0001000000000010h;
+	kff:=1
+	Runinterface(Z_KATPODR::GetGrPodr,c1);
+        Case c1 of
+	     0001000000000010h : {
+	          SetTitle('Установлен фильтр на ТНС');}
+	     0001000000000007h : {
+		  SetTitle('Установлен фильтр на РСУ');}
+	end;
+        PushCondition(tcAU);
+	ReScanPanel(#lschet);
+
+	}
+
+cmGetSum : {
+ Message('Сумма планового аванса: '+DoubleToStr(fGetPlanSum,#Sumformat)+Chr(13)
+     +'Сумма фактического аванса: '+DoubleToStr(fGetFaktSum,#Sumformat)+Chr(13)
+     +'Сумма перечислений: '+DoubleToStr(fGetPerSum,#Sumformat)) ;
+}
+
+cmGetCanc : PutCommand(cmCancel);
+
+cmGetNewPar : {
+
+       update lschet where katpodr.cgrpodr=c1
+       set lschet.avplan:=shtraf.sumudall*kff,
+       lschet.avfakt:=shtraf.sumudall*kff;
+       ReScanPanel(#lschet);
+}
+
+end;
+end.

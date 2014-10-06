@@ -1,0 +1,588 @@
+//by ABSOLUTO
+//======================================================================
+//Сводный отчет о начисленной заработной плате
+// Приложение 2 к ЧТЗ 006.xlsx
+// Численность Фонд заработной платы и выплаты социального характера.xls
+// ЧТЗ 006. Численность Фонд заработной платы и выплаты социального характера.docx
+//======================================================================
+Procedure InsTobot06(ww_su:double; ww_row:longint;ww_col:longint);
+//======================================================================
+{     if ww_col<1 or ww_col>60 then exit
+  if getfirst fastfirstrow tobot3 where (( 
+      ToBot.cut[1] == ToBot3.cut[1] and ToBot.cut[2] ==  ToBot3.cut[2]
+ // and     CurCode == Tobot.code(noindex) 
+
+  ))<>0
+  { ClearBuffer(#Tobot3);
+    Tobot3.nrec :=0;
+    Tobot3.IsLeaf    := 0;
+    Tobot3.code       :=CurCode;
+    Tobot3.mSpDoc:=wc_lev
+    Tobot3.NameGroup := wNameGr;
+    Tobot3.SortName  := wNameGr //wNameGr;
+    Tobot3.Group[1]:=Tobot.Group[1];
+    Tobot3.Group[2]:=Tobot.Group[2];
+    ToBot3.cut[1]  :=ToBot.cut[1];
+    ToBot3.cut[2]  :=ToBot.cut[2];
+    ToBot3.sum[ww_col]:=ww_su
+    insert current ToBot3;
+  }
+  else
+  { ToBot3.sum[ww_col]:=ToBot3.sum[ww_col]+ww_su
+    update current ToBot3;
+  }  
+  if logfilekl
+      MyLogwrite(false,'Ins '+string(ToBot3.CODE)+', '+string(ToBot3.Cut[1])+'/'+string(ToBot3.Cut[2])
+        +', '+string(ww_col)+', '+string(ToBot3.sum[ww_col]))
+} //Procedure InsToBot3(ww_su:doublr; ww_row:longint;ww_col:longint);
+
+
+
+
+//======================================================================
+Function  MoveTobot06(
+   ww_numsb:word;
+   ww_fld:word;
+   ww_sdvig:word; 
+   ww_period:word;
+   ww_koef:double=1):boolean;
+//======================================================================
+var ww_su:double;
+    ww_kateg:word;
+    ww_vo:word;
+    ww_dtb,ww_dte:date;
+{ Result :=False
+  ww_su:=0;
+  if logfilekl
+    MyLogwrite(false,'==== MoveTobot06 ========= '+string(ww_numsb)+','+string(ww_fld)+','+string(ww_sdvig)   )
+  ww_sdvig:=0;
+  if ww_fld=0 or ww_fld>60 then exit;
+  external _Loop Tobot where (( CurCode == TOBOT.CODE )) 
+  { if not nextvisual then exit
+    if logfilekl
+      MyLogwrite(false,'  ToBot, cut[1]='+string(ToBot.cut[1])
+          +', cut[2]='+string(ToBot.cut[2])+', cut[3]='+string(ToBot.cut[3])
+          +', cut[4]='+string(ToBot.cut[4])+', cut[5]='+string(ToBot.cut[5])
+          )
+          
+    //case ww_numsb of
+    //1,2 :
+    //{ 
+      // регион
+      if getfirst TMPKATALOG where (( ToBot.cut[1] == TMPKATALOG.Nrec ))<>0 then continue;
+      //wexrow:=longint(substr(TMPKATALOG.NAME,pos('/',TMPKATALOG.NAME)+1,10))
+      //wsch:= trim(substr(TMPKATALOG.NAME,pos('==',TMPKATALOG.NAME)+2,3) )
+      if logfilekl
+        MyLogwrite(false,'1.  Name='+TMPKATALOG.Name )
+      //OKВЭД
+      if getfirst TMPKATALOG where (( ToBot.cut[2] == TMPKATALOG.Nrec ))<>0 then continue;
+      if logfilekl
+        MyLogwrite(false,'2.  Name='+TMPKATALOG.Name )
+      //категория/совмещение
+      if getfirst TMPKATALOG where (( ToBot.cut[3] == TMPKATALOG.Nrec ))<>0 then continue;
+      ww_kateg:=word(trim(substr(TMPKATALOG.NAME,pos('==',TMPKATALOG.NAME)+2,3) ));
+      wexcol:=if(ww_period=1,22,5) //+ww_kateg;
+      if ww_numsb=2
+        wexcol:=wexcol+8
+      if logfilekl
+        MyLogwrite(false,'2.  Name='+TMPKATALOG.Name+' ww_kateg:='+string(ww_kateg)+' wexcol= '+string(wexcol) )
+      wexrow:=0;
+      ww_sdvig:=0;
+#declare Ins_kateg06
+        InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_sdvig+0 )
+        case ww_kateg of
+        1,2,3 : InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_sdvig+1 )
+        end;
+        case ww_kateg of
+        1,2 : InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_sdvig+2 )
+        end;
+#end          
+      case ww_numsb of 
+      1:
+      { 
+        InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_kateg+2 )
+        #Ins_kateg06
+      } //1
+      2:
+      { 
+        if getfirst TMPKATALOG where (( ToBot.cut[4] == TMPKATALOG.Nrec ))<>0 then continue;
+        { 
+          ww_vo:=word(trim(substr(TMPKATALOG.NAME,pos('==',TMPKATALOG.NAME)+2,4)))
+          if getfirst fastfirstrow klvidopl1 where (( ww_vo== klvidopl1.vidoplp ))=0
+          { wc_spkau:=comp(GetNameSpr(5,coKlvidopl,KlVidopl1.Nrec,UserDeskRep.ResComp[21]))
+            if getfirst spkau=0
+            {  //wexrow:=wexrow+word(trim(spkau.code)) // сдвинем по строке!
+               ww_sdvig:=0
+               if substr(spkau.code,1,3)='001' 
+               {  
+                  case klvidopl1.vidoplp of 
+                  50,67,49:	
+                  { if ww_period<>1 then continue;
+                    ww_sdvig:=8
+                  
+                  
+                  }
+                  else ww_sdvig:=0;
+                  end;
+                  InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_sdvig+ww_kateg+2 )
+                  #Ins_kateg06
+                 
+               }   
+               if substr(spkau.code,1,3)='002' 
+               {  ww_sdvig:=if(ww_period=1,54-30,8)
+                  if ww_period<>1
+                  { InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_sdvig )
+                  }
+                  else
+                  { InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_sdvig )
+                    // #Ins_kateg06;
+                  
+                  }
+               }   
+               //if substr(spkau.code,1,3)='003' 
+               //{ if ww_period<>1 then continue;
+               //  ww_sdvig:=8
+               //}   
+               if substr(spkau.code,1,3)='004' 
+               {  continue;
+               }   
+               if substr(spkau.code,1,3)='001'  or substr(spkau.code,1,3)='003'
+               { if ww_period=1
+                 { //if substr(spkau.code,1,3)='001'
+                   case klvidopl1.vidoplp of 
+                   50,67,49:	
+                   { ww_sdvig:=ww_sdvig+8
+                   }
+                   else
+                   { ww_sdvig:=ww_sdvig+16;
+                   }
+                   end;
+                   InsTobot06(Tobot.Sum[ww_fld]*ww_koef,wexrow,wexcol+ww_sdvig+ww_kateg+2 )
+                   #Ins_kateg06
+                 } //if ww_period=1
+               } //if substr(spkau.code,1,3)='001'  or substr(spkau.code,1,3)='003'
+               
+               
+            } //if getfirst spkau=0
+          } //if getfirst fastfirstrow klvidopl1 where (( ww_vo== klvidopl1.vidoplp ))=0
+          else
+          { // continue;
+          }
+          if logfilekl
+           MyLogwrite(false,'  Name='+TMPKATALOG.Name+', col='+string(wexcol)+', vo='+string(ww_vo)+', '+string(wc_spkau)  )
+           
+        } //if getfirst TMPKATALOG where (( ToBot.cut[4] == TMPKATALOG.Nrec ))<>0 then continue;
+      }  //2
+      end;  //case ww_numsb of 
+    //}
+    //end; //case ww_numsb of 
+  } //external _Loop Tobot where (( CurCode == TOBOT.CODE )) 
+#undef Ins_kateg06
+  Result:=True;
+} //
+
+
+Procedure RestUserDeskRep06;
+{ ReReadRecord(#UserDeskRep)
+  UserDeskRep.ResWord[40]:=if(logfilekl,1,0)
+}
+
+//==============================
+// запуск отчета
+//==============================
+Function CreateReport06 :boolean;
+var ww_dt :date;
+    ww_su:double;
+    ww_kateg:word;
+    i,j :word;
+    ww_nrec:comp;
+{ CreateReport06:=false;
+  ClearTable(CurCode)
+  ClearTable(CurCode+1)
+  ClearTable(CurCode+2)
+  ClearTable(CurCode+3)
+  delete all tobot3;
+  delete all tobot;
+  UpdateTable
+  logfilekl:=if((UserDeskRep.ResWord[40] and 1 )>0,true,false)
+  ww_dt:=UserDeskRep.ResDate[1]
+  if UserDeskRep.ResComp[21]=0
+  { message('Не задан ВА к клас.видов оплат'
+       +chr(13)+'с кодом = нормер строки относительно "фонд оплаты..."'
+       )
+    Exit   
+  }
+  if UserDeskRep.ResComp[20]=0
+  { message('Не задан ВА к штвтному расписанию'
+       +chr(13)+'с кодом = нормер строки '
+       )
+    Exit   
+  }
+  // отдельно собираем за год и за месяц
+  for(i:=1;i<=2;i++)
+  { 
+    StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Сбор данных по среднесписочной '
+       +chr(13)+'проход '+string(i), vfTimer+vfBreak);
+    ClearTable(CurCode  ,False)
+    ClearTable(CurCode+1,False)
+    ClearTable(CurCode+2,False)
+    ClearTable(CurCode+3,False)
+    UserDeskRep.ResWord[41]:=0;
+    //UserDeskRep.ResDate[1]:=date(1,if(i=1,1, month(UserDeskRep.ResDate[2]) ),year(UserDeskRep.ResDate[2]))
+    UserDeskRep.ResDate[1]:=date(1,if(i=1,month(UserDeskRep.ResDate[1])
+                                        , month(UserDeskRep.ResDate[2]) ),year(UserDeskRep.ResDate[2]))
+    UserDeskRep.ResWord[11] :=10; //регион
+    UserDeskRep.ResWord[12] :=0;
+    UserDeskRep.ResWord[31] :=0; //('Иерархия 1',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[13] :=5; //ВА к штатному  оквед 11 2',,sci1378Esc) : #_list_group
+    UserDeskRep.ResWord[14] :=0; //('Иерархия 2',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[32] :=0; //('Иерархия 1',,sci178Esc) : noprotect;
+    
+    //ВСЕГДА с РАЗБИВКИ по месяцам
+    UserDeskRep.ResWord[15] :=9;//Категоия /вид работы('Группировка 4',,sci1378Esc) : #_list_group
+    UserDeskRep.ResWord[16] :=0;// ('Иерархия 3',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[33] :=0;//('Иерархия 1',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[17] :=7;//if(i=1,0,7); // месяц ('Группировка 3',,sci1378Esc) : #_list_group
+    UserDeskRep.ResWord[18] :=0;//('Иерархия 4',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[34] :=0;//('Иерархия 1',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[19] :=0;//('Группировка 5',,sci1378Esc) : #_list_group
+    UserDeskRep.ResWord[20] :=0;//('Иерархия 5',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[35] :=0;//('Иерархия 5',,sci178Esc) : noprotect;
+    UserDeskRep.ResWord[40] :=if(logfilekl,4,0);
+   
+    if not inextvisual('Расчет среднесписочной') then
+    { RestUserDeskRep06
+      UserDeskRep.ResDate[1]:=ww_dt;
+      exit;
+    }
+    //StopVisual('',0)
+    if logfilekl
+      MyLogwrite(false,'==== Сбор среднесписочной Begin========= ')
+    if not CreateReport
+    { RestUserDeskRep06
+      UserDeskRep.ResDate[1]:=ww_dt;
+      exit;
+    }
+    if logfilekl
+      MyLogwrite(false,'==== Сбор среднесписочной END ========= ')
+  
+    ww_su:=0;
+    MoveTobot06(1,3,1,i
+//если за год собирать в разбивке по месяцам
+      ,if(i=1,1/month(UserDeskRep.ResDate[2]),1)
+     )
+
+    if False
+    { mylogwrite(false,'=== tobot 3 ====== 1 '+string(i))
+     _loop tobot3
+     {  if getfirst TMPKATALOG where (( ToBot3.cut[1] == TMPKATALOG.Nrec ))<>0 {}
+        mylogwrite(false,'1 '+TMPKATALOG.name)
+        if getfirst TMPKATALOG where (( ToBot3.cut[2] == TMPKATALOG.Nrec ))<>0 {}
+        mylogwrite(false,'2 '+TMPKATALOG.name)
+     }
+    }
+
+    USERDESKREP.RESWORD[38]:=1 ;// начисления
+    USERDESKREP.RESWORD[40]:=if(CheckUseDsql,8,0)+if(logfilekl,4,0) +128 ;// прямые запросы + отладка + group_by
+    USERDESKREP.RESWORD[11]:=40;//регион
+    UserDeskRep.ResWord[13]:=36;//оквед ('Группировка 2',,sci1378Esc) : #_list_group
+    UserDeskRep.ResWord[15]:=39;//категория 
+    //ВСЕГДА с РАЗБИВКИ по месяцам
+    UserDeskRep.ResWord[17]:=6 ;//ВО if(i=1,0,27);// месяц ('Группировка 3',,sci1378Esc) : #_list_group
+    UserDeskRep.ResWord[19]:=27 ;//месяц ('Группировка 4',,sci1378Esc) : #_list_group
+    //CurCode:=0;
+    ClearTable(CurCode,False)
+
+    StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Сбор данных по начислениям '
+       +chr(13)+'проход '+string(i), vfTimer+vfBreak);
+    if not inextvisual('Расчет начислений') then
+    { RestUserDeskRep06
+      UserDeskRep.ResDate[1]:=ww_dt;
+      exit;
+    }
+    //StopVisual('',0)
+    if logfilekl
+      MyLogwrite(false,'==== Сбор ФЗП ========= ')
+    if not CreateReport01
+    { RestUserDeskRep06
+      UserDeskRep.ResDate[1]:=ww_dt;
+      exit;
+    }
+    // суммы в тыс.рублей
+    MoveTobot06(2,3,2,i, 0.001)
+    mylogwrite(false,'=== tobot 3 ====== 2 '+string(i))
+   _loop tobot3
+   {  if getfirst TMPKATALOG where (( ToBot3.cut[1] == TMPKATALOG.Nrec ))<>0 {}
+      mylogwrite(false,'1 '+TMPKATALOG.name)
+      if getfirst TMPKATALOG where (( ToBot3.cut[2] == TMPKATALOG.Nrec ))<>0 {}
+      mylogwrite(false,'2 '+TMPKATALOG.name)
+   }
+
+  } //for(i:=1;i<=2;i++)
+  UserDeskRep.ResDate[1]:=ww_dt;
+
+// построим дерево
+   
+
+
+   RestUserDeskRep06
+   Grp_Count:=2;
+   //== строим дерево
+   ClearTable(CurCode,False)
+   ClearTable(CurCode+1,False)
+   insert into tobot select tobot3.*
+   from tobot3;
+   //=====================
+   ReSetBounds(#TempDescr)
+   delete all TempDescr;
+   SetBounds(#TempDescr)
+   cRep := InitTreeBuilder(#Tobot);
+     if cRep=0 { message('Ошибка инициализации дерева!'); exit; }
+     Var nParam : LongInt;
+
+     for(i:=1;i<=Grp_Count;i:=i+1)
+     { nParam:=if(mkol[i]=0,tsNoExpand,0)
+       if (UserDeskRep.ResWord[40] and 1024 )>0 and mVnKau[i]>0
+       { nParam := nParam Or TuneKAULevel( cRep, i, mVnKau[i] )
+       }
+       TuneLevel(cRep, i, mTable[i], nParam, mName[i],0 , mGrupSort[i], mkol[i]);
+       for(j:=1;j<=60;j++)
+       {  TuneSum(cRep, j, 0, 0);
+       }
+       Mylogwrite(false,'Группировки '+string(mTable[i])+','+mName[i]+','+string(mkol[i])+','+string(mIeSvertka[Len1]))
+     }
+     SetReportStyles(cRep, rsNodeReport+
+       if(logfilekl,rsShowStat,0), ' Всего')
+     BuildTunedTree(crep, CurCode); 
+     if (cRep<>0)
+       DoneTreeBuilder(cRep);
+//===== строим отдельно по виду деятельности
+   if true
+   { 
+     update TEMPDESCR where (( CurCode == TEMPDESCR.CODE )) set TEMPDESCR.CODE:=CurCode+1;
+     update TOBOT where (( CurCode == TOBOT.CODE ))
+       set   ToBot.cut[1]:=ToBot.cut[2]
+            ,Tobot.Group[1]:=Tobot.Group[2]
+            ,ToBot.cut[2]:=0,Tobot.Group[2]:=0
+            ,ToBot.cut[3]:=0,Tobot.Group[3]:=0
+            ,ToBot.cut[4]:=0,Tobot.Group[4]:=0
+            ,ToBot.cut[5]:=0,Tobot.Group[5]:=0
+            ;
+    
+     cRep := InitTreeBuilder(#Tobot);
+     TuneLevel(cRep, 1
+          , mTable[2], if(mkol[2]=0,tsNoExpand,0)
+          , mName[2],0 , mGrupSort[2], mkol[2]);
+     for(j:=1;j<=60;j++)
+     {  TuneSum(cRep, j, 0, 0);
+     }
+     SetReportStyles(cRep, if(logfilekl,rsShowStat,0), UserDeskRep.RepName)
+     BuildTunedTree(crep, CurCode);
+     ww_nrec:=0
+     if getfirst TEMPDESCR where 
+       (( CurCode+1 == TEMPDESCR.CODE and 0 == TEMPDESCR.CGROUP  ))=0  
+     {     ww_nrec:=TEMPDESCR.NREC;
+       //message(' Nrec 0 уровня = '+string(ww_nrec) )
+     }
+     if getfirst  TEMPDESCR where 
+       (( CurCode == TEMPDESCR.CODE and 0 == TEMPDESCR.CGROUP  ))=0
+     { //message(TEMPDESCR.SORTNAME)
+     }   
+     update TEMPDESCR where 
+       (( CurCode == TEMPDESCR.CODE and 0 == TEMPDESCR.CGROUP  )) 
+       set TEMPDESCR.SORTNAME:=' '+TEMPDESCR.SORTNAME , TEMPDESCR.CGROUP:=ww_nrec;
+     insert into TEMPDESCR set 
+                  TEMPDESCR.CODE:=CurCode
+                 ,TEMPDESCR.sortname:=chr(39)+' в том числе'
+                 ,TEMPDESCR.name:='в том числе'
+                 ,TEMPDESCR.isleaf:=0
+                ; 
+     //ww_nrec:=TEMPDESCR.Nrec
+     update TEMPDESCR where 
+       (( CurCode+1 == TEMPDESCR.CODE and ww_nrec == TEMPDESCR.CGROUP  )) 
+         set TEMPDESCR.cGROUP:=0,TEMPDESCR.SORTNAME:='Я'+TEMPDESCR.SORTNAME ;          
+     update TEMPDESCR where 
+       (( CurCode+1 == TEMPDESCR.CODE )) set  TEMPDESCR.CODE:=CurCode;      
+
+   }
+
+
+   //==================
+   PrintDoc_06(0)
+   
+   CreateReport06:=true;
+   rescanpanel(#UserDeskRep)
+} //Function CreateReport06 :boolean;
+
+
+
+//=============================
+// печать имени группировки
+//============================
+Function PrintName06(const ww_name:string;ww_level:longint;ww_col:word):string;
+var kk:word
+{ Result:=''
+  //if substr(TEMPDESCR.SORTNAME,1,1)=' '  ww_level++ 
+  if pos('==',ww_name)>0
+  { ww_name:=trim(substr(ww_name,pos('==',ww_name)+2,100))
+  } 
+  kk:=pos(':',ww_name)
+  if kk>0  ww_name:=substr(ww_name,kk+1,200)
+     
+  case ww_col of
+  1:
+  { kk:=pos('/',ww_name)
+    if kk>0  ww_name:=substr(ww_name,1,kk-1)
+    
+  } 
+  2:
+  { //if ww_level<>1 then exit;
+    //MyLogwrite(false,' '+ww_name+'='+ string(ww_level)  )
+    if ww_level<>0 then exit;
+    ww_name:=ExtractDelimitedWord(ww_name,2,'/')
+               
+  }
+  3:
+  { //if ww_level<>1 then exit;
+    if ww_level<>0 then exit;
+    ww_name:=ExtractDelimitedWord(ww_name,3,'/')
+  }
+  4:
+  { //if ww_level<2 then exit;
+    if ww_level<1 then exit;
+    kk:=pos('/',ww_name)
+    if kk>0  ww_name:=substr(ww_name,kk+1,200)
+    else     ww_name:='';
+    
+  }
+  end; 
+  Result:=trim(ww_name);
+}
+
+//===================================
+Function PrintDoc_06(ww_type:word) : boolean;
+VAR
+ boIsTerm :boolean;
+ wnpp:longint;
+ wwkl:boolean;
+ i:word;
+ ww_str1 :string; //"Код субъекта согласно справочника(заполняется каждая строка по субъекту)"	
+ ww_str2 :string; //Краткое обозначение федераль-ного округа	
+ ww_str3 :string; //Код по ОКВЭД
+		
+		
+		
+		
+		
+		
+
+ wLevel_Start: word;
+ wCurLevel,wPrevLevel:longint;
+{ PrintDoc_06 :=false
+  wexrow:=2;wexcol:=1;
+  if ExcelInit(nmtemplate,true,2009)<>0
+  { message('Ошибка инициализации шаблона')
+    exit ;
+  }
+  if logfilekl
+    MyLogwrite(false,'==== PrintDoc_06 ========= ')
+  XlSetActiveSheetByName('П-4')
+  StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Идет печать...', vfTimer+vfBreak);
+  matrixkl:=False;
+  wexrow:=3; wexcol:=5;
+  MyPutExcel(sGetTune('MYORG') ,0,0,-1,-1)
+  wexrow:=4; wexcol:=5;
+  MyPutExcel(DateToStr(UserDeskRep.ResDate[2],'за month YYYY года') ,0,0,-1,-1)
+  
+  HeaderStrCount:=14;  
+  wexrow:=HeaderStrCount+1;
+  MyXlCreaMatrix(10000,70)
+  wexrow:=wexrow-1;
+  case ww_type of
+  0,2: wwkl:=TreeGetFirstEx(MainTree );
+  1: { wwkl:=true; wLevel_Start:=TreeLevel(MainTree);}
+  else exit;
+  end;
+  wnpp:=0;
+  if  wwkl
+  do
+  {   if not nextvisual then break;
+      wPrevLevel := wCurLevel;
+      wCurLevel  := TreeLevel(MainTree);
+      boIsTerm   := TreeIsTerminal( MainTree );
+      Mylogwrite(false,'TempDescr.name='+TempDescr.name+'/'+string(wCurLevel))
+      if (not boIsTerm) or TempDescr.name='в том числе' //or ((UserDeskRep.ResWord[40] and 8)>0) 
+      { wexrow:=wexrow+1; wexcol:=1;
+      
+        case wCurLevel of
+        //0:
+        //{ ww_str1:=''; ww_str2:='';
+        //}
+        0:
+        { ww_str1:=PrintName06(TempDescr.name,wCurLevel,2)
+          ww_str2:=PrintName06(TempDescr.name,wCurLevel,3)
+        }
+        end; 
+        if trim(TempDescr.name)='Всего' or trim(TempDescr.name)='в том числе'
+        { xlSetFontStyle(xlBold, wexrow, 1, wexrow, 60)
+
+        }
+ 
+        //"Наименование видов экономической деятельности"	
+        MyPutExcel(lpad(' ',wcurlevel*2)+PrintName06(TempDescr.name,wCurLevel,1),10,0,-1,-1)
+        //"Код субъекта согласно справочника
+        MyPutExcel(ww_str1,10,0,-1,-1)
+        //         (заполняется каждая строка по субъекту)"	
+        //Краткое обозначение федераль-ного округа	
+        MyPutExcel(ww_str2,10,0,-1,-1)
+        //Код по ОКВЭД
+        MyPutExcel(PrintName06(TempDescr.name,wCurLevel,4),10,0,-1,-1)
+        
+        for(i:=5;i<=54;i++)
+        { MyPutExcelNumber(round(TempDescr.sum[i],2),1,10,0,-1,-1)
+        }// for(i:=3;i<=64) 
+      } //  
+      case ww_type of
+      0:
+      { wwkl:=TreeGetNextEx(MainTree)
+      }
+      1:
+      { wwkl:=TreeGetNextEx(MainTree)
+        if wwkl
+        if  ww_type=1 and TreeLevel(MainTree)<=wLevel_Start wwkl:=false;
+      }
+      2:
+      { wwkl:=TreeGetNext(MainTree)
+      }
+      else
+      { wwkl:=false;
+      }
+      end;
+  }    
+  While ( wwkl );
+  MyxlWriteMatrix(wexrow);
+  xlFreeMatrix;
+  
+  matrixkl:=False;
+  MyxlFrameCells(63, 2, 1, 1, HeaderStrCount,1,wexrow,55);
+  xlWrapText(HeaderStrCount,1,wexrow,7);
+
+ wexrow:=wexrow+2;wexcol:=1;
+ MyPutExcel('*Заполняются при наличии автоматизированного учета'
+             +' заработной платы по категориям персонала.',10,0,-1,-1)
+ wexrow:=wexrow+1;wexcol:=1;
+ MyPutExcel('**Заполняется ежеквартально.',10,0,-1,-1)
+																																																						
+																																																						
+ wexrow:=wexrow+2;wexcol:=1;
+ MyPutExcel('Начальник ООТиЗ',10,0,-1,-1)
+ wexrow:=wexrow+2;wexcol:=1;
+																																																						
+ MyPutExcel('ВНИМАНИЕ: г. Москва и Московская область - ЭТО ДВА РАЗНЫХ СУБЪЕКТА,'
+       +' данные по этим субъектам не объединять.',10,0,-1,-1)
+ 
+ // MyXlEnd;
+  XlKillExcel;
+  StopVisual('',0);
+  PrintDoc_06 :=true;
+}

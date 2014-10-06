@@ -1,0 +1,1114 @@
+//==============================
+// Установить отладку
+//==============================
+Procedure SetLogFile (w :string) ;
+{ 
+  if w<>''
+  {  logfilenm:=w ;
+     logfilekl:=true ;
+  }
+  else
+   logfilekl:=false ;
+  
+}
+//==============================
+// проверить фильтр
+//==============================
+Function Chk_Filter(const ww_cpodr :comp;const ww_ckateg:comp; ww_rejim:word) :boolean;
+{ Chk_Filter:=False;
+  // только работники из подразделений, к которым разрешен доступ
+  if ww_rejim=0 then exit;
+  if not DA.IsAvailable(ww_cpodr) then exit
+   
+  if (userDeskRep.ResWord[1] and 1)>0
+  { if not FoundMarker(MarkerPodr,ww_cpodr) then exit;
+  }
+  if (userDeskRep.ResWord[1] and 2)>0
+  { if getfirst klkatego where (( ww_ckateg  == klkatego.kod ))<>0 then exit;
+    if not FoundMarker(MarkerKateg,klkatego.nrec) then exit;
+  }
+  MyLogWrite(false,' фильтр')
+  Chk_Filter:=true
+} //Function Chk_Filter(var ww_cpodr :comp;var ww_ckateg:comp) :boolean; 
+//===================
+// получить наименование подразделения
+//==================
+Function GetPodrName(ww_podr :comp) :string;
+{ wc_podr:=ww_podr;
+  GetPodrName:=if(getfirst katpodr1=0,katpodr1.name,'??? '+string(wc_podr))
+}
+//============================
+//получить nrec категории
+//============================
+Function GETKATEGNREC(ww_kateg:word) :comp;
+{ w_kateg:=ww_kateg;
+  GETKATEGNREC:=if(getfirst klkatego1=0,klkatego1.nrec,0)
+}
+//============================
+//получить наименование категории
+//============================
+Function GetKategName(ww_kateg:word) :string;
+{ w_kateg:=ww_kateg;
+  GetKategName:=if(getfirst klkatego1=0,klkatego1.naikat,'??')
+}
+//===============================
+// подсчитть неявки
+//===============================
+Function Calc_Neyavki:double;
+var ii:word;
+    wwsu:double;
+{ wwsu:=0;
+  for(ii:=9;ii<=39;inc(ii)) wwsu:=wwsu+TempDescr.sum[ii]
+  Calc_Neyavki:=wwsu;
+}    
+//===============================
+// подсчитть явки
+//===============================
+Function Calc_yavki:double;
+var ii:word;
+    wwsu:double;
+{ wwsu:=0;
+  for(ii:=3;ii<=8;inc(ii)) wwsu:=wwsu+TempDescr.sum[ii]
+  wwsu:=wwsu+(TempDescr.Sum[49] div 1000000)+(TempDescr.Sum[50] div 1000000)
+  Calc_yavki:=wwsu;
+
+}
+//===============================
+// подсчитть неявки
+//===============================
+Function Calc_Neyavki1:double;
+var ii:word;
+    wwsu:double;
+{ wwsu:=0;
+  for(ii:=9;ii<=39;inc(ii)) wwsu:=wwsu+tobot.sum[ii]
+  Calc_Neyavki1:=wwsu;
+}    
+//===============================
+// подсчитть явки
+//===============================
+Function Calc_yavki1:double;
+var ii:word;
+    wwsu:double;
+{ wwsu:=0;
+  for(ii:=3;ii<=8;inc(ii)) wwsu:=wwsu+tobot.sum[ii]
+  wwsu:=wwsu+(Tobot.Sum[49] div 1000000)+(Tobot.Sum[50] div 1000000)
+  Calc_yavki1:=wwsu;
+
+}
+//==========================================
+// накрпить данные во временную таблицу
+//==========================================
+Procedure Tobot_Ins ;
+{ if getfirst tobot where (( 
+      wc_cut1 == ToBot.cut[1] and wc_cut2 ==  ToBot.cut[2]
+  and wc_cut3 == ToBot.cut[3] and wc_cut4 ==  ToBot.cut[4] 
+  and wc_cut5 == ToBot.cut[5] and wc_cut6 ==  ToBot.cut[6]
+ // and     CurCode == Tobot.code(noindex) 
+
+  ))<>0
+  { ClearBuffer(#Tobot);
+    Tobot.nrec :=0;
+    Tobot.IsLeaf    := 0;
+    Tobot.code       :=CurCode;
+    Tobot.mSpDoc    := Persons.Nrec; //Lstab.NRec;                                  // ссылка на базовый док-т
+    Tobot.NameGroup := Persons.fio ;  //wNameGr; // наименование на самом нижнем уровне
+    Tobot.SortName  := Persons.fio //wNameGr;
+    ToBot.cut[1]:=wc_cut1;Tobot.Group[1]:=wc_cut1;
+    ToBot.cut[2]:=wc_cut2;Tobot.Group[2]:=wc_cut2;
+    ToBot.cut[3]:=wc_cut3;Tobot.Group[3]:=wc_cut3;
+    ToBot.cut[4]:=wc_cut4;Tobot.Group[4]:=wc_cut4; 
+    ToBot.cut[5]:=wc_cut5;Tobot.Group[5]:=wc_cut5;
+    ToBot.cut[6]:=wc_cut6;Tobot.Group[6]:=wc_cut6;
+    insert current ToBot;
+  }
+  MyLogWrite(false,'Tobot_Ins '+Tobot.namegroup+'/'+lstab.tabn+'/'+lstab.strtabn);
+} //Procedure Tobot_Ins ;
+//===============================
+//венруь номер колонки
+//===============================
+Function GetNumKolon(wkod:string;wwtype:word;ww_day:word):word;
+{  wkod:=trim(wkod)
+GetNumKolon:=0  
+//	1
+//	2
+wkod:=upcase(wkod)
+if wwtype=1
+{
+
+if wkod='Я' then GetNumKolon:=3
+if wkod='РР' then GetNumKolon:=	4
+if wkod='РЛ' then GetNumKolon:=	5
+if wkod='СП' then GetNumKolon:=	6
+if wkod='СР' then GetNumKolon:=	7
+if wkod='СРЛ' then GetNumKolon:=	8
+if wkod='ОК' then GetNumKolon:=	9 //Ок Ок
+if wkod='К' then GetNumKolon:=	10
+if wkod='НТ' then GetNumKolon:=	11
+if wkod='Г' then GetNumKolon:=	12
+if wkod='ГД' then GetNumKolon:=	13
+if wkod='ГИ' then GetNumKolon:=	14
+if wkod='ГМ' then GetNumKolon:=	15
+if wkod='ГТ' then GetNumKolon:=	16
+if wkod='ОТ' then GetNumKolon:=	17
+if wkod='У' then GetNumKolon:=	18
+if wkod='УВ' then GetNumKolon:=	19
+if wkod='УД' then GetNumKolon:=	20
+if wkod='УЧ' then GetNumKolon:=	21
+if wkod='ОЗ' then GetNumKolon:=	22
+if wkod='УК' then GetNumKolon:=	23
+if wkod='Б' then GetNumKolon:=	24
+if wkod='НН' then GetNumKolon:=	25
+if wkod='Т' then GetNumKolon:=	26
+if wkod='ОН' then GetNumKolon:=	27
+if wkod='ОЛ' then GetNumKolon:=	28
+if wkod='ОМ' then GetNumKolon:=	29
+if wkod='ОВ' then GetNumKolon:=	30
+if wkod='ДО' then GetNumKolon:=	31
+if wkod='ДБ' then GetNumKolon:=	32
+if wkod='П' then GetNumKolon:=	33
+if wkod='НБ' then GetNumKolon:=	34
+if wkod='ПП' then GetNumKolon:=	35
+if wkod='МП' then GetNumKolon:=	36
+if wkod='ВП' then GetNumKolon:=	37
+if wkod='ПВ' then GetNumKolon:=	38
+if wkod='ПР' then GetNumKolon:=	39
+//	40
+if wkod='В' then GetNumKolon:=	41
+}
+//	42
+if wwtype=2
+{
+if wkod='Я' then GetNumKolon:=	43
+if wkod='РР' then GetNumKolon:=	44
+if wkod='РЛ' then GetNumKolon:=	45
+if wkod='СП' then GetNumKolon:=	46
+if wkod='СР' then GetNumKolon:=	47
+if wkod='СРЛ' then GetNumKolon:=	48
+if wkod='РП' then 
+{ GetNumKolon:=	50
+
+  if WT_TestDay(ww_day,dkHoliday,stPlanned) GetNumKolon:=	49
+}  
+if wkod='РО' then
+{ GetNumKolon:=	52
+  if WT_TestDay(ww_day,dkHoliday,stPlanned) then GetNumKolon:=	51
+}  
+if wkod='РГ' then GetNumKolon:=	53
+if wkod='С' then GetNumKolon:=	54
+if wkod='СВ1' then GetNumKolon:=	55
+if wkod='СВ2' then GetNumKolon:=	56 //СВ1
+if wkod='Н' then GetNumKolon:=	57
+}
+//	58
+if wwtype=3
+{
+if wkod='ОЖ' then GetNumKolon:=	59
+if wkod='Р' then GetNumKolon:=	60
+if wkod='ОЧ' then GetNumKolon:=	1
+}
+if wwtype=4
+{
+if wkod='ОЖ' then GetNumKolon:=	2
+if wkod='Р' then GetNumKolon:=40
+if wkod='РОЧ' then GetNumKolon:=42
+}	
+}//Function GetNumKolon(wkod:string;wwtype:word):word;
+//===================================
+// получить Nrec и наименование подразделения на заданом уровне
+//===========================================
+Function GetKatpodrIe(const ww_cex:comp;const wsvertka :word; var ww_name:string) :comp;
+var ww_nrec :comp;
+{ ww_nrec:=ww_cex;
+  if wsvertka>0
+  { iPodrFilterDef.katpodrGetLevel('',ww_nrec,wsvertka)
+     ww_nrec:=iPodrFilterDef.katpodrGetLevelNrec(wsvertka)
+  }
+  ww_name:=GetPodrName(ww_nrec)
+  GetKatpodrIe:=ww_nrec;
+}
+//========================================
+// Получить уровень для аналитики
+// 
+//========================================
+Function Analitik_GetLevel(const ww_sch:string[20];const ww_sub:string[20]): word;
+{        /*
+      Группировать явки/неявки нужно по КАУ: для счетов 
+      20.01, 20.02, 23.01, 23.02, 25, 26 и 29.01 
+      Ц КАУ 1-го уровня (пользовательская аналитика 
+      лВиды продукции, работ, услуг╗). Эти счета привязаны по ШР. 
+
+      Для 23.03 Ц только по КАУ 4-го уровня 
+      (системная аналитика лОбъекты строительства╗, 40 код), 
+      для 08 с различными субсчетами за исключением 70 субсчета 
+      группируем только по КАУ 1-го уровня -  
+      (системная аналитика лОбъекты строительства╗, 40 код). 
+      Как-то так
+
+       */
+   if ww_sch='23' and ww_sub='03'
+   { Analitik_GetLevel:=4
+   }
+   else
+   if ww_sch='08'
+   { Analitik_GetLevel:=1
+   }
+   else
+   { Analitik_GetLevel:=1
+   }
+}
+//=====================================
+// Получить наименование уровня
+//=====================================
+Function Analitik_Name(ww_tbl :word) :string;
+{ if ww_tbl=40
+     Analitik_Name:='Об/стр.:'
+  else
+    Analitik_Name:=' Виды продукции:'  
+}
+//=============================
+// добавить аналитику
+//=============================
+Function Analitik_InsValue(wCurCode:word; ww_tbl :word ;ww_ckau:comp; 
+         wie:word;const wsvertka :word; var ww_name:string;ww_option:word) :comp;
+var  wnmkau,wnmkau1, wwcode:string;
+     wc_lev:comp;
+     ww_nrec:comp;
+     ww_level:word;
+     j:word;  
+     wwckau:comp;
+{ wnmkau:=Analitik_Name(ww_tbl)
+/*
+  If (  GetAnyKAU(Word(0), KodTable[], KodKau[]), GivenAnName(1)), '')
+
+Параметры GivenAnName() :
+  cgAnName   = 1; // Наименование КАУ
+  cgAnStrKod = 2; // системные String(NRec), ручные SpKau.Code
+  cgAnStrKey = 3; // ключ для сортировки в отчетах, определяется по настройкам (StrName+StrKod) (StrKod+StrName)
+  cgAnNode   = 4; // строковое представление cNode (вышестоящего элемента)
+  cgAnAbbr   = 5; // уникальный строковый ID для использования в формулах (!!!не изменяется!!!)
+  cgAnCode   = 6; // код, как правило для сортировки в каталогах; может меняться, может быть неуникальным
+  cgAnSort   = 7; // строка для сортировки, но НЕ для группировки
+*/
+  wwckau :=ww_ckau 
+  wnmkau1:=if(GetAnyKau(word(0),ww_tbl,wwckau),GivenAnName(1),'')
+  wwcode :=wnmkau+if(ww_tbl=40,'',' ') //+if(GetAnyKau(word(0),ww_tbl,wwckau),GivenAnName(6),'')
+  MyLogwrite(false,'==== Analitik_InsValue = '+wwcode+'/'+wnmkau1)
+  if GetFirst TmpKatalog where (( wCurCode  == TmpKatalog.Code
+              and wwcode+'=='+wnmkau1 == TmpKatalog.Name )) <> tsOk
+  { ClearBuffer(#TmpKatalog);
+    TmpKatalog.Nrec:=0;
+    TmpKatalog.Code:=wCurCode;
+    TmpKatalog.Name := wwcode+'=='+wnmkau1;
+    insert current TmpKatalog;
+    wc_lev:=TmpKatalog.nrec;
+    ww_name:=TmpKatalog.name;
+    ww_level:=1;
+    ww_nrec:=TmpKatalog.Nrec;
+    for(j:=1;j<=20;j++)
+    dm_nrec[j]:=TmpKatalog.Nrec;
+    if wie>0
+    { if ww_tbl>100 // польз.аналитика
+      { // построить дерево
+        if getfirst fastfirstrow spkau where (( wwckau == spkau.nrec ))=0
+        do { //сдвинули поиск по древу
+           if spkau.cnode=0 then break
+           wwckau:=spkau.cnode;
+           wnmkau1:=if(GetAnyKau(word(0),ww_tbl,wwckau),GivenAnName(1),'')
+           wwcode :=wnmkau+if(ww_tbl=40,'',' ') //+if(GetAnyKau(word(0),ww_tbl,wwckau),GivenAnName(6),'')
+           if getfirst TmpKatalog1 where (( TmpKatalog.nrec == TmpKatalog1.nrec ))=0 {}
+           if GetFirst TmpKatalog where (( wCurCode  == TmpKatalog.Code
+              and wwcode+'=='+wnmkau1 == TmpKatalog.Name )) <> tsOk
+           { ClearBuffer(#TmpKatalog);
+             TmpKatalog.Code:=wCurCode;
+             TmpKatalog.Nrec:=0;
+             TmpKatalog.Name :=  wwcode+'=='+wnmkau1;
+             insert current TmpKatalog;
+           }
+              
+           update current TmpKatalog1 set TmpKatalog1.cgroup:=TmpKatalog.nrec;
+           ww_level:=ww_level+1;
+           if ww_level<=20
+             dm_nrec[ww_level]:=TmpKatalog.nrec;
+           MyLogwrite(false,' уровень 1  '+string(ww_level)+'=' +TmpKatalog.Name+'/'+TmpKatalog.Name+'/'+string(TmpKatalog.NREC)+'/'+string(TmpKatalog1.NREC)) 
+           if getfirst spkau where (( wwckau == spkau.nrec ))<>0 then break;
+        } while true;
+      } //if wtbl>100
+      else
+      { if ww_tbl=40 and (ww_option and 1)>0 //Объекты строительства
+        { if getfirst  fastfirstrow katstroy where (( wwckau == katstroy.nrec ))=0
+          do {
+            if katstroy.CSTROY=0 then break
+            wwckau:=katstroy.CSTROY;
+            if wwckau=0 then break;
+            wnmkau1:=if(GetAnyKau(word(0),ww_tbl,wwckau),GivenAnName(1),'')
+            wwcode :=wnmkau+if(ww_tbl=40,'',' ') //+if(GetAnyKau(word(0),ww_tbl,wwckau),GivenAnName(6),'')
+               if getfirst TmpKatalog1 where (( TmpKatalog.nrec == TmpKatalog1.nrec ))=0 {}
+             if GetFirst TmpKatalog where (( wCurCode  == TmpKatalog.Code
+              and wwcode+'=='+wnmkau1 == TmpKatalog.Name )) <> tsOk
+            { ClearBuffer(#TmpKatalog);
+              TmpKatalog.Nrec:=0;
+              TmpKatalog.Code:=wCurCode;
+              TmpKatalog.Name :=  wwcode+'=='+wnmkau1;
+              insert current TmpKatalog;
+            }
+            ww_level:=ww_level+1;
+            if ww_level<=20
+              dm_nrec[ww_level]:=TmpKatalog.nrec;
+            update current TmpKatalog1 set TmpKatalog1.cgroup:=TmpKatalog.nrec;
+            
+            MyLogwrite(false,' уровень 2  '+string(ww_level)+'=' +TmpKatalog.Name+'/'+TmpKatalog1.Name+'/'+string(TmpKatalog.NREC)+'/'+string(TmpKatalog1.NREC)) 
+            if wwckau=0 then break;
+            if getfirst katstroy where (( wwckau == katstroy.nrec ))<>0 then break;
+          } while true;
+        } //if wtbl=40 and (UserDeskRep.ResWord[40] and 2)>0
+      } //else if wtbl>100
+      if wsvertka>0
+      { if ww_level>20 then ww_level:=20;
+        for(j:=1;j<=ww_level;j++)
+        { if getfirst TmpKatalog where (( dm_nrec[j] == TmpKatalog.nrec ))=0
+          { if j>(ww_level-wsvertka)
+            { update current TmpKatalog set TmpKatalog.crec:=TmpKatalog.nrec 
+            } 
+            else
+            { if (ww_level-wsvertka)<=19 //(ww_level-wsvertka)>0 and 
+              {  update current TmpKatalog set TmpKatalog.crec:=dm_nrec[(ww_level-wsvertka)+1] 
+              }
+              else
+              {  update current TmpKatalog set TmpKatalog.crec:= TmpKatalog.nrec;
+              }
+            }
+          }
+          mylogwrite(false,'Пробежка по дереву '+string(j)+'='+TmpKatalog.Name+'/'+string(TmpKatalog.NREC)+'/'+string(TmpKatalog.crec)) 
+        }
+        if getfirst TmpKatalog where (( wc_lev == TmpKatalog.nrec ))=0
+        {  wc_lev:=if(TmpKatalog.crec>0,TmpKatalog.crec,TmpKatalog.nrec);
+           if getfirst TmpKatalog where (( wc_lev == TmpKatalog.nrec ))=0
+             ww_name:=TmpKatalog.name;
+          mylogwrite(false,'Выдаем аналитику '+ww_name+'/'+string(wc_lev))              
+        }   
+      } //if mIeSvertka[i]>0
+    } //if mHierar>0  
+  } //if GetFirst TmpKatalog wher
+  else
+  { wc_lev:=TmpKatalog.nrec;
+    ww_name:=TmpKatalog.name;
+     if  wsvertka>0
+     { wc_lev:=TmpKatalog.crec;
+       if wc_lev=0 then wc_lev:=TmpKatalog.nrec;
+       if getfirst TmpKatalog where (( wc_lev == TmpKatalog.nrec ))=0
+            ww_name:=TmpKatalog.name;
+      }   
+      mylogwrite(false,'Выдаем аналитику '+ww_name+'/'+string(wc_lev))              
+  } //else if GetFirst TmpKatalog where
+  mylogwrite(false,string(wc_lev)+','+ww_name)
+  Analitik_InsValue:=wc_lev
+}
+
+//==============================
+// сбор данных по табелю
+//==============================
+Procedure InsTabel(Change:comp);
+VAR
+  WCKAU:COMP;
+  wtbl :word;
+  kl_vihod : boolean;
+  i,j : word;
+  wc_lev:comp;
+  ww_analitik_lev:word;
+  wHours: double;
+  wDays: byte;
+  wKind: byte;
+{ mylogwrite(false,'InsTabel '+string(lstab.tabn)+'/'+string(Change));
+  WT_ResetFilter;
+  // если включено раздельное ведение табелей
+  //    if (SeparateTableKeeping)
+  // установим фильтр по данному переходу в межпериод
+  WT_SetAttributeFilter(wtaChange, Change);
+  // если используется группировка по аналитикам
+  /*
+    if (wAnalitikVal <> 0)
+    WT_AddAnalyticsFilter(wAnalitikVal, SortingTable.Code);
+
+      // отбросить редуцированные части табелей
+      if WT_GetDaysBwDates(dkEnabled, stActual, CurrentPeriodBeginning, CurrentPeriodEnding) = 0
+        exit;
+  */
+  
+  WT_AddDayRangeFilter(day_b,day_e) 
+  for(i:=1;i<=Grp_Count+1;i:=i+1)
+  { wc_lev:=0;
+    if i<=Grp_Count
+    {case mTable[i] of
+     coKatPodr:
+     { wc_lev:=GetKatpodrIe(if(change=0, lstab.cexoz,perexod.cexp),mIeSvertka[i],wNameGr)
+       
+       
+     }
+     coKlKatego:
+     { wc_lev:=if(change=0, GetKategNrec(lstab.kateg),GetKategNrec(perexod.kateg) )
+       if  i=Grp_Count
+         wNameGr:=GetKategName(if(change=0, lstab.kateg,perexod.kateg ))
+       
+     }
+     coPersons:
+     { wc_lev:=lstab.tperson
+       if  i=Grp_Count
+         wNameGr:=persons.fio;
+     }
+     coTmpKatalog:
+     { if Change=0
+       { wsch :=lstab.cschetd; wsubsch:=lstab.csubschd;
+       }
+       else
+       { wsch :=perexod.cschetd; wsubsch:=perexod.csubschd;
+       }
+       ww_analitik_lev:=Analitik_GetLevel(wsch,wsubsch)
+       wckau:=if(change=0, lstab.CKAUD[ww_analitik_lev],perexod.CKAUD[ww_analitik_lev])
+       wTBL:=if(change=0, lstab.TBLD[ww_analitik_lev],perexod.TBLD[ww_analitik_lev])
+       wc_lev:=Analitik_InsValue(CurCode,wtbl,wckau,mHierar[i], mIeSvertka[i],wNameGr,if((UserDeskRep.ResWord[40] and 2)>0,1,0))
+       
+     } //coTmpKatalog:
+     end;
+    }else
+    { wc_lev:=lstab.tperson
+    } 
+     case i of
+     1: wc_cut1:=wc_lev;
+     2: wc_cut2:=wc_lev;
+     3: wc_cut3:=wc_lev;
+     4: wc_cut4:=wc_lev;
+     5: wc_cut5:=wc_lev;
+     6: wc_cut6:=wc_lev;
+     end;
+  } //for(i:=1;i<=6;i:=i+1) 
+  Tobot_Ins;
+  //Явочные часы
+  var dm_days ,dm_hours :double;
+  dm_days:=0; dm_hours:=0;
+  //i:=GetNumKolon('В',1);
+  //Tobot.Sum[i]:=Tobot.Sum[i]+ WT_GetDaysBwDays(hkHoliday, stActual, day_b, day_e); 
+  // неявки
+  kl_vihod:=false;
+  if WT_LoadMonthlyAbsences = 0
+  { for(j := 0; j < WT_GetAbsenceCount(atMonthly); Inc(j))
+    { var wNotation: comp;
+      if not WT_GetAbsenceAttribute(atMonthly, j, aaNotation, wNotation)
+      or (wNotation = 0) then  continue;
+        wHours:=0;wDays:=0;wKind:=0;
+        WT_GetAbsenceAttribute(atMonthly, j,aaKind , wKind);
+        var Beginning: date; // начало неявки в периоде
+        if not WT_GetMonthlyAbsenceAttribute(j, aaBeginning, Beginning)  continue;
+        var Ending: date; // конец неявки в периоде
+        if not WT_GetMonthlyAbsenceAttribute(j, aaEnding, Ending)
+        continue;
+
+        if wc_Notation_V=wNotation 
+        { //WT_GetDaysBwDays
+           if (not kl_vihod)
+           {
+             wDays := //WT_GetDays(dkWeekend, 1)//WT_GetDays(dkHoliday,1)+
+             WT_GetDaysBwDates(dkWeeKend,1, Beginning,Ending)
+             //wDaysP:=WT_GetDays(dkWeekend, 0)//WT_GetDays(dkHoliday,0)+
+             //wDaysB:=WT_GetDays(dkWeekend,-1)//WT_GetDays(dkHoliday,0)+
+             if Change=0
+             { wDays:=kol_vixod
+             }
+             else
+             { kol_vixod:=kol_vixod-wDays;
+               if kol_vixod<0 then
+               { wdays:=wDays+byte(kol_vixod) ;kol_vixod:=0;
+               }
+             }
+             mylogwrite(false,'InsTable '+string(change)+', выходные='+string(wDays));  
+             kl_vihod:=true;
+             
+           }   else
+           {   WT_GetAbsenceAttribute(atMonthly, j, aaDays, wDays);
+           }
+          
+        }
+        else
+        { WT_GetAbsenceAttribute(atMonthly, j, aaHours, wHours);
+          WT_GetAbsenceAttribute(atMonthly, j, aaDays, wDays);
+        } 
+        
+        //logstrtofile('!lstab.log',string(wNotation)+'/'+string(k)+'/'+string(wDays)+'/'+string(wHours) )
+        if wKind=akBusinessTrip
+        { if wc_Notation_SP=wNotation  //Только СП!
+          { 
+             wHours:=wHours-(WT_GHBD(hkOverwork, 0, 0, stActual, Beginning, Ending)
+                  +WT_GHBD(hkOverworkRest, 0, 0, stActual, Beginning, Ending));
+             dm_days:=dm_days-wDays;dm_Hours:=dm_Hours-wHours 
+             //logstrtofile('!lstab.log','СП= '+string(wHours) )
+          }
+          //logstrtofile('!lstab.log','коман.')
+        }
+        if v1.getfirst UOWRKTABEL where (( wNotation == UOWRKTABEL.nrec ))=0
+        { i:=GetNumKolon(v1.UOWRKTABEL.Num,1,day(Beginning));
+          if i>0 then Tobot.Sum[i]:=Tobot.Sum[i]+wDays; 
+          i:=GetNumKolon(v1.UOWRKTABEL.Num,2,day(Beginning));
+          if i>0 then 
+          { Tobot.Sum[i]:=Tobot.Sum[i]+wHours; 
+            if i=49 or i=50  //РП
+            {  Tobot.Sum[49]:=Tobot.Sum[49]+wDays*1000000; 
+            }
+            if i=51 or i=52   //РО
+            {  Tobot.Sum[50]:=Tobot.Sum[50]+wDays*1000000; 
+            }
+          } 
+          i:=GetNumKolon(v1.UOWRKTABEL.Num,3,day(Beginning));
+          if i>0 then Tobot.Sum[i]:=Tobot.Sum[i]+wDays; 
+          i:=GetNumKolon(v1.UOWRKTABEL.Num,4,day(Beginning)) 
+          if i>0 and Ending=UserDeskRep.ResDate[2] 
+          then Tobot.Sum[i]:=Tobot.Sum[i]+1; 
+          
+        } //if v1.getfirst UOWRKTABEL where (( wNotation == UOWRKTABEL.nrec ))=0
+        
+    }//for(j := 0; j < WT_GetAbsenceCount(atMonthly); Inc(j))
+  }//if WT_LoadMonthlyAbsences = 0
+  wHours:=WT_GetHours(hkOverwork,stActual)
+  if wHours>0
+  { i:=GetNumKolon('СВ1',2,1);
+    if i>0 then 
+    { Tobot.Sum[i]:=Tobot.Sum[i]+wHours; 
+    }                  
+  }
+  wHours:=WT_GetHours(hkOverworkRest,stActual)
+  if wHours>0
+  { i:=GetNumKolon('СВ2',2,1);
+    if i>0 then 
+    { Tobot.Sum[i]:=Tobot.Sum[i]+wHours; 
+    }                  
+  }
+  //==ночные
+  wHours:=WT_GetHours(3,1)
+  if wHours>0
+  { i:=GetNumKolon('Н',2,1);
+    if i>0 then 
+    { Tobot.Sum[i]:=Tobot.Sum[i]+wHours; 
+    }                  
+  }
+  //=========
+
+  if Change=0 and (not kl_vihod) and kol_vixod>0
+  {  i:=GetNumKolon('В',1,1);
+     if i>0 then Tobot.Sum[i]:=Tobot.Sum[i]+kol_vixod; 
+          
+  }
+  i:=GetNumKolon('Я',2,0);
+  dm_hours :=dm_hours+WT_GetHoursBwDays(hkWorking, 0, 0, stActual, day_b, day_e); 
+  if dm_hours< 0 dm_hours:=0; 
+  Tobot.Sum[i]:=Tobot.Sum[i]+dm_hours;
+  i:=GetNumKolon('Я',1,0);
+  dm_days:=dm_days+WT_GetDaysBwDays(dkWorking, stActual, day_b, day_e); 
+  mylogwrite(false,'Явки '+string(dm_days)+'/'+string(WT_GetDaysBwDays(dkWorking, stActual, day_b, day_e)))
+  if dm_days<0 then dm_days:=0
+  Tobot.Sum[i]:=Tobot.Sum[i]+dm_days; 
+  mylogwrite(false,'Явки '+string(dm_days)+'/'+string(WT_GetDaysBwDays(dkWorking, stActual, day_b, day_e))+'/'+string(Tobot.sum[3]))
+ 
+  update current ToBot;
+}//Procedure InsTabel(Change:comp);
+//==========================
+Procedure Tabel_Init;
+{ Loadworkingtable(lstab.clschet,w_MesRas,w_YearRas)
+  WT_ResetFilter;
+  kol_vixod:=WT_GetDaysBwDates(dkWeeKend,1, dtb,dte)
+  mylogwrite(false,'Табель '+string(lstab.tabn)+', выходных='+string(kol_vixod))
+           
+}    
+//==============================
+// сбор данных
+//==============================
+Function SborData : boolean;
+var wwkl_first :boolean;
+{ SborData:=False;
+  _loop fullcache lstab                                         
+  { if not nextvisual then exit;
+    if getfirst fastfirstrow lschet=0 {}
+    if getfirst fastfirstrow persons=0 {}
+    if lschet.datuv <>date(0,0,0) and lschet.datuv<dtb then continue;
+    wwkl_first:=true;
+
+    _loop fullcache perexod  
+    { if chk_filter(perexod.cexp,perexod.kateg,perexod.rejim) 
+      {  if wwkl_first
+         { Tabel_Init;
+           wwkl_first:=false;
+         }
+         InsTabel(perexod.nrec)
+         
+      }   //if chk_filter(perexod.cexp,perexod.kateg) 
+    } //_loop fullcache perexod  
+    if chk_filter(lstab.cexoz,lstab.kateg,lstab.rejim) 
+    {  // табель фльтр уже прошел - только тогда вставляем
+      if wwkl_first
+      { Tabel_Init;
+        wwkl_first:=false;
+      }
+      InsTabel(0)
+    }    
+  } // _loop lstab
+  SborData:=true;
+  
+} //Function SborData : boolean;
+//=============================
+// печать имени группировки
+//============================
+Function PrintName(const ww_name:string):string;
+{ if pos('==',ww_name)>0
+  { PrintName:=trim(substr(ww_name,pos('==',ww_name)+2,100))
+  }
+  else
+  { PrintName:=trim(ww_name);
+  }
+}
+//==============================
+// печать данныъ
+//==============================
+Function PrintDoc_00(ww_type:word) : boolean;
+VAR
+ boIsTerm :boolean;
+ wnpp:longint;
+ wwkl:boolean;
+ wLevel_Start: word;
+ wCurLevel,wPrevLevel:longint;
+ wsu_neayv :double;
+ i:word;
+{ wexrow:=2;wexcol:=1;
+  if ExcelInit(nmtemplate,true,2009)<>0
+  { message('Ошибка инициализации шаблона')
+    exit ;
+  }
+  StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Идет печать...', vfTimer+vfBreak);
+
+  PrintDoc_00:=false;
+  MyPutExcel('Баланс отработанного времени c '
+    +DateToStr(UserDeskRep.ResDate[1],'DD/MM/YYYY по ') 
+    +DateToStr(UserDeskRep.ResDate[2],'DD/MM/YYYY') 
+    ,10,0,-1,-1)
+  HeaderStrCount:=12;  
+  wexrow:=HeaderStrCount+1;
+  MyXlCreaMatrix(10000,70)
+  wexrow:=wexrow-1;
+  case ww_type of
+  0,2: wwkl:=TreeGetFirstEx(MainTree );
+  1: { wwkl:=true; wLevel_Start:=TreeLevel(MainTree);}
+  else exit;
+  end;
+  wnpp:=0;
+  if  wwkl
+  do
+  {   if not nextvisual then break;
+      Mylogwrite(false,'TempDescr.name='+TempDescr.name+'/'+string(wnpp))
+      wPrevLevel := wCurLevel;
+      wCurLevel  := TreeLevel(MainTree);
+      boIsTerm   := TreeIsTerminal( MainTree );
+      if (not boIsTerm) or ((UserDeskRep.ResWord[40] and 8)>0) 
+      { wexrow:=wexrow+1; wexcol:=1;
+        wnpp:=wnpp+1;
+        MyPutExcelNumber(WNPP,1,10,0,-1,-1)
+        MyPutExcel(lpad(' ',wcurlevel*2)+PrintName(TempDescr.name),10,0,-1,-1)
+        wsu_neayv:=Calc_Neyavki;
+        for(i:=3;i<=66;i++)
+        { case i of
+          3 :MyPutExcelNumber(round(TempDescr.sum[i],2),1,10,0,-1,-1);
+          4 :MyPutExcelNumber(round(longint(TempDescr.sum[49]) div 1000000,2),1,10,0,-1,-1);//РП
+          5 :MyPutExcelNumber(round(longint(TempDescr.sum[50]) div 1000000,2),1,10,0,-1,-1);//РО
+          42:MyPutExcelNumber(round(Calc_Neyavki,2),1,10,0,-1,-1);
+          44:MyPutExcelNumber(round(TempDescr.sum[41]+Calc_Neyavki+Calc_yavki,2),1,10,0,-1,-1);
+          51,52,53,54:MyPutExcelNumber(round(longint(TempDescr.sum[i-2]) mod 1000000,2),1,10,0,-1,-1);
+          63:MyPutExcelNumber(round(TempDescr.sum[1],2),1,10,0,-1,-1);
+          64:MyPutExcelNumber(round(TempDescr.sum[2],2),1,10,0,-1,-1);
+          65:MyPutExcelNumber(round(TempDescr.sum[40],2),1,10,0,-1,-1);
+          66:MyPutExcelNumber(round(TempDescr.sum[42],2),1,10,0,-1,-1);
+          else
+          { MyPutExcelNumber(round(TempDescr.sum[i-2],2),1,10,0,-1,-1)
+          };
+          end;
+        }// for(i:=3;i<=64) 
+      } //  
+      case ww_type of
+      0:
+      { wwkl:=TreeGetNextEx(MainTree)
+      }
+      1:
+      { wwkl:=TreeGetNextEx(MainTree)
+        if wwkl
+        if  ww_type=1 and TreeLevel(MainTree)<=wLevel_Start wwkl:=false;
+      }
+      2:
+      { wwkl:=TreeGetNext(MainTree)
+      }
+      else
+      { wwkl:=false;
+      }
+      end;
+  }    
+  While ( wwkl );
+  MyxlWriteMatrix(wexrow);
+  xlFreeMatrix;
+  
+  matrixkl:=False;
+  MyxlFrameCells(63, 2, 1, 1,
+     HeaderStrCount,1,wexrow,66);
+  //xlSetFontStyle(xlBold, wexrow,1,wexrow,17);
+  MyXlEnd;
+  StopVisual('',0);
+  PrintDoc_00:=true ;
+} //Function PrintDoc_00 : boolean;
+//===============================
+// Чистка таблиц
+//===============================
+Procedure ClearTable (wwCurCode :word);
+{ ReReadRecord(#tobot)
+  ReReadRecord(#TempDescr)
+  delete all tobot ;
+  if getfirst tobot=0 {}
+  delete all tobot ;
+  if getfirst tobot=0 {}
+  delete tobot where (( wwcurcode == tobot.code ));
+  if getfirst tobot=0 {}
+  delete tobot where (( wwcurcode == tobot.code ));
+  if getfirst tobot=0 {}
+  ResetBounds(#TempDescr)
+  if getfirst TempDescr=0 {}
+  delete TempDescr where (( wwcurcode == TempDescr.code ));
+  if getfirst TempDescr=0 {}
+  delete TempDescr where (( wwcurcode == TempDescr.code ));
+  if getfirst TempDescr=0 {}
+  setBounds(#TempDescr)
+  delete all TmpKatalog ;
+  delete TmpKatalog where (( wwcurcode == TmpKatalog.code ));
+  delete TmpKatalog where (( wwcurcode == TmpKatalog.code ));
+
+
+}
+//==============================
+// добавить настройки группировок
+//==============================
+Procedure Add_Group(ww_num:word;ww_gr :word;ww_ie:word;ww_iesv:word);
+{ if ww_gr=0 then exit;
+  len1:=len1+1;
+//mLevel[Len1]    := RepGroup.Nomer;
+  mLevel[Len1]    := len1;
+  mHierar[Len1]   := if(ww_ie>0,1,0);
+  mKol[Len1]      := ww_ie;
+  mGrupSort[Len1] := 0;
+  mIeSvertka[Len1]:=ww_iesv;
+     
+  case ww_gr of
+  99:
+  {  mTable[Len1] := 0;
+     mName[Len1]  :='Всего по отчету'
+
+  }
+  1: {  
+      mTable[Len1]    := coKatPodr;
+      mName[Len1]:='Подр.:'
+  }
+  2:
+  {
+     mTable[Len1]    := coKlKatego;
+      mName[Len1]:='Категория:'
+  }
+  3:{
+    mTable[Len1]    := coTmpKatalog;
+    mName[Len1]:='Аналитика:'
+  }
+  4:{
+    mTable[Len1]    := coPersons;
+    mGrupSort[Len1] := 0;
+    mName[Len1]:=''
+  }
+  end;   
+
+}
+//==============================
+// запуск отчета
+//==============================
+Function CreateReport :boolean;
+var ww_dt :date;
+    ww_su:double;
+    i,j :word;
+{ CreateReport:=false;
+  logfilekl:=if((UserDeskRep.ResWord[40] and 4 )>0,true,false)
+  ww_dt:=UserDeskRep.ResDate[1]
+  if UserDeskRep.ResDate[1]>UserDeskRep.ResDate[2]
+  { message('Дата конца периода меньше начала')
+    exit;
+  }
+  InitWorkingTable;
+
+  //CurCode:=0;
+  ClearTable(CurCode)
+  logfilenm:='!wt_balans.log'
+  // для свертки подразделений
+  iPodrFilterDef.katpodrGetLevelInit;
+  iPodrFilterDef.SetLogFile(if(logfilekl,logfilenm,'')) 
+  MyLogwrite(true,'START')
+  CurGroup:=0;
+  len1:=0
+  wc_Notation_SP:=0;wc_Notation_V:=0;
+  if v1.getfirst fastfirstrow UOWRKTABEL where (('В' == UOWRKTABEL.NUM ))=0
+    wc_Notation_V:=v1.UOWRKTABEL.Nrec
+  MyLogwrite(false,'wc_Notation_V='+string(wc_Notation_V))
+  if v1.getfirst fastfirstrow UOWRKTABEL where (('СП' == UOWRKTABEL.NUM ))=0
+    wc_Notation_SP:=v1.UOWRKTABEL.Nrec
+  MyLogwrite(false,'wc_Notation_SP='+string(wc_Notation_SP))
+   //Add_Group(1,99,0)
+   Add_Group(1,UserDeskRep.ResWord[11],UserDeskRep.ResWord[12],UserDeskRep.ResWord[31])
+   Add_Group(2,UserDeskRep.ResWord[13],UserDeskRep.ResWord[14],UserDeskRep.ResWord[32])
+   Add_Group(3,UserDeskRep.ResWord[15],UserDeskRep.ResWord[16],UserDeskRep.ResWord[33])
+   Add_Group(4,UserDeskRep.ResWord[17],UserDeskRep.ResWord[18],UserDeskRep.ResWord[34])
+   Add_Group(5,UserDeskRep.ResWord[19],UserDeskRep.ResWord[20],UserDeskRep.ResWord[35])
+   Grp_Count:=Len1
+   mylogwrite(false,'Число уровней '+string(Grp_Count));
+   do 
+   { 
+     w_YearRas:=year(ww_dt)
+     w_MesRas :=month(ww_dt)
+     if w_MesRas=month(UserDeskRep.ResDate[2]) and year(UserDeskRep.ResDate[2])=w_YearRas
+     { dte:=UserDeskRep.ResDate[2]
+     }
+     else
+     { dte:=date(last_day(ww_dt),w_MesRas,w_YearRas)
+     }
+     if w_MesRas=month(UserDeskRep.ResDate[1]) and year(UserDeskRep.ResDate[1])=w_YearRas
+     { dtb:=UserDeskRep.ResDate[1]
+     }
+     else
+     { dtb:=date(1,w_MesRas,w_YearRas)
+     }
+     day_b:=day(dtb); day_e:=day(dte);
+     mylogwrite(false,'=========Дата == '+Datetostr(dtb,'DD/MM/YYYY')
+        +'-'+Datetostr(dte,'DD/MM/YYYY')
+        +','+string(day_b)+','+string(day_e))
+     if not SborData then exit;
+     if month(ww_dt)=month(UserDeskRep.ResDate[2]) and year(UserDeskRep.ResDate[2])=year(ww_dt)
+     { break
+     }
+     ww_dt:=add_months(ww_dt,1)
+     
+   } while true;
+   if not inextVisual('Подсчет итогов') then exit;
+   external _loop Tobot
+   {  if not nextvisual then exit;
+      ww_su:=Calc_Neyavki1
+      
+      
+      //Tobot.Sum[42]:=ww_su+Tobot.Sum[41]+Calc_yavki1
+       ;
+       //среднесписочное
+      Tobot.Sum[58]:=(ww_su+Tobot.Sum[41]+Calc_yavki1)/CalcDaysBetweenDates(UserDeskRep.ResDate[1],UserDeskRep.ResDate[2],false)
+      update current Tobot;
+      MyLogWrite(false,'Tobot.name='+tobot.NAMEGROUP+','+string(tobot.sum[3])
+        +','+string(ToBot.cut[1])+'/'+string(ToBot.cut[2])+','+ToBot.cut[3]
+        +','+string(ToBot.cut[4])+'/'+string(ToBot.cut[5])+','+ToBot.cut[6]
+        )
+   };
+     // Построить дерево
+   if not inextVisual('Построение дерева') then exit;
+   
+   cRep := InitTreeBuilder(#Tobot);
+   if cRep=0 { message('Ошибка инициализации дерева!'); exit; }
+   /*
+      // Задание параметров уровня группировки
+      procedure TuneLevel( _Level     : tLevel;
+                           _coTable   : word;    // Код таблицы (словарный)
+                           _TabProp   : longint; // Параметры уровня
+                           _TabPrefix : string;  // Префикс уровня
+                           _TabCode   : word;    // Код разворачиваемой иерархии
+                           _TabSort   : longint; // Код сортировки
+                           _ExpCount  : word);   // Количество разворотов уровня
+      //------------------------------------------------------------------------
+        for (i:=1; i<=LevelCount; i:=i+1)
+   {
+     Param := 0;
+     
+     if (mHierar[i] = 0)
+       Param := Param or tsNoExpand;
+     
+     if (mPrefix[i] = '')
+       Param := Param or tsNoPrefix;
+     
+     if ( mKodKau[i] <> word(0) )
+       Param := Param Or TuneKAULevel( cTree, i, mKodKau[i] )
+
+     if (mName[i] > 0)
+       TuneStructName( cTree, i, mName[i] );
+
+     if not TuneLevel(cTree, i, mTable[i], Param, mPrefix[i],
+                             kod, mGrupSort[i], mKol[i])
+       exit;
+   }
+
+    */
+   DoneWorkingTable;  
+   for(i:=1;i<=Grp_Count;i:=i+1)
+   { 
+     TuneLevel(cRep, i, mTable[i], if(mkol[i]=0,tsNoExpand,0), mName[i],0 , mGrupSort[i], mkol[i]);
+     for(j:=1;j<=60;j++)
+     {  TuneSum(cRep, j, 0, 0);
+     }
+     Mylogwrite(false,'Группировки '+string(mTable[i])+','+mName[i]+','+string(mkol[i])+','+string(mIeSvertka[Len1]))
+   }
+   SetReportStyles(cRep, rsNodeReport+if(logfilekl,rsShowStat,0), UserDeskRep.RepName)
+   BuildTunedTree(crep, CurCode); 
+   if (cRep<>0)
+     DoneTreeBuilder(cRep);
+   StopVisual('',0)  
+   TreeGetFirstEx(MainTree );
+   case UserDeskRep.ResWord[39] of  
+   0: RunWindowModal(wnReport) ;
+   end; 
+   CreateReport:=true;
+   rescanpanel(#UserDeskRep)
+} //Function CreateReport :boolean;
+//=================================
+Function Report_Init(ww_tp:word) :boolean ;
+{ Report_Init:=false;
+  ClearTable(7901);  
+  ClearTable(7902);
+  type_report:=ww_tp;
+  MainTree:=trTmpTree;
+}
+//===============================
+Function Report_AddRow :boolean ;
+{ Report_AddRow:=true;
+}
+
+//===============================
+Function Report_Build(ww_tp:word) :boolean ;
+var i,j :word;
+  ww_ie:word;
+{ if type_report=101  // табель Т-13
+  { if ww_tp=2
+    { update all tobot set ToBot.cut[1]:=ToBot.cut[2]
+            ,Tobot.Group[1]:=Tobot.Group[2]
+            ,ToBot.cut[2]:=0,Tobot.Group[2]:=0;
+    
+    }
+    ResetBounds(#TempDescr)
+    if getfirst TempDescr=0 {}
+    delete TempDescr where (( 7901 == TempDescr.code ));
+    if getfirst TempDescr=0 {}
+    delete TempDescr where (( 7901 == TempDescr.code ));
+    if getfirst TempDescr=0 {}
+    setBounds(#TempDescr)
+
+    cRep := InitTreeBuilder(#Tobot);
+
+    if not ReadMyDsk(ww_ie,'FT02_ie_analitik',false) ww_ie:=0
+    if cRep=0 { message('Ошибка инициализации дерева!'); exit; }
+    if ww_tp=2
+    { TuneLevel(cRep, 1, coTmpKatalog, 0, 'Аналитика:' ,7901, 0, ww_ie);
+    }
+    else
+    { TuneLevel(cRep, 1, coKlKatego, tsNoExpand, 'Категория:' , 7901,0, 0);
+      TuneLevel(cRep, 2, coTmpKatalog, 0, 'Аналитика:' , 7901,0, ww_ie);
+    }  
+    for(j:=1;j<=60;j++)  TuneSum(cRep, j, 0, 0);
+    SetReportStyles(cRep, rsNodeReport+if(logfilekl,rsShowStat,0), 'Итого по табелю')
+    BuildTunedTree(crep, 7901); 
+    if (cRep<>0)
+     DoneTreeBuilder(cRep);
+ 
+  }//if type_report=101
+
+  Report_Build:=true;
+}
+//===============================
+Function Report_First(ww_tp:word) :integer ;
+{ CurCode:=7901;
+  Report_First:=if(TreeGetFirstEx(MainTree),if(TreeIsTerminal(MainTree),1,0),-1);
+  
+}
+//===============================
+Function Report_Next :integer ;
+{ Report_Next:= if(TreeGetNextEx(MainTree),if(TreeIsTerminal(MainTree),1,0),-1);
+}
+//===============================
+Function Report_Level :longint ;
+{ Report_Level:= TreeLevel(MainTree);
+}
+//===============================
+Function Report_GetValue(ww_column:word) :string ;
+{ Report_GetValue:=''
+  if ww_column=0 or ww_column>62 then exit;
+  case ww_column of
+  1 : Report_GetValue:=TempDescr.Name;
+  62: Report_GetValue:=TempDescr.SortName;
+  else
+  {  Report_GetValue:=trim(String(TempDescr.Sum[ww_column-1],0,2))
+     mylogwrite(false,'Report_GetValue '+string(ww_column)+'/'+Report_GetValue);
+  }
+  end;
+}  //Function Report_GetValue(ww_column:word) :string ;
+Function Report_GetValueD(ww_column:word) :double ;
+{ Report_GetValueD:=0;
+  if ww_column=0 or ww_column>62 then exit;
+  case ww_column of
+  1 : {}
+  62: {}
+  else
+  {  Report_GetValueD:=TempDescr.Sum[ww_column-1]
+     mylogwrite(false,'Report_GetValueD '+string(ww_column)+'/'+string(Report_GetValueD));
+  }
+  end;
+}
+//===============================
+
+/*
+   if ( not boIsTerm OR (wPrevLevel > wCurLevel) )
+        {
+          if ( boPrintHierGrp )
+            {
+              if ( (wPrevLevel <= wCurLevel) and (wCurLevel > 0) )
+                {
+                  // движение вглубь по иерархии, требуется сохранение позиции таблицы в стеке...
+                  PushPos(#TempDescr);
+                  inc(wPushCnt);
+                }
+              else
+                {
+                  //произошел переход по иерархии назад -> печать итоговых сумм для иерархического дерева
+                  PrintTotal(wPrevLevel, wCurLevel, wPushCnt);
+
+                  // сохраняем позицию того уровня на который был произведен переход, если это нетерминальная вершина...
+                  if ( not boIsTerm )
+                    {
+                      PushPos(#TempDescr);
+                      inc(wPushCnt);
+                    }
+                } //if
+
+              if ( not boIsTerm )
+                {
+                  if (toc = 0)
+                    {
+                      //вывод заголовка иерархии
+                      frmKSoprReestr.PutEventById(feDoLoop, fcGroupHeader_KS);
+                      frmKSoprReestr.write(LPadCh('', ' ', wCurLevel) +  TempDescr.Name);
+
+                      frmKSoprReestr.write(TempDescr.Sum[1], 2); //GroupSum2
+                      frmKSoprReestr.write(TempDescr.Sum[2], 2); //GroupSumV2
+
+                      // PercentNDE
+                      if ((wPrintForm = 0) and (abs(dblReestrTotalNDE) > 0.000000000001))
+                        frmKSoprReestr.write(((TempDescr.Sum[1] / dblReestrTotalNDE) * 100), 2)
+                      else
+                        frmKSoprReestr.SkipFormat(1);
+                    }
+                  else
+                    {
+                      pXL.ClearTblBuffer;
+                      summm3 := (TempDescr.Sum[1] / dblReestrTotalNDE) * 100;
+                      pXL.SetTblStringFldValue('nn0a',LPadCh('', ' ', wCurLevel ) +  TempDescr.Name);
+                      pXL.InsTblRow;
+                    }
+
+                }
+            }
+        }
+
+*/

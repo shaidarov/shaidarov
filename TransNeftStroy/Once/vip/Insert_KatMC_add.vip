@@ -1,0 +1,86 @@
+
+//#include notes.vih
+//#include statlog.vih
+//
+//#include KatSopr.vih
+
+#component "L_SoprDoc"
+
+Interface Insert_KatMC_add 'Insert_KatMC_add' EscClose DoAccept;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, _NameMC
+, _KodMC
+               : string;
+  _cEd
+, _CGRNAL
+, _cTypeMC
+, _nRecMC
+               : comp;
+
+as select * from
+  KatMC
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\10.12.196.10\GalSrv\TopSoft\_UnionData\Step_2\KatMC.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка UpDate_KatMC', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            _NameMC  := string( DBFGetFieldValue(Handle,'Name')   );
+            _KodMC   := string( DBFGetFieldValue(Handle,'BARKOD') );
+            _cTypeMC := comp  ( DBFGetFieldValue(Handle,'CTYPE')  );
+
+            if (GetFirst KatMC   where (( _NameMC     == KatMC.Name
+                                      and _KodMC      == KatMC.BarKod
+                                      and _cTypeMC    == KatMC.cType      (noIndex)
+                                      )) <> tsOK) {
+              ClearBuffer(#KatMC);
+              KatMC.Name     := _NameMC;
+              KatMC.BARKOD   := _KodMC;
+              KatMC.CGROUPMC := comp( DBFGetFieldValue(Handle,'CGROUPMC') );
+              KatMC.KGROUPMC := string( DBFGetFieldValue(Handle,'KGROUPMC') );
+              KatMC.CED      := comp( DBFGetFieldValue(Handle,'CED') );
+              KatMC.CTYPE    := comp( DBFGetFieldValue(Handle,'CTYPE') );
+              KatMC.CGRNAL   := comp( DBFGetFieldValue(Handle,'CGRNAL') );
+              KatMC.CKAELEM  := comp( DBFGetFieldValue(Handle,'CKAELEM') );
+              Insert current KatMC;
+              }
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.
+
+.Form 'Закачка Insert_KatMC_add'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_SoprDoc::Insert_KatMC_add');
+end.
+.endform

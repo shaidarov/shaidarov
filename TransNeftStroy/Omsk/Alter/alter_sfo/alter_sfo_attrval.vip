@@ -1,0 +1,127 @@
+#component "F_SFO"
+
+alter interface EDREQSFO;
+
+var
+ReqSFO_nrec  : comp;
+
+Create view t1
+from
+  attrnam,
+  attrval,
+  mbpin mbpin1
+  where ((
+              ReqSFO_nrec       == SPREQSFO.CREQSFO
+          and SPREQSFO.nrec     == perssfo.CSPREQSFO
+          and perssfo.cpersspec == persspec.nrec
+          and perssfo.CDOCMBPIN == mbpin.nrec
+          and mbpin.CMBPOUT     == mbpout.nrec
+          and mbpout.CMBPIN     == mbpin1.nrec
+          and word(2001)        == AttrNam.wTable
+          and 'Процент износа'  == AttrNam.Name
+          and word(2001)        == AttrVal.wTable
+          and mbpin1.nrec       == AttrVal.cRec
+          and AttrNam.Nrec      == AttrVal.cAttrNam
+        ))
+;
+
+
+HandleEvent
+
+cmVALUE1:
+  {
+
+       if (inherited::handleEvent (cmVALUE1) = heAbort )
+       Abort;
+
+       ReqSFO_nrec  := ReqSFO.nrec;
+
+       if t1.getfirst ReqSFO = tsok
+       {
+       t1._loop SPREQSFO
+         {
+          if t1.getfirst perssfo = tsok
+          if t1.getfirst persspec = tsok
+          if t1.getfirst mbpin   = tsok
+          if t1.getfirst mbpout  = tsok
+          if t1.getfirst mbpin1  = tsok
+          if t1.getfirst attrnam = tsok
+          if t1.getfirst attrval = tsok
+           {
+             t1.mbpin.DATEEND := add_months(t1.mbpin.DATEEKSP,t1.persspec.srok-round((t1.persspec.srok*t1.attrval.vdouble)/100,0));
+             if t1.update current mbpin = tsok {}
+             t1.perssfo.ENDDATE := t1.mbpin.DATEEND;
+             if t1.update current perssfo = tsok {}
+           }
+         }
+        }
+  }
+
+end;
+
+end.
+
+
+#component "F_MBP"
+
+alter interface MOVE_MBP;
+
+var
+mbpmove_nrec  : comp;
+
+Create view t1
+from
+  attrnam,
+  attrval,
+  mbpin mbpin1
+   where ((
+              mbpmove_nrec      == mbpin.csopr
+          and word(1)           == mbpin.INEKSPL (noindex)
+          and mbpin.CMBPOUT     == mbpout.nrec
+          and mbpout.CMBPIN     == mbpin1.nrec
+          and word(2001)        == AttrNam.wTable
+          and 'Процент износа'  == AttrNam.Name
+          and word(2001)        == AttrVal.wTable
+          and mbpin1.nrec       == AttrVal.cRec
+          and AttrNam.Nrec      == AttrVal.cAttrNam
+          and mbpin.nrec        == PERSSFO.CCURMBPIN (noindex)
+          and perssfo.cpersspec == persspec.nrec
+          ))
+;
+
+
+window WORKMOVEMBPWINDOW
+
+HandleEvent
+
+cmMakeOrder:
+  {
+    if (inherited::handleEvent (cmMakeOrder) = heAbort )
+    Abort;
+
+    mbpmove_nrec := mbpmove.nrec;
+
+    if t1.getfirst mbpmove = tsok
+     {
+     t1._loop mbpin
+      {
+          if t1.getfirst mbpout  = tsok
+          if t1.getfirst mbpin1  = tsok
+          if t1.getfirst attrnam = tsok
+          if t1.getfirst attrval = tsok
+           {
+          if getfirst perssfo = tsok
+          if getfirst persspec = tsok
+           {
+             t1.mbpin.DATEEND := add_months(t1.mbpin.DATEEKSP,t1.persspec.srok-round((t1.persspec.srok*t1.attrval.vdouble)/100,0));
+             if t1.update current mbpin = tsok {}
+             t1.perssfo.ENDDATE := t1.mbpin.DATEEND;
+             if t1.update current perssfo = tsok {}
+           }
+           }
+      }
+     }
+  }
+end;
+end;
+end.

@@ -1,0 +1,336 @@
+#include NalFunc.vih
+
+// ==============================  Получение имени организации-налогоплательщика и ее ИНН =======================================
+Interface UserRep_NalA_12 'Затраты по приобретению (созданию) нематериальных активов';
+create view
+var
+  dFrom
+ ,dTo: date;
+  iNalFunc: NalFunc;
+//var
+//  OrgName, INN:string;
+as select
+  katos.nrec
+ ,katos.innum
+ ,katos.nameos
+ ,klassos.kod
+from
+  katos
+ ,spkatos
+ ,klassos
+ ,nastros
+
+;
+Function GetSumNMA1(KatOSNrec: comp; dFrom, dTo: date): double;
+{
+  Result := 0;
+  _loop oborot where ((16 == oborot.tblos[2] and KatOSNrec /==oborot.kauos[2]))
+                   and   oborot.scheto='T04'
+                   and   (oborot.subossch<>'99')
+                   and   oborot.schetk='T08'
+                   and   oborot.subschk='40'
+                   and  oborot.datob <= dTo and oborot.datob >= dFrom
+  {
+            Result += Oborot.SumOb;
+  }
+}
+// ==============================   Сумма по графе 5 =======================================
+Function GetSumNMA2(KatOSNrec: comp; dFrom, dTo: date): double;
+{
+  Result := 0;
+  _loop where ((16 == oborot.tblos[2] and KatOSNrec /==oborot.kauos[2]
+		        and oborot.kauks[3]==spkau.nrec
+            ))
+            and oborot.scheto='T04'
+            and oborot.subossch<>'99'
+            and oborot.schetk='T08'
+            and oborot.subschk='40'
+            and (spkau.code='002008' or spkau.code='002009')
+            and  oborot.datob<=dTo and oborot.datob>=dFrom
+  {
+    Result += Oborot.SumOb;
+  }
+}
+// ==============================   Сумма по графе 6 =======================================
+Function GetSumNMA3(KatOSNrec: comp; dFrom, dTo: date): double;
+{
+  Result := 0;
+  _loop oborot where ((16 == oborot.tblos[2] and KatOSNrec /==oborot.kauos[2]
+              		and oborot.kauks[3]==spkau.nrec ))
+                  and   oborot.scheto='T04'
+                  and   oborot.subossch<>'99'
+                  and   oborot.schetk='T08'
+                  and   oborot.subschk='40'
+                  and   (spkau.code='002010003002' or spkau.code='002010003004')
+                  and  oborot.datob<=dTo and oborot.datob>=dFrom
+  {
+    Result += Oborot.SumOb;
+  }
+}
+// ==============================   Сумма по графе 7 =======================================
+Function GetSumNMA4(KatOSNrec: comp; dFrom, dTo: date): double;
+{
+  Result := 0;
+  _loop oborot where ((16==oborot.tblos[2] and KatOSNrec /==oborot.kauos[2]
+               		 and oborot.kauks[3]==spkau.nrec ))
+                   and   oborot.scheto='T04'
+                   and   oborot.subossch<>'99'
+                   and   oborot.schetk='T08'
+                   and   oborot.subschk='40'
+                   and   (spkau.code='002010008002' or spkau.code='003002')
+  {
+    Result += Oborot.SumOb;
+  }
+}
+
+procedure PrintReport;
+var
+  CurIndex
+ ,NPP, i: word;
+  Sum :double;
+  numCol: word;
+  OrgName, OrgInn: string;
+  SchetK: string;
+  KatStroyNrec: tNrec;
+  Summ1, Summ21
+ ,XX, Summ01
+ ,Summ0899all, Summ0899
+ ,Summ3, Summ4
+ ,Summ22, Summ2
+ ,Summ8a, gr9new, gr8
+ ,itogo4, itogo5
+ ,itogo6, itogo7
+ ,itogo8a, itogoNalStoim
+ ,itogo8, itogo9new : double;
+{
+  numCol := 8;
+
+  iNalFunc.GetOrgInfo(OrgName, OrgInn);
+  xlCreateExcel('report.xls',true);
+  xlCreateMatrix(5000, numCol);
+
+
+  xlSetColumnWidth(4,1,1,1,1);
+  xlSetColumnWidth(20,1,2,1,2);
+  xlSetColumnWidth(25,1,3,1,3);
+  xlSetColumnWidth(15,1,4,1,8);
+
+  CurIndex:=1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'А 1.2');
+  CurIndex ++;
+  xlSetFontStyle(1,CurIndex,1,CurIndex + 3,numCol);
+  xlSetFontSize(8, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Наименование организации-налогоплательщика: '+ OrgName);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex, 1,'ИНН налогоплательщика: ' + OrgInn);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex,1,'Дата составления: ' +  dateToStr(Cur_Date,'DD Mon YYYY г.'));
+  CurIndex ++;
+
+
+  xlMergeCells(CurIndex, 1, CurIndex, numCol);
+  xlSetFontStyle(1, CurIndex, 1, CurIndex + 4, numCol);
+  xlAlignCellsEx(3, 2, CurIndex, 1, CurIndex + 4, numCol);
+  xlSetFontSize(12, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Регистр №А 1.2  "Затраты по приобретению (созданию) нематериальных активов"');
+  CurIndex += 2;
+
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  //xlAlignCellsEx(2,2,CurIndex,1,CurIndex, numCol);
+  //xlSetFontSize(12,1,1,1,1);
+  xlSTWriteToMatrix(CurIndex, 1, 'за период с '+dateToStr(dFrom,'DD/MM/YYYY')+' по '+dateToStr(dTo,'DD/MM/YYYY'));
+  CurIndex ++;
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex, 1, 'отчетный (налоговый) период');
+  CurIndex ++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+  xlSTWriteToMatrix(CurIndex,2,'Инвентарный номер');
+  xlSTWriteToMatrix(CurIndex,3,'Наименование объекта');
+  xlSTWriteToMatrix(CurIndex,4,'Сумма затрат (бухучет), руб.');
+  xlSTWriteToMatrix(CurIndex,5,'в т.ч. проценты по кредитам и займам');
+  xlSTWriteToMatrix(CurIndex,6,'сверхнормативные командировочные расходы');
+  xlSTWriteToMatrix(CurIndex,7,'иные неучитываемые расходы');
+  xlSTWriteToMatrix(CurIndex,8,'Первоначальная стоимость для целей налогообложения');
+  CurIndex++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+   for(i := 0; i <= numCol; i++)
+    xlSTWriteToMatrix(CurIndex, i, string(i));
+
+  CurIndex++;
+
+  Npp:=1;
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Формирование отчета', 0);
+  _loop PickBuh where ((cgKau_FpCO == PickBuh.KodTable ))
+  {
+
+    _loop KatOS  where((16 == katos.tidk and PickBuh.PickRec == katos.cCo(NoIndex)))   ordered by katos.isLeaf, katos.innum
+    {
+      if not NextVisual
+        break;
+      if not iNalFunc.CheckCO(KatOs.cCO)
+        continue;
+      PushPos(#KatOS);
+      Summ1 := GetSumNMA1(KatOS.Nrec, dFrom, dTo);
+      if (SumNdeEq(Summ1, 0))
+        continue;
+      Summ2 := GetSumNMA2(KatOS.Nrec, dFrom, dTo);
+      Summ3 := GetSumNMA3(KatOS.Nrec, dFrom, dTo);
+      Summ4 := GetSumNMA4(KatOS.Nrec, dFrom, dTo);
+      gr8:=  Summ1 - Summ2 - Summ3 - Summ4;
+      PopPos(#KatOS);
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,1);
+      xlSTWriteToMatrix(CurIndex,1, Npp);
+      xlSTWriteToMatrix(CurIndex, 2, KatOS.innum);
+      xlSTWriteToMatrix(CurIndex, 3, KatOS.nameos);
+      iNalFunc.WriteSum(CurIndex, 4, Summ1);//DoubleToStr(Summ1, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 5, Summ2);//DoubleToStr(Summ2, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 6, Summ3);//DoubleToStr(Summ3, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 7, Summ4);//DoubleToStr(Summ4, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 8, gr8);//DoubleToStr(gr8, '[|-]366 666 666 666,88'));
+
+      itogo4 += Summ1;
+      itogo5 += Summ2;
+      itogo6 += Summ3;
+      itogo7 += Summ4;
+      itogo8 += gr8;
+
+      Npp++;
+      CurIndex++;
+    }
+  }
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlMergeCells(CurIndex,1,CurIndex,2);
+  xlSTWriteToMatrix(CurIndex,1,'ИТОГО:');
+  iNalFunc.WriteSum(CurIndex, 4, itogo4);//DoubleToStr(itogo4, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 5, itogo5);//(itogo5, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 6, itogo6);// DoubleToStr(itogo6, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex,7, itogo7);//DoubleToStr(itogo7, '[|-]366 666 666 666,88'));
+  iNalFunc.WriteSum(CurIndex, 8, itogo8);//DoubleToStr(itogo8, '[|-]366 666 666 666,88'));
+
+  xlWrapText(9,1,CurIndex,numCol);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32, 3,0,0,9,1,CurIndex,numCol);
+
+  CurIndex:=CurIndex+2;
+  xlMergeCells(CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+  xlMergeCells(CurIndex, 1, CurIndex, numCol);
+  xlAlignCellsEx(2, 2, CurIndex, 1, CurIndex, numCol);
+  CurIndex++;;
+  xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+  CurIndex++;
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  StopVisual('',0);
+
+}
+procedure Run;
+{
+//  MtClear(#TabVeksl, mfNormal);
+//  FillTable;
+  PrintReport;
+}
+HandleEvent
+cmInit:
+{
+  if iNalFunc.RunTune(dFrom, dTo)
+    Run;
+}
+end;
+
+
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalA_12 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalA_12  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalA_12');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'А 1.2 "Затраты по приобретению (созданию) нематериальных активов"';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+    2 : GetGroupName := 'A';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

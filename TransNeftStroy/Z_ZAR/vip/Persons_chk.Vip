@@ -1,0 +1,106 @@
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+#endif
+#include persons_chk.vih
+
+Interface MyPersons_chk cacheable;
+create view vMyPersons_chk
+var 
+ ppersnrec,
+ persnrec, // для лог.таблы
+ pAddr // адрес
+  :comp ;
+ wkl :boolean ;
+as select persons.tabnmb
+from persons
+where ((
+ persnrec == persons.nrec
+and persons.nrec == passports.person
+and paddr == addressn.nrec
+)) ; 
+parameters ppersnrec ;
+form Outf  ('chk_pers','errr') with novisual;
+
+Procedure MyErr(w :string) ;
+{ outf.write(Persons.tabnmb+' '+Persons.fio+' '+w)
+  wkl:=false ;
+}
+
+Function Chk_Addressn(waddr:comp;w:string) :boolean ;
+{ paddr:=waddr ;
+  Chk_Addressn:=false ;
+  if getfirst addressn<>0
+  { MyErr('адресс '+w+' не заполнен')
+  }
+  if addressn.csterr=0
+  { MyErr('адресс '+w+' нет ссылки на населенный пункт')
+  }
+  if ADDRESSN.SPOSTIND=''
+  { MyErr('адресс '+w+' нет индекса')
+  }
+  Chk_Addressn:=true ;
+}
+
+Function Chk_persons(wpersnrec :comp ) : boolean ;
+var wpasp_exist : word ;
+{ persnrec:=wpersnrec
+  outf.reinit ;
+  wkl:=true ;
+  if getfirst persons=0
+  { if persons.borndate<=date(1901,0,0) 
+    { MyErr(' не заполнена дата рождения')
+    }
+    Chk_Addressn(persons.LIVEADDR,'проживания')
+    Chk_Addressn(persons.PASSPADDR,'прописки')
+    if persons.PASSPRUS=0
+    { MyErr(' не указан основной документ')
+    }
+    wpasp_exist:=0 ;
+    _loop Passports
+    { if PASSPORTS.SYSCODE=502
+      { wpasp_exist:=wpasp_exist or 1 ;
+        if passports.ser=''
+        or passports.nmb=''
+        or passports.GIVENDATE=date(0,0,0)
+        { MyErr('У паспорта не указаны все реквизиты') ;
+        }
+      }
+      if PASSPORTS.SYSCODE=505    // INN
+      { wpasp_exist:=wpasp_exist or 2 ;
+        if length(passports.nmb)<12
+        { MyErr('ИНН <12 символов!!') ;
+        }
+        
+      }
+      if PASSPORTS.SYSCODE=501    // страховое свидетельство
+      { wpasp_exist:=wpasp_exist or 4 ;
+        if length(passports.nmb)<14
+        { MyErr('Номер страхового свидетельства <14 символов!!') ;
+        }
+        
+      }
+    }
+    if (wpasp_exist AND 1+4)=0
+    { MyErr('Не все виды документов введены(паспорт,инн,страховое свидетельство)') ;
+    }
+  } //if getfirst persons=0
+  if not wkl
+    outf.showfile('Ошибки проверки карточки')
+  else
+    outf.abortform ;  
+  Chk_persons:=wkl ;
+  
+}
+handleevent
+cmInit :
+{ if Chk_persons(ppersnrec) 
+  { closeinterface(cmDefault) ;
+  }
+  else
+  { closeinterface(cmDone) ;
+  }
+  exit ;
+  abort ;
+}
+end;
+end.

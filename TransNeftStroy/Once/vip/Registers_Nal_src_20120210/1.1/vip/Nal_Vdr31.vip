@@ -1,0 +1,448 @@
+#include NalFunc.vih
+// ==============================  Получение имени организации-налогоплательщика и ее ИНН =======================================
+Interface UserRep_NalVdr_31 'Доходы прошлых лет, выявленные в отчетном периоде';
+table struct mtoborot = oborot;
+create view vdr31
+var
+  dFrom
+ ,dTo: date;
+  iNalFunc: NalFunc;
+//var
+//  OrgName, INN:string;
+as select
+*
+from
+  mtoborot, oborot, synonym oborot oborotd,
+  buhschet, synonym spkau spkaua, synonym spkau spkaualt, katdoc, soprhoz, attrval,
+  synonym attrval analitik,  synonym attrval analitikalt, synonym attrval schetnd, synonym attrval schetnk,
+  synonym buhschet buhschetnd, synonym buhschet buhschetnk,
+  synonym attrnam attrnamnd, synonym attrnam attrnamnk, synonym attrnam attrnaman1, synonym attrnam attrnaman2,
+!
+  synonym attrval attrval1, synonym attrval attrval2, synonym attrval attrval3, synonym attrval attrval4, synonym attrval attrval5,
+  synonym attrval attrval6, synonym attrval attrval7, synonym attrval attrval8, synonym attrval attrval9,
+!
+  synonym attrnam attrnam1, synonym attrnam attrnam2, synonym attrnam attrnam3, synonym attrnam attrnam4, synonym attrnam attrnam5,
+  synonym attrnam attrnam6, synonym attrnam attrnam7, synonym attrnam attrnam8, synonym attrnam attrnam9,
+!
+  synonym spkau spkau1, synonym spkau spkau2, synonym spkau spkau3, synonym spkau spkau4, synonym spkau spkau5,
+  synonym spkau spkau6, synonym spkau spkau7, synonym spkau spkau8, synonym spkau spkau9,
+  dogovor, katos, katorg, veksl, synonym katos katosNMA,
+  synonym spkau spkauF
+where
+((
+  //root== mtoborot.nrec
+  //and '91'=mtoborot.krschetk                  //Отбор счета и КАУ 1 по кредиту
+  '20057' == spkauF.KodGrKau
+  and '0340' == spkauF.code   //Прибыли прошлых лет, выявленные в отчетном периоде
+  and 'T91'==oborot.schetk  and spkauF.nrec == oborot.kauks[1]
+  and dFrom <<=oborot.datob and dTo   >>=oborot.datob
+  and (oborot.dataot <= oborot.datob)
+  and date(01,01,1900) <<= oborot.dataot(NoIndex)
+
+  and 'T91'==oborotd.scheto  and spkauF.nrec == oborotd.kauos[1]
+  and dFrom <<=oborotd.datob and dTo   >>=oborotd.datob
+  and (oborotd.dataot <= oborotd.datob
+  and oborotd.subossch = '06')
+  and date(01,01,1900) <<= oborotd.dataot(NoIndex)
+  //and mtoborot.KodSpo /== PodrFilter.cPodr
+!
+  and cooborot == ATTRNAM.WTABLE                                  //Вн.атр. - колонка 9
+  and 'Счет-субсчет прошлого периода'==ATTRNAM.NAME
+  and ATTRNAM.NREC == ATTRVAL.CATTRNAM
+  and cooborot     == ATTRVAL.WTABLE
+  and mtoborot.NREC  == ATTRVAL.CREC
+  and ATTRVAL.VCOMP== BUHSCHET.nrec
+!
+  and cooborot == attrnamnd.WTABLE                                //Вн.атр. - колонка 11
+  and 'Дебет счета налогового учета'==attrnamnd.NAME
+  and attrnamnd.NREC==schetnd.CATTRNAM
+  and cooborot      == schetnd.WTABLE
+  and mtoborot.NREC   == schetnd.CREC
+  and schetnd.vcomp == BUHSCHETnd.nrec
+!
+  and cooborot==attrnamnk.WTABLE                                //Вн.атр. - колонка 12
+  and 'Кредит счет налогового учета'==attrnamnk.NAME
+  and attrnamnk.NREC== schetnk.CATTRNAM
+  and cooborot      == schetnk.WTABLE
+  and mtoborot.NREC   == schetnk.CREC
+  and schetnk.vcomp == BUHSCHETnk.nrec
+!
+  and cooborot==attrnaman1.WTABLE                                //Вн.атр. - колонка 10 - Прочие доходы и расходы
+  and 'Аналитика прошлого периода - Прочие доходы и расходы'==attrnaman1.NAME
+  and attrnaman1.NREC == analitik.CATTRNAM
+  and cooborot        == analitik.WTABLE
+  and mtoborot.NREC     == analitik.CREC
+  and analitik.vcomp  == SPKAUa.nrec
+!
+  and cooborot==attrnaman2.WTABLE                                //Вн.атр. - колонка 10 - Виды продукции, работ, услуг
+  and 'Аналитика прошлого периода - Виды продукции, работ, услуг'==attrnaman2.NAME
+  and attrnaman2.NREC  == analitikalt.CATTRNAM
+  and cooborot         == analitikalt.WTABLE
+  and mtoborot.NREC      == analitikalt.CREC
+  and analitikalt.vcomp== SPKAUalt.nrec
+!
+  // Череда внешних атрибутов для столбца 13
+!
+  and cooborot==attrnam1.WTABLE                                //Вн.атр. 1 - колонка 13
+  and 'Аналитика по счету 968 - Договоры'==attrnam1.NAME
+  and attrnam1.NREC == attrval1.CATTRNAM
+  and cooborot      == attrval1.WTABLE
+  and mtoborot.NREC   == attrval1.CREC
+  and attrval1.vcomp== dogovor.nrec
+!
+  and cooborot==attrnam2.WTABLE                                //Вн.атр. 2 - колонка 13
+  and 'Аналитика по счету 968 - Доходы и внереализационные расходы НУ'==attrnam2.NAME
+  and attrnam2.NREC == attrval2.CATTRNAM
+  and cooborot      == attrval2.WTABLE
+  and mtoborot.NREC   == attrval2.CREC
+  and attrval2.vcomp== spkau2.nrec
+!
+  and cooborot==attrnam3.WTABLE                                //Вн.атр. 3 - колонка 13
+  and 'Аналитика по счету 968 - Доходы и расходы при реализации ОС, НМА и прав на з.у.'==attrnam3.NAME
+  and attrnam3.NREC == attrval3.CATTRNAM
+  and cooborot      == attrval3.WTABLE
+  and mtoborot.NREC   == attrval3.CREC
+  and attrval3.vcomp== spkau3.nrec
+!
+  and cooborot==attrnam4.WTABLE                                //Вн.атр. 4 - колонка 13
+  and 'Аналитика по счету 968 - Инвентарные номера объектов ОС'==attrnam4.NAME
+  and attrnam4.NREC == attrval4.CATTRNAM
+  and cooborot      == attrval4.WTABLE
+  and mtoborot.NREC   == attrval4.CREC
+  and attrval4.vcomp== katos.nrec
+!
+  and cooborot==attrnam5.WTABLE                                //Вн.атр. 5 - колонка 13
+  and 'Аналитика по счету 968 - Контрагенты'==attrnam5.NAME
+  and attrnam5.NREC == attrval5.CATTRNAM
+  and cooborot      == attrval5.WTABLE
+  and mtoborot.NREC   == attrval5.CREC
+  and attrval5.vcomp== katorg.nrec
+!
+  and cooborot==attrnam6.WTABLE                                //Вн.атр. 6 - колонка 13
+  and 'Аналитика по счету 968 - Объекты НМА, НИОКР, ТР'==attrnam6.NAME
+  and attrnam6.NREC == attrval6.CATTRNAM
+  and cooborot      == attrval6.WTABLE
+  and mtoborot.NREC   == attrval6.CREC
+  and attrval6.vcomp== katosnma.nrec
+!
+  and cooborot==attrnam7.WTABLE                                //Вн.атр. 7 - колонка 13
+  and 'Аналитика по счету 968 - Объекты финансовых вложений'==attrnam7.NAME
+  and attrnam7.NREC == attrval7.CATTRNAM
+  and cooborot      == attrval7.WTABLE
+  and mtoborot.NREC   == attrval7.CREC
+  and attrval7.vcomp== veksl.nrec
+!
+  and cooborot==attrnam8.WTABLE                                //Вн.атр. 8 - колонка 13
+  and 'Аналитика по счету 968 - Уступка прав требования'==attrnam8.NAME
+  and attrnam8.NREC == attrval8.CATTRNAM
+  and cooborot      == attrval8.WTABLE
+  and mtoborot.NREC   == attrval8.CREC
+  and attrval8.vcomp== spkau8.nrec
+!
+  and cooborot==attrnam9.WTABLE                                //Вн.атр. 9 - колонка 13
+  and 'Аналитика по счету 991 - Прочие доходы и расходы'==attrnam9.NAME
+  and attrnam9.NREC == attrval9.CATTRNAM
+  and cooborot      == attrval9.WTABLE
+  and mtoborot.NREC   == attrval9.CREC
+  and attrval9.vcomp== spkau9.nrec
+!
+  and mtoborot.tidkgal  == katdoc.tidkgal        //Отбор названия документа - колонка 2
+  and mtoborot.csoprhoz == soprhoz.nrec         //Отбор для получения номера и даты документа - колонка 2
+))
+
+  //      and month(mtoborot.dataot) < month(mtoborot.datob)
+order by mtoborot.datob
+;
+function AddSpKau(str1, str2: string): string;
+{
+  Result := if(str1 != '' or str2 != '', str1 + ' ' + str2 + '\','');
+}
+procedure PrintReport;
+var
+  CurIndex
+ ,NPP, i: word;
+  Sum :double;
+  numCol: word;
+  OrgName, OrgInn: string;
+  SchetK: string;
+  KatStroyNrec: tNrec;
+  Summ1, Summ21
+ ,XX, Summ01
+ ,Summ0899all, Summ0899
+ ,Summ3, Summ4
+ ,Summ22, Summ2
+ ,Summ8a, gr9new, gr9
+ ,itogo, itogo5
+ ,itogo6, itogo7
+ ,itogo8a, itogoNalStoim
+ ,itogo9, itogo9new : double;
+{
+  numCol := 14;
+
+  iNalFunc.GetOrgInfo(OrgName, OrgInn);
+  xlCreateExcel('report.xls',true);
+  xlCreateMatrix(5000, numCol);
+
+  xlSetColumnWidth(25,1,2,1,2);
+  xlSetColumnWidth(25,1,4,1,4);
+  xlSetColumnWidth(11,1,3,1,3);
+  xlSetColumnWidth(13,1,7,1,10);
+  xlSetColumnWidth(13,1,14,1,14);
+  xlSetColumnWidth(25,1,13,1,13);
+ // xlSetColumnWidth(20,1,2,1,2);
+ // xlSetColumnWidth(25,1,3,1,3);
+ // xlSetColumnWidth(10,1,4,1,8);
+
+  CurIndex:=1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'ВДР 3.1');
+  CurIndex ++;
+  xlSetFontStyle(1,CurIndex,1,CurIndex + 3,numCol);
+  xlSetFontSize(8, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Наименование организации-налогоплательщика: '+ OrgName);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex, 1,'ИНН налогоплательщика: ' + OrgInn);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex,1,'Дата составления: ' + dateToStr(Cur_Date,'DD Mon YYYY г.'));
+  CurIndex ++;
+
+
+  xlMergeCells(CurIndex, 1, CurIndex, numCol);
+  xlSetFontStyle(1, CurIndex, 1, CurIndex + 4, numCol);
+  xlAlignCellsEx(3, 2, CurIndex, 1, CurIndex + 4, numCol);
+  xlSetFontSize(12, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Регистр № ВДР 3.1 "Доходы прошлых лет, выявленные в отчетном периоде"');
+  CurIndex += 2;
+
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  //xlAlignCellsEx(2,2,CurIndex,1,CurIndex, numCol);
+  //xlSetFontSize(12,1,1,1,1);
+  xlSTWriteToMatrix(CurIndex, 1, 'за период с '+dateToStr(dFrom,'DD/MM/YYYY')+' по '+dateToStr(dTo,'DD/MM/YYYY'));
+  CurIndex ++;
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex, 1, 'отчетный (налоговый) период');
+  CurIndex ++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+  xlSTWriteToMatrix(CurIndex,2,'Документ - основание');
+  xlSTWriteToMatrix(CurIndex,3,'Дата отражения операции');
+  xlSTWriteToMatrix(CurIndex,4,'Содержание операции');
+  xlSTWriteToMatrix(CurIndex,5,'Дебет счета');
+  xlSTWriteToMatrix(CurIndex,6,'Кредит счета');
+  xlSTWriteToMatrix(CurIndex,7,'Сумма выявленного дохода в бухгалетрском учете');
+  xlSTWriteToMatrix(CurIndex,8,'Дата, по которой должен был быть отражен доход');
+  xlSTWriteToMatrix(CurIndex,9,'Счет БУ, на котором должна была быть отражена сумма выявленного дохода');
+  xlSTWriteToMatrix(CurIndex,10,'Коды и наименования позиций справочников, по которым должна была быть отражена сумма выявленного дохода');
+  xlSTWriteToMatrix(CurIndex,11,'Дебет счета налогового учета');
+  xlSTWriteToMatrix(CurIndex,12,'Кредит счета налогового учета');
+  xlSTWriteToMatrix(CurIndex,13,'Аналитика по счетам 968, 991');
+  xlSTWriteToMatrix(CurIndex,14,'Сумма записи по счетам НУ');
+  CurIndex++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+   for(i := 0; i <= numCol; i++)
+    xlSTWriteToMatrix(CurIndex, i, string(i));
+
+  CurIndex++;
+
+  Npp:=1;
+
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Формирование отчета', 0);
+ // _loop PodrFilter
+//  {
+    _loop oborot
+    {
+     if not iNalFunc.CheckoborotCO(oborot.KodSpK)
+      continue;
+     mtoborot.buffer := type$mtoborot(oborot.buffer);
+     insert current mtoborot;
+    };
+    _loop oborotd
+    {
+     if not iNalFunc.CheckoborotCO(oborot.KodSpo)
+      continue;
+     mtoborot.buffer := type$mtoborot(oborotd.buffer);
+     mtoborot.sumob := -oborotd.sumob
+     insert current mtoborot;
+    };
+    _loop mtoborot
+            //         and date(01,01,1900) <<= mtoborot.dataot(NoIndex)
+            //         and (year(mtoborot.dataot) < year(mtoborot.datob)) ))
+
+    {
+      if not NextVisual
+        break;
+//      if not iNalFunc.CheckoborotCO(mtoborot.KodSpo)
+//        continue;
+      if (GetFirst katdoc = tsOk){}
+      if (GetFirst soprhoz = tsOk){}
+      xlSTWriteToMatrix(CurIndex, 1, Npp);
+      xlSTWriteToMatrix(CurIndex, 2, katdoc.name +' № ' + soprhoz.nodoc +' от ' + soprhoz.datob);
+      iNalFunc.WriteDate(CurIndex, 3, mtoborot.datob);
+      xlSTWriteToMatrix(CurIndex, 4, mtoborot.sodpr);
+      xlSTWriteToMatrix(CurIndex, 5, if(trim(mtoborot.subossch) != '', mtoborot.dbscheto + '.' + mtoborot.subossch, mtoborot.dbscheto));
+      xlSTWriteToMatrix(CurIndex, 6, if(trim(mtoborot.subschk) != '', mtoborot.krschetk + '.' + mtoborot.subschk, mtoborot.krschetk));    xlSTWriteToMatrix(CurIndex, 9, mtoborot.krschetk);
+      iNalFunc.WriteSum(CurIndex, 7, mtoborot.sumob);
+      iNalFunc.WriteDate(CurIndex, 8, mtoborot.dataot);
+      xlSTWriteToMatrix(CurIndex, 9, if(GetFirst buhschet = tsOk, buhschet.code,''));
+#declare sp(num)
+ if(GetFirst spkau#num = tsOk,AddSpKau(spkau#num.code, spkau#num.name),'')
+#end
+      xlSTWriteToMatrix(CurIndex, 10, #sp(a) + #sp(alt));
+      if (GetFirst buhschetnd = tsOk)
+        xlSTWriteToMatrix(CurIndex, 11, buhschetnd.code);
+      if (GetFirst buhschetnk = tsOk)
+        xlSTWriteToMatrix(CurIndex, 12, buhschetnk.code);
+      xlSTWriteToMatrix(CurIndex, 13, if(GetFirst dogovor = tsOk, dogovor.nodoc+' от '+dogovor.ddoc+ '\','')
+                                      + #sp(2) + #sp(3)
+                                      + if(GetFirst katos = tsOk, 'Инв. номер:'+katos.innum+ '\','')
+                                      + if(GetFirst katorg = tsOk, katorg.unn+ ' ' + katorg.name + '\','')
+                                      + if(GetFirst katosnma = tsOk, 'Инв. номер:'+katosnma.innum+ '\','')
+                                      + if(GetFirst veksl = tsOk, 'Серия/номер:'+veksl.srdoc+ ' '+veksl.nodoc+ '\','')
+                                      + #sp(8) + #sp(9));
+      /*spkau1.code + ' ' + spkau1.name + '\' + spkau2.code + ' ' + spkau2.name + '\' +
+                                      spkau3.code + ' ' + spkau3.name + '\' + spkau4.code + ' ' + spkau4.name + '\' +
+                                      spkau5.code + ' ' + spkau5.name + '\' + spkau6.code + ' ' + spkau6.name + '\' +
+                                      spkau7.code + ' ' + spkau7.name + '\' + spkau8.code + ' ' + spkau8.name + '\' +
+                                      spkau9.code + ' ' + spkau9.name);
+                                      */
+      iNalFunc.WriteSum(CurIndex, 14, mtoborot.sumob);
+      itogo += mtoborot.sumob;
+      Npp++;
+      CurIndex++;
+    }
+//  }
+  xlSetFontStyle(1,CurIndex, 1, CurIndex, numCol);
+  xlMergeCells(CurIndex, 1, CurIndex, 2);
+  xlSTWriteToMatrix(CurIndex, 1, 'ИТОГО:');
+
+  xlMergeCells(CurIndex,6,CurIndex,7);
+  iNalFunc.WriteSum(CurIndex, 6, itogo);//DoubleToStr(itogo4, '[|-]366 666 666 666,88'));
+
+  xlMergeCells(CurIndex, 13, CurIndex, 14);
+  iNalFunc.WriteSum(CurIndex, 13, itogo);//DoubleToStr(itogo4, '[|-]366 666 666 666,88'));
+
+  xlWrapText(9,1,CurIndex,numCol);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32, 3,0,0,9,1,CurIndex,numCol);
+  CurIndex += 2;
+  xlMergeCells(CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+  CurIndex ++;
+
+  xlMergeCells(CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+  CurIndex++;
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  StopVisual('',0);
+
+}
+procedure Run;
+{
+//  MtClear(#TabVeksl, mfNormal);
+//  FillTable;
+  PrintReport;
+}
+HandleEvent
+cmInit:
+{
+    delete all PickBuh;
+  if iNalFunc.RunTuneNoMess(dFrom, dTo)
+    Run;
+}
+end;
+
+
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalVdr_31 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalVdr_31  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalVdr_31');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'ВДР 3.1 Доходы прошлых лет, выявленные в отчетном периоде';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+    2 : GetGroupName := 'ВДР';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

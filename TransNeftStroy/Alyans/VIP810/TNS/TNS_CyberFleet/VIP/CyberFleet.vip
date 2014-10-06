@@ -1,0 +1,204 @@
+#include CyberFleet.vih
+
+#ifdef ComponentVersion
+#component "M_TRANSP"
+#end
+
+interface CyberFleet;
+  create view Dummy
+    var GarNom: string;
+  from transp
+  ;
+
+  function CyberFleet_TripListInfo(
+    ObjectGarNum: string; //гаражный номер
+    StartDateTime: datetime; //период с
+    EndDateTime: datetime; //период по
+    var TotalConsumption: double; //расход топлива, л
+    var TotalRunInKm: double; //общий пробег, км
+    var Per100kmConsumption: double //расход топлива л/100 км
+  ): integer;
+  var wSYear, wSMonth, wSDay, wSHour, wSMinute, wSSecond: word;
+  var wEYear, wEMonth, wEDay, wEHour, wEMinute, wESecond: word;
+  var ResultString, StringValue: string;
+  {
+    wSYear:=_GetYear(StartDateTime);
+    wSMonth:=_GetMonth(StartDateTime);
+    wSDay:=_GetDay(StartDateTime);
+    wSHour:=_GetHour(StartDateTime);
+    wSMinute:=_GetMinute(StartDateTime);
+    wSSecond:=_GetSecond(StartDateTime);
+    wEYear:=_GetYear(EndDateTime);
+    wEMonth:=_GetMonth(EndDateTime);
+    wEDay:=_GetDay(EndDateTime);
+    wEHour:=_GetHour(EndDateTime);
+    wEMinute:=_GetMinute(EndDateTime);
+    wESecond:=_GetSecond(EndDateTime);
+    ResultString := GalFleet_TripListInfoString(OEM2Ansi(ObjectGarNum),
+                                                     wSYear, wSMonth, wSDay,
+                                                     wSHour, wSMinute, wSSecond,
+                                                      wEYear, wEMonth, wEDay,
+                                                      wEHour, wEMinute, wESecond);
+    if Instr('?', ResultString) = 0
+    {
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+      TotalConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+      TotalRunInKm := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+      Per100kmConsumption := Double(StringValue);
+      CyberFleet_TripListInfo := 0;
+    }
+    else
+    {
+      CyberFleet_TripListInfo := Integer(Replace(ResultString,'?',''));
+    }
+  }
+
+  function CyberFleet_TripListInfoext(
+    ObjectGarNum: string; //гаражный номер
+    StartDateTime: datetime; //период с
+    EndDateTime: datetime; //период по
+    var TotalRun: integer; //общий пробег, м
+    var TotalTime: integer; //общее время, мин
+    var StartUpVolume: double; //начальный объем бака, л
+    var FinalVolume: double; //конечный объем бака, л
+    var TotalRefueling: double; //суммарная заправка, л
+    var TotalDischarge: double; //суммарный слив, л
+    var TotalConsumption: double; //расход топлива, л
+    var Per100kmConsumption: double; //расход топлива л/100 км
+    var FirstLitreRun: integer; //пробег на одном литре, м
+    var TotalAIExpectedConsumption: double; //суммарный ожидаемый расход на навесное оборудование
+    var TotalAIRealConsumption: double; //суммарный фактический расход на навесное оборудование
+    var InvalidCoordinatesPercent: double; //процент невалидных координат
+    var SignalMissedTime: integer; //общее время потери сигнала, мин
+    var IdleFuelConsumption: double; //расход топлива на холостом ходу
+    var RunFuelConsumption: double; //расход топлива на пробег
+    var AIStandingTime: double; //простой навесного оборудования в секундах
+    var IdleTime: integer; //работа ДВС на холостом ходу в секундах
+    var TotalRunInKm: double
+  ): integer;
+  var wSYear, wSMonth, wSDay, wSHour, wSMinute, wSSecond: word;
+  var wEYear, wEMonth, wEDay, wEHour, wEMinute, wESecond: word;
+  var ResultString, StringValue: string;
+  {
+    wSYear:=_GetYear(StartDateTime);
+    wSMonth:=_GetMonth(StartDateTime);
+    wSDay:=_GetDay(StartDateTime);
+    wSHour:=_GetHour(StartDateTime);
+    wSMinute:=_GetMinute(StartDateTime);
+    wSSecond:=_GetSecond(StartDateTime);
+    wEYear:=_GetYear(EndDateTime);
+    wEMonth:=_GetMonth(EndDateTime);
+    wEDay:=_GetDay(EndDateTime);
+    wEHour:=_GetHour(EndDateTime);
+    wEMinute:=_GetMinute(EndDateTime);
+    wESecond:=_GetSecond(EndDateTime);
+    ResultString := GalFleet_TripListInfoExtString(OEM2Ansi(ObjectGarNum),
+                                                     wSYear, wSMonth, wSDay,
+                                                     wSHour, wSMinute, wSSecond,
+                                                      wEYear, wEMonth, wEDay,
+                                                      wEHour, wEMinute, wESecond);
+    if Instr('?', ResultString) = 0
+    {
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalRunInKm := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+//      Message(StringValue);
+      Per100kmConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalRun := Integer(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalTime := Integer(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+//      Message(StringValue);
+      StartupVolume := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      FinalVolume := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalRefueling := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalDischarge := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+//      Message(StringValue);
+      FirstLitreRun := Integer(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalAIExpectedConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      TotalAIRealConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+//      Message(StringValue);
+      InvalidCoordinatesPercent := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+//      Message(StringValue);
+      SignalMissedTime := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      IdleFuelConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      RunFuelConsumption := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Instr('#',ResultString)-1),',','.');
+//      Message(StringValue);
+      AIStandingTime := Double(StringValue);
+      ResultString := Substr(ResultString,Instr('#',ResultString)+1, 255);
+//      Message(ResultString);
+      StringValue := Replace(Substr(ResultString,1,Length(ResultString)-1),',','.');
+//      Message(StringValue);
+      IdleTime := Integer(StringValue);
+//      Message(TotalConsumption+'#'+TotalRunInKm+'#'+Per100kmConsumption);
+      CyberFleet_TripListInfoExt := 0;
+    }
+    else
+    {
+      CyberFleet_TripListInfoExt := Integer(Replace(ResultString,'?',''));
+    }
+  }
+
+end.

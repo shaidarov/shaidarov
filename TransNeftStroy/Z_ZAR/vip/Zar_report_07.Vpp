@@ -1,0 +1,430 @@
+//======================================================================
+// Численность в разрезе объекуто капстроительства
+//======================================================================
+Procedure RestUserDeskRep07;
+{ ReReadRecord(#UserDeskRep)
+  //UserDeskRep.ResWord[40]:=if(logfilekl,1,0)
+}
+
+
+
+//==============================
+// запуск отчета
+//==============================
+Function CreateReport07 :boolean;
+var ww_dt :date;
+    ww_su:double;
+    ww_kateg:word;
+    i,j,k :word;
+    ww_nrec:comp;
+    wwkl:boolean; 
+{ CreateReport07:=false;
+  ClearTable(CurCode)
+  ClearTable(CurCode+1)
+  ClearTable(CurCode+2)
+  ClearTable(CurCode+3)
+
+  UpdateTable
+  logfilekl:=if((UserDeskRep.ResWord[40] and 1 )>0,true,false)
+  ww_dt:=UserDeskRep.ResDate[1]
+  if UserDeskRep.ResDate[1]>UserDeskRep.ResDate[2]
+  { message('Дата конца периода меньше начала')
+    exit;
+  }
+  if year(UserDeskRep.ResDate[1])<>Year(UserDeskRep.ResDate[2])
+  { message('Не предусмотрено формирования за разные года')
+    exit;
+  }
+  if UserDeskRep.ResComp[20]=0
+  { message('Не задан ВА к штвтному расписанию'
+       +chr(13)+'с кодом = нормер строки '
+       )
+    Exit   
+  }
+  
+  if not inextvisual('Расчет численности') then
+  { RestUserDeskRep07
+    exit;
+  }
+  if logfilekl
+    MyLogwrite(false,'==== Сбор среднесписочной Begin========= ')
+  //tmp_uo   
+  MyLogwrite(false,'=== Сбор численности ====')
+  if not CreateReport
+  { RestUserDeskRep07
+    exit;
+  }
+  // если добавить и вся явки
+  Update Tobot where ((  CurCode   == Tobot.CODE )) set Tobot.Sum[11]:=Tobot.Sum[11]+Tobot.Sum[6]
+  if logfilekl
+    MyLogwrite(false,'==== Сбор среднесписочной END ========= ')
+  
+  ww_su:=0;
+
+  
+  StartNewVisual(vtIndicatorVisual,vfTimer+vfBreak,'Обработка...', RecordsInTable(vStaff1.tnStaffStruct) );
+  if not inextvisual('Расчет штатной численности') then
+  { RestUserDeskRep07
+    exit;
+  }
+  
+
+  delete TEMPDESCR where (( CurCode   == TEMPDESCR.CODE )) ;
+  delete TEMPDESCR where (( CurCode+1 == TEMPDESCR.CODE )) ;
+  delete TEMPDESCR where (( CurCode+2 == TEMPDESCR.CODE )) ;
+
+  // штатная численность
+  ww_su:=0
+  MyLogwrite(false,'=== Сбор штатной численности ====')
+ //Procedure InsTobot07(ww_su:double; ww_row:longint;ww_col:longint);
+ 
+   vStaff1._loop StaffStruct
+   { if not nextvisual then exit;
+     ww_dt:=UserDeskRep.ResDate[1]
+     if not chk_filter(GetGalPodrByStaffDepart(vStaff1.StaffStruct.DepartMent)
+       ,GetKategKod(vStaff1.StaffStruct.EmpCategory)
+       ,vStaff1.StaffStruct.Post
+       ,GetRejimKod( vStaff1.StaffStruct.WorkRegime) ) 
+       then continue; 
+     //Analitik_InsValue(CurCode,wtbl,wckau
+     //,mHierar[i], mIeSvertka[i],wNameGr,if((UserDeskRep.ResWord[40] and 2)>0,1,0))
+     InsStaffGr0;
+     ww_su:=iStafStru.GetWorkStations(vStaff1.StaffStruct.nrec,dte);
+     update current Tobot set Tobot.Sum[60]:=Tobot.Sum[60]+ww_su;
+     ww_su:=ww_su-iStafStru.GetWorkersStaff(vStaff1.StaffStruct.nrec,dte);
+     update current Tobot set Tobot.Sum[58]:=Tobot.Sum[58]+ww_su;
+   }
+ 
+   cRep := InitTreeBuilder(#Tobot);
+   if cRep=0 { message('Ошибка инициализации дерева!'); exit; }
+   //update TOBOT where (( CurCode == TOBOT.CODE ))
+   //    set 
+           //  ToBot.cut[Grp_Count]:=0
+           // ,Tobot.Group[Grp_Count]:=0
+           // Tobot.SortName:=''
+           //,Tobot.NameGroup:=''
+            ;
+   for(i:=1;i<=Grp_Count;i:=i+1)
+   { 
+
+//  TuneLevel(pTree, GetLevel(cgGrpKau1),   0,        KauParam,                  ''       ,1 ,0            ,0);
+     TuneLevel(cRep, i                  , mTable[i] , if(mkol[i]=0,tsNoExpand,0), mName[i],0 , mGrupSort[i], mkol[i]);
+     
+     for(j:=1;j<=60;j++)
+     {  TuneSum(cRep, j, 0, 0);
+     }
+     Mylogwrite(false,'Группировки '+string(mTable[i])+','+mName[i]+','+string(mkol[i])+','+string(mIeSvertka[Len1]))
+   }
+   SetReportStyles(cRep, rsNodeReport+if(logfilekl,rsShowStat,0), '  Всего') //UserDeskRep.RepName)
+   BuildTunedTree(crep, CurCode); 
+   
+   MyLogWrite(false,' Grp_Count='+string(Grp_Count))
+   if (cRep<>0)
+     DoneTreeBuilder(cRep);
+   if USERDESKREP.RESWORD[19] >0  
+   //======== подобъем итоги по последнему уровню
+   { 
+ 
+    //================ удаляем нижнтй уровень
+    //delete TEMPDESCR where (( CurCode == TEMPDESCR.CODE )) and TEMPDESCR.SORTNAME='' ;
+ 
+    delete TEMPDESCR where (( CurCode+1 == TEMPDESCR.CODE )) ;
+    delete TEMPDESCR where (( CurCode+2 == TEMPDESCR.CODE )) ;
+    delete TEMPDESCR where (( CurCode+3 == TEMPDESCR.CODE )) ;
+    delete TEMPDESCR where (( CurCode+4 == TEMPDESCR.CODE )) ;
+    delete TEMPDESCR where (( CurCode+5 == TEMPDESCR.CODE )) ;
+    delete TEMPDESCR where (( CurCode+6 == TEMPDESCR.CODE )) ;
+    delete TEMPDESCR where (( CurCode+7 == TEMPDESCR.CODE )) ;
+    //================
+    MyLogWrite(false,' == Дерево ===')
+  do {
+    MyLogwrite(false,string(TempDescr.Sum[11])
+        +', TempDescr.name='+trim(TempDescr.name) +'/'+trim(TempDescr.SortName)
+        )
+        wwkl:=TreeGetNextEx(MainTree)
+ 
+   }  While ( wwkl );
+
+    // подчтсьим лишний уровень
+    MyLogWrite(False,'======= Накопили ========')
+      
+    external _loop TEMPDESCR where (( CurCode == TEMPDESCR.CODE ))
+    { if getfirst TEMPDESCR2 where (( CurCode == TEMPDESCR2.CODE
+        and TEMPDESCR.Nrec == TEMPDESCR2.cGroup
+        )) <>0
+      { delete current TEMPDESCR;  
+        continue;
+      }
+      if logfilekl
+      { MyLogWrite(False,' '+TEMPDESCR.SORTNAMe
+           +'/'+string(TEMPDESCR.Nrec)
+           +'/'+string(TEMPDESCR.cGroup)
+           +'/'+string(TEMPDESCR.CRECKAT)
+           +'/'+string(TEMPDESCR.CREC)
+           +'/'+string(TEMPDESCR.Sum[60])
+           +'/'+string(TEMPDESCR.Sum[11])
+           +'/'+string(TEMPDESCR.Sum[12])
+           +'/'+string(TEMPDESCR.Sum[13])
+           +'/'+string(TEMPDESCR.Sum[14])
+           +'/'+string(TEMPDESCR.Sum[15])
+           )
+       } //if logfilekl
+    }
+    
+
+    update TEMPDESCR where (( CurCode == TEMPDESCR.CODE )) set TEMPDESCR.CODE:=CurCode+1;
+    for(i:=Grp_Count-1;i>0;i:=i-1)
+    { mylogWrite(False,'Считаем иеррархию по итогам '+string(i)+'/'+string(Grp_Count))
+    
+      update TOBOT where (( CurCode == TOBOT.CODE ))
+       set   ToBot.cut[i]    :=ToBot.cut[i+1]
+            ,Tobot.Group[i]  :=Tobot.Group[i+1]
+            ,ToBot.cut[i+1]  :=0
+            ,Tobot.Group[i+1]:=0
+            
+            //,Tobot.mSpDoc:=0
+            //,Tobot.NameGroup:=Trim(Tobot.SortName)
+            //,Tobot.SortName:=Trim(Tobot.SortName)
+            ;
+    
+       cRep := InitTreeBuilder(#Tobot); 
+      
+      for(k:=1;k<=i;k++)
+      {  TuneLevel(cRep, k
+          , mTable[k], if(mkol[k]=0,tsNoExpand,0)
+          , mName[k],0 , mGrupSort[k], mkol[k]);
+         for(j:=1;j<=60;j++)
+         {  TuneSum(cRep, j, 0, 0);
+         }
+      }
+      TuneLevel(cRep, i
+          , mTable[Grp_Count], if(mkol[Grp_Count]=0,tsNoExpand,0)
+          , mName[Grp_Count],0 , mGrupSort[Grp_Count], mkol[Grp_Count] ) ;
+      for(j:=1;j<=60;j++)
+      {  TuneSum(cRep, j, 0, 0);
+      }
+      SetReportStyles(cRep, if(logfilekl,rsShowStat,0), UserDeskRep.RepName)
+      BuildTunedTree(crep, CurCode);
+      if (cRep<>0)
+       DoneTreeBuilder(cRep);
+      update TEMPDESCR where (( CurCode == TEMPDESCR.CODE )) set TEMPDESCR.CODE:=CurCode+1+i,TEMPDESCR.SUM[59]:=0;
+      _loop TEMPDESCR where (( CurCode+1+i == TEMPDESCR.CODE )) 
+      { MyLogWrite(false,'   == '+TEMPDESCR.Name+'/'+TEMPDESCR.SortName+string(TEMPDESCR.Sum[11]))
+      }
+      //delete TEMPDESCR where (( CurCode+1+i == TEMPDESCR.CODE )) and TEMPDESCR.SORTNAME='' ;
+
+     } //for(i:=Grp_Count-1;i>0;i:=i-1)
+     update TEMPDESCR where (( CurCode+1 == TEMPDESCR.CODE )) set TEMPDESCR.CODE:=CurCode;
+   } //if USERDESKREP.RESWORD[19] >0  
+   wwkl:=TreeGetFirstEx(MainTree); 
+
+   StopVisual('',0)  
+   RestUserDeskRep07
+
+   PrintDoc_07(0)
+   
+   CreateReport07:=true;
+   rescanpanel(#UserDeskRep)
+} //Function CreateReport07 :boolean;
+
+
+//===================================
+Function PrintDoc_07(ww_type:word) : boolean;
+VAR
+ wnpp:longint;
+ wwkl:boolean;
+ ii:word;
+ ww_podr    :string;
+ wLevel_Start: word;
+ wCurLevel,wPrevLevel:longint;
+ wCurName,wPrevName :string
+ max_col:longint;
+ boIsTerm :boolean;
+{ PrintDoc_07 :=false
+  wexrow:=2;wexcol:=1;
+  if ExcelInit(nmtemplate,true,2009)<>0
+  { message('Ошибка инициализации шаблона')
+    exit ;
+  }
+  if logfilekl
+    MyLogwrite(false,'==== PrintDoc_07 ========= ')
+  PickRep2Marker('Z_KatPodr1', 1, UserDeskRep.ResComp[1]);
+  _PodrMArkerPointer := CLSF.LoadFullCurrentDepartmentList;
+  iPodrFilterDef.MarkCopyCatToMy(_PodrMArkerPointer,'Z_KatPodr1')
+       
+  StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Идет печать...', vfTimer+vfBreak);
+  wexrow:=1; wexcol:=1
+  ww_podr:=if(FFLTPODR<>'не установлен', iPodrFilterDef.GetPodrFilterName(_PodrMArkerPointer),sGetTune('MYORG') )
+  MyPutExcel('Численность персонала филиала '
+    +ww_podr
+    +' по состоянию на '+DateToStr(UserDeskRep.ResDate[2],'DD.MM.YYYY') 
+    ,16,0,-1,-1)
+  wexrow:=3; wexcol:=4;
+  MyPutExcel('ВСЕГО ПО ФИЛИАЛУ '+ww_podr ,14,0,-1,-1)
+  ii:=0
+  max_col:=9;
+  EXTERNAL _Loop TempDescr2 
+         where (( CurCode+2 == TEMPDESCR2.CODE
+         and 0 == TEMPDESCR2.cGroup )) 
+         //ordered by TempDescr2.CODE,TEMPDESCR2.cGroup,TEMPDESCR2.SORTNAME
+  { ii++
+    MyLogWrite(False,'Шапка '+trim(TEMPDESCR2.NAME)
+         +'/'+trim(TEMPDESCR2.SORTNAME) + '/'+string(TEMPDESCR2.cGroup))
+    wexrow:=3;
+    wexcol:=11+(ii-1)*5
+    XlMergeCells(3,wexcol,5,wexcol+4) 
+    xlSetbackcolor( 0CCFFCCh
+         , 3,wexcol,5,wexcol+4)
+
+    XlMergeCells(6,wexcol,6,wexcol+4) 
+
+    update current TEMPDESCR2 set TEMPDESCR2.sum[59]:=wexcol, TEMPDESCR2.NAME:=PrintName(TEMPDESCR2.NAME);
+    update TempDescr3 
+         where (( CurCode+2 <<= TEMPDESCR3.CODE
+         and  CurCode+7 >>= TEMPDESCR3.CODE
+         and (TEMPDESCR2.NAME=PrintName(TEMPDESCR3.Name) ) 
+         ))
+      set TEMPDESCR3.sum[59]:=wexcol, TEMPDESCR3.NAME:=PrintName(TEMPDESCR3.NAME);   
+
+    //TEMPDESCR2.NAME+'/'+
+      var ww_str1,ww_str2:string;
+    ww_str1:=ExtractDelimitedWord(TEMPDESCR2.NAME,1,'=')
+    ww_str2:=ExtractDelimitedWord(TEMPDESCR2.NAME,2,'=')
+    MyPutExcel(ww_str1,14,0,-1,-1)
+    wexrow:=6;
+    wexcol:=11+(ii-1)*5
+    MyPutExcel(ww_str2,14,0,-1,-1)
+    
+    wexrow:=7;
+    wexcol:=11+(ii-1)*5
+    MyPutExcel('объект'  ,14,0,-1,-1)
+    MyPutExcel('межвахта',14,0,-1,-1)
+    MyPutExcel('отпуск'  ,14,0,-1,-1)
+    MyPutExcel('б/л'     ,14,0,-1,-1)
+    MyPutExcel('н/н'     ,14,0,-1,-1)
+    max_col:=wexcol-1;
+    wexcol:=11+(ii-1)*5
+    MyxlFrameCells(63, 2, 1, 1, 
+         3,wexcol,7,wexcol+4);
+  }  //external _Loop TEMPDESCR where (( CurCode+2 == TEMPDESCR.CODE ));
+
+  wwkl:=TreeGetFirstEx(MainTree); 
+  HeaderStrCount:=7
+  wexrow:=HeaderStrCount+1;
+  MyXlCreaMatrix(10000,max_col)
+  wexrow:=wexrow-1;
+  wCurLevel:=0;
+  wCurName:=''
+  // вывод дерева
+  do {
+    if not nextvisual then break;
+    wPrevLevel := wCurLevel;
+    wCurLevel  := TreeLevel(MainTree);
+    wPrevName  := wCurName;
+    wCurName   := TempDescr.name;    
+    boIsTerm   := TreeIsTerminal( MainTree );
+    MyLogwrite(false,string(TempDescr.Sum[11])
+        +', TempDescr.name='+trim(TempDescr.name) +'/'+trim(TempDescr.SortName)
+        +','+string(wCurLevel)
+        +','+if(boIsTerm, ' Лист ', 'Узел ')
+        +', строка='+string(wexrow)
+        
+        )
+    if not boIsTerm
+    { wexrow++;
+      wexcol:=1;
+      if wCurLevel=0
+      { xlSetFontStyle(xlBold, wexrow, 1, wexrow, max_col)
+        xlSetbackcolor( 0FFFF00h
+         , wexrow, 1, wexrow, max_col)
+
+      }
+       MyPutExcel(lpad(' ',wcurlevel*2)+PrintName(TempDescr.name) ,10,0,-1,-1)
+      wexcol:=2;
+      MyPutExcelNumber(TempDescr.Sum[60],0,0,0,-1,-1)//2
+      MyPutExcelNumber(TempDescr.Sum[58],0,0,0,-1,-1)//2
+      wexcol:=4;
+      for(ii:=11;ii<=15;ii:=ii+1)
+         MyPutExcelNumber(TempDescr.Sum[ii],0,0,0,-1,-1)//2
+      MyPutExcelNumber(TempDescr.Sum[16],0,0,0,-1,-1)//2
+      MyPutExcelNumber(TempDescr.Sum[17],0,0,0,-1,-1)//2
+   
+      if trim(TempDescr.name)='Всего'  or wCurLevel=0
+      { 
+        _Loop TempDescr2 where (( CurCode+2  == TEMPDESCR2.CODE and 0 == TEMPDESCR2.cGroup ))
+        { mylogwrite(false,'1 '+TempDescr2.name +'/'+trim(TempDescr2.SortName)+'/'+STRING(TempDescr2.sum[59]))
+          wexcol:=longint(TempDescr2.sum[59]);
+          if wexcol>10
+           for(ii:=11;ii<=15;ii:=ii+1)
+            MyPutExcelNumber(TempDescr2.Sum[ii],0,0,0,-1,-1)//2
+        }    
+      } 
+      else  
+      { _Loop TempDescr2 where (( CurCode+2+wCurLevel == TEMPDESCR2.CODE 
+           ))
+        { mylogwrite(false,'2 '+trim(TempDescr2.name) +'/'+trim(TempDescr2.SortName)
+          +'/'+STRING(TempDescr2.sum[11])+'/'+STRING(TempDescr3.sum[59]))
+          wexcol:=longint(TempDescr2.sum[59]);
+          
+        }    
+        _Loop TempDescr2 where (( CurCode+2+wCurLevel == TEMPDESCR2.CODE 
+           and (trim(TempDescr.Name) = trim(TempDescr2.Name) )
+          ))
+        { // проверим вышестоящий вроень
+          if wCurLevel>1
+          { if getfirst TempDescr3 where (( 
+               TempDescr2.cGroup == TempDescr3.Nrec  
+               ))=0
+            { if wPrevName<>TempDescr3.Name then continue;
+            
+            }   
+          
+          } 
+          _Loop TempDescr3 where (( CurCode+2+wCurLevel == TEMPDESCR3.CODE 
+           and TempDescr2.Nrec == TempDescr3.cGroup 
+          ))
+          { mylogwrite(false,'3 '+trim(TempDescr2.name) +'/'+trim(TempDescr3.Name)
+              +'/'+STRING(TempDescr3.sum[11])+'/'+STRING(TempDescr3.sum[59]))
+            
+            wexcol:=longint(TempDescr3.sum[59]);
+            if wexcol>10
+            { for(ii:=11;ii<=15;ii:=ii+1)
+                MyPutExcelNumber(TempDescr3.Sum[ii],0,0,0,-1,-1)//2
+            }  
+          }  
+        }    
+        
+
+      }
+    } //if not boIsTerm
+    else
+    { mylogwrite(false,'4 '+trim(TempDescr.name) +'/'+trim(TempDescr.Name)
+              +'/'+STRING(TempDescr.sum[11])+'/'+STRING(TempDescr.sum[59]))
+            
+      if getfirst TempDescr2 where (( CurCode+2 == TEMPDESCR2.CODE 
+         and PrintName(Tempdescr.Name) == TempDescr2.Name (noindex)
+            ))=0
+      { wexcol:=longint(TempDescr2.sum[59]);
+        mylogwrite(false,'  столбец='+string(wexrow))
+        if wexcol>0
+         for(ii:=11;ii<=15;ii:=ii+1)
+           MyPutExcelNumber(TempDescr.Sum[ii],0,0,0,-1,-1)//2
+      }     
+    } //if not boIsTerm   
+  
+    wwkl:=TreeGetNextEx(MainTree)
+ 
+  }  While ( wwkl );
+  MyxlWriteMatrix(wexrow);
+  xlFreeMatrix;
+  
+  matrixkl:=False;
+  xlWrapText(5,1,wexrow,max_col);
+
+  MyxlFrameCells(63, 2, 1, 1,
+     HeaderStrCount,1,wexrow,max_col);
+  //xlSetFontStyle(xlBold, wexrow,1,wexrow,17);
+  MyXlEnd;
+  StopVisual('',0);
+  PrintDoc_07 :=true;
+} //PrintDoc_07

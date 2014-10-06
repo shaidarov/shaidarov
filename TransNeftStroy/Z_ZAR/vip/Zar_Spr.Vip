@@ -1,0 +1,77 @@
+//===============================================
+// для кэширования значений справочников
+//===============================================
+#include Zar_Spr.Vih
+Interface Zar_Spr;
+table struct tmp_nalval
+( name_func : string[40]
+ ,name_kluch: string[100]
+ ,val_str : string[100]
+ ,val_double:double
+)
+with index
+( tmp_nalval01 =  name_func+name_kluch
+) ;
+
+//==================
+create view vAttr
+var
+  attr_table :word;
+  attr_name:string;
+  attr_crec :comp
+as select attrval.nrec
+from attrnam,attrval,tmp_nalval
+where (( 
+   attr_table == Attrnam.wtable
+//and attr_name == Attrnam.name
+and Attrnam.wtable == AttrVal.wtable
+and AttrNam.nrec == AttrVal.cAttrNam
+and attr_crec == AttrVal.crec
+));  
+
+Procedure ClearCache;
+{ vattr.delete all tmp_nalval;
+}
+//==========================================
+// найти значеник
+//==========================================
+Function Find_TmpVal(const ww_func:string;const ww_kluch:string):boolean;
+{ Find_TmpVal:=vAttr.getfirst fastfirstrow tmp_nalval where 
+  (( ww_func == tmp_nalval.name_func and substr(ww_kluch,1,100) == tmp_nalval.name_kluch ))=0
+
+}
+
+//==========================================
+// записать значеник
+//==========================================
+Procedure Write_TmpValStr(const ww_func:string;const ww_kluch:string;const ww_val:string);
+{ vAttr.insert tmp_nalval set tmp_nalval.name_func:=ww_func, tmp_nalval.name_kluch:=ww_kluch
+       ,tmp_nalval.val_str:=ww_val;
+
+}
+
+//==========================================
+// записать значеник
+//==========================================
+Procedure Write_TmpValDouble(const ww_func:string;const ww_kluch:string;const ww_val:double);
+{ vAttr.insert tmp_nalval set tmp_nalval.name_func:=ww_func, tmp_nalval.name_kluch:=ww_kluch
+       ,tmp_nalval.val_Double:=ww_val;
+}
+
+//==========================================
+// получить значеник
+//==========================================
+Function Get_TmpValDouble:double;
+{ Get_TmpValDouble:=vAttr.tmp_nalval.val_Double
+}
+Function Get_TmpValStr:string;
+{ Get_TmpValStr:=vAttr.tmp_nalval.val_str
+}
+
+//=================================
+HandleEvent
+cmOnVipLoad:
+{ ClearCache;
+}
+end;
+end.

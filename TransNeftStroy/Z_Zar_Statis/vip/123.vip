@@ -1,0 +1,168 @@
+interface New_Statis
+var date1,date2:date;
+    npodr,ncpodr,skat :string;
+    curkateg: word;
+    curpodr,curcpodr,nrec_podr: comp;
+table STRUCT data_stat                //создание временной таблицы
+(
+  CEX     :comp
+  ,CPODR  :comp
+  ,Kateg  :word
+  ,sredkol:double
+)
+with index
+(
+  ind01  = CEX+ CPODR+ Kateg+ sredkol
+);
+
+create view st
+as select
+*
+from
+statis
+,data_stat
+where(0<statis.kateg and 0=statis.sovm and year(date1)=statis.YEARN and (month(date1)<=statis.mesn and statis.mesn<=month(date2)))
+;
+
+create view tmp2
+  as Select
+  KATPODR.Name from KATPODR
+  Where((nrec_podr==KATPODR.nrec))
+;
+
+create view tmp3
+  as Select
+  KLKATEGO.NAIKAT from KLKATEGO
+  Where((curkateg==KLKATEGO.kod))
+;
+
+
+form MyForm('Statis.out','Statis') with novisual;
+
+
+procedure RunRep;
+{
+
+  delete all data_stat;
+    _loop statis
+      insert  data_stat  set data_stat.CEX     := statis.CEX,
+                             data_stat.CPODR   := statis.CPODR,
+                             data_stat.Kateg   := statis.Kateg,
+                             data_stat.sredkol := statis.sredkol;
+
+  MyForm.Write(date1);
+  MyForm.Write(date2);
+  _loop data_stat  ordered by  data_stat.CEX, data_stat.CPODR, data_stat.Kateg
+  {
+    curpodr := data_stat.cex;
+    groupby grPodr: data_stat.cex
+    {
+      curcpodr := data_stat.CPODR;
+      groupby grCpodr: data_stat.CPODR
+      {
+        curkateg := data_stat.KATEG;
+        groupby grKatr: data_stat.KATEG
+        {
+
+        }
+        npodr :='';
+        ncpodr :='';
+        skat  :='';
+        nrec_podr :=curpodr;
+        MyForm.Write(curpodr);
+        If (tmp2.getfirst KATPODR = tsok) {npodr:=tmp2.Katpodr.name};
+        MyForm.Write(npodr);
+        nrec_podr :=curcpodr;
+        If (tmp2.getfirst KATPODR = tsok) {ncpodr:=tmp2.Katpodr.name};
+        MyForm.Write(ncpodr);
+        If (tmp3.getfirst KLKATEGO = tsok) {skat:=tmp3.KLKATEGO.NAIKAT};
+        MyForm.Write(skat);
+        MyForm.Write(round(grKatr.grSum(data_stat.sredkol),3));
+      }
+    }
+  }
+  if MyForm.Error
+    MyForm.AbortForm;
+  else
+    MyForm.ShowFile('Статистика');
+}
+handleEvent
+cmInit:
+{
+
+  if(RunDialog ('c_common::GetInterval', Date1, Date2 )=11)
+    exit;
+  else
+  {
+    if(date1=date(0,0,0) or date2=date(0,0,0))
+    {
+      message('Не все даты заполнены!',Ok);
+      exit;
+    }
+  }
+  RunRep;
+}
+end;
+end.
+
+//------------------------------------------------------------------------------
+// подключение в меню отчетов
+//------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_Statis Implements IUserReport Licensed(Free);
+
+Interface UserReport_Statis;
+Create View;
+
+//------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+begin
+  RunInterface('New_Statis');
+end;
+
+//------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'Среднесписочная численность за период';
+end;
+
+//------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  /*case Level of
+    1 : GetGroupName := 'Группа 1';
+    2 : GetGroupName := 'Группа 2';
+  end;*/
+end;
+
+//------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+//------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

@@ -1,0 +1,257 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface txo_nakl_akt implements ObjTxoIdentPlugin;
+
+Interface txo_nakl_akt;
+var
+  CurSoprHoz,nrec_val  : comp  ;
+  konv    : word  ;
+  pay,kod_usl     : string;
+  sum_p,sum_ord : double;
+
+create view
+as select
+  *
+from
+  SoprHoz,
+  spsopr,
+  katsopr,
+  katsopr katsopr1,
+//  stepdoc,
+//  basedoc,
+  attrnam,
+  attrval,
+  attrnam attrnam1,
+  attrval attrval1,
+  KATORGDESCR KATORGDESCR1,
+  sklorder,
+  sporder
+
+where (( CurSoprHoz == SoprHoz.Nrec
+    and  SoprHoz.cSoprDoc == katsopr.nrec
+
+//    and  katsopr.corg           == KATORGDESCR.CREC
+//    and  word(1109)             == AttrNam.wTable
+//    and  'Направление расходов' == AttrNam.Name
+//    and  word(1109)             == AttrVal.wTable
+//    and  katsopr.nrec           == AttrVal.cRec
+//    and  AttrNam.Nrec           == AttrVal.cAttrNam
+
+    and  katsopr.nrec == sklorder.csopr
+    and  sklorder.nrec  == sporder.csklorder
+    and  sporder.cspsopr == spsopr.nrec
+    and  sporder.cmc == katmc.nrec
+    and  katmc.ctype == typemc.nrec
+
+    and  word(1112)   == SPECMTR.COTABLE
+    and  sporder.nrec == SPECMTR.CSPEC
+
+    and  katsopr.nrec == katsopr1.ckatsopr
+
+    and  katsopr1.corg          == KATORGDESCR1.CREC
+
+    and  word(1109)             == AttrNam1.wTable
+    and  'Направление расходов' == AttrNam1.Name
+    and  word(1109)             == AttrVal1.wTable
+    and  katsopr1.nrec          == AttrVal1.cRec
+    and  AttrNam1.Nrec          == AttrVal1.cAttrNam
+
+       ))
+
+;
+
+function GetInfo : string;
+{
+   GetInfo := 'Услуги отнесенные на другого контрагента';
+}
+
+Window wParam 'Задайте параметры идентификатора &VIP[Obj:"txo_prnakl"]' (,,) EscClose;
+  Show at (2,12,60,30);
+    Screen scParam (,,);
+
+      Fields
+
+        Konv        : noprotect;
+
+ <<
+
+          `          Параметры расчета:                           `
+
+           (.) Сумма без НДС по типу 1001                         `
+           (.) Сумма без НДС по типу 1002                         `
+           (.) Сумма без НДС по типу 1003                         `
+           (.) Сумма без НДС по типу 1004                         `
+           (.) Сумма без НДС по типу 1005                         `
+           (.) Сумма без НДС по типу 1006                         `
+           (.) Сумма без НДС по типу 1007                         `
+           (.) Сумма без НДС по типу 1008                         `
+           (.) Сумма без НДС по типу 1010                         `
+           (.) Сумма без НДС по типу ОС                           `
+           (.) Сумма НДС                                          `
+
+   Алгоритм передает по суммы акту, привязанному
+   к накладной  а также следующие аналитики.
+   В режим 6:
+   - контрагент из акта,
+   - группа контрагента,
+   - договор из акта,
+   - счет-фактура из акта,
+   - направление расходов из внешнего атрибута к акту.
+   - МЦ из ордера
+   - Объект строительства из ордера
+ >>
+
+
+End;
+
+
+HandleEvent // window
+ cmInit :
+         {
+           konv    := 0;
+         }
+ cmDefault : CloseWindow(wParam);
+End;  // HandleEvent
+End;  // window
+
+function ParamMaster : string;
+{
+   RunWindow(wParam);
+   PackFields;
+   case konv of
+     0  : ParamMaster := '[1001:]';
+     1  : ParamMaster := '[1002:]';
+     2  : ParamMaster := '[1003:]';
+     3  : ParamMaster := '[1004:]';
+     4  : ParamMaster := '[1005:]';
+     5  : ParamMaster := '[1006:]';
+     6  : ParamMaster := '[1007:]';
+     7  : ParamMaster := '[1008:]';
+     8  : ParamMaster := '[1010:]';
+     9  : ParamMaster := '[ОС:]';
+     10 : ParamMaster := '[НДС:]';
+
+   end;
+
+}
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   CurSoprHoz := buf.cSoprHoz;                      // позиционирование на SoprHoz
+     case TxoParamName(hTxo,1) of
+      '1001'      : {pay:='1001';}
+      '1002'      : {pay:='1002';}
+      '1003'      : {pay:='1003';}
+      '1004'      : {pay:='1004';}
+      '1005'      : {pay:='1005';}
+      '1006'      : {pay:='1006';}
+      '1007'      : {pay:='1007';}
+      '1008'      : {pay:='1008';}
+      '1010'      : {pay:='1010';}
+      'ОС'        : {pay:='О1';  }
+      'НДС'       : {pay:='9999';}
+     end;
+
+if pay<>'9999'
+ {
+ if getfirst SoprHoz  = tsOk
+  {
+     if getfirst katsopr  = tsOk
+     if getfirst sklorder = tsok
+    {
+
+     _loop sporder
+       {
+         if getfirst spsopr = tsok {}
+         if getfirst specmtr = tsok {}
+
+          TxoBodyClear(hTxo);
+
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,    40, specmtr.cobj);
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,     4, sporder.cmc);
+
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,     1, katsopr1.corg);
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,    14, katsopr1.cdogovor);
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,    79, KatSopr1.cSchFact);
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,    10, sporder.cparty);
+
+          if getfirst attrnam1 = tsok
+          if getfirst attrval1 = tsok
+           {
+            TxoBodyAddKau(hTxo, wFlKau_Mode6,  20038, attrval1.vcomp);
+           }
+
+          _loop KATORGDESCR1
+           {
+            if KATORGDESCR1.cgroup<>0
+             {
+             TxoBodyAddKau(hTxo, wFlKau_Mode6,  68, KATORGDESCR1.cgroup);
+             }
+           }
+
+           if getfirst katmc = tsok
+            {
+           if getfirst typemc <> tsok
+             {message ('По матценности '+katmc.name+' не указан тип матценности')}
+            }
+
+        if pay=trim(typemc.kod)
+           {
+            if katsopr.VHODNAL=word(2)
+            {
+            TxoBodySetSum(hTxo, (sporder.kol*sporder.RSRPRICE-spsopr.kolfact*spsopr.rprice), 0, 0);
+            }
+            else
+             {
+             TxoBodySetSum(hTxo, (sporder.kol*sporder.RSRPRICE-spsopr.kolfact*spsopr.rprice+spsopr.SUMNDS), 0, 0);
+             }
+
+           }
+
+           TxoBodyInsert(hTxo);
+       }
+    }
+  }
+ }
+
+ if pay='9999'
+  {
+  if getfirst SoprHoz  = tsOk
+   {
+    if getfirst katsopr  = tsOk
+     {
+     _loop  katsopr1
+       {
+          TxoBodyClear(hTxo);
+
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,     1, katsopr1.corg);
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,    14, katsopr1.cdogovor);
+          TxoBodyAddKau(hTxo, wFlKau_Mode6,    79, KatSopr1.cSchFact);
+
+          if getfirst attrnam1 = tsok
+          if getfirst attrval1 = tsok
+           {
+            TxoBodyAddKau(hTxo, wFlKau_Mode6,  20038, attrval1.vcomp);
+           }
+
+          _loop KATORGDESCR1
+           {
+            if KATORGDESCR1.cgroup<>0
+             {
+             TxoBodyAddKau(hTxo, wFlKau_Mode6,  68, KATORGDESCR1.cgroup);
+             }
+           }
+
+            TxoBodySetSum(hTxo, katsopr1.SNALOGS, 0, 0);
+
+           TxoBodyInsert(hTxo);
+       }
+      }
+    }
+ }
+
+}
+handleevent
+end;
+
+end.

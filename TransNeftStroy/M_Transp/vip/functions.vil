@@ -1,0 +1,248 @@
+function GetPlanSchetName(cplan : comp): string;
+{
+  If tsOk = getfirst PLANSSCH where (PLANSSCH.nrec = cplan) 
+  {
+    GetPlanSchetName:=PLANSSCH.name;
+  }
+  else
+  {
+    GetPlanSchetName:='';
+  }
+}
+
+function GetSchetName(SchetNbr : tSchet3): string;
+{
+  If tsOk = getfirst BUHSCHET where (( SchetNbr == BUHSCHET.SCHET and '' == BUHSCHET.SUBSCH ))
+  {
+    GetSchetName:=BUHSCHET.name;
+  }
+  else
+  {
+    GetSchetName:='';
+  }
+}
+
+function GetSubName(SchetNbr : tSchet3; SubNbr : tSubSch): string;
+{
+  if(SubNbr='')
+  {
+    GetSubName:='';
+  }
+  else
+  {
+    If tsOk = getfirst BUHSCHET where (( SchetNbr == BUHSCHET.SCHET and SubNbr == BUHSCHET.SUBSCH ))
+    {
+      GetSubName:=BUHSCHET.name;
+    }
+    else
+    {
+      GetSubName:='';
+    }
+  }
+}
+
+function GetOrgName(cOrg : comp): string;
+{
+  if(cOrg = 0)
+  {
+    GetOrgName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATORG where (KATORG.NREC = cOrg) 
+    {
+      GetOrgName:=KATORG.name;
+    }
+    else
+    {
+      GetOrgName:='';
+    }
+  }
+}
+
+function GetGrMcName(cgroupmc : comp): string;
+{
+  if(cgroupmc = 0)
+  {
+    GetGrMcName:='';
+  }
+  else
+  {
+    If tsOk = getfirst GROUPMC where (GROUPMC.NREC = cgroupmc) 
+    {
+      GetGrMcName:=GROUPMC.name;
+    }
+    else
+    {
+      GetGrMcName:='';
+    }
+  }
+}
+
+function GetMcName(cmc : comp): string;
+{
+  if(cmc = 0)
+  {
+    GetMcName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATMC where (KATMC.NREC = cmc) 
+    {
+      GetMcName:=KATMC.name;
+    }
+    else
+    {
+      GetMcName:='';
+    }
+  }
+}
+
+function GetSomeMcName(cmc: comp): string;
+{
+  var n:integer;
+  n:=0
+  var result:string;
+  _loop pick where ((7 == Pick.wList))
+  {
+    n:=n+1;
+    result:=GetMcName(Pick.cRec);
+  }
+  if(n > 1)
+  {
+    result:='Выбрано ' + n + ' матценностей';
+  }
+  GetSomeMcName:=result;
+}
+
+function GetSoprName(cnakl : comp): string;
+{
+  if(cnakl = 0)
+  {
+    GetSoprName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATSOPR where (KATSOPR.NREC = cnakl) 
+    {
+      GetSoprName:=KATSOPR.NSOPR;
+    }
+    else
+    {
+      GetSoprName:='';
+    }
+  }
+}
+
+function GetMolName(cmol : comp): string;
+{
+  if(cmol = 0)
+  {
+    GetMolName:='';
+  }
+  else
+  {
+    If tsOk = getfirst KATMOL where (KATMOL.NREC = cmol) 
+    {
+      GetMolName:=KATMOL.NAME;
+    }
+    else
+    {
+      GetMolName:='';
+    }
+  }
+}
+
+function GetSomeSoprName: string;
+{
+  var n:integer;
+  n:=0
+  var result:string;
+  result:='';
+  _loop pick where ((word(22) == Pick.wList))
+  {
+    n:=n+1;
+    result:=GetSoprName(Pick.cRec);
+  }
+  if(n > 1)
+  {
+    result:='Выбрано ' + n + ' накладных';
+  }
+  GetSomeSoprName:=result;
+}
+
+function GetSomeMolName: string;
+{
+  var n:integer;
+  n:=0
+  var result:string;
+  result:='';
+  _loop pick where ((word(8) == Pick.wList))
+  {
+    n:=n+1;
+    result:=GetMolName(Pick.cRec);
+  }
+  if(n > 1)
+  {
+    result:='Выбрано ' + n + ' материально-ответственных лиц';
+  }
+  GetSomeMolName:=result;
+}
+
+function GetKauMarkerName(markername : string; wtable : word): string;  //Выдает наименование выбранной аналитики из маркера
+{
+  var i : word;
+  var z : comp;
+  var mMarkDoc, IndexNo : longint;
+  var res : string;
+  var count : word;
+
+  count := 0;
+  res := '';
+  mMarkDoc := InitMarker(markername,8,1,1);	//имя, размер, количество при создании, приращение 
+
+  for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+  {
+    count := count + 1;
+    IndexNo := i;
+    GetMarker(mMarkDoc,IndexNo,z);
+  }
+  if (count > 1) 
+    res := 'Выбрано ' + count + ' позиций';
+  else if (count = 1)
+  {
+    res := if(GetAnyKau(0,wtable,z),GivenAnName(1),'');
+  }
+  donemarker(mMarkDoc,markername);
+  GetKauMarkerName := res;
+}
+
+procedure ClearOneMarker(markername : string);
+{
+  var mMarkDoc	: longint;
+
+  mMarkDoc := InitMarker(markername,8,1,1);
+  ClearMarker(mMarkDoc);
+  donemarker(mMarkDoc,markername);
+}
+
+function GetMonthName(datain : date): string;
+{
+  var mstr : string;
+    case month(datain) of
+     1:  mstr := 'январь';
+     2:  mstr := 'февраль';
+     3:  mstr := 'март';
+     4:  mstr := 'апрель';
+     5:  mstr := 'май';
+     6:  mstr := 'июнь';
+     7:  mstr := 'июль';
+     8:  mstr := 'август';
+     9:  mstr := 'сентябрь';
+     10: mstr := 'октябрь';
+     11: mstr := 'ноябрь';
+     12: mstr := 'декабрь';
+     else   mstr := '';
+    end;
+  GetMonthName := mstr;
+}

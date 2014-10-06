@@ -1,0 +1,490 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! доработка для ТНФ 2014 !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+#ifdef GAL8_5
+#include oiTPPDoc.vih
+#end // GAL_8
+#include TranspUserProtect.vih
+
+/*
+2013.03.22 Добавлена возможность заданий фонового цвета в отчетах
+*/
+#include ExtAttr.Vih
+#include AvtoPickConst.vpp
+
+
+#Component "M_Transp"
+! проверить уникальность возникновения состояния....
+Alter Interface GetMorale 'Выбор классификации';  //EscClose, Cyan
+
+  overload
+    procedure SetMainTitle;
+  end;
+
+var wTypeTitle : word;
+#include ExtAttr.Var
+
+Create View
+As Select
+  word('0'+trim(piExtAttr.sGetAttr(coMORALE,MORALE.Nrec,'Цвет фона в отчетах'))) (Fieldname=Tp_ColorBack)
+;
+
+QuickChoice qcMorale_Code
+ {
+  AcceptField = Morale.nRec;
+  ViewField   = Morale.TipTc;
+  ViewField   = Morale.Name;
+  SearchField = Morale.TipTc;
+  OnOpen :
+   {
+    ProcessCommand(cmInit) ;
+   } //  OnOpen :
+  OnClose :
+   {
+    SaveMyDsk(Morale.NRec, 'MoraleLastRecord');
+    // Формируем результаты
+    cResult := Morale.NRec;
+    sCode   := Morale.TipTc;
+   }
+ } //QuickChoice qcMorale_Code
+
+
+!#include MorlIer.vpp
+
+// Меняем титл
+Procedure SetMainTitle;
+Var
+  Title: String;
+{
+  if ( Kind < 100 )
+    Title:='Классификация для автотранспортных ';
+  else
+    if ( Kind < 200 )
+      Title:='Классификация для железнодорожных ';
+    else
+      if ( Kind < 300 )
+        Title:='Классификация ';  //для прочих
+
+  if ( ( Kind = 1 ) or ( Kind = 101 ) or ( Kind = 201 ) or ( Kind = 0 ) or ( Kind = 100 ) or ( Kind = 200 ) ) //это состояния ТС и водителей
+    Title := 'Классификация ';
+
+  SetColumnTitle (TREEMORALE, #MORALE.TIPTC, ''#3'Код')
+  SetColumnTitle (BROWSEMORALE, #MORALE.TIPTC, ''#3'Код')
+
+  case Kind of
+
+    0, 100, 200:
+      //Title := Title + if(wMetodTC=2, 'ВС', 'ТС') + ' по состоянию'; //хех... здесь всегда wMetodTC=0...
+      if  wTypeTitle=1 //только авиация доступна
+          Title := Title + 'ВС по состоянию'
+      else if wTypeTitle=2 //только автотранспорт
+          Title := Title + 'ТС по состоянию'
+      else
+          Title := Title + 'тех.средств по состоянию';
+
+    1, 101, 201:
+      //Title := Title + 'водителей по состоянию';
+      if  wTypeTitle=1 //только авиация доступна
+          Title := Title + 'летчиков по состоянию'
+      else if wTypeTitle=2 //только автотранспорт
+          Title := Title + 'водителей по состоянию'
+      else
+          Title := Title + 'личного состава по состоянию';
+
+    2, 102, 202:
+      Title := Title + if(wMetodTC=2, 'ВС', 'ТС') + ' по грузоподъемности';
+
+    3, 103, 203:
+      Title := Title + if(wMetodTC=2, 'ВС', 'ТС') + ' по первому целевому назначению';
+
+    4, 104, 204:
+      Title := Title + if(wMetodTC=2, 'ВС', 'ТС') + ' по второму целевому назначению';
+
+    5, 105, 205:
+      Title := Title + if(wMetodTC=2, 'ВС по видам аэродинамических схем', 'ТС по видам');
+
+    6, 106, 206:
+      Title := Title + if(wMetodTC=2, 'ВС', 'ТС') + ' по типу основного двигателя';
+
+    7, 107, 207:
+      Title := Title + if(wMetodTC=2, 'ВС по конструктивным характеристикам', 'ТС по наличию прицепа'); //для ВС не использую... но можно заюзать для чего-нить другого...
+
+    8, 108, 208:
+      {
+      Title := Title + if(wMetodTC=2, 'ВС по аэродромам', 'ТС по местонахождению');
+      }
+
+  end; // case
+
+  if (purePickMode > 0)
+  {
+    Title := Title + '(Выбрано: '+ String(GetMarkerCount(MoraleMarkers)) + ')';
+  };
+  SetTitle(Title);
+} // Procedure SetMainTitle
+
+
+Window WinMorale '' EscClose;
+
+Panel pInput;
+
+Table Morale;
+OverloadFormats screenRecord, screenRecord_aLL, screenRecord_Klassif, screenRecord_Tc;
+Screen screenRecord;
+Fields
+
+  Morale.Name      ('Название', hcAvtoWRedactSostTS,sci178Esc): [30], NoProtect;
+
+  Morale.TipTC     ('Код     ', hcAvtoWRedactSostTS,sci178Esc): [10], NoProtect;
+//ED
+  Tp_ColorBack  ('Цвет фона в отчетах ', hcAvtoWRedactSostTS,sci178Esc) :
+  #include List_color.Vpp
+//end ED
+  Morale.TblCode   ('Состояние 1 возникает', hcAvtoM2NastrNastrXar):
+                   [LIST 'Произвольный', 'Вид ремонта', 'Тип пункта', 'Причина простоя'], Protect;
+
+  Who_Parent       ('Состояние 1 инициирует...', hcAvtoWRedactSostTS, sci1378Esc): [10], Protect;
+
+  Morale.cTblCode2 ('Состояние 2 возникает', hcAvtoM2NastrNastrXar):
+                   [LIST 'Произвольный', 'Каталог статусов объекта ремонта'], Protect;
+
+  Who_Parent1      ('Состояние 2 инициирует...', hcAvtoWRedactSostTS, sci1378Esc): [10], Protect;
+
+  fParentName      ('Привязка к вышестоящей записи (Del - к корню)', hcAvtoFPrivyazka, sci1378Esc): Protect;
+
+  What_ikon        ('формирование иконки', hcAvtoWXarPeriod):
+                   [LIST 'Движение', 'Простой', 'Ремонт', 'Погрузка-разгрузка', 'Произвольное'], Protect;
+
+//   Morale.Name_bmp  ('Название',hcAvtoWRedactSostTS,sci1378Esc)     : [30], noprotect;
+
+  Morale.delNo     ('Учитывается как рабочее время', hcAvtoM2NastrNastrXar):
+                   [LIST 'да', 'нет'], Protect;
+
+  GsmAlg.Name         (, , sci1378Esc) : Protect;
+  GsmAlg.StrAlg       (, , sci1378Esc) : Protect;
+#ifdef __TranspPlan__
+  Morale.Pri_Morale ('Состояние ТС для планирования', hcNoContext):
+                    [ LIST
+                       cwPlanSuit  'возможно всегда'
+                      ,cwPlanUser1 'по выбору пользователя'
+                      //,cwPlanNot   'не доступно'
+                    ], Protect;
+#end
+
+Buttons
+  cmOK,     Default, , 'Ввод',   , sci1EnEsc;
+  cmCancel,        , , 'Отмена', , sci1Esc;
+<<
+
+ Название  состояния     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Код состояния           .@@@@@@@@@@ Цвет .@@@@@@@@@@@@@@
+ Справочник 1            .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Источник 1              .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Справочник 2            .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Источник 2              .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Привязать к             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Наименование иконки     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Входит в раб. время     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Алгоритм расчета по ПЛ  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#ifdef __TranspPlan__
+ Распределение на заявки .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#end
+
+                <.~П~родолжить.>   <. Отмена .>
+
+>>
+end; // screen screenRecord
+
+Screen screenRecord_aLL;
+Fields
+  Morale.Name  ('Название', hcAvtoWRedactSostTS, sci178Esc): [30], NoProtect;
+  Morale.TipTC ('Код     ', hcAvtoWRedactSostTS, sci178Esc): [10], NoProtect;
+//ED
+  Tp_ColorBack  ('Цвет фона в отчетах ', hcAvtoWRedactSostTS,sci178Esc):
+  #include List_color.Vpp
+//end ED
+  fParentName  ('Привязка к вышестоящей записи (Del - к корню)', hcAvtoFPrivyazka, sci1378Esc): Protect;
+  Morale.delNo ('Учитывается как рабочее время', hcAvtoM2NastrNastrXar):
+               [LIST 'да', 'нет'], Protect;
+  GsmAlg.Name         (, , sci1378Esc) : Protect;
+  GsmAlg.StrAlg       (, , sci1378Esc) : Protect;
+  KlviDopl.ViDoplp  ('Код вида оплаты', , sci13Esc) :[5],protect ;
+  KlviDopl.NViDopl  ('Наименование вида оплаты', , sci13Esc) :[15],protect ;
+
+#ifdef __TranspPlan__
+  Morale.Pri_Morale ('Состояние ТС для планирования', hcNoContext):
+                    [ LIST
+                       cwPlanSuit  'возможно всегда'
+                      ,cwPlanUser1 'по выбору пользователя'
+                      //,cwPlanNot   'не доступно'
+                    ], Protect;
+#end
+Buttons
+  cmOK,     Default, , 'Ввод',   , sci1EnEsc;
+  cmCancel,        , , 'Отмена', , sci1Esc;
+<<
+
+ Название  состояния     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Код состояния           .@@@@@@@@@@ Цвет .@@@@@@@@@@@@@@
+ Привязать к             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Входит в раб. время     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Алгоритм расчета по ПЛ  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Вид оплаты              .@@@@@@@@@@
+                         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#ifdef __TranspPlan__
+ Распределение на заявки .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#end
+
+                <.~П~родолжить.>   <. Отмена .>
+
+>>
+end; // screen scrSelPotr_M1
+Screen screenRecord_Klassif;
+Fields
+  Morale.Name  ('Название', hcAvtoWRedactSostTS, sci178Esc): [30], NoProtect;
+  Morale.TipTC ('Код     ', hcAvtoWRedactSostTS, sci178Esc): [10], NoProtect;
+//ED
+  Tp_ColorBack  ('Цвет фона в отчетах ', hcAvtoWRedactSostTS,sci178Esc):
+  #include List_color.Vpp
+//end ED
+  fParentName  ('Привязка к вышестоящей записи (Del - к корню)', hcAvtoFPrivyazka, sci1378Esc): Protect;
+
+Buttons
+  cmOK,     Default, , 'Ввод',   , sci1EnEsc;
+  cmCancel,        , , 'Отмена', , sci1Esc;
+<<
+
+
+ Название  состояния     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Код состояния           .@@@@@@@@@@ Цвет .@@@@@@@@@@@@@@
+ Привязать к             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+
+                <.~П~родолжить.>   <. Отмена .>
+
+>>
+end; // screen scrSelPotr_M1
+
+Screen screenRecord_Tc;
+Fields
+  Morale.Name  ('Название', , sci178Esc): [30], NoProtect;
+  Morale.TipTC ('Код     ', , sci178Esc): [10], NoProtect;
+//ED
+  Tp_ColorBack  ('Цвет фона в отчетах ', hcAvtoWRedactSostTS,sci178Esc):
+  #include List_color.Vpp
+//end ED
+  fParentName  ('Привязка к вышестоящей записи (Del - к корню)', hcAvtoFPrivyazka, sci1378Esc): Protect;
+  morale.delNo ('Учитывается как рабочее время', hcAvtoM2NastrNastrXar):
+               [LIST 'да', 'нет'], Protect;
+  GsmAlg.Name         (, , sci1378Esc) : Protect;
+  GsmAlg.StrAlg       (, , sci1378Esc) : Protect;
+Buttons
+  cmValue1,         , , 'Просмотр графических изображений', hcAvtoGsm_Cor, sci1Esc;
+  cmOK,      Default, , 'Ввод',                                          , sci1EnEsc;
+  cmValue13,        , , 'Отмена',                                        , sci1Esc;
+<<
+
+ Название  состояния :.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Код состояния       :.@@@@@@@@@@ Цвет .@@@@@@@@@@@@@@@@@@
+ Привязать к         :.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Входит в раб. время :.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Алгоритм расчета по ПЛ:  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ <.Графический вид .> <.~П~родолжить.>   <. Отмена .>
+
+>>
+end; // screen scrSelPotr_M1
+
+Screen screenRecord_place;
+Fields
+
+  Morale.TipTC     ('Код дислокации', hcAvtoWRedactSostTS,sci178Esc): [10], NoProtect;
+  Morale.Name      ('Наименование', hcAvtoWRedactSostTS,sci178Esc): NoProtect;
+  fParentName      ('Привязка к вышестоящей записи (Del - к корню)', hcAvtoFPrivyazka, sci1378Esc): Protect;
+
+Buttons
+  cmOK,     Default, , 'Ввод',   , sci1EnEsc;
+  cmCancel,        , , 'Выход', , sci1Esc;
+<<
+
+ Код         .@@@@@@@@@@
+ Наименование.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Привязать к .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+           <.~П~родолжить.>   <. Отмена .>
+
+>>
+end; // screen screenRecord
+
+end; //panel
+
+//===========================
+TableEvent Table Morale;
+//===========================
+
+  cmExprFieldChanged :
+  { inherited :: handleEvent (cmExprFieldChanged); 
+    case curfield of
+    #Tp_ColorBack:
+    { piExtAttr.sSetAttr(coMorale,Morale.Nrec,'Цвет фона в отчетах',trim(string(ExprFieldValue)))
+    }
+    end;
+  }
+end; 
+
+
+
+//====================================
+HandleEvent
+//====================================
+cmInit:
+  {
+    Var
+      ToPrint2: String;
+
+    WinIsOpen := True;
+    WinRet    := False;
+    // Обзовем окно
+    case Kind of
+
+      0, 100, 200:
+        {
+         //ToPrint2 := if(wMetodTC=2, 'ВС', 'ТС') + ' по состоянию';
+      if  wTypeTitle=1 //только авиация доступна
+          ToPrint2 := 'ВС по состоянию'
+      else if wTypeTitle=2 //только автотранспорт
+          ToPrint2 := 'ТС по состоянию'
+      else
+          ToPrint2 := 'тех.средства по состоянию';
+
+         SetFormat(screenRecord);
+        }
+      1, 101, 201:
+        {
+         //ToPrint2 := 'водителя по состоянию';
+      if  wTypeTitle=1 //только авиация доступна
+          ToPrint2 := 'летчика по состоянию'
+      else if wTypeTitle=2 //только автотранспорт
+          ToPrint2 := 'водителя по состоянию'
+      else
+          ToPrint2 := 'личного состава по состоянию';
+
+         SetFormat(screenRecord_aLL);
+        }
+      2, 102, 202:
+        {
+         ToPrint2 := if(wMetodTC=2, 'ВС', 'ТС') + ' по грузоподъемности';
+         SetFormat(screenRecord_klassif);
+        }
+      3, 103, 203:
+        {
+         ToPrint2 := if(wMetodTC=2, 'ВС', 'ТС') + ' по первому целевому назначению';
+         SetFormat(screenRecord_klassif);
+        }
+
+      4, 104, 204:
+        {
+         ToPrint2 := if(wMetodTC=2, 'ВС', 'ТС') + ' по второму целевому назначению';
+         SetFormat(screenRecord_klassif);
+        }
+
+      5, 105, 205:
+        {
+         ToPrint2 := if(wMetodTC=2, 'ВС по виду аэродинамической схемы', 'ТС по виду');
+         SetFormat(screenRecord_klassif);
+        }
+
+      6, 106, 206:
+        {
+         ToPrint2 := if(wMetodTC=2, 'ВС', 'ТС') + ' типу основного двигателя';
+         SetFormat(screenRecord_klassif);
+        }
+
+      7, 107, 207:
+        {
+         ToPrint2 := if(wMetodTC=2, 'ВС по конструктивным характеристикам', 'ТС по наличию прицепа');
+         SetFormat(screenRecord_klassif);
+        }
+
+      8, 108, 208:
+        {
+         ToPrint2 := if(wMetodTC=2, 'ВС по аэродрому', 'ТС по местонахождению (дислокации)');
+         SetFormat(screenRecord_place);
+        }
+   end; // case
+
+    SetWindowTitle(WinMorale, 'Классификация ' + ToPrint2);
+
+    if ( Option )
+      { // Вставка новой записи
+        // Ищем родителя
+        if ( GetFirst Morale2 Where (( Morale.cBack == Morale2.NRec )) <> tsOk )
+          {
+            cParent     := Comp(0);
+            fParentName := 'Корневая запись';
+          }
+        else
+          {
+            cParent     := Morale.cBack;
+            fParentName := Morale2.Name;
+          }
+        // Поля новой записи
+        WinNewRecord;
+      }
+    else
+      {  // Редактирование записи
+        if ( GetFirst Morale2 Where (( Morale.cBack == Morale2.NRec )) = tsOk )
+          {
+            fParentName := Morale2.Name;
+            cParent     := Morale2.NRec;
+          }
+        else
+          {
+            cParent     := Morale.cBack;
+            fParentName := Morale2.Name;
+          }
+      }
+
+    ReScanPanel(screenRecord);
+    SelectField(#Morale.Name);
+  } // cmInit
+
+end; // handleevent window WinMorale
+end; // window WinMorale
+
+
+HandleEvent
+//-----------------------------------------------------------------------------
+cmInit:
+  {
+    wTypeTitle := 0;
+
+    //меняем список
+    var bAllTransp : boolean;
+    bAllTransp := ( ( Kind = 1 ) or ( Kind = 101 ) or ( Kind = 201 ) or ( Kind = 0 ) or ( Kind = 100 ) or ( Kind = 200 ) ) //это общие состояния ТС и водителей
+    var numList : array[0..2] of byte;
+    numList[0]:=0; numList[1]:=1; numList[2]:=2
+    var strList : array[0..2] of string;
+    strList[0]:=if(bAllTransp,'Все виды','Автотранспорт'); strList[1]:='Железнодорожный'; strList[2]:='Прочие ТС'
+    SetEnumList (what_pickTipTc, #wMetodtc , strList, numList);
+
+    if bAllTransp //только этим окнам шуршим по настройкам
+      if  wGetTune('Transp.Var')=1 and wGetTune('Transp.Avto')=0 //только авиация доступна
+          wTypeTitle := 1
+      else if wGetTune('Transp.Var')=0 and wGetTune('Transp.Avto')=1 //только автотранспорт
+          wTypeTitle := 2;
+
+    if not bAllTransp
+       ClearFieldState(#Who_parent, sfVisible); //чтобы не отсвечивало это поле в списке
+
+    inherited :: HandleEvent (cmInit)
+  } // cmInit
+
+end; // Interface Handle
+end. // Interface

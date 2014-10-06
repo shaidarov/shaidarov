@@ -1,0 +1,567 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2009 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Модуль        : Бухгалтерский учет                                        ║
+ ║ Версия        : 8.10                                                      ║
+ ║ Клиент        : ТрансНефть-Финанс                                         ║
+ ║ Назначение    : Отчет "Источники финансирования ОС (+ОКАТО)"              ║
+ ║ Ответственный : Прокофьев Игорь Александрович [ДТП] Стамп                 ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+Interface OS_OKATO_2010;
+
+////////////////////////////////////////////////
+// тестовая таблица для проверки формул наглядно
+table Struct Formuly
+(
+  data           : string,
+  INNOS          : string,
+  NameOS         : string,
+  formulja       : string,
+  summ           : double,
+  LG             : string
+)
+with index
+(
+  Tab0 = INNOS
+);
+
+table Struct TurboSaldMoun
+(
+  SchetO   : string,
+  SubOsSch : string,
+  ViOb     : word,   // 1 - деб. 2 - кред.
+  DateSal  : date,
+  SumS     : double,
+  cKatOS   : comp,
+  cOKATO   : comp,
+  cL       : comp
+)
+with index
+(
+  Turbo00 = SchetO + DateSal + ViOb + cKatOs + SubOsSch
+);
+
+
+////////////////////////////////////////////////
+create view
+
+var
+
+  i
+, kol
+, KolAll      : longint;
+
+  bOper
+, bMinus      : boolean;
+
+  DebKred     : word;
+
+  Result
+, ResultBV
+, ResultKol
+, chisl       // числитель для доли ОС в ОКАТО
+, znam        // знаменатель для доли ОС в ОКАТО
+, Stoim       : double;
+
+  dat1        : date;
+
+  Schet
+, SubSchet
+, KodL       // для отчета
+, KodL2      // для протокола
+, sFormula    : string;
+
+
+from
+  KatOS
+, Sterr
+, Sterr Sterr1
+, SpKau
+, SpKatOS
+, PatDefs
+, NastrOS
+, AttrNam
+, AttrVal
+, AttrVal AttrVal1
+, Formuly
+, StoimStruct
+, StoimStruct StoimStruct1
+, SaldMoun
+, TurboSaldMoun
+
+where
+((
+           word(15)             ==  KatOS.tidk
+
+     and   word(3108)           ==  AttrNam.wTable
+     and   'ОКАТО'              ==  AttrNam.name
+
+     and   word(15)             ==  StoimStruct.wType
+     and   KatOS.nRec           ==  StoimStruct.cDoc
+
+     and   word(3108)           ==  AttrVal.wTable
+     and   StoimStruct.nRec     ==  AttrVal.cRec
+     and   AttrNam.nRec         ==  AttrVal.cAttrNam
+
+     and   AttrVal.vComp        ==  Sterr.nRec
+
+     and   StoimStruct.cClass   ==  SpKau.nRec
+
+     and   word(15)             ==  StoimStruct1.wType
+     and   KatOS.nRec           ==  StoimStruct1.cDoc
+
+     and   word(3108)           ==  AttrVal1.wTable
+     and   StoimStruct1.nRec    ==  AttrVal1.cRec
+     and   AttrNam.nRec         ==  AttrVal1.cAttrNam
+
+     and   AttrVal1.vComp       ==  Sterr1.nRec
+
+     and   word(15)             ==  NastrOS.tidk
+     and   'Бухгалтерский учет' ==  NastrOS.name
+
+     and   KatOS.nRec           ==  SpKatOS.cKatOS
+     and   NastrOS.nRec         ==  SpKatOS.cNastrOS
+
+     and   Schet                ==  SaldMoun.SchetO
+     and   SubSchet             ==  SaldMoun.SubOsSch
+     and   dat1                 ==  SaldMoun.DateSal
+))
+;
+
+Procedure GenFormula; // генерирую формулу
+{
+   sFormula := replace(sFormula, ' ', '');
+   sFormula := replace(sFormula, '-', '');
+   sFormula := replace(sFormula, '+', '');
+   sFormula := replace(sFormula, chr(39), ''); // убиваю одиночные кавычки '
+
+   sFormula := replace(sFormula, '[В]', '');
+   sFormula := replace(sFormula, '[НМ]', '');
+
+   sFormula := replace(sFormula, '[1:Л]', '');
+   sFormula := replace(sFormula, '[2:Л]', '');
+   sFormula := replace(sFormula, '[3:Л]', '');
+   sFormula := replace(sFormula, '[4:Л]', '');
+   sFormula := replace(sFormula, '[5:Л]', '');
+   sFormula := replace(sFormula, '[6:Л]', '');
+
+   sFormula := replace(sFormula, '[1:ОС]', '');
+   sFormula := replace(sFormula, '[2:ОС]', '');
+   sFormula := replace(sFormula, '[3:ОС]', '');
+   sFormula := replace(sFormula, '[4:ОС]', '');
+   sFormula := replace(sFormula, '[5:ОС]', '');
+   sFormula := replace(sFormula, '[6:ОС]', '');
+
+   sFormula := replace(sFormula, '[1:ОКАТО]', '');
+   sFormula := replace(sFormula, '[2:ОКАТО]', '');
+   sFormula := replace(sFormula, '[3:ОКАТО]', '');
+   sFormula := replace(sFormula, '[4:ОКАТО]', '');
+   sFormula := replace(sFormula, '[5:ОКАТО]', '');
+   sFormula := replace(sFormula, '[6:ОКАТО]', '');
+
+   sFormula := replace(sFormula, 'С', ''); // раньше не следует, только после вырезки всего
+
+}
+
+////////////////////////////////////////////////////////////////////////////////
+Procedure SaldoInTurbo;
+{
+   ClearBuffer(#TurboSaldMoun);
+
+   TurboSaldMoun.SchetO   := SaldMoun.SchetO  ;
+   TurboSaldMoun.SubOsSch := SaldMoun.SubOsSch;
+   TurboSaldMoun.ViOb     := SaldMoun.ViOb    ;
+   TurboSaldMoun.DateSal  := SaldMoun.DateSal ;
+   TurboSaldMoun.SumS     := SaldMoun.SumS    ;
+
+   case SaldMoun.TblOS[1] of
+    word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[1];
+    word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[1];
+    word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[1];
+   end;
+
+   case SaldMoun.TblOS[2] of
+    word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[2];
+    word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[2];
+    word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[2];
+   end;
+
+   case SaldMoun.TblOS[3] of
+    word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[3];
+    word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[3];
+    word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[3];
+   end;
+
+   case SaldMoun.TblOS[4] of
+    word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[4];
+    word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[4];
+    word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[4];
+   end;
+
+   case SaldMoun.TblOS[5] of
+    word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[5];
+    word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[5];
+    word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[5];
+   end;
+
+   case SaldMoun.TblOS[6] of
+    word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[6];
+    word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[6];
+    word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[6];
+   end;
+
+   insert current TurboSaldMoun;
+}
+////////////////////////////////////////////////////////////////////////////////
+
+HandleEvent  // обработчик интерфейса
+cmInit:
+{
+   delete all Formuly;
+
+   kol := KolAll := 0;
+
+   dat1 := date( 01, month(Cur_Date), year(Cur_Date) );
+
+   if ( RunDialog ( 'VvodDateS', dat1 ) = cmCancel )
+     exit;
+
+   // принудительно устанавливаю первое число выбранного месяца, года
+   dat1 := date( 01, month(dat1), year(dat1) );
+
+
+   if ( GetFirst AttrNam <> tsOk )
+   {
+     message('Не заведен внешний атрибут "ОКАТО" для элементов стоимости объектов'
+              +chr(13)+'(раздел финансирования карточки ОС)' );
+     exit;
+   }
+
+   if ( GetFirst NastrOS <> tsOk )
+   {
+     message('Ошибка определения метода учета "Бухгалтерский учет" для ОС');
+     exit;
+   }
+
+   StartNewVisual( vtRotateVisual, vfTimer, 'Подготовка данных для отчета'
+                  +Chr(13)+'Источники финансирования ОС', 1);
+
+   //////////////////////////////////////////////////////////////////////////////////////////////////////////
+   // подготовка сальдовых остатков - пользуем турбирование
+   delete all TurboSaldMoun;
+
+   SetVisualTitle ( 'Подготовка данных для протокола' );
+
+   // выбираем сальдовые остатки по счетам 01, 02, 03, 010 поочередно
+   _loop PatDefs
+    if ( SubStr(PatDefs.KEY,1,12) = '&ДНИ_020-140' )
+    {
+      sFormula := PatDefs.formula;
+
+      GenFormula; // ген.модификация формулы 1-го уровня
+
+      DebKred := 1;
+
+      if ( SubStr(sFormula,1,1) = 'К' )
+       DebKred := 2;
+
+      sFormula := replace(sFormula, 'Д', '');
+      sFormula := replace(sFormula, 'К', '');
+      // осталось в строке только счет / субсчет, чего и требовалось
+
+      if ( InStr('_',sFormula) = 0 )
+      {
+        Schet    := 'T'+sFormula;
+        SubSchet := '';
+      }
+      else
+      {
+        Schet    := 'T'+SubStr(sFormula, 1, InStr('_',sFormula)-1 );
+        SubSchet := Replace(sFormula, SubStr( sFormula, 1, InStr('_',sFormula) ), '');
+      }
+
+      SetVisualHeader (  'Отбор сальдо по счету: '+Schet+'/'+SubSchet
+                        +' за '+DateToStr(dat1,'DD.MM.YYYY') );
+
+      if ( Schet = 'T02' or Schet = 'T010' )
+       _loop SaldMoun where (( Schet == SaldMoun.SchetO and dat1 == SaldMoun.DateSal ))
+       { // без субсчета
+         ++i;
+
+         if not (NextVisual)
+         {
+           message('Формирование отчета остановлено пользователем');
+           StopVisual('', 0);
+           CloseInterface(cmCancel);
+           exit;
+         }
+
+         SaldoInTurbo;
+       }
+      else // по вьюшке с учетом субсчета
+       _loop SaldMoun
+       {
+         ++i;
+
+         if not (NextVisual)
+         {
+           message('Формирование отчета остановлено пользователем');
+           StopVisual('', 0);
+           CloseInterface(cmCancel);
+           exit;
+         }
+
+         SaldoInTurbo;
+       } // сбор сальдовых
+    } // PatDefs
+
+   //////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+   xlCreateExcel(('Источники финансирования ОС'+' (на '+DateToStr(dat1,'DD_MM_YYYY')+ ').xls'), True);
+
+   if not xlIsExcelValid { message('Ошибка инициализации Excel'); exit; };
+
+   xlCreateMatrix(60000, 10); // создали массив
+
+   xlSetSheetName( 1, 'Отчет');
+
+   xlSetCellStringValue( 'Источники финансирования ОС + ОКАТО (внешний атрибут)', 2, 2, 2, 2 );
+   xlSetCellStringValue( 'на '+DateToStr(dat1,'DD.MM.YYYY'), 3, 2, 3, 2 );
+
+   xlSetCellStringValue( 'ИНН ОС'                 , 5, 1, 5, 1 );
+   xlSetCellStringValue( 'Наименование ОС'        , 5, 2, 5, 2 );
+   xlSetCellStringValue( 'Источник финансирования', 5, 3, 5, 3 );
+   xlSetCellStringValue( 'Доля'                   , 5, 4, 5, 4 );
+   xlSetCellStringValue( 'Код ОКАТО'              , 5, 5, 5, 5 );
+   xlSetCellStringValue( 'Наименование ОКАТО'     , 5, 6, 5, 6 );
+   xlSetCellStringValue( 'Остаточная стоимость ОС', 5, 7, 5, 7 );
+   xlSetCellStringValue( 'Доля ОКАТО в ОС'        , 5, 8, 5, 8 );
+
+   xlSetColumnWidth( 10, 1, 1, 1, 1);
+   xlSetColumnWidth( 50, 1, 2, 1, 2);
+   xlSetColumnWidth( 30, 1, 3, 1, 3);
+   xlSetColumnWidth( 12, 1, 4, 1, 5);
+   xlSetColumnWidth( 20, 1, 6, 1, 6);
+
+   xlFrameCells(xlBorderL or xlBorderR or xlBorderT or xlBorderB or xlInsideV or
+                xlInsideH or xlInsideHorizontal or xlInsideVertical, xlThin, 0, 0, 5, 1, 5, 8);
+
+   i := 0;
+
+   SetVisualTitle ( 'Обработка сальдовых остатков' );
+
+   //////////////////////////////////////////////////////////////////////////////////////////////////////////
+   // расчет остаточной стоимости по ОС к которым в разделе финансирования привязан ОКАТО
+   // обход по всем ОС tidk 15
+   _loop KatOS ordered by index KATOS13 // сортировка по инвентарному номеру
+   {
+     Stoim := 0;
+     bOper := false;
+
+     KodL := '';
+
+     ++KolAll;
+
+     SetVisualHeader (  'Расчет остаточной стоимости на '+DateToStr(dat1,'DD.MM.YYYY')
+                       +chr(13)+'ОС: '+KatOS.InNum
+                       +chr(13)+'Обработано карточек ОС всего: '+KolAll
+                       +chr(13)+'Отобрано карточек ОС для отчета: '+kol                   );
+
+     NextVisual;
+
+     // рассматриваем карточки в которых хоть один источник финансирования с привязанным ОКАТО
+     _loop StoimStruct
+      if ( GetFirst AttrVal = tsOk and GetFirst Sterr = tsOk )
+       bOper := true;
+
+     if not bOper
+      continue;
+
+     ++kol;
+
+     // проход по формулам, считаем остаточную стоимость
+     _loop PatDefs
+      if ( SubStr(PatDefs.KEY,1,12) = '&ДНИ_020-140' )
+      {
+        sFormula := '';
+        bMinus   := false;
+        KodL2    := '';
+
+        sFormula := PatDefs.formula;
+
+        if ( SubStr(sFormula,2,1) = '-' )
+         bMinus := true;
+
+        GenFormula; // ген.модификация формулы 1-го уровня
+
+        DebKred := 1; // 'Д'
+
+        if ( SubStr(sFormula,1,1) = 'К' )
+         DebKred := 2; // ну а вдруг
+
+        sFormula := replace(sFormula, 'Д', '');
+        sFormula := replace(sFormula, 'К', '');
+        // осталось в строке только счет / субсчет
+
+        if ( InStr('_',sFormula) = 0 )
+        {
+          Schet    := 'T'+sFormula;
+          SubSchet := '';
+        }
+        else
+        {
+          Schet    := 'T'+SubStr(sFormula, 1, InStr('_',sFormula)-1 );
+          SubSchet := Replace(sFormula, SubStr( sFormula, 1, InStr('_',sFormula) ), '');
+        }
+
+        Result := 0;
+
+        // собираем сальдо, выбираем лучший индекс, ориентация на ОС
+        if ( Schet = 'T02' or Schet = 'T010' ) // для 02 счета и 010 не проверяем субсчета
+        { // собираем сальдо только в разрезе текущего ОС
+          _loop TurboSaldMoun where ((
+                                           Schet      == TurboSaldMoun.SchetO
+                                      and  dat1       == TurboSaldMoun.DateSal
+                                      and  DebKred    == TurboSaldMoun.ViOb
+                                      and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                    ))
+          {
+            NextVisual;
+            Result := Result + TurboSaldMoun.SumS;
+
+            if ( GetFirst SpKau where (( TurboSaldMoun.cL == SpKau.nRec )) = tsOk )
+             KodL := KodL2 := SpKau.code;
+          }
+        }
+        else // остальные счета в разрезе субсчетов
+        { // собираем сальдо только в разрезе текущего ОС
+          _loop TurboSaldMoun where ((
+                                           Schet      == TurboSaldMoun.SchetO
+                                      and  dat1       == TurboSaldMoun.DateSal
+                                      and  DebKred    == TurboSaldMoun.ViOb
+                                      and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                      and  SubSchet   == TurboSaldMoun.SubOsSch
+                                    ))
+          {
+            NextVisual;
+            Result := Result + TurboSaldMoun.SumS;
+
+            if ( GetFirst SpKau where (( TurboSaldMoun.cL == SpKau.nRec )) = tsOk )
+             KodL := KodL2 := SpKau.code;
+          }
+        }
+
+!        result := round(result);
+
+        if ( bMinus )
+         Result := (-1) * Result;
+
+        ClearBuffer(#Formuly);
+         Formuly.data      := DateToStr(dat1,'DD.MM.YYYY');
+         Formuly.INNOS     := KatOS.InNum;
+         Formuly.NameOS    := KatOS.NameOS;
+         Formuly.formulja  := sFormula;
+         Formuly.summ      := Result;
+         Formuly.LG        := KodL2;
+        insert current Formuly;
+
+        Stoim := Stoim + Result; // по ОС
+
+      } // подсчет остаточной стоимости из сальдо по настроеным счетам, субсчетам в типовых алгоритмах
+
+      // вывод остаточной стоимости по ОС в отчет
+
+      _loop StoimStruct
+      {
+        chisl := StoimStruct.SumRes2; // числитель   для доли ОС в ОКАТО
+        znam  := 0;                   // знаменатель для доли ОС в ОКАТО
+
+        _loop StoimStruct1
+         if ( GetFirst AttrVal1 = tsOk and GetFirst Sterr1 = tsOk )
+          znam := znam + StoimStruct1.SumRes2;
+
+        if ( chisl < 1 ) // если числитель меньше 1 - переводим в метры (подразумеваются километры )
+        {
+          chisl := chisl * 1000;
+          znam  := znam  * 1000;
+        }
+
+        ++i;
+
+        xlStWriteToMatrix( i, 1, chr(39) + KatOS.InNum   );
+        xlStWriteToMatrix( i, 2, KatOS.NameOS            );
+
+        if ( GetFirst SpKau = tsOk )
+         xlStWriteToMatrix( i, 3, chr(39) + SpKau.name   );
+
+        xlStWriteToMatrix( i, 4, chr(39)+string(chisl,0,0)+'/'+string(znam,0,0)   );
+        xlStWriteToMatrix( i, 5, chr(39) + Sterr.sCode   );
+        xlStWriteToMatrix( i, 6, Sterr.sName             );
+        xlStWriteToMatrix( i, 7, Stoim                   );
+        xlStWriteToMatrix( i, 8, Stoim * chisl / znam    );
+        xlStWriteToMatrix( i, 9, chr(39) + KodL         );
+
+      } // источники финансирования к карточке
+
+   } // накатались по ОС
+
+   xlWriteMatrixToExcel( 6, 1 );
+   xlSetNumberFormat ( '# ##0,00', 6, 7, i+6, 8 );
+
+
+   //////////////////////////////////////////////////////////////////////////////////////////////////////////
+   xlAddSheet;
+   xlSetSheetName( 1, 'Протокол');
+
+   xlSetCellStringValue( 'Протокол расчета остаточной стоимости по ОС, у которых заведен внешний атрибут "ОКАТО"', 2, 2, 2, 2 );
+   xlSetCellStringValue( 'на '+DateToStr(dat1,'DD.MM.YYYY'), 3, 2, 3, 2 );
+
+   xlSetCellStringValue( 'ИНН ОС'                 , 5, 1, 5, 1 );
+   xlSetCellStringValue( 'Наименование ОС'        , 5, 2, 5, 2 );
+   xlSetCellStringValue( 'Формула'                , 5, 3, 5, 3 );
+   xlSetCellStringValue( 'Результат'              , 5, 4, 5, 4 );
+
+   xlSetColumnWidth( 10, 1, 1, 1, 1);
+   xlSetColumnWidth( 50, 1, 2, 1, 2);
+   xlSetColumnWidth( 30, 1, 3, 1, 3);
+   xlSetColumnWidth( 20, 1, 4, 1, 4);
+
+   xlFrameCells(xlBorderL or xlBorderR or xlBorderT or xlBorderB or xlInsideV or
+                xlInsideH or xlInsideHorizontal or xlInsideVertical, xlThin, 0, 0, 5, 1, 5, 4);
+
+   i := 0;
+
+   xlClearMatrix;
+
+   _loop Formuly ordered by index Tab0
+   {
+     ++i;
+     xlStWriteToMatrix( i, 1, chr(39) + Formuly.INNOS    );
+     xlStWriteToMatrix( i, 2, Formuly.NameOS             );
+     xlStWriteToMatrix( i, 3, chr(39) + Formuly.formulja );
+     xlStWriteToMatrix( i, 4, Formuly.summ               );
+     xlStWriteToMatrix( i, 5, chr(39) + Formuly.LG       );
+   }
+
+   xlWriteMatrixToExcel( 6, 1 );
+   xlClearMatrix;
+
+   xlSetNumberFormat ( '# ##0,00', 6, 4, i+6, 4 );
+
+   xlSetActiveSheetByName('Отчет'); // открыли лист отчета
+
+   StopVisual('', 0);
+   xlFreeMatrix;
+   xlKillExcel;
+
+   delete all TurboSaldMoun;
+
+   message('Отчет по источникам финансирования ОС сформирован');
+
+}
+End;
+
+End.

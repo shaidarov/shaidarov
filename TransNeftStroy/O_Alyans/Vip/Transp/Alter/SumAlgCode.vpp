@@ -1,0 +1,229 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2003 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Управление транспортом                                    ║
+ ║ Версия        : 5.8, 7.1                                                  ║
+ ║ Назначение    : Функции для длинных пользовательских алгоритмов           ║
+ ║ Ответственный : Жилко Дмитрий Витальевич (HATTER)                         ║
+ ║ Параметры     :                                                           ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+//#define _UseSpecAlgIterator_
+
+// *****************************************************************************
+// ВСЕ ЭТО ДОЛЖНО БЫЛО ЖИТЬ В ОТДЕЛЬНОМ ИНТЕРФЕЙСЕ SUMALGCODE.VIP
+// НО ОБЛАСТЬ ДЕЙСТВИЯ ПЕРЕМЕННЫХ ИЗ PUTVAR.VPP - ТЮ-ТЮ
+
+// функция очистки строки от зарплатных переменных
+// избавление от зарплатных функций и переменных (начало)
+// вообще-то (что признает и Screw) runtime при использовании
+// зарплатных функций связан с тем, что они работают не корректно
+// если не произошла их предварительная инициализация, которая
+// в транспорте не производится
+// но стоит ли ждать милостей от природы?!
+
+// итератор будет инициализирован при первом вызове AnalizeAndReplace, и
+// разрушен при выгрузке интерфейса-владельца.
+
+#ifdef _UseSpecAlgIterator_
+var SpecAlgIterator: ISpecialAlgorithmIterator;
+#endif
+
+//------------------------------------------------------------------------------
+// Заменяет все упоминания спецалгоритмов модуля "Заработная плата" нулём
+//------------------------------------------------------------------------------
+Function AnalizeAndReplace (var pAlgStr: string): boolean;
+{
+  var vAlgStr: string;
+  var vFunStr: string;
+  var bNeedReplace: boolean;
+
+  AnalizeAndReplace := false;
+  vAlgStr := UPCASE(pAlgStr);
+
+#ifdef _UseSpecAlgIterator_
+  if NullVipRef(SpecAlgIterator)
+    LoadVipRef(SpecAlgIterator, 'SpecialAlgoritmIterator');
+
+  if not NullVipRef(SpecAlgIterator)
+    if SpecAlgIterator.First
+    {
+      do
+#else
+      _LOOP stFunc
+#endif
+      {
+        vFunStr :=
+#ifdef _UseSpecAlgIterator_
+                   UPCASE(Trim(SpecAlgIterator.GetName));
+#else
+                   UPCASE(Trim(stFunc.nFun));
+#endif
+        bNeedReplace := false;
+        // из-за бодяги 'UCH_TARIF' 'UCH_TARIF_AVTO'
+        if (vFunStr='UCH_TARIF')
+        {
+          bNeedReplace := ((InStr('UCH_TARIF',vAlgStr) != 0)
+                       and (InStr('UCH_TARIF',vAlgStr) != InStr('UCH_TARIF_AVTO',vAlgStr))
+                          );
+        }
+        else
+        {
+          bNeedReplace := ( InStr(vFunStr,vAlgStr) != 0 );
+        };
+        if (bNeedReplace)
+          vAlgStr := Replace(vAlgStr,vFunStr,'0');
+      }
+#ifdef _UseSpecAlgIterator_
+      while SpecAlgIterator.Next;
+    }
+#endif
+
+  pAlgStr := vAlgStr;
+  AnalizeAndReplace := true;
+} // function AnalizeAndReplace
+
+// рекурсивная функция
+// по переданной строке
+Function SumAlgCode ( pwAlgTable: word     // указатель на таблицу с формулами
+                     ;pAlgStr   : string   // строка алгоритма
+                     ;PrnProtokol : boolean  // протокол расчета
+                     ;var pResValue: string
+                     ;var pErrValue: string
+                    ): boolean;
+var bResult: boolean;
+{
+  // внутренние параметры
+  var vwAlgTable: word;
+  var vAlgStr: string;
+  var vResValue: string;
+  var vErrValue: string;
+  // для рекурсивных вызовов
+  var recAlgTable: word;
+  var recAlgStr: string;
+  var recResValue: string;
+  var recErrValue: string;
+
+  var vwKodAlg: word;
+  var vTmpStr
+     ,vBegStr
+     ,vEndStr: string;
+  var vPrnProtokol : boolean;
+
+  bResult := false;
+  vAlgStr := pAlgStr;
+  vErrValue    := pErrValue;
+  vwAlgTable   := pwAlgTable;
+  vPrnProtokol := PrnProtokol;
+  vTmpStr := '';
+  vBegStr := '';
+  vEndStr := '';
+
+  if ( not AnalizeAndReplace(vAlgStr) )
+    exit;
+
+  case (vwAlgTable) of
+    word(coUchRabPl), word(coKlAlg):
+    {
+      PreProceedAlgString(vAlgStr, vwAlgTable);
+    } //
+  end; // case
+  if ( InStr('SUMALGCODE',vAlgStr) != 0 )
+  {
+    do
+    {
+      case (vwAlgTable) of
+        word(coGsmAlg),word(coUchRabPl):
+        {
+          vTmpStr := SubStr(vAlgStr,InStr('SUMALGCODE',vAlgStr),Length(vAlgStr)-InStr('SUMALGCODE',vAlgStr)+1 );
+          // запомним обрезки исходной строки - они еще понадобятся
+          vBegStr := SubStr(vAlgStr,1,InStr('SUMALGCODE',vAlgStr)-1);
+          vEndStr := SubStr(vTmpStr,InStr(']',vTmpStr)+1,Length(vTmpStr)-InStr(']',vTmpStr));
+          vwKodAlg := word( SubStr(vTmpStr,InStr('[',vTmpStr)+1, InStr(']',vTmpStr)-InStr('[',vTmpStr)-1 ) );
+          if (GetFirst GsmAlgFind where (( vwKodAlg == GsmAlgFind.KodGsmAlg )) = tsOk)
+          {
+            recAlgStr := GsmAlgFind.StrAlg;
+          }
+          else
+          {
+            recAlgStr := '';
+          };
+        } // word(coGsmAlg),word(coUchRabPl)
+        word(coKlAlg):
+        {
+          vTmpStr := SubStr(vAlgStr,InStr('SUMALGCODE',vAlgStr),Length(vAlgStr)-InStr('SUMALGCODE',vAlgStr)+1 );
+          // запомним обрезки исходной строки - они еще понадобятся
+          vBegStr := SubStr(vAlgStr,1,InStr('SUMALGCODE',vAlgStr)-1);
+          vEndStr := SubStr(vTmpStr,InStr(']',vTmpStr)+1,Length(vTmpStr)-InStr(']',vTmpStr));
+          vwKodAlg := word( SubStr(vTmpStr,InStr('[',vTmpStr)+1, InStr(']',vTmpStr)-InStr('[',vTmpStr)-1 ) );
+          if (GetFirst KlAlgFind where (( vwKodAlg == KlAlgFind.KAlg )) = tsOk)
+          {
+            recAlgStr := KlAlgFind.StroAlg;
+          }
+          else
+          {
+            recAlgStr := '';
+          };
+        } // word(coKlAlg)
+        else
+        {
+          recAlgStr := '';
+        } // else
+      end; // case
+
+      recAlgTable := vwAlgTable;
+      recResValue := '';
+      recErrValue := '';
+      // запускаем рекурсивно для алгоритма
+      SumAlgCode( recAlgTable
+                 ,recAlgStr
+                 ,vPrnProtokol
+                 ,recResValue
+                 ,recErrValue
+                );
+      vResValue := recResValue;
+      vErrValue := Trim(vErrValue + ' ' + recErrValue);
+      vAlgStr :=  vBegStr    //начало строки
+                + vResValue  // вычисленное значение алгоритма
+                + vEndStr;   // обрезок строки
+    }
+    while ( InStr('SUMALGCODE',vAlgStr) != 0 )
+  };
+//Message('vAlgStr='+vAlgStr,Information);
+  if vPrnProtokol
+    Fw('Формула = '+vAlgStr);
+  case (vwAlgTable) of
+    word(coUchRabPl):
+        {
+        }
+    word(coGsmAlg):
+      {
+          var Val_Cal : double;
+          if GetFirst IdnAvt where (( word(1) == IdnAvt.TipFr)) = tsok
+          do
+          if InStr(upcase(trim(IdnAvt.Name)),upcase(vAlgStr)) <> 0
+          {
+             Val_Cal := double(Expression(IdnAvt.Name,vErrValue));
+             if vPrnProtokol
+              {
+               Fw(IdnAvt.Name + '(' + IdnAvt.Sense +')' + '=' + to_char(Val_Cal)+','+IdnAvt.Name+'/'+vErrValue)
+              }
+           }
+          while GetNext IdnAvt where ((word(1) == IdnAvt.TipFr)) = tsok
+      }
+    word(coKlAlg):                      // оплаты
+      {
+      }
+  end;
+  vResValue := Expression(vAlgStr,vErrValue);
+  vResValue := trim(string(double(vResValue),15,6));
+  if vPrnProtokol
+    Fw('Результат = '+ vResValue+'/'+vAlgStr+'/'+vErrValue);
+  pResValue := vResValue;
+  pErrValue := vErrValue;
+  //Message('pResValue='+pResValue,Information);
+  bResult := ( not (Length(pErrValue) > 0) );
+  SumAlgCode := bResult;
+} // function SumAlgCode
+// *****************************************************************************

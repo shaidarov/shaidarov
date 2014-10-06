@@ -1,0 +1,129 @@
+
+interface "Join_PID";
+
+var
+   k
+ , i
+ , l
+             : integer ;
+   nrec_usl
+ , nrec_usl_1
+ , nrec_join
+             : comp    ;
+   name
+ , name_1
+ , yes
+             : string  ;
+   y
+             : boolean ;
+
+
+
+create view
+  as select * from
+                     SpKau
+   , synonym  SpKau SpKau1
+//   , synonym  SpKau SpKau2
+   , joihead
+   , spjoi
+  where (( 50700       ==  SpKAU.KodGrKAU
+       and '9'         <<  SpKAU.Name
+
+       and 50700       ==  SpKAU1.KodGrKAU
+       and '9'         >>= SpKAU1.Name
+       and SpKAU.Code  ==  SpKAU1.Code         (noIndex)
+        ))
+  ;
+
+
+
+HandleEvent
+  cmInit :
+  {
+  k:=0;
+  i:=0;
+  l:=0;
+
+     StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Просмотрено: 0',900);
+
+     if (GetFirst SpKAU = tsOK)
+           do {
+LogStrToFile('C:\Gal\log_SpKAU.log', SpKau.nRec + '~' + SpKAU.Name+ '~' + SpKAU.Code);
+                inc(k);
+                y:=true;
+             NextVisual();
+             SetVisualHeader(' Просмотрено: ' + String(k));
+
+             nrec_usl := string(SpKau.nRec);
+
+                if (GetFirst SpKAU1 = tsOK)
+                     do {
+LogStrToFile('C:\Gal\log_SpKAU_1.log', SpKau.nRec + '~' + SpKAU.Name+ '~' + SpKAU.Code+ '~' + SpKau1.nRec + '~' + SpKAU1.Name+ '~' + SpKAU1.Code);
+                       nrec_usl_1 := string(SpKAU1.nRec);
+//                       yes        := string(KatUsl1.OKDP);
+
+//                    if (yes<>'yes')
+                                      {
+                         if y {
+                         y := false;
+                         joihead.nrec:=0;
+
+                         ClearBuffer(#joihead);
+                         joihead.typeevent    := word(13);
+                         joihead.crec         := nrec_usl;
+                         joihead.ddate        := cur_date;
+                         joihead.username     := 'ShaydarovIA';              // ввести имя пользователя
+                         joihead.atl_lastuser := 013C000000000BF1h;          // ввести нрек пользователя
+                          if (insert current joihead = tsok) {inc(i);}
+                          if (update current joihead <> tsok)
+                           {message('Не смогли вставить результат: '+name);}
+                           else {nrec_join:=joihead.nrec;}
+                          }
+
+                         ClearBuffer(#spjoi);
+                         spjoi.cjoihead     := nrec_join;
+                         spjoi.crec         := nrec_usl_1;
+                         spjoi.isdel        := byte(1);
+                         spjoi.atl_lastuser := 013C000000000BF1h;            // ввести нрек пользователя
+                          if (insert current spjoi = tsok)
+                          if (update current spjoi <> tsok)
+                           {message('Не смогли вставить источник: '+name_1);}
+                           else
+                             {
+//                               katusl1.okdp:='yes';
+//                               if (update current katusl1 =tsok) {inc(l);}
+                             }
+                     }
+
+             }     while (GetNext SpKAU1 = tsok)
+
+   }     while (GetNext SpKAU = tsok)
+
+//      if (GetFirst KatUsl2 = tsok)
+//        do {
+//          if KatUsl2.okdp='yes' {
+//            KatUsl2.okdp:='no';
+//            if (update current KatUsl2 =tsok) {}
+//          }
+//        }     while (GetNext KatUsl2 = tsok)
+
+
+    StopVisual('',0);
+    CloseInterFace(cmDefault);
+    message('Просмотрено: ' + String(k)+'; результат='+string(i)+'; источник='+string(l));
+  }
+  end;
+
+end.
+
+
+.Form 'Подготовка к объединению PID'
+.Ard
+.F 'Nul'
+
+
+.begin
+        RunInterface ('Once::Join_PID');
+end.
+
+.endform

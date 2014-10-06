@@ -1,0 +1,264 @@
+Interface Update_Korrekt 'Дополнительная аналитика в переходах' (,,), DoAccept;
+const
+ OP_Ved = 000100000001BE78h;
+ OP_Gub = 000100000001C5B6h;
+ OP_Nov = 000100000001D2E9h;
+ OP_Les = 013E000000029CF1h;
+ OP_Last= 013E00000002595Dh;
+ OP_Daln= 013E000000036BA8h;
+
+//000100000001BE78h - Обособленное подразделение ООО "Транснефтьстрой" с. Веденка Приморский край Дальнереченский район
+//000100000001C5B6h - Обособленное подразделение ООО "Транснефтьстрой" ст. Губерово Приморский край Пожарский  район
+//000100000001D2E9h - Ноябрьск
+
+end;
+create view
+var
+   Nrec_KatPodr: Comp;
+!   Tabn_       : LongInt;
+   xTabn_      : LongInt;
+   xNrec_      : Comp;
+   cNrec      : comp;
+
+ OtpDopNREC: comp;
+//***************************************************************************************
+
+   Data_Otch   : Date;
+   wYear       : Word;
+   wMonth      : Word;
+      as
+   select *
+     from
+  KatPodr,
+  Perexod,
+  OtpDop,
+  Persons
+          where
+           ((
+    Perexod.tPerson     == Persons.Nrec    and       // Для Ф.И.О.
+    Perexod.OLDCLSCH    == OtpDop.Nrec     and       // Если есть "Дополнительная аналитика"
+    OtpDop.CKAUD[1]     == KatPodr.Nrec    and       //
+    xTabn_              == Perexod.TABN (noindex)   and
+    xNrec_              == Perexod.Nrec    and
+    1                   == Perexod.Vp   (noindex)       // Временный переход в
+           ))
+           ;
+    Parameters xNrec_,xTabn_;
+//***************************************************************************************
+//--------Вставка ЗАПИСИ в  (OtpDop)-----------------------------------
+Procedure Insert_OtpDop(var OtpDopNREC: comp);
+  {
+           ClearBuffer(#OtpDop);
+
+        OtpDop.ATL_ORIGINOFFICE  := 318;
+!        OtpDop.cKaud[1]          := Nrec_KatPodr;
+!        OtpDop.Tbld[1]           := 2;
+
+
+     Insert current OtpDop;
+
+   OtpDopNREC:= OtpDop.NREC;     // Nrec OtpDop
+!    message ('1OtpDopNREC='+OtpDopNREC);
+   } // Конец Procedure Insert_OtpDop
+//=======================================================================================
+Procedure Update_Perexod(var Param_1: comp;Param_2:LongInt);
+ {
+      xNrec_ := Param_1;  // Perexod.Nrec из вызова Interface Update_Korrekt
+      xTabn_ := Param_2;  // Perexod.Tabn из вызова Interface Update_Korrekt
+
+       Nrec_KatPodr := 0h;
+
+ IF (GetFirst Perexod where ((1 == Perexod.Vp (noindex) and xNrec_ == Perexod.Nrec)) = tsOk) then
+    {
+        Nrec_KatPodr := Perexod.CexP;
+
+    }
+
+//---------------UpDate current OtpDop----------------------
+
+     IF GetFirst OtpDop
+         where
+            ((cNrec == OtpDop.Nrec)) =tsok
+            {
+        OtpDop.ATL_ORIGINOFFICE  := 318;
+        OtpDop.cKaud[1]          := Nrec_KatPodr;
+        OtpDop.Tbld[1]           := 2;
+            UpDate current OtpDop;
+            }
+//---------------UpDate current Perexod----------------------
+
+     IF GetFirst Perexod
+         where
+            ((xNrec_ == Perexod.NREC)) =tsok
+            {
+                  Perexod.OLDCLSCH := cNrec;
+                  UpDate current Perexod;
+            }
+
+
+ } // Конец Procedure Update_Perexod
+//=======================================================================================
+//====================================================================================
+//====================================================================================
+HandleEvent
+   cmInit:
+    {
+!            Data_Otch := dGetTune('up.Datotch');
+!       wYear  := year(Data_Otch);
+!       wMonth := month(Data_Otch);
+//=========================Импорт данных по Корректировке питания=====================
+     StartNewVisual(vtNumericVisual, vfTimer, 'Корректировка допаналитики',1);
+//-----------Вызов процедур----------------------------------------------------------
+            Insert_OtpDop(cNrec);
+            Update_Perexod(xNrec_,xTabn_);
+
+//============Конец закачки===============================================================
+          StopVisual('',0);
+//====================================================================================
+    }  // cmOk
+  end; // HandleEvent
+end.   // Interface
+.Form 'Perexod'
+.ard
+.group 'Отчеты для ООТиЗ ООО Транснефтьстрой '
+.NameInList 'Корректировка ДОПОЛНИТЕЛЬНОЙ аналитики при переходах в обособленные подразделения'
+.F 'Update.Out'
+.DEFO PortRait
+.var
+   Chek_Podr      :integer;
+   Data_Otch      : date;
+   wYear          : word;
+   wMonth         : word;
+  DN              : date;
+  DK              : date;
+  Nrec_Persons    : comp;
+  Nrec_Lschet     : comp;
+  Nrec_Podr       : comp;     // Наименование Должности
+!=====================================================================================
+  Tabn_        :LongInt; // Параметр для Interface Update_Korrekt
+  Nrec_Perexod :comp;    // Параметр для Interface Update_Korrekt
+   DatIzm_ : date;
+   DatOk_  : date;
+       FIO_ : string;
+       Name_Katpodr:string;
+   N : Integer;
+!=====================================================================================
+.endvar
+.Create view v_Perexod                  // ПЕРЕХОДЫ
+  as select *
+              from
+  Perexod,
+  Persons
+          where
+           ((
+    Perexod.tPerson     == Persons.Nrec    and       // Для Ф.И.О.
+    1                   == Perexod.Vp          // Временный переход в
+           ))
+    and(Perexod.CexP = 000100000001BE78h
+    or Perexod.CexP = 000100000001C5B6h
+    or Perexod.CexP = 000100000001D2E9h
+    or Perexod.CexP = 013E000000029CF1h
+    or Perexod.CexP = 013E00000002595Dh
+    or Perexod.CexP = 013E000000036BA8h)
+//  and Perexod.OldcLsch = 0h
+           ;
+.Create view v_Persons                  // Ф.И.О.
+  as select *
+              from
+  OtpDop,
+  Katpodr,
+  Perexod,
+  Persons
+          where
+           ((
+    Perexod.tPerson     == Persons.Nrec    and       // Для Ф.И.О.
+    Perexod.OldcLsch    == OtpDop.Nrec     and
+    OtpDop.cKaud[1]     == KatPodr.Nrec    and
+    word(2)             == OtpDop.Tbld[1] (noindex)
+           ))
+    and Perexod.Nrec = Nrec_Perexod
+           ;
+.Begin
+            Data_Otch := dGetTune('up.Datotch');   // Дата отчетного периода в ЗАРПЛАТЕ
+
+        DN := Data_Otch;
+                  wYear    := Year(Data_Otch);
+                  wMonth := Month(Data_Otch);
+        DK := Date(Last_Day(Data_Otch), wMonth, wYear);
+    N := 0;
+end.
+.fields
+   DN
+   DK
+.endfields
+
+                              СПИСОК  СОТРУДНИКОВ
+                 у которых в переходах корректировалась допаналитика
+                        с @@@@@@@@@@ г. по @@@@@@@@@@ г.
+┌───┬───────┬────────────────────────────────────┬─────────────────┬──────────┬──────────┐
+│ № │ Таб.  │    Фамилия Имя Отчество            │  Подразделение  │   Дата   │   Дата   │
+│п/п│  №    │                                    │                 │  начала  │окончания │
+├───┼───────┼────────────────────────────────────┼─────────────────┼──────────┼──────────┤
+.{table 'v_Perexod'
+.Begin
+   Tabn_         := 0;
+   Nrec_Perexod  := 0h;
+   Nrec_Podr     := 0h;
+   Name_Katpodr  := ' ';
+          Tabn_         := v_Perexod.Perexod.Tabn;    // Табельный номер
+          Nrec_Perexod  := v_Perexod.Perexod.Nrec;
+          Nrec_Podr     := v_Perexod.Perexod.CexP;
+         RunInterface(Update_Korrekt,Nrec_Perexod,Tabn_);
+
+         IF (v_Persons.GetFirst Perexod = 0)
+                  {
+         N := N+1;
+            DatIzm_ := v_Persons.Perexod.DatIzm;
+            DatOk_  :=v_Persons.Perexod.Datok;
+       FIO_ := v_Persons.Persons.FIO;
+//000100000001BE78h - Обособленное подразделение ООО "Транснефтьстрой" с. Веденка Приморский край Дальнереченский район
+//000100000001C5B6h - Обособленное подразделение ООО "Транснефтьстрой" ст. Губерово Приморский край Пожарский  район
+//000100000001D2E9h - Ноябрьск
+                       IF Nrec_Podr = 000100000001BE78h
+                          {
+                       Name_Katpodr:= 'с.Веденка';
+                          }
+                       IF Nrec_Podr = 000100000001C5B6h
+                          {
+                       Name_Katpodr:= 'ст.Губерово';
+                          }
+                       IF Nrec_Podr = 000100000001D2E9h
+                          {
+                       Name_Katpodr:= 'Ноябрьск';
+                          }
+                       IF Nrec_Podr = 013E000000029CF1h
+                          {
+                       Name_Katpodr:= 'с.Лесопильное';
+                          }
+                       IF Nrec_Podr = 013E00000002595Dh
+                          {
+                       Name_Katpodr:= 'п.Ласточка';
+                          }
+                       IF Nrec_Podr = 013E000000036BA8h
+                          {
+                       Name_Katpodr:= 'г.Дальнереченск';
+                          }
+
+                   }
+End.
+.fields
+   N
+  Tabn_
+  FIO_
+  Name_Katpodr
+  DatIzm_
+  DatOk_
+.endfields
+│&&&│&&&&&&&│@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@│@@@@@@@@@@@@@@@@@│@@@@@@@@@@│@@@@@@@@@@│
+├───┼───────┼────────────────────────────────────┼─────────────────┼──────────┼──────────┤
+.} // Конец {table 'v_Perexod'
+.Begin
+  message ('Корректировка ДОПОЛНИТЕЛЬНОЙ АНАЛИТИКИ - закончена');
+        Exit;
+End.
+.endform

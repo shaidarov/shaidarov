@@ -1,0 +1,807 @@
+/*
+общие функции для всех отчетов
+обратить внимание на наличие жестких подцепок - для отсечения мусора
+искать метку "20081217" например
+*/
+
+#include Excel_commission.vpp
+/*
+procedure mylog(w:string ) ;
+{ if logfilekl
+    logstrtofile(logfilenm,w) ;
+}
+*/
+create view vorg
+var wc_org:comp;
+as select katorg.nrec from katorg
+where (( wc_org == katorg.nrec ));
+// определеить число состояний
+Function GetTypeMorale (wcMorale :comp ) :word ;
+var moraleparent:comp;
+{ GetTypeMorale:=1 ; // 
+  if getfirst MORALE where ((wcMORALE == MORALE.nrec ))=0
+  { case MORALE.TIPTC  of
+    1 : GetTypeMorale:=1 ;                // движение
+//    2..6,904,905,906 : GetTypeMorale:=2 ; // ремонт
+//    7,8,901,902,903 : GetTypeMorale:=3 ;  // простой
+    'ПВ': GetTypeMorale:=4 ;             // без водителя
+    'В':GetTypeMorale:=5;                 // выходной
+    else
+    { 
+      if morale.tiptc=7
+      { GetTypeMorale:=3 }
+      else
+      {
+        moraleparent:=morale.cback;
+        if getfirst morale where ((moraleparent==morale.nrec))=tsOk
+        {
+          if morale.tiptc=7
+          { GetTypeMorale:=3 } // простой
+          if morale.tiptc=5
+          { GetTypeMorale:=2 } //ремонт
+        }
+      }
+    }
+    end ;
+  }
+}      
+// определеить код состояния
+Function GetCodeMorale ( wcMorale :comp ) : string ;
+{ GetCodeMorale:=1 ; // 
+  if getfirst MORALE where ((wcMORALE == MORALE.nrec ))=tsOk
+  { 
+//    logstrtofile('c:\ss\log1.txt','Moralte.tblcode='+string(morale.tblcode));
+    if MORALE.TIPTC = 1
+    { 
+      GetcodeMorale:='Н' 
+    } // движение (в наряде)
+    else
+    {  
+//      logstrtofile('c:\ss\log1.txt','2');
+      if morale.tblcode = 1 and getfirst vidrem where ((morale.ctblcode==vidrem.nrec))=tsOk
+      { 
+//        logstrtofile('c:\ss\log1.txt','3');
+        GetcodeMorale:=vidrem.ABBR 
+      }
+      else
+      { 
+//        logstrtofile('c:\ss\log1.txt','4');
+        if morale.tblcode = 3 and getfirst KATPRICH where ((morale.ctblcode==KATPRICH.nrec))=tsOk
+        { 
+//          logstrtofile('c:\ss\log1.txt','5');
+          GetcodeMorale:=KATPRICH.KOD 
+        }
+      }
+    }   
+  }
+} 
+
+Function GetPodrParent(npodr1:string; cpodr1:comp) :string; //Найти родителя до уровня РНУ
+var npodr2:string;
+    podrnrec:comp;
+{
+  podrnrec:=cpodr1;
+  npodr2:=npodr1;
+  do
+  {
+    if GetFirst katpodr where ((podrnrec==katpodr.nrec)) =tsOk
+    { podrnrec:=katpodr.cpodr; 
+      npodr2:=katpodr.name; 
+    } // Определяем вышестоящее подразделение
+    else
+    { podrnrec:=0; }
+  } 
+  while podrnrec<>0 and length(trim(katpodr.kod))>3; //РНУ определяется по длине кода (длина 3 значит РНУ)
+  GetPodrParent:=npodr2;
+}
+
+Function GetGroupPodrParent :string; // Найти общего родителя для нескольких подразделений
+var j,i1,wfound:integer;
+    wpodrstr:string;
+    wcar:array [1..20] of comp;
+    wcpodr:comp;
+{
+  wpodrstr:=filtr_podr;
+  if getfirst My_transp_spis=tsOk
+  {
+ // Заполняем массив
+    i:=0;j:=1;
+//logstrtofile('c:\ss\log.txt',My_transp_spis.transp_nrec+'; '+My_transp_spis.transp_marka+' '+my_transp_spis.transp_nomer);
+    wcpodr:=My_transp_spis.katpodr_nrec;
+    do 
+      if getfirst katpodr where ((wcpodr==katpodr.nrec))=tsOk
+      { inc(i);
+        wcar[i]:=katpodr.nrec;
+        wcpodr:=katpodr.cpodr; 
+//logstrtofile('c:\ss\log.txt',katpodr.name);
+      }
+      else
+      { wcpodr:=0 }
+    while katpodr.cpodr<>0 or wcpodr<>0
+// Теперь цикл по всем ТС с целью проанализировать все подразделения
+    _loop My_transp_spis
+    {
+//logstrtofile('c:\ss\log.txt',My_transp_spis.transp_marka+' '+my_transp_spis.transp_nomer);
+      wcpodr:=My_transp_spis.katpodr_nrec;
+      wfound:=0;
+      do                                                  // Цикл по родителям подразделения текущего ТС
+        if getfirst katpodr where ((wcpodr==katpodr.nrec))=tsOk 
+        { 
+//logstrtofile('c:\ss\log.txt','Цикл от' +string(j)+' до '+string(i));
+          for (i1:=j;i1<=i;inc(i1))   // И внутри цикл по массиву
+          { 
+//logstrtofile('c:\ss\log.txt','ищем ' +string(i1));
+            if wcar[i1]=katpodr.nrec
+            { 
+//logstrtofile('c:\ss\log.txt','нашли '+string(i1));
+             wfound:=1;j:=i1;break }
+          }
+          wcpodr:=katpodr.cpodr;
+         }
+        else
+        { wcpodr:=0 }
+      while (katpodr.cpodr<>0 or wcpodr<>0) and wfound=0
+    }
+  }
+  if getfirst katpodr where ((wcar[j]==katpodr.nrec))=tsOk
+  { wpodrstr:= katpodr.name }
+  GetGroupPodrParent:=wpodrstr;
+}
+
+// подсчитать кол-во дней
+Function My_GetKolday(wdt1 :date ;wdt2 :date;wdt3 :date;wdt4 :date) :longint ;
+{ if wdt3>wdt1  then wdt1:=wdt3
+  if wdt4<>date(0,0,0) and wdt4<wdt2 wdt2:=wdt4 ;
+  My_GetKolday:=CalcdaysBetweenDates(wdt1,wdt2,false) 
+}
+Function MyDateToStr(wwdt :date ) :string ;
+{ MyDateToStr:=datetostr(wwdt,'DD.MM.YYYY')
+}
+Function GetTpPeriod :string ;
+{
+  case tp_period of
+  0 : GetTpPeriod:='за '+string(year_Reestr)+' г.' ;
+  1 : GetTpPeriod:='за '+datetostr(date(1,Month_Reestr,year_Reestr),'month ')+string(year_Reestr)+' г.' ;
+  2 : GetTpPeriod:='за '+string(kvartal_Reestr)+' квартал '+string(year_Reestr)+' г.' ;
+  3 : { if dtb=dte 
+        { GetTpPeriod:='на '+MyDateTostr(dtb) }
+        else
+        { GetTpPeriod:='за период с '+MyDateTostr(dtb)+' по '+MyDateTostr(dte) ; }
+      }
+  end ;
+   My_GetKolday(dtb,dte,date(0,0,0),date(0,0,0))
+}
+function GetColNumAZS(w :string ) : word ;
+{ GetColNumAZS:=5 ;
+  case w of
+  'Емкость': GetColNumAZS:=1 ;
+  'Нал.расчет': GetColNumAZS:=2 ;
+  'Талоны': GetColNumAZS:=3 ;
+  'магнитные карты': GetColNumAZS:=4 ;
+  else //'Другая заправка' 
+  { GetColNumAZS:=5 ;
+
+  }
+  end ;
+} //function GetColNumAZS(w :string ) ;
+
+Procedure GetRecVizit_MainPodr  ; 
+{ Podr_main_orgname:=sgettune('MyOrg')
+  Podr_main_dir_fio:=sgettune('Boss')
+  Podr_main_dir_dol:='Генеральный директор'
+  if KATPODR.FIO<>''
+  { Podr_main_dir_fio:=KATPODR.FIO ; 
+    Podr_main_dir_dol:=XL_GetDolByFio(Podr_main_dir_fio) ;
+  }
+  if katpodr.corg>0
+  { if getfirst katorg where (( katpodr.corg== katorg.nrec ))=0 
+      Podr_main_orgname:=katorg.name ;
+  }
+  
+
+} //Procedure GetRecVizit_MainPodr  ; 
+
+procedure MyxlAddRangeNameVar(w :string ; wrow:longint) ;
+{ xlAddRangeName(w,wrow,3,wrow,3)
+} 
+
+
+Procedure MakePodrFiltr ;
+{
+    StartNewVisual (vtRotateVisual,vfTimer,'выбор подразделений',1)
+    Kolvo      := 0
+    Filtr_podr:=''
+    var_Katpodr_cPodr:=0 ;
+    Get_Podr_Marker_lap := InitMarker('Podr_Marker_lap', 8, 10, 10); // инициализация маркера
+    ClearMarker(Get_Podr_Marker_lap);
+    _loop My_Podrazdelenie
+     {
+      InsertMarker(Get_Podr_Marker_lap,My_Podrazdelenie.KatPodr_Nrec );
+      Kolvo       := Kolvo+1
+      Filtr_podr  := if(KolVo=1,My_Podrazdelenie.KatPodr_Name,'')
+      if Getfirst KatPodr Where ((My_Podrazdelenie.KatPodr_nrec == KatPodr.Nrec))=0 {}
+      var_Katpodr_cPodr:=KatPodr.cPodr
+      If var_Katpodr_cPodr<>0
+       then
+        {
+         SetVisualHeader('Поиск головного подразделения '+ My_Podrazdelenie.KatPodr_Name)
+         Do
+          {
+           if Getfirst KatPodr Where ((var_Katpodr_cPodr == KatPodr.Nrec))=0 {}
+           var_Katpodr_cPodr:=KatPodr.cPodr
+          } While var_Katpodr_cPodr<>0
+          If (GetFirst My_Podr_Main where ((KatPodr.Nrec == My_Podr_Main.Katpodr_Nrec))
+             )<>tsOK
+           then
+            {
+             Modifier Insert My_Podr_Main
+              Set
+               My_Podr_Main.Katpodr_Nrec  := KatPodr.Nrec,
+               My_Podr_Main.Katpodr_Name  := KatPodr.Name
+              ;
+             
+            }
+           GetRecVizit_MainPodr
+        }
+       else
+        {
+          If (GetFirst My_Podr_Main where ((KatPodr.Nrec == My_Podr_Main.Katpodr_Nrec))
+             )<>tsOK
+           then
+            {
+             Modifier Insert My_Podr_Main
+              Set
+               My_Podr_Main.Katpodr_Nrec  := KatPodr.Nrec,
+               My_Podr_Main.Katpodr_Name  := KatPodr.Name
+              ;
+              Podr_main_dir_fio:=KATPODR.FIO ; 
+            }
+           GetRecVizit_MainPodr ;
+        }
+     }
+    Filtr_podr:='выбрано :'+Kolvo+' '+Filtr_podr
+    ReReadRecord
+    StopVisual('The End',vfTimer);
+    DoneMarker(Get_Podr_Marker_lap, 'Podr_Marker_lap');
+
+
+} //Procedure MakePodrFiltr ;
+
+Procedure InitPodrFiltr ;
+var wtp_filtrpodr :word ;
+{   GetColNumAZS('') ; // так чтобы компилятор не урчал 
+    XL_Print_commission(0,0,0,0,0) ;//так чтобы компилятор не урчал 
+    Delete All My_Podr_Main ;
+    Delete All My_Podrazdelenie;
+    var_Katpodr_cPodr:=0 ;
+    wtp_filtrpodr :=0 ;
+#IFDEF _TRANSP_DOPNASTR_
+    var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cFILTR_PODR')
+    wtp_filtrpodr    :=wgettune('RARS_TRANSP.FILTR_PODR')
+#ENDIF    
+    if var_Katpodr_cPodr=0
+       var_Katpodr_cPodr:=155; //'0000E2Dh ;
+    if getfirst katpodr where (( var_Katpodr_cPodr /== katpodr.nrec ))<>0
+       var_Katpodr_cPodr:=0 ;  
+    case wtp_filtrpodr of 
+    1: {
+     insert My_Podrazdelenie
+     Select
+       KatPodr.Nrec ,
+       KatPodr.Name
+     Where (( var_Katpodr_cPodr /== KatPodr.Nrec ))
+    ;
+
+    }
+    2: {
+     insert My_Podrazdelenie
+     Select
+       KatPodr.Nrec ,
+       KatPodr.Name
+     Where (( var_Katpodr_cPodr /== podrier.cgroup and podrier.crecds ==    KatPodr.Nrec ))
+    ;
+    }
+    3: {
+      wusername:=username ; 
+     insert My_Podrazdelenie
+     Select
+       KatPodr.Nrec ,
+       KatPodr.Name
+     Where (( wusername /== USERRIGHTS.OWNNAME and USERRIGHTS.crecds ==    KatPodr.Nrec )) ;
+    }
+    else
+    {
+     insert My_Podrazdelenie
+     Select
+       KatPodr.Nrec ,
+       KatPodr.Name
+     Where (( var_Katpodr_cPodr /== KatPodr.Nrec ))
+    ;
+    }
+    end;
+   MakePodrFiltr
+} // Procedure InitPodrFiltr ;
+
+Procedure InitTipTexFiltr ;
+{   i:=0
+    Delete All My_TipTexVib;
+    Get_TipTex_Marker_lap := InitMarker(Name_Get_TipTex_Marker_lap, 8, 10, 10);
+    Filtr_TipTex:='выбрано '+GetMarkerCount(Get_TipTex_Marker_lap)
+    do  //формирование строки КАУ
+    {
+     if (GetMarker(Get_TipTex_Marker_lap,i,Var_TipTex_nrec))
+      {
+       if getfirst TipTex where ((Var_TipTex_nrec == TipTex.Nrec
+                             ))=0
+        Insert My_TipTexVib
+         set
+          My_TipTexVib.TipTex_Nrec    := TipTex.Nrec    , //nrec типа ТС
+          My_TipTexVib.TipTex_NAME    := TipTex.NAME    , //наименование типа ТС
+          My_TipTexVib.TipTex_KODTIP  := TipTex.KODTIP  , //наименование кода ТС
+          My_TipTexVib.TipTex_CTIPTEX := TipTex.CTIPTEX   //ссылка на тип ТС
+         ;
+       i:=i+1
+      }
+    } while i<GetMarkerCount(Get_TipTex_Marker_lap) //конец формирование строки КАУ
+    ReReadRecord
+    Filtr_tipTex:='выбрано ' + i
+
+
+} //InitTipTexFiltr
+
+Procedure InitTranspFiltr ;
+{     Delete All My_TranspSred;
+    i:=0
+    Get_Transp_Marker_lap := InitMarker(Name_Get_Transp_Marker_lap, 8, 10, 10);
+    Filtr_transp:='выбрано '+GetMarkerCount(Get_Transp_Marker_lap)
+    do  //формирование строки КАУ
+    {
+     if (GetMarker(Get_Transp_Marker_lap,i,Var_TranspSred_nrec))
+      {
+       getfirst Transp where ((var_TranspSred_nrec == Transp.Nrec))
+       Modifier insert My_TranspSred
+        set
+          My_TranspSred.Transp_Nrec     := Transp.Nrec     , //Nrec автомобиля
+          My_TranspSred.Transp_Nomer    := Transp.Nomer    , //гос.номер автомобиля
+          My_TranspSred.Transp_MARKA    := Transp.MARKA    , //марка автомобиля (или ПРИЦЕП)
+          My_TranspSred.Transp_TIPTC    := Transp.TIPTC    , //Тип Тс 0-осн, 1-приц, 3-списано
+          My_TranspSred.Transp_PASSPORT := Transp.PASSPORT , //номер паспорта техсредства
+          My_TranspSred.Transp_POSTNREC := Transp.POSTNREC , //подразделение- баланса
+          My_TranspSred.Transp_INNUM    := Transp.INNUM    , //Инвентарный номер
+          My_TranspSred.Transp_GODV     := Transp.GODV     , //Дата выпуcка
+          My_TranspSred.Transp_NOMDVIG  := Transp.NOMDVIG  , //учетный номер двигателя
+          My_TranspSred.Transp_SPEEDEXI := Transp.SPEEDEXI , //показания спидометра
+          My_TranspSred.Transp_ZAVNOM   := Transp.ZAVNOM     //заводской номер
+        ;
+       if (GetFirst KatOs where ((Transp.cKatOs == Katos.Nrec))
+          )=tsOK
+        then
+         {
+          Modifier Update Current My_TranspSred
+           set
+            My_TranspSred.Transp_INNUM := Katos.InNum
+         }
+       Filtr_transp:=if (i<3,Filtr_transp+','+My_TranspSred.transp_Nomer,'Выбрано'+GetMarkerCount(Get_Transp_Marker_lap))
+       i:=i+1
+      }
+    } while i<GetMarkerCount(Get_Transp_Marker_lap) //конец формирование строки КАУ
+    ReReadRecord
+} //InitTranspFiltr
+//==========================
+Procedure InitGsmFiltr;
+var ww_kol_pick:word;
+{ FILTR_GSM:='не задано';
+  ww_kol_pick:=0;
+  _loop PICK where (( 19874 == Pick.wList ))
+  { ww_kol_pick:=ww_kol_pick+1
+    if ww_kol_pick=1
+    { if getfirst toplivo where (( pick.crec == toplivo.nrec ))=0
+         FILTR_GSM:=toplivo.name
+    }
+    else
+    { FILTR_GSM:='Выбрано '+string(ww_kol_pick)+' записей'
+    }
+  }
+} //Procedure InitGsmFiltr;
+//==========================
+Procedure InitGsmVidFiltr;
+var ww_kol_pick:word;
+{ FILTR_GSMVID:='на задано';
+  ww_kol_pick:=0;
+  _loop PICK where (( 19877 == Pick.wList ))
+  { ww_kol_pick:=ww_kol_pick+1
+    if ww_kol_pick=1
+    { if getfirst VIDGSM where (( pick.crec == VIDGSM.nrec ))=0
+         FILTR_GSMVID:=vidgsm.name
+    }
+    else
+    { FILTR_GSMVID:='Выбрано '+string(ww_kol_pick)+' записей'
+    }
+  }
+} //Procedure InitGsmFiltr;
+//==========================
+// выбор фильтра
+Function transp_pick :boolean ;
+{ case  curfield of 
+  #sCommission:
+  { iCommission.RunWindowSelection(word(1));
+   set sCommission := iCommission.GetSelectionName;
+  }
+
+  #filtr_descr:
+  { if bogettune('DOC.CHANGEDESCR')
+      RunInterface(C_COMMON::GetDescr,filtr_Descr, filtr_DesGr, Word(0)) 
+    else
+      filtr_descr:=sgettune('USER.DESCR')
+  }
+  #filtr_desgr:
+  { if bogettune('DOC.CHANGEDESCR')
+      RunInterface(C_COMMON::GetGrDescr, filtr_desgr,false,false,0) ;
+    else
+      filtr_desgr:=sgettune('USER.DESGR')
+  }
+  #filtr_Podr:
+   {
+    Delete Pick Where ((11 == Pick.wList));
+    insert pick (wlist, crec )
+    select 11,My_Podrazdelenie.Katpodr_Nrec from MY_PODRAZDELENIE;
+    Delete All My_Podr_Main ;
+    Delete All My_Podrazdelenie;
+    RunInterFace (GetSomePodr);
+
+    if getfirst pick where ((11==pick.wlist))=tsOk
+    {      Modifier insert My_Podrazdelenie
+      Select Pick.crec , KatPodr.Name Where ((11 == Pick.wList and Pick.crec == KatPodr.Nrec ));
+    }
+    else
+    {  Modifier insert My_Podrazdelenie
+         Select KatPodr.Nrec , KatPodr.Name from katpodr;
+    }
+    MakePodrFiltr ;
+   }
+   #Filtr_transp:
+   {
+    RunInterFace(My_Transp, Get_Podr_Marker_lap, 'Podr_Marker_lap',
+                 Get_Transp_Marker_lap, Name_Get_Transp_Marker_lap,DtB,DTE)
+      inittranspfiltr ;           
+     filtr_tp:=filtr_tp or 2;  
+   }
+   #filtr_TipTex:
+   {
+    RunInterFace(My_TipTexTree, Get_Podr_Marker_lap, 'Podr_Marker_lap',
+                 Get_TipTex_Marker_lap, Name_Get_TipTex_Marker_lap)
+    InitTipTexFiltr ;             
+   }
+   #filtr_GSM:
+   { RunInterface(M_TRANSP::GETSOMGSM,0)
+     InitGSMFiltr
+   }
+   #filtr_GSMVID:
+   { RunInterface(M_TRANSP::GETMVIDGSM,0)
+     InitGSMVIDFiltr
+
+   }
+#IFDEF Transp_MOL_VIB
+   #Filtr_mol:
+   { iGetKau.GetCodeKau(cgiPick, cgKau_Persons, cfiltr_mol)
+     if getfirst persons_mol where (( cFiltr_Mol == persons_mol.nrec ))=0
+         Filtr_Mol:=persons_mol.fio
+   }
+#endif   
+#IFDEF Transp_MOL_VIB1
+   #Filtr_mol:
+   { iGetKau.GetCodeKau(cgiPick, cgKau_KatMol, cfiltr_mol)
+     if getfirst katmol where (( cFiltr_Mol == katmol.nrec ))=0
+         Filtr_Mol:=katmol.name
+   }
+#endif      
+#IFDEF Transp_GSM_AZS
+   #FILTR_AZS1:
+   {
+    Delete All My_Azs1;
+    Delete Pick Where ((11 == Pick.wList));
+    insert pick (wlist, crec )
+    select 11,My_Azs1.Katpodr_Nrec from My_Azs1;
+    RunInterFace (GetSomePodr);
+    Modifier insert My_Azs1
+    Select
+       KatPodr.Nrec ,
+       KatPodr.Name
+     Where ((11 == Pick.wList and
+             Pick.crec == KatPodr.Nrec )) ;
+    KolVo:=RecordsInTable(tnMy_Azs1)
+    i:=0
+    FILTR_AZS1:='выбрано :'+KolVo+':'
+    _Loop My_Azs1
+     {
+       FILTR_AZS1:=if (i<3,FILTR_AZS1+My_Azs1.KatPodr_Name,'выбрано :'+KolVo)
+       i:=i+1
+     }
+    ReReadRecord
+   }
+   #FILTR_AZS2:
+   {
+    Delete All My_Azs2;
+    FILTR_AZS2:=''
+    KolVo:=iGetKau.GetCodeKau(3,1,0)
+    kau_Marker_lap_string:=iGetKau.GetMarkerName(1)
+    AZS_Marker_lap:=InitMarker(kau_Marker_lap_string,8,4,1)
+    i:=0
+    FILTR_AZS2:='выбрано :'+KolVo+':'
+    do  //формирование строки КАУ
+    {
+     if (GetMarker(AZS_Marker_lap,i,AZS_nrec))
+      {
+       getfirst KatOrg where ((AZS_nrec == KatOrg.Nrec))
+       Modifier insert My_Azs2
+        set My_Azs2.katOrg_Name:=KatOrg.Name ;
+       FILTR_AZS2:=if (i=0,FILTR_AZS2+KatOrg.Name,FILTR_AZS2+'; '+KatOrg.Name)
+       i:=i+1
+      }
+    } while i<GetMarkerCount(AZS_Marker_lap) //конец формирование строки КАУ
+    DoneMarker(AZS_Marker_lap,'')
+    ReReadRecord
+   }
+   #FILTR_AZS3:
+   {
+    Delete All My_Azs2;
+    FILTR_AZS3:=''
+    KolVo:=iGetKau.GetCodeKau(3,1,0)
+    kau_Marker_lap_string:=iGetKau.GetMarkerName(1)
+    AZS_Marker_lap:=InitMarker(kau_Marker_lap_string,8,4,1)
+    i:=0
+    FILTR_AZS3:='выбрано :'+KolVo+':'
+    do  //формирование строки КАУ
+    {
+     if (GetMarker(AZS_Marker_lap,i,AZS_nrec))
+      {
+       getfirst KatOrg where ((AZS_nrec == KatOrg.Nrec))
+       Modifier insert My_Azs3
+        set My_Azs3.katOrg_Name:=KatOrg.Name ;
+       FILTR_AZS3:=if (i=0,FILTR_AZS3+KatOrg.Name,FILTR_AZS3+'; '+KatOrg.Name)
+       i:=i+1
+      }
+    } while i<GetMarkerCount(AZS_Marker_lap) //конец формирование строки КАУ
+    DoneMarker(AZS_Marker_lap,'')
+    ReReadRecord
+   }
+#ENDIF   
+  end ;
+  rescanpanel(#putlst)
+  transp_pick:=true ;
+} //Function transp_pick :boolean ;
+
+//==================================
+#IFDEF Transp_GSM_AZS
+Procedure InitAzsFiltr ;
+{  FILTR_AZS1:='не задано';FILTR_AZS2:='не задано';FILTR_AZS3:='не задано';
+   Delete All My_Azs1;
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cSklad_GSM')
+   Modifier insert My_Azs1
+    select
+     KatPodr.Nrec ,
+     KatPodr.Name
+     where ((var_Katpodr_cPodr == KatPodr.Nrec)) //Центральный склад ГСМ ЯРНУ
+    ;
+   if RecordsInTable (tnMy_Azs1)=1
+    then
+     {
+      GetFirst My_Azs1;
+      KolVo:=1
+      FILTR_Azs1:='выбрано :'+KolVo+':'+My_Azs1.KatPodr_Name
+     }
+   ReReadRecord
+
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_Talon')
+   if var_Katpodr_cPodr >0
+     insert My_Azs2  select KatOrg.Name   where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //талоны
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_Talon2')
+   if var_Katpodr_cPodr >0
+     insert My_Azs2  select KatOrg.Name   where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //талоны
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_Talon3')
+   if var_Katpodr_cPodr >0
+     insert My_Azs2  select KatOrg.Name   where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //талоны
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_Talon4')
+   if var_Katpodr_cPodr >0
+     insert My_Azs2  select KatOrg.Name   where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //талоны
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_Talon5')
+   if var_Katpodr_cPodr >0
+     insert My_Azs2  select KatOrg.Name   where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //талоны
+   if RecordsInTable (tnMy_Azs2)>0  
+   { FILTR_AZS2:=''
+     _loop My_Azs2
+     { FILTR_AZS2:=FILTR_AZS2+My_Azs2.Katorg_Name+';'
+     }
+   }  
+   ReReadRecord
+   Delete All My_Azs3;
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_MK1')
+   if var_Katpodr_cPodr>0
+     insert My_Azs3  select   KatOrg.Name    where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //магнитные карты
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_MK2')
+   if var_Katpodr_cPodr>0
+     insert My_Azs3  select   KatOrg.Name    where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //магнитные карты
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_MK3')
+   if var_Katpodr_cPodr>0
+     insert My_Azs3  select   KatOrg.Name    where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //магнитные карты
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_MK4')
+   if var_Katpodr_cPodr>0
+     insert My_Azs3  select   KatOrg.Name    where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //магнитные карты
+   var_Katpodr_cPodr:=cogettune('RARS_TRANSP.cOrg_MK5')
+   if var_Katpodr_cPodr>0
+     insert My_Azs3  select   KatOrg.Name    where ((var_Katpodr_cPodr == KatOrg.Nrec)) ; //магнитные карты
+   if RecordsInTable (tnMy_Azs3)>0  
+   { FILTR_AZS3:=''
+     _loop My_Azs3
+     { FILTR_AZS3:=FILTR_AZS3+My_Azs3.Katorg_Name+';'
+     }
+   }  
+   ReReadRecord
+
+} //Procedure InitAzs ;
+//==================================
+
+#ENDIF
+//=================================
+// заполнить список транспорта
+//=================================
+#declare trans_spis_
+ insert into My_transp_spis
+ select
+    '' //sortname :string[200],
+    ,Transp.NOMER //Transp_Nomer :string [20],
+    ,Transp.nrec //Transp_nrec       : Comp   , //Nrec ТС
+    ,Transp.CMARKA //Transp_CMARKA     : Comp   , //Nrec Марка Ам
+//20081217    ,Transp.Marka //Transp_Marka      : String , //Марка Ам
+    ,Marka.nm  //Transp.Marka Transp_Marka      : String , //Марка Ам
+    ,KatOs.InNum //KatOs_InNum       : String , //инв. номер
+    ,Tiptex.nrec //Tiptex_nrec       : comp , // tiptex.nrec
+    ,if(Tiptex1.Name='Автомобили' or tiptex.ctiptex=0,tiptex.nrec,tiptex1.nrec)  //     : String , //Тип Тс
+    ,if(Tiptex1.Name='Автомобили' or tiptex.ctiptex=0,tiptex.name,tiptex1.name)  //     : String , //Тип Тс
+    ,Katpodr.Nrec  //    : Comp   , //Nrec Подразделения
+    ,Katpodr.Name  //    : String , //Наименование Подразделения
+    ,transp.godv  // год выпуска
+    ,transp.datok //Datok :Date ,  //дата поступления
+    ,katos.datv  //DaTV :date    // дата выбытия 
+    ,Toplivo.name
+    ,VidGsm.Name
+    ,toplivo1.name
+    ,VidGsm1.Name
+    ,toplivo2.name
+    ,VidGsm2.Name
+    ,if(isvalidall(tnmorale),morale.name,'-') //KLASSDRIVE.NAME
+    from transp,katos,katpodr,tiptex , tiptex tiptex1 
+       ,toplivo, toplivo toplivo1, toplivo toplivo2
+       ,VIDGSM, vidgsm vidgsm1,vidgsm vidgsm2 
+       , marka
+       ,morale //KLASSDRIVE
+//       , toplivo toplivo3 , toplivo toplivo4
+#end
+#declare trans_spis_where_
+     Transp.Ctiptex  /== Tiptex.Nrec       And // 20081217  убрать жесткую подцепку ?
+     Transp.CKATOS    == KatOs.nrec        And
+     Transp.cpodr == katpodr.nrec    //эксплуатации, POSTNREC- баланса
+     and transp.cmarka == marka.nrec
+     and tiptex.ctiptex == tiptex1.nrec
+     and transp.ctoplivo == toplivo.nrec
+     and toplivo.cvidgsm == vidgsm.nrec
+     and transp.ctoplivo1 == toplivo1.nrec
+     and toplivo1.cvidgsm == vidgsm1.nrec
+     and transp.ctoplivo2 == toplivo2.nrec
+     and toplivo2.cvidgsm == vidgsm2.nrec
+     and transp.KLASSIF5 == morale.nrec
+#end
+Procedure GetTranspSpis ;
+{ delete all My_transp_spis ;
+  if (filtr_tp and 2)>0
+  {  
+     #trans_spis_
+     ,My_TranspSred
+     where ((
+      My_TranspSred.Transp_nrec == Transp.nrec and
+      #trans_spis_where_
+     )) ;
+  } 
+  else
+  if (filtr_tp and 1)>0
+  {  
+     #trans_spis_
+     ,My_Podrazdelenie
+     where ((
+      myorg_nrec == transp.corg  and
+      0 == transp.tiptc and
+//      My_Podrazdelenie.Katpodr_Nrec == Transp.cpodr and
+      My_Podrazdelenie.Katpodr_Nrec /== Transp.cpodr and //01.09.2008 by Childinov S.M.
+      #trans_spis_where_
+     )) ;
+  }
+  else
+  { 
+     #trans_spis_
+     where ((
+      #trans_spis_where_
+      and 0 == transp.tiptc (noindex)
+     ))
+     ; 
+  }
+  if (filtr_tp and 16)>0
+  {  delete all My_transp_spis where ((root == My_transp_spis.Transp_nrec and  My_transp_spis.tiptex_nrec ==My_TipTexVib.TipTex_nrec ))
+          and not isvalidall(tnMy_TipTexVib)
+  }  
+} //Procedure GetTranspSpis ;
+
+Function GetTranspSpis_one(wnrec :comp) :boolean  ;
+{ GetTranspSpis_one:=true ;
+ 
+  if getfirst My_transp_spis where (( wnrec == My_transp_spis.transp_nrec))<>0
+   #trans_spis_
+     where ((
+      wnrec == Transp.nrec and
+      #trans_spis_where_
+     )) ;
+} //Procedure GetTranspSpis_one ;
+#undef trans_spis_ 
+#undef trans_spis_where_  
+
+
+//===========================
+//проверим есть ли движение, и если нет отсечем те которые 
+//по датам не попадают
+//===========================
+Function TranspSpis_chk :boolean ;
+{ TranspSpis_chk :=false ;
+  inextvisual('Проверка данных')
+  mylogwrite(false,'Проверка данных TranspSpis_chk')
+  external _loop My_transp_spis
+  { if not nextvisual then exit ; 
+    if My_transp_spis.datok>dte or 
+      ( My_transp_spis.datv>date(0,0,0) and My_transp_spis.datv<dtb )
+     { if getfirst My_WorkTable where (( 0 ==My_WorkTable.pa
+         and My_transp_spis.transp_nrec == My_WorkTable.transp_nrec
+       ))<>0
+       { mylogwrite(false,'По машине с номером '+My_transp_spis.Transp_Nomer+ ' нет движения и она поступила или выбыла вне периодв'
+                  +', дата поступл.=' + datetostr(My_transp_spis.datok,'DD/MM/YYYY')
+                  +', дата выбития.=' + datetostr(My_transp_spis.datv,'DD/MM/YYYY')
+                  )
+         delete current My_transp_spis ;
+       }
+     }    
+  } //_loop My_transp_spis
+  TranspSpis_chk :=true ;
+} // Function TranspSpis_chk :boolean ;
+
+//==========================================
+// подгрузить нормы
+//==========================================
+Procedure GetNorma ;
+{    Delete All My_Norma;
+   Modifier Insert My_Norma
+    select 
+    NORMGSM.CMARKA    , //ссылка на марку ТС CMARKA
+    NORMGSM.CTRANSP   , //Сссылка на ТС
+    NORMGSM.LINNRM    , //PutLst.PROBEGV = 0 если внутри SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+    NORMGSM.KOFFNGSM3 , //PutLst.PROBEGV = 0 если вне SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+    NORMGSM.SPWRK     , //PutLst.PROBEGV = 1
+    NORMGSM.WRKDRV    , //PutLst.PROBEGV = 2
+    NORMGSM.DOP1      , //Часы простоя с включенным двигателем
+    NORMGSM.UNLOAD    ,  //Часы автономного оборудования
+    NORMGSM.SPOBR   ,//Часы спецоборудования
+    NORMGSM.DATBEG  ,
+    NORMGSM.DATEND
+    from normgsm
+    where ( NORMGSM.DATBEG=Date(0,0,0) or NORMGSM.DATBEG<=dte) and
+          ( NORMGSM.DATEND=Date(0,0,0) or NORMGSM.DATEND>=dtb) 
+   ;
+   if GetFirst Systran where (( 0 == Systran.WHATIS and  cogettune('MYORG') == NRECMYORG(noindex) )) =0 {} ;
+   DatSummer := Systran.Begsummer
+   DatWinter := Systran.Begwinter
+   if year(dtb)<>year(DatSummer)
+   { DatSummer:=date(day(DatSummer),month(DatSummer),year(dtb))
+     DatWinter:=date(day(DatWinter),month(DatWinter),year(dtb))
+   }
+} //Procedure GetNorma ;
+
+Procedure zaglushka;
+{ exit;
+  MyxlAddRangeNameVar('',0)
+}

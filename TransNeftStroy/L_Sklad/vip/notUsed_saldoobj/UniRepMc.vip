@@ -1,0 +1,605 @@
+
+// Type tacGroup = array [1..5] of comp;
+
+Const
+// сдвиг для saldoobj
+  SdvigSp    =  100;
+// размерности
+  MaxGroup    =  5;
+//  MaxLevSaldo =  9;
+  MaxLev      = 16;
+  MaxReserv   = 16;
+  MaxSum      =  5;
+// выбор из Pick
+  pickPodr    = 11;
+  pickMOL     =  8;
+  pickMC      =  7;
+  pickOrg     =  6;
+// временно! аналитика из ЦУ!
+  kauObj      =    40;
+  kauZatr     =    73;
+  kauPord     =     2;
+  kauFpco     =    22;
+  kauPer      =    21;
+//2010  kauSchet    = 30070;
+  kauType     = 5008;//2010
+  kauGod      = 30071;
+  kauAZ       = 20102;
+  kauElem     =  1454;
+End;
+!-------------------------------------------------------------------------------
+#include StrFunc.vih         //
+#include UniRepMc.vih
+#include GetKau.vih
+!-------------------------------------------------------------------------------
+Interface Snp_UniRepMc ' Универсальный отчет по ТМЦ' gray, escclose;
+  Show at (5,5,120,27)
+
+Var
+  s            : string;
+  sGroupName   : array [0..MaxLev] of string;
+  c            : comp;
+  w            : word;
+  i,
+  cntLevel     : integer;
+  l,
+  row, rowMax, col, colSum,
+  lMarker,
+  cntHead,
+  cntData,
+  cntGroup     : longint;
+!-------------------------------------------------------------------------------
+#include GetKau.var
+!-------------------------------------------------------------------------------
+File tmpFile;
+Create view vUniRepMc
+Var
+  DateBeg,
+  DateEnd       : date;
+  wPriceSaldo,
+  wOnlySum      : word;
+  sTextFrom, sTextTo,
+  sPodr,
+  sType,
+//  sSchet,
+  sMOL,
+  sMC,
+  sOrg          : string;
+
+  sporder_koef,
+  minKol,
+  minSum        : double
+  myAtrTip:comp;//pavel- атрибут типа дооценочного ордера
+  m_break :boolean;
+  begin_row:integer;
+  w_ind,wP,wM,wMa,wOrg:word;
+  _cMol,_cPOdr,_cMc:comp;
+  iStrFunc   : StringFunctions;     //
+  p_str:string;
+As select sporder.nrec
+  from
+    Pick,
+    KatPodr (ReadOnly),
+    KatOrg (ReadOnly),
+    KatMOL (ReadOnly),
+    KatMc (ReadOnly),
+    KatMc KatMcFlt (ReadOnly),//2010
+    TypeMc TypeMcGr (ReadOnly),
+    Fpco (ReadOnly),
+    AddSumTune (ReadOnly),
+    KatStroy (ReadOnly),
+    KatParty (ReadOnly),
+    FpPeriod (ReadOnly),
+    KaElem (ReadOnly),
+    SpKau (ReadOnly),
+    SklOrder (ReadOnly),
+    SklOrder SklOrderFlt (ReadOnly),
+    KatSopr (ReadOnly),
+    KatDoc (ReadOnly),
+    KatEd (ReadOnly),
+    SaldTune SaldTuneREP(ReadOnly),
+    SaldTune (ReadOnly),
+    SpOrder (ReadOnly),
+    SpecMtr (ReadOnly),
+    SaldoObj (ReadOnly),
+    SaldoRaz (ReadOnly),
+    SaldoMc (ReadOnly),
+    KitKau (ReadOnly),
+    KatKau (ReadOnly),
+    tmp_data,
+    tmp_data tmp_data1,
+    tmp_group,
+    tmp_group tmp_group1,
+    OborCfg,
+    OborCfgCol,
+    collist
+    ,Attrval  (ReadOnly)//pavel
+    ,Attrnam  (ReadOnly)//pavel
+    ,Pick Pick2
+    ,Pick Pick3
+    ,Pick PickZap
+  where ((KatMc.cEd            ==  KatEd.nRec
+     and KatMc.CTYPE           ==TypeMc.nrec//07/12/2009
+//??     and  KatEd.nRec           ==  katotped.ckated//pavel
+     //pavel>
+     and  1                    ==  katotped.prmc
+     and  katmc.nrec           ==  katotped.cMcUsl
+     and  1                    ==  katotped.pr
+     //<
+     and  0h                   << SpecMtr.cSaldTune(noindex)
+     and  coSpOrder            ==  SpecMtr.coTable
+     and  SpOrder.nRec         ==  SpecMtr.cSpec
+     and  SpecMtr.cSaldTune    ==  SaldTune.nRec
+     and  256                  ==  OborCfg.vRep
+     and  OborCfg.nRec         ==  OborCfgCol.cOborCfg
+     and SpOrder.cmc==KatMcFlt.nrec//2010-bistro
+  ))
+  ;
+!-------------------------------------------------------------------------------
+#include ShowKau.vpp
+!-------------------------------------------------------------------------------
+Function GetKolPick(parf : word) : word;
+{
+  GetKolPick := 0;
+  _loop Pick Where ((word(parf)==Pick.wList))
+    inc(GetKolPick);
+}
+!-------------------------------------------------------------------------------
+Procedure ProcPodr;
+{
+  if (GetFirst Pick  Where ((word(pickPodr)==Pick.wList and Pick.cRec==KatPodr.nRec))=tsok)
+    sPodr:=KatPodr.Name;
+  w:=GetKolPick(pickPodr);
+  sPodr:=if(w>1, 'множественный выбор: ('+string(w)+')', if(w=1, sPodr, 'по всем'));
+}
+!-------------------------------------------------------------------------------
+Procedure ProcMOL;
+{
+  if (GetFirst Pick  Where ((word(pickMOL)==Pick.wList and Pick.cRec==KatMOL.nRec))=tsok)
+    sMOL:=KatMOL.Name;
+  w:=GetKolPick(pickMOL);
+  sMOL:=if(w>1, 'множественный выбор: ('+string(w)+')', if(w=1, sMOL, 'по всем'));
+}
+!-------------------------------------------------------------------------------
+Procedure ProcMc;
+{
+  if (GetFirst Pick  Where ((word(pickMc)==Pick.wList and Pick.cRec==KatMc.nRec))=tsok)
+    sMc:=KatMc.Name;
+  w:=GetKolPick(pickMc);
+  sMc:=if(w>1, 'множественный выбор: ('+string(w)+')', if(w=1, sMc, 'по всем'));
+}
+!-------------------------------------------------------------------------------
+/*2010
+Procedure ProcSchet;
+{
+  lMarker:=InitMarker(iGetKau.GetMarkerName(kauSchet), 8, 100, 10);
+  w:=GetMarkerCount(lMarker);
+  c:=0;
+  if not GetMarker(lMarker, 0, c) c:=0;
+  if w=0 sSchet:='по всем';
+  if w=1 sSchet:=if(c=0,'без счета/субсчета',if(GetAnyKAU(cgAkSimple, kauSchet, c), GivenAnName(cgAnStrKod), ''));
+  if w>1 sSchet:='множественный выбор: '+string(w);
+  DoneMarker(lMarker, iGetKau.GetMarkerName(kauSchet));
+}
+*/
+Procedure ProcType;//2010
+{
+  lMarker:=InitMarker(iGetKau.GetMarkerName(kauType), 8, 100, 10);
+  w:=GetMarkerCount(lMarker);
+  c:=0;
+  if not GetMarker(lMarker, 0, c) c:=0;
+  if w=0 sType:='по всем';
+  if w=1 sType:=if(c=0,'без типа МЦ',if(GetAnyKAU(cgAkSimple, kauType, c), GivenAnName(cgAnCode), ''));
+  if w>1 sType:='множественный выбор: '+string(w);
+  DoneMarker(lMarker, iGetKau.GetMarkerName(kauType));
+}
+
+!-------------------------------------------------------------------------------
+Procedure ProcOrg;
+{
+  if GetFirst Pick  Where ((word(pickOrg)==Pick.wList))=tsOk
+  {
+    if GetFirst Katorg where ((Pick.cRec==KatOrg.nRec))=tsOk
+      sOrg:=KatOrg.Name;
+    else
+      if Pick.cRec=0
+        sOrg:='без контрагента';
+  }
+  w:=GetKolPick(pickOrg);
+  sOrg:=if(w>1, 'множественный выбор: ('+string(w)+')', if(w=1, sOrg, 'по всем'));
+}
+!-------------------------------------------------------------------------------
+Procedure Check_wTypeReport;
+{
+  If OborCfg.wFilter[0]=0 or OborCfg.wFilter[0]=6
+  {
+    sTextFrom:='Сальдо на';
+    sTextTo  :='';
+    ClearFieldState(#DateEnd,sfVisible);
+    ClearFieldState(#sOrg,sfVisible);
+  }
+  Else
+  {
+    sTextFrom:='За период с';
+    sTextTo  :='по';
+    SetFieldState(#DateEnd,sfVisible);
+    If OborCfg.wFilter[0]>3
+      ClearFieldState(#sOrg,sfVisible);
+    Else
+      SetFieldState(#sOrg,sfVisible);
+  }
+  ReReadRecord;
+}
+!-------------------------------------------------------------------------------
+#include UniRepMc.vpp
+!-------------------------------------------------------------------------------
+#include winCfgSelect.pan
+!-------------------------------------------------------------------------------
+Panel panUniRepMc
+  Table OborCfgCol;
+Screen scrUniRepMc ' Параметры универсального отчета по ТМЦ' ('', ,sci1Esc)
+  Show at (,,59,);
+  Bevel b1 { 1, 0,59,12, bsLowered, bsFrame};
+  Bevel b2 { 1,12,59,19, bsLowered, bsFrame};
+  Fields
+    OborCfg.nRep                        : Protect;
+    OborCfg.RepName                     : Protect, PickButton;
+    GetTypeReport(OborCfg.wFilter[0])   : Protect, Skip;
+    GetTypeSaldo(OborCfg.wFilter[1])    : Protect, Skip;
+    GetAllGroup                         : Protect, Skip;
+    If(OborCfg.wFilter[2]=0,'Нет','Да') : Protect, Skip;
+    minKol                              : [8.6], NoProtect;
+    minSum                              : [8.6], NoProtect;
+    sTextFrom                           : Protect, Skip;
+    DateBeg                             : ['DD/MM/YYYY'], NoProtect;
+    sTextTo                             : Protect, Skip;
+    DateEnd                             : ['DD/MM/YYYY'], NoProtect;
+    wOnlySum                            : NoProtect;
+    OborCfg.wFilter[11] ('Тип операций')
+      : [ list 0 'Складские',
+               1 'Производство'], NoProtect;
+    wPriceSaldo                         : NoProtect;
+
+    sPodr                               : Protect, PickButton;
+    sMOL                                : Protect, PickButton;
+    sMc                                 : Protect, PickButton;
+    sType                               : Protect, PickButton;
+    sOrg                                : Protect, PickButton;
+  Buttons
+    cmOk;
+    cmCancel;
+<<
+
+   Шаблон отчета.@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Включать в отчет .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Расчет сальдо    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Группировка  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Выводить код и наименование уровня в итогах .@@@@@@@@@
+   Минимальные значения: количество .@@@@@@ сумма .@@@@@@
+
+   .@@@@@@@@@@@@.@@@@@@@@@.@@@.@@@@@@@@@    [.] только итоги`
+
+   Тип операций .@@@@@@@@@@@@@@@  [.] Cредние цены из сальдо`
+
+   Фильтрация данных:
+   склад        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   МОЛ          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   матценность  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Тип МЦ       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   организация  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   Версия 4.00    <. Сформировать .> <. Выход .>
+
+>>
+end; //screen
+Browse scrCfgColList
+  Show at (60,,,)
+  Fields
+    OborCfgCol.nCol
+          #3'№'         ('№ п/п')                    :  [2], Protect;
+    OborCfgCol.Name
+          #3'Колонка'   ('Данные в колонке')         : [14], Protect;
+    Trim(OborCfgCol.NameGroup)+' '+Trim(OborCfgCol.SortName)
+          #3'Заголовок' ('Заголовок колонки')        : [18], Protect;
+    OborCfgCol.Format
+          #3'Формат'    ('Формат колонки для Excel') :  [6], Protect;
+    OborCfgCol.Attr[2]
+          #3'Шир'       ('Ширина колонки для Excel') :  [3], Protect;
+    If(OborCfgCol.Attr[3]=0,'','V')
+          #3'И'         ('Итог по колонке')          :  [1], Protect;
+end; //scrCfgColList
+end; //pan
+HandleEvent
+  cmInit:
+  {
+    delete all from collist;
+    insert collist set collist.n:='Склад.Код',                     collist.r:=1,  collist.t:=1, collist.i:=1;
+    insert collist set collist.n:='Склад.Наименование',            collist.r:=2,  collist.t:=2, collist.i:=1;
+    insert collist set collist.n:='МОЛ.Код',                       collist.r:=3,  collist.t:=1, collist.i:=2;
+    insert collist set collist.n:='МОЛ.Наименование',              collist.r:=4,  collist.t:=2, collist.i:=2;
+    insert collist set collist.n:='МЦ.Номнклатурный',              collist.r:=5,  collist.t:=1, collist.i:=3;
+    insert collist set collist.n:='МЦ.Наименование',               collist.r:=6,  collist.t:=2, collist.i:=3;
+    insert collist set collist.n:='Партия.Код',                    collist.r:=7,  collist.t:=1, collist.i:=4;
+    insert collist set collist.n:='Партия.Наименование',           collist.r:=8,  collist.t:=2, collist.i:=4;
+    insert collist set collist.n:='ЦУ1.Код',                collist.r:=9,  collist.t:=1, collist.i:=5;
+    insert collist set collist.n:='ЦУ1.Наименование',       collist.r:=10, collist.t:=2, collist.i:=5;
+    insert collist set collist.n:='ЦУ2.Код',         collist.r:=11, collist.t:=1, collist.i:=6;
+    insert collist set collist.n:='ЦУ2.Наименование',collist.r:=12, collist.t:=2, collist.i:=6;
+    insert collist set collist.n:='ЦУ3.Код',                collist.r:=13, collist.t:=1, collist.i:=7;
+    insert collist set collist.n:='ЦУ3.Наименование',       collist.r:=14, collist.t:=2, collist.i:=7;
+    insert collist set collist.n:='ЦУ4.Код',                collist.r:=15, collist.t:=1, collist.i:=8;
+    insert collist set collist.n:='ЦУ4.Наименование',       collist.r:=16, collist.t:=2, collist.i:=8;
+    insert collist set collist.n:='ЦУ5.Код',                  collist.r:=17, collist.t:=1, collist.i:=9;
+    insert collist set collist.n:='ЦУ5.Наименование',         collist.r:=18, collist.t:=2, collist.i:=9;
+    insert collist set collist.n:='ЦУ6.Код',                   collist.r:=19, collist.t:=1, collist.i:=10;
+    insert collist set collist.n:='ЦУ6.Наименование',          collist.r:=20, collist.t:=2, collist.i:=10;
+    insert collist set collist.n:='ЦУ7.Код',               collist.r:=21, collist.t:=1, collist.i:=11;
+    insert collist set collist.n:='ЦУ7.Наименование',      collist.r:=22, collist.t:=2, collist.i:=11;
+    insert collist set collist.n:='ЦУ8.Код',                collist.r:=23, collist.t:=1, collist.i:=12;
+    insert collist set collist.n:='ЦУ8.Наименование',       collist.r:=24, collist.t:=2, collist.i:=12;
+    insert collist set collist.n:='Складской док.Номер',           collist.r:=25, collist.t:=1, collist.i:=13;
+    insert collist set collist.n:='Складской док.Наименование',    collist.r:=26, collist.t:=2, collist.i:=13;
+    insert collist set collist.n:='Сопроводит.док.Номер',          collist.r:=27, collist.t:=1, collist.i:=14;
+    insert collist set collist.n:='Сопроводит.док.Наименование',   collist.r:=28, collist.t:=2, collist.i:=14;
+    insert collist set collist.n:='Поставщик.ИНН',                 collist.r:=29, collist.t:=1, collist.i:=15;
+    insert collist set collist.n:='Поставщик.Наименование',        collist.r:=30, collist.t:=2, collist.i:=15;
+    insert collist set collist.n:='Ед.измерения',                  collist.r:=40, collist.t:=3, collist.i:=1;
+    insert collist set collist.n:='Складской док.Дата',            collist.r:=41, collist.t:=3, collist.i:=2;
+    insert collist set collist.n:='Сопроводит.док.Дата',           collist.r:=42, collist.t:=3, collist.i:=3;
+    insert collist set collist.n:='Дата первого прихода',          collist.r:=43, collist.t:=3, collist.i:=4;
+    insert collist set collist.n:='Дата партии',                   collist.r:=44, collist.t:=3, collist.i:=5;
+    insert collist set collist.n:='Группа МЦ',                     collist.r:=45, collist.t:=3, collist.i:=6;
+    insert collist set collist.n:='ЦУ.Вид.Код',                    collist.r:=46, collist.t:=3, collist.i:=7;
+    insert collist set collist.n:='ЦУ.Вид.Наименование',           collist.r:=47, collist.t:=3, collist.i:=8;
+    insert collist set collist.n:='Сальдо вх(д).Кол-во',           collist.r:=51, collist.t:=4, collist.i:=1;
+    insert collist set collist.n:='Сальдо вх(д).Цена',             collist.r:=52, collist.t:=5, collist.i:=1;
+    insert collist set collist.n:='Сальдо вх(д).Сумма',            collist.r:=53, collist.t:=6, collist.i:=1;
+    // insert collist set collist.n:='Сальдо вх(т).Кол-во',           collist.r:=54, collist.t:=4, collist.i:=2;
+    // insert collist set collist.n:='Сальдо вх(т).Цена',             collist.r:=55, collist.t:=5, collist.i:=2;
+    // insert collist set collist.n:='Сальдо вх(т).Сумма',            collist.r:=56, collist.t:=6, collist.i:=2;
+    insert collist set collist.n:='Приход.Кол-во',                 collist.r:=57, collist.t:=4, collist.i:=3;
+    insert collist set collist.n:='Приход.Цена',                   collist.r:=58, collist.t:=5, collist.i:=3;
+    insert collist set collist.n:='Приход.Сумма',                  collist.r:=59, collist.t:=6, collist.i:=3;
+    insert collist set collist.n:='Расход.Кол-во',                 collist.r:=60, collist.t:=4, collist.i:=4;
+    insert collist set collist.n:='Расход.Цена',                   collist.r:=61, collist.t:=5, collist.i:=4;
+    insert collist set collist.n:='Расход.Сумма',                  collist.r:=62, collist.t:=6, collist.i:=4;
+    insert collist set collist.n:='Сальдо исх.Кол-во',             collist.r:=63, collist.t:=4, collist.i:=5;
+    insert collist set collist.n:='Сальдо исх.Цена',               collist.r:=64, collist.t:=5, collist.i:=5;
+    insert collist set collist.n:='Сальдо исх.Сумма',              collist.r:=65, collist.t:=6, collist.i:=5;
+
+//2010    insert collist set collist.n:='Тип МЦ',                     collist.r:=70, collist.t:=3, collist.i:=9;//07.12.2009
+//2010    insert collist set collist.n:='Тип МЦ.Код',                 collist.r:=71, collist.t:=3, collist.i:=10;//07.12.2009
+    insert collist set collist.n:='Тип МЦ.Код',                 collist.r:=71, collist.t:=1, collist.i:=16;//07.12.2009
+    insert collist set collist.n:='Тип МЦ',                     collist.r:=70, collist.t:=2, collist.i:=16;//07.12.2009
+    // с учетом MaxLev
+    sGroupName[0]:='нет';
+    sGroupName[1]:='подразделение/склад';
+    sGroupName[2]:='МОЛ';
+    sGroupName[3]:='номенклатура МЦ';
+    sGroupName[4]:='партия МЦ';
+    sGroupName[5]:='ЦУ1';
+    sGroupName[6]:='ЦУ2';
+    sGroupName[7]:='ЦУ3';
+    sGroupName[8]:='ЦУ4';
+    sGroupName[9]:='ЦУ5';
+    sGroupName[10]:='ЦУ6';
+    sGroupName[11]:='ЦУ7';
+    sGroupName[12]:='ЦУ8';
+    sGroupName[13]:='складской документ';
+    sGroupName[14]:='сопроводительный документ';
+    sGroupName[15]:='поставщик/получатель';
+    sGroupName[16]:='Тип МЦ';
+    minKol:=0.001;
+    minSum:=0.01;
+    wOnlySum:=0;
+    DateBeg:=Date(1,Month(Cur_Date),Year(Cur_Date));
+    DateEnd:=Date(Last_Day(Cur_Date),Month(Cur_Date),Year(Cur_Date));
+    ProcPodr; ProcMOL; ProcMc; ProcOrg; ProcType;
+    Check_wTypeReport;
+    ReReadRecord;
+    //pavel
+    myAtrTip:=0;
+    if ((getfirst ATTRNAM where ((coSklOrder==ATTRNAM.wTable
+       )) and locase(ATTRNAM.name)='тип ордера переоценки')=tsOK)
+    {
+       myAtrTip:=ATTRNAM.nrec;
+    }
+    else
+    {  message('Не найден атрибут "Тип ордера переоценки" к  ордерам!');}
+    //<
+  }
+  cmCheckField:
+  {
+  }
+  cmPick:
+  {
+    case CurField of
+      #sPodr:
+      {
+        if (RunInterface('Z_KatPodr::GetSomePodr')=cmCancel) Exit;
+        ProcPodr;
+      }
+      #sMOL:
+      {
+        if (RunInterface('L_MOL::GetSomeMol')=cmCancel) Exit;
+        ProcMOL;
+      }
+      #sMc:
+      {
+        if (RunInterface('L_MCU::GetSomeMc',comp(-12345))=cmCancel) Exit;
+        ProcMc;
+      }
+/*2010
+      #sSchet:
+      {
+        if(iGetKau.GetCodeKau(cgiPickMult, kauSchet, c)=cmCancel) Exit;
+        ProcSchet;
+      }
+*/
+      #sType:
+      {
+        if(iGetKau.GetCodeKau(cgiPickMult, kauType, c)=cmCancel) Exit;
+        ProcType;
+      }
+      #sOrg:
+      {
+        if (RunInterface('L_KatOrg::GetSomeKontr',False)=cmCancel) Exit;
+        ProcOrg;
+      }
+      #OborCfg.RepName,#OborCfg.nRep:
+      {
+        PushPos(#OborCfg);
+        If RunWindowModal(winCfgSelect)<>cmDefault
+          PopPos(#OborCfg);
+        Check_wTypeReport;
+      }
+    end;
+    ReReadRecord;
+  }
+  cmDelOnProtect:
+  {
+    case CurField of
+      #sPodr:
+      {
+        delete from Pick where ((word(pickPodr)==Pick.wList));
+        ProcPodr;
+      }
+      #sMOL:
+      {
+        delete from Pick where ((word(pickMOL)==Pick.wList));
+        ProcMOL;
+      }
+      #sMc:
+      {
+        delete from Pick where ((word(pickMc)==Pick.wList));
+        ProcMc;
+      }
+/*2010
+      #sSchet:
+      {
+        lMarker:=InitMarker(iGetKau.GetMarkerName(kauSchet), 8, 100, 10);
+        ClearMarker(lMarker);
+        DoneMarker(lMarker, iGetKau.GetMarkerName(kauSchet));
+        ProcSchet;
+      }
+*/
+      #sType:
+      {
+        lMarker:=InitMarker(iGetKau.GetMarkerName(kauType), 8, 100, 10);
+        ClearMarker(lMarker);
+        DoneMarker(lMarker, iGetKau.GetMarkerName(kauType));
+        ProcType;
+      }
+      #sOrg:
+      {
+        delete from Pick where ((word(pickOrg)==Pick.wList));
+        ProcOrg;
+      }
+    end;
+    ReReadRecord;
+  }
+  cmOk:
+  {
+    // проверка параметров
+    cntLevel:=0;
+    for (i:=6; i<=10; i:=i+1)
+      cntLevel:=cntLevel+if(OborCfg.wFilter[i]=0,0,1);
+    // очистка базы
+    delete all from tmp_data;
+    delete all from tmp_group;
+    cntHead:=0;
+    cntData:=0;
+    cntGroup:=0;
+
+///--------->>>>>>>>>>>>>pavel
+  w_ind:=0;
+  wP:=0;
+  wM:=0;
+  wMa:=0;
+  wOrg:=0;
+  _cMol:=0;
+  _cPOdr:=0;
+  _cMc:=0;
+
+  if getfirst Pick where ((pickPodr==Pick.wList ))=tsOk
+    wP:=1;
+
+// МОЛ
+  if getfirst Pick where ((pickMOL==Pick.wList))=tsOk
+    wM:=1;
+
+  if getfirst Pick where ((pickMc==Pick.wList))=tsOk
+    wMa:=1;
+
+  if getfirst Pick where ((pickOrg==Pick.wList))=tsOk
+    wOrg:=1;
+
+  if (wP=0 and wM=1 and wMa=0) then w_ind:=1;
+  if (wP=1 and wM=0 and wMa=0) then w_ind:=2;
+  if (wP=0 and wM=0 and wMa=1) then w_ind:=3;
+
+  if (wP=0 and wM=1 and wMa=1) then w_ind:=4;
+  if (wP=1 and wM=0 and wMa=1) then w_ind:=5;
+  if (wP=1 and wM=1 and wMa=1) then w_ind:=6;
+
+  if (wP=1 and wM=1 and wMa=0) then w_ind:=7;
+
+////--------<<<<<<<<<<<<
+    // формируем записи по сальдо (из сальдо)
+    //2010!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+
+    //
+    // НУ, ЭТО НЕ СРАЗУ! :)
+    // формируем записи по сальдо (из документов)
+    If OborCfg.wFilter[0]=0 or OborCfg.wFilter[0]=4 or OborCfg.wFilter[0]=5
+    {
+      if OborCfg.wFilter[1]=0
+      then CreateSaldoDoc(DateBeg)//По документам
+      else CreateSaldoSal(DateBeg)//По сальдо;
+    }
+    // формируем записи по движению (приход, расход)
+    If OborCfg.wFilter[0]=1 or OborCfg.wFilter[0]=3 or OborCfg.wFilter[0]=4 or OborCfg.wFilter[0]=5
+      CreateMovies(DateBeg,DateEnd,3);
+    If OborCfg.wFilter[0]=2 or OborCfg.wFilter[0]=3 or OborCfg.wFilter[0]=4 or OborCfg.wFilter[0]=5
+      CreateMovies(DateBeg,DateEnd,4);
+    // считаем исх.сальдо
+    CalcOutSaldo;
+    // формируем группировки и отчет
+    CreateReport;
+    // временный вывод в файл
+    /*
+    tmpFile.OpenFile('C:\view.txt',stCreate);
+    tmpFile.WriteLn('cGroup;c1;k1;n1;c2;k2;n2;c3;k3;n3;c4;k4;n4;c5;k5;n5;c6;k6;n6;c7;k7;n7;c8;k8;n8;c9;k9;n9;kol1;sum1;');
+    _loop tmp_data
+    {
+      tmpFile.WriteLine(tmp_data.cGroup+';'+tmp_data.isSaldo+';');
+      for (i:=10; i<=10; i:=i+1)
+        tmpFile.WriteLine(tmp_data.cValue[i]+';');
+      tmpFile.WriteLine('===;');
+      // for (i:=1; i<=5; i:=i+1)
+      //   tmpFile.WriteLine(tmp_data.sOther[i]+';');
+      for (i:=1; i<=MaxSum; i:=i+1)
+        tmpFile.WriteLine(tmp_data.Kol[i]+';'+tmp_data.Summa[i]+';');
+      tmpFile.WriteLn('');
+    }
+    tmpFile.WriteLn('=============================================================================================');
+    _loop tmp_group
+    {
+      tmpFile.WriteLine(tmp_group.nrec+';'+tmp_group.level+';'+tmp_group.cRec+';'+tmp_group.name+';');
+      for (i:=1; i<=MaxGroup; i:=i+1)
+        tmpFile.WriteLine(tmp_group.cValue[i]+';');
+      //for (i:=1; i<=MaxSum; i:=i+1)
+      //  tmpFile.WriteLine(tmp_group.Summa[i]+';');
+      tmpFile.WriteLn('');
+    }
+    tmpFile.Close;
+    ProcessText('C:\view.txt',vfEscable or vfMacroSize,'');
+    */
+    // CloseInterface(cmOk);
+  }
+  cmCancel:
+  {
+    CloseInterface(-1);
+  }
+end; // handle
+end. // interface

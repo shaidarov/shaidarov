@@ -1,0 +1,325 @@
+
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_SFO_Vozvrat implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_SFO_Vozvrat;
+var
+  CurSoprDoc : comp  ;
+  CurTipDoc  : word  ;
+  Par_Rasch  : word  ;
+
+create view
+as select * from
+  MBPin
+, mbpin mbpin2
+, perssfo
+, mbpout
+, attrnam
+, attrval
+, perssfo perssfo2
+, perscard
+, lschet
+, persons
+;
+
+
+function GetInfo : string;
+{ GetInfo := 'Анализ возврата СФО';
+}
+
+Window wParam 'Задайте параметры идентификатора' (,,) EscClose;
+  Show at (2,12,75,20);
+    Screen scParam (,,);
+
+      Fields
+        Par_Rasch ('Выберите требуемый результат расчёта идентификатора',,sci1EnEsc) :
+            [LIST 0  'Признак возврата СпецОдежды из личной карточки учёта',
+                  1  'Срок носки СпецОдежды из личной карточки',
+                  2  'Сумма по возврату СпецОдежды из личной карточки учёта',
+                  3  'Устанавливает значение атрибута "Признак счета" в "Забалансовый"',
+                  4  'Удаляет значение атрибут "Признак счета"'], protect;
+
+<<
+                       `Основной параметр результата`
+
+      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+
+End;
+
+HandleEvent // window
+
+ cmDefault : CloseWindow(wParam);
+
+End;  // HandleEvent
+End;  // window
+
+
+function ParamMaster : string;
+{  RunWindow(wParam);
+   PackFields;
+   case Par_Rasch of
+     0  : ParamMaster := '[Рез:SFOvrt]'   ;
+     1  : ParamMaster := '[Рез:SFOvrtSr]' ;
+     2  : ParamMaster := '[Рез:SFOvrtSum]' ;
+     3  : ParamMaster := '[Рез:Zabal]' ;
+     4  : ParamMaster := '[Рез:DelZabal]' ;
+
+   end;
+}
+
+Procedure ParamParser(hTxo : longint);
+{
+   var i : Longint;
+
+   for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   {  case TxoParamName(hTxo,i) of
+        'РЕЗ': {
+                 case TxoParamValue(hTxo,i) of
+                    'SFOVRT'    : Par_Rasch := 0;
+                    'SFOVRTSR'  : Par_Rasch := 1;
+                    'SFOVRTSUM' : Par_Rasch := 2;
+                    'ZABAL'     : Par_Rasch := 3;
+                    'DELZABAL'  : Par_Rasch := 4;
+                 end;
+               }
+      end;
+   }
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+  CurSoprDoc := buf.cSoprDoc;
+  CurTipDoc  := buf.TiDkGal;
+  ParamParser(hTxo);
+
+  case CurTipDoc of
+   12 : {    // Приход, ввод в эксплуатацию
+
+         if (GetFirst PersSFO Where (( CurSoprDoc          == MBPin.nRec
+                                    and MBPin.nRec          == PersSFO.cDopRec
+                                   and word(1)             == PersSFO.Status
+                                    )) =  tsOK)
+         {
+
+
+          TxoBodyClear    (hTxo);
+          Case Par_Rasch of
+           0 : {  TxoBodySetSum   (hTxo, 1, 0, 1); }
+           1 : {  TxoBodySetSum   (hTxo, PersSFO.Srok, 0, PersSFO.Srok);  }
+           2 : {  TxoBodySetSum   (hTxo, MBPin.Price * MBPin.KolDoc - MBPin.SummaIsnP - MBPin.SummaIsnN, 0, MBPin.KolDoc); }
+          end;
+          if getfirst perssfo2 where (( perssfo.cperssfo   == perssfo2.nrec )) = tsok
+          if getfirst mbpin2   where (( PERSSFO2.CCURMBPIN == mbpin2.nrec   )) = tsok
+          if getfirst perscard where (( mbpin2.cpers       == perscard.nrec )) = tsok
+          if getfirst lschet   where (( perscard.clschet   == lschet.nrec   )) = tsok
+          if getfirst persons  where (( lschet.tperson     == persons.nrec  )) = tsok
+           {
+            TxoHeadAddKau(hTxo, wflkau_mode1, 3, persons.nrec);
+           }
+
+
+                  TxoBodyInsert   (hTxo);
+         }
+         else
+          {
+
+           if GetFirst MBPin2  Where ((
+                                       CurSoprDoc          == MBPin2.nRec
+                                     )) = tsok
+            {
+            if getfirst mbpout where ((
+                                       MBPin2.CMBPOUT    == mbpout.nrec
+                                      )) = tsok
+             {
+             if getfirst mbpin where ((
+                                       mbpout.cmbpin     == mbpin.nrec
+                                      )) = tsok
+              {
+               if getfirst perssfo where ((
+                                            MBPin.nRec        == PersSFO.cDopRec
+                                           and word(1)        == PersSFO.Status
+                                    )) =  tsOK
+                {
+                 TxoBodyClear    (hTxo);
+                 Case Par_Rasch of
+                  0 : {  TxoBodySetSum   (hTxo, 2, 0, 2); }
+                  1 : {  TxoBodySetSum   (hTxo, PersSFO.Srok, 0, PersSFO.Srok);  }
+                  2 : {  TxoBodySetSum   (hTxo, MBPin2.Price * MBPin2.KolDoc - MBPin2.SummaIsnP - MBPin2.SummaIsnN, 0, MBPin2.KolDoc); }
+                 end;
+                TxoBodyInsert   (hTxo);
+                }
+              }
+             }
+             }
+            }
+
+                if Par_Rasch = 3
+                 {
+                       if getfirst mbpin where ((CurSoprDoc    == MBPin.nRec )) = tsok
+                        {
+                       if getfirst attrnam where ((
+                                                       word(2001)       == AttrNam.wTable
+                                                  and  'Признак счета'  == AttrNam.Name
+                                                 ))= tsok
+                         {
+                         if getfirst attrval where ((
+                                                         word(2001)       == AttrVal.wTable
+                                                    and  mbpin.nrec       == AttrVal.cRec
+                                                    and  AttrNam.Nrec     == AttrVal.cAttrNam
+                                                    ))= tsok
+                          {
+                           if attrval.vcomp <> 0002000000000AD8h
+                            {
+                             AttrVal.Vcomp     := 0002000000000AD8h;
+                             Attrval.vstring   := 'Забалансовый';
+                             if update current Attrval = tsok {}
+                            }
+                          }
+                          else
+                           {
+                            ClearBuffer(#attrval);
+                            AttrVal.wTable    := word(2001);
+                            AttrVal.cRec      := mbpin.nrec
+                            AttrVal.cAttrNam  := attrnam.nrec;
+                            AttrVal.Vcomp     := 0002000000000AD8h;
+                            attrval.vstring   := 'Забалансовый';
+                            if insert current attrval = tsok {}
+                           }
+                         }
+                        }
+                 TxoBodyClear  (hTxo);
+                 TxoBodySetSum (hTxo, MBPin.Price * MBPin.KolDoc - MBPin.SummaIsnP - MBPin.SummaIsnN, 0, MBPin.KolDoc);
+                 TxoBodyInsert (hTxo);
+                 }
+                 if Par_Rasch = 4
+                  {
+                       if getfirst mbpin where ((CurSoprDoc    == MBPin.nRec )) = tsok
+                        {
+                       if getfirst attrnam where ((
+                                                       word(2001)       == AttrNam.wTable
+                                                  and  'Признак счета'  == AttrNam.Name
+                                                 ))= tsok
+                         {
+                         if getfirst attrval where ((
+                                                         word(2001)       == AttrVal.wTable
+                                                    and  mbpin.nrec       == AttrVal.cRec
+                                                    and  AttrNam.Nrec     == AttrVal.cAttrNam
+                                                    ))= tsok
+                          {
+                             if delete current Attrval = tsok {}
+                          }
+                         }
+
+                        }
+                 TxoBodyClear  (hTxo);
+                 TxoBodySetSum (hTxo, MBPin.Price * MBPin.KolDoc - MBPin.SummaIsnP - MBPin.SummaIsnN, 0, MBPin.KolDoc);
+                 TxoBodyInsert (hTxo);
+                   }
+        }
+
+   19 : {    // Списание спецоснастки
+         if (GetFirst PersSFO Where (( CurSoprDoc          == MBPout.nRec
+                                   and MBPout.nRec         == PersSFO.cMBPout  (noindex)
+                                   and word(1)             == PersSFO.Status
+                                    )) = tsOK)
+         {
+           TxoBodyClear    (hTxo);
+           TxoBodySetSum   (hTxo, 1, 0, 1);               // просто единица, чтобы знать, что это возврат в списании
+           TxoBodyInsert   (hTxo);
+         }
+        }
+
+   20 : {    // внутреннее перемещение спецоснастки
+           if (GetFirst PersSFO Where (( CurSoprDoc          == MBPin2.nRec
+                                       and MBPin2.CMBPOUT    == mbpout.nrec
+                                       and mbpout.cmbpin     == mbpin.nrec
+                                       and MBPin.nRec        == PersSFO.cDopRec
+                                       and word(1)           == PersSFO.Status
+                                    )) =  tsOK)
+            {
+
+             TxoBodyClear    (hTxo);
+             Case Par_Rasch of
+              0 : {  TxoBodySetSum   (hTxo, 2, 0, 2); }
+              1 : {  TxoBodySetSum   (hTxo, PersSFO.Srok, 0, PersSFO.Srok);  }
+              2 : {  TxoBodySetSum   (hTxo, MBPin2.Price * MBPin2.KolDoc - MBPin2.SummaIsnP - MBPin2.SummaIsnN, 0, MBPin2.KolDoc); }
+             end;
+             TxoBodyInsert   (hTxo);
+            }
+         }
+
+   704 : {    // оприходование излишка
+                if Par_Rasch = 3
+                 {
+                       if getfirst mbpin where ((CurSoprDoc    == MBPin.nRec )) = tsok
+                        {
+                       if getfirst attrnam where ((
+                                                       word(2001)       == AttrNam.wTable
+                                                  and  'Признак счета'  == AttrNam.Name
+                                                 ))= tsok
+                         {
+                         if getfirst attrval where ((
+                                                         word(2001)       == AttrVal.wTable
+                                                    and  mbpin.nrec       == AttrVal.cRec
+                                                    and  AttrNam.Nrec     == AttrVal.cAttrNam
+                                                    ))= tsok
+                          {
+                           if attrval.vcomp <> 0002000000000AD8h
+                            {
+                             AttrVal.Vcomp     := 0002000000000AD8h;
+                             Attrval.vstring   := 'Забалансовый';
+                             if update current Attrval = tsok {}
+                            }
+                          }
+                          else
+                           {
+                            ClearBuffer(#attrval);
+                            AttrVal.wTable    := word(2001);
+                            AttrVal.cRec      := mbpin.nrec
+                            AttrVal.cAttrNam  := attrnam.nrec;
+                            AttrVal.Vcomp     := 0002000000000AD8h;
+                            attrval.vstring   := 'Забалансовый';
+                            if insert current attrval = tsok {}
+                           }
+                         }
+                        }
+                 TxoBodyClear  (hTxo);
+                 TxoBodySetSum (hTxo, MBPin.Price * MBPin.KolDoc - MBPin.SummaIsnP - MBPin.SummaIsnN, 0, MBPin.KolDoc);
+                 TxoBodyInsert (hTxo);
+                 }
+                 if Par_Rasch = 4
+                  {
+                       if getfirst mbpin where ((CurSoprDoc    == MBPin.nRec )) = tsok
+                        {
+                       if getfirst attrnam where ((
+                                                       word(2001)       == AttrNam.wTable
+                                                  and  'Признак счета'  == AttrNam.Name
+                                                 ))= tsok
+                         {
+                         if getfirst attrval where ((
+                                                         word(2001)       == AttrVal.wTable
+                                                    and  mbpin.nrec       == AttrVal.cRec
+                                                    and  AttrNam.Nrec     == AttrVal.cAttrNam
+                                                    ))= tsok
+                          {
+                             if delete current Attrval = tsok {}
+                          }
+                         }
+
+                        }
+                 TxoBodyClear  (hTxo);
+                 TxoBodySetSum (hTxo, MBPin.Price * MBPin.KolDoc - MBPin.SummaIsnP - MBPin.SummaIsnN, 0, MBPin.KolDoc);
+                 TxoBodyInsert (hTxo);
+                   }
+         }
+  end;
+
+}
+
+handleevent
+end;
+
+end.

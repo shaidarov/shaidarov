@@ -1,0 +1,46 @@
+#doc
+  Проставляем партию по ЦУ
+#end
+
+    procedure UpDate_Party; {
+
+         _cPartyAlt    := 0;
+         PartyNotDavMC := false;
+
+         if GetFirst SpecMTR_Alt where (( word(1110)      == SpecMTR_Alt.coTable
+                                      and SpSopr_Alt.nRec == SpecMTR_Alt.cSpec
+                                        )) = tsOK {
+
+            if (GetFirst KatStroy_Alt where (( SpecMTR_Alt.cObj == KatStroy_Alt.nRec )) <> tsOK) {Continue;}
+
+            if (GetFirst KatParty_Alt where (( SpSopr_Alt.cParty == KatParty_Alt.nRec )) = tsOK) {
+              PartyNotDavMC := SubStr(KatParty_Alt.Kod,1,3) = 'ОбС';
+              }
+
+               if ( (SpSopr_Alt.cParty = 0) or (PartyNotDavMC) )
+                {
+                    _cPartyAlt := piExtAttr.coGetAttr(2101, KatStroy_Alt.nRec, 'Партии МЦ'); // Атрибут "Партии МЦ" к Объектам строительства
+
+                    if  ( _cPartyAlt = 0 ) {
+                           ClearBuffer(#KatParty_Alt);
+                           KatParty_Alt.Kod            := 'ОбС ' + KatStroy_Alt.Code;
+                           KatParty_Alt.Name           := KatStroy_Alt.Code + ' ' + KatStroy_Alt.Name;
+    //                       KatParty_Alt.DGODN          := date(31,12,2014);
+                           KatParty_Alt.CreateDateTime := _CurDateTime;
+    //                       KatParty_Alt.GoDenDateTime  := _DateTime(date(31,12,2014), cur_time);
+                           if (insert current KatParty_Alt) <> tsOK {Continue;};
+
+            piExtAttr.coSetAttrID( coKatStroy
+                                 , KatStroy_Alt.nRec
+                                 , piExtAttr.CreateAttrComp(coKatStroy, 'Партии МЦ', cgAttrType_Comp, cgKatKau_Table, word(10) ) //  cgAttrType_Comp = 5;  cgKatKau_Table = 0;      // системные
+                                 , KatParty_Alt.nRec
+                                 , KatParty_Alt.Name);
+
+                      _cPartyAlt := KatParty_Alt.nRec;
+                    }
+
+                    SpSopr_Alt.cParty := _cPartyAlt;
+                    UpDate current SpSopr_Alt;
+               }
+         }
+    } //     procedure UpDate_Party;

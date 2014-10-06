@@ -1,0 +1,434 @@
+#include NalFunc.vih
+#include xlReport.vih          // Формирование Excel-отчетов
+
+// ==============================  Получение имени организации-налогоплательщика и ее ИНН =======================================
+Interface UserRep_NalP_27 'Р 2.7 Учет финансового результата от реализации прав на землю';
+create view
+var
+  dFrom
+ ,dTo: date;
+  iNalFunc: NalFunc;
+  xlRep        : XLSRepBuilder;    // объект формирования Excel-отчетов
+
+//var
+//  OrgName, INN:string;
+as select
+*
+//,oborotDeb.SUm (fieldName SumD)
+from
+  katos
+ ,oborot
+ //, (select Sum(oborot.SumOb) (fieldName 'SumObDeb')  from oborot where (('N997' == oborot.scheto and KatOS.Nrec ==oborot.kauos[1]
+ //                            and dFrom <<= oborot.datob and dTo >>= oborot.datob
+ //                            and '9' == oborot.subossch(NoIndex) )) )  oborotDeb
+
+where
+((
+
+  15 == katos.tidk
+  and PickBuh.PickRec == katos.cCo(NoIndex)
+  and VidNorma.Nrec == Katos.cVid(NoIndex)
+  and dFrom <<= KatOS.DatV (NoIndex)
+  and dTo >>= KatOS.DatV (NoIndex)
+))
+order by katos.isLeaf, katos.innum
+;
+!-------------------------------------------------------------------------------------------------------------
+!Сумма не возмещенных затрат, связанных с приобретением прав на земельные участки
+!Сальдо по 997.9
+!KatOSNrec - Nrec карточки
+!dFrom - дата ввода
+!dTo - дата выбытия
+!-------------------------------------------------------------------------------------------------------------
+Function GetSumRash(KatOSNrec: comp; dBeg, dEnd: date): double;
+var SumD, SumK: double;
+{
+  Result := 0;//oborotDeb.SumObDeb;
+  SumK := 0;
+  SumD := 0;
+  //Рассчитаем сумму по дебету
+ _loop oborot where (('N997' == oborot.scheto and KatOSNrec ==oborot.kauos[1]
+                   and dBeg <<= oborot.datob and dEnd >>= oborot.datob
+                   and '9' == oborot.subossch(NoIndex) ))
+
+  {
+            SumD += Oborot.SumOb;
+  }
+  //И вычтем по кредиту
+   _loop oborot where (('N997' == oborot.schetK and KatOSNrec ==oborot.kauKs[1]
+                   and dBeg <<= oborot.datob and dEnd >>= oborot.datob
+                   and '9' == oborot.subschK(NoIndex) ))
+
+  {
+            SumK += Oborot.SumOb;
+  }
+  Result := SumD - SumK;
+}
+/*
+procedure PrintReport;
+var
+  CurIndex
+ ,NPP, i, j
+ ,fN, lN: word;
+  Itogo6, sum6 :double;
+  numCol: word;
+  OrgName, OrgInn: string;
+  SchetK: string;
+  KatStroyNrec: tNrec;
+  formula : string;
+
+
+{
+  numCol := 8;
+
+  iNalFunc.GetOrgInfo(OrgName, OrgInn);
+  xlCreateExcel('report_P27.xls',true);
+
+ // xlCreateExcelWithTemplate(TranslatePath('%ClientStartPath%') + 'XLS\report_P27.xls',true);
+ // if (xlIsExcelValid)
+//      xlSetActiveWorkBookByName('ub.xls');
+ // xlSetActiveSheetByName('data');
+  xlCreateMatrix(5000, 10);
+
+  xlSetColumnWidth(4,1,1,1,1);
+  xlSetColumnWidth(20,1,2,1,2);
+  xlSetColumnWidth(25,1,3,1,3);
+  xlSetColumnWidth(15,1,4,1,8);
+  xlSetColumnWidth(0,1,9,1,9);
+  CurIndex:=1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'Р 2.7');
+  CurIndex ++;
+  xlSetFontStyle(1,CurIndex,1,CurIndex + 3,numCol);
+  xlSetFontSize(8, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Наименование организации-налогоплательщика: '+ OrgName);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex, 1,'ИНН налогоплательщика: ' + OrgInn);
+  CurIndex ++;
+  xlSTWriteToMatrix(CurIndex,1,'Дата составления: ' +  dateToStr(Cur_Date,'DD Mon YYYY г.'));
+  CurIndex ++;
+
+
+  xlMergeCells(CurIndex, 1, CurIndex, numCol);
+  xlSetFontStyle(1, CurIndex, 1, CurIndex + 4, numCol);
+  xlAlignCellsEx(3, 2, CurIndex, 1, CurIndex + 4, numCol);
+  xlSetFontSize(12, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Регистр № Р 2.7 Учет финансового результата от реализации прав на землю');
+  CurIndex += 2;
+
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  //xlAlignCellsEx(2,2,CurIndex,1,CurIndex, numCol);
+  //xlSetFontSize(12,1,1,1,1);
+  xlSTWriteToMatrix(CurIndex, 1, 'за период с '+dateToStr(dFrom,'DD/MM/YYYY')+' по '+dateToStr(dTo,'DD/MM/YYYY'));
+  CurIndex ++;
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex, 1, 'отчетный (налоговый) период');
+  CurIndex ++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+  xlSTWriteToMatrix(CurIndex,2,'Инвентарный номер');
+  xlSTWriteToMatrix(CurIndex,3,'Наименование объекта прав');
+  xlSTWriteToMatrix(CurIndex,4,'Дата реализации ');
+  xlSTWriteToMatrix(CurIndex,5,'Доход от реализации без НДС, руб.');
+  xlSTWriteToMatrix(CurIndex,6,'Сумма не возмещенных затрат, связанных с приобретением прав на земельные участки');
+  xlSTWriteToMatrix(CurIndex,7,'Прибыль от реализации, руб.');
+  xlSTWriteToMatrix(CurIndex,8,'Убыток от реализации, признаваемый в специальном порядке,руб.');
+
+  CurIndex++;
+
+   xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+   for(i := 0; i <= numCol; i++)
+    xlSTWriteToMatrix(CurIndex, i, string(i));
+
+  CurIndex++;
+
+  Npp:=1;
+  fN := CurIndex;
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Формирование отчета', 0);
+  _loop PickBuh where ((cgKau_FpCO == PickBuh.KodTable ))
+  {
+    _loop VidNorma where ('06' = VidNorma.Kod  or '0601' = VidNorma.Kod)
+    _loop KatOS
+    {
+      if not NextVisual
+        break;
+     // if not iNalFunc.CheckCO(KatOs.cCO)
+     //   continue;
+
+     // PushPos(#KatOS);
+      //Summ1 := GetSumNMA1(KatOS.Nrec, dFrom, dTo);
+     // if (SumNdeEq(Summ1, 0))
+     //   continue;
+     // Summ2 := GetSumNMA2(KatOS.Nrec, dFrom, dTo);
+     // Summ3 := GetSumNMA3(KatOS.Nrec, dFrom, dTo);
+     // Summ4 := GetSumNMA4(KatOS.Nrec, dFrom, dTo);
+     // gr8:=  Summ1 - Summ2 - Summ3 - Summ4;
+      //PopPos(#KatOS);
+      sum6 :=  GetSumRash(KatOS.NRec, KatOS.DateK, KatOS.DatV);
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,1);
+      xlSetNumberFormat('# ##0,00', CurIndex, 5, CurIndex, 9);
+      xlSTWriteToMatrix(CurIndex,1, Npp);
+      xlSTWriteToMatrix(CurIndex, 2, KatOS.innum);
+      xlSTWriteToMatrix(CurIndex, 3, KatOS.nameos);
+      iNalFunc.WriteDate(CurIndex, 4, KatOS.DatV);//DoubleToStr(Summ1, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 5, 0);//DoubleToStr(Summ2, '[|-]366 666 666 666,88'));
+      iNalFunc.WriteSum(CurIndex, 6, sum6);//DoubleToStr(Summ3, '[|-]366 666 666 666,88'));
+     // xlSTWriteToMatrix(CurIndex, 7, '');//DoubleToStr(Summ4, '[|-]366 666 666 666,88'));
+     // xlSTWriteToMatrix(CurIndex, 8, '');//DoubleToStr(gr8, '[|-]366 666 666 666,88'));
+
+
+     // xlSetCellFormula('=СУММЕСЛИ(I'+CurIndex+';"<0";I'+CurIndex+')', CurIndex, 8, CurIndex, 8);
+     // xlSTWriteToMatrix(CurIndex, 8, '=СУММЕСЛИ(I'+CurIndex+';"<0";I'+CurIndex+')');
+
+
+      itogo6 += sum6;
+      Npp++;
+      CurIndex++;
+    }
+  }
+  lN := CurIndex-1;
+  for(j := fN; j <= lN; j++)
+  {
+    var flag: boolean;
+  // formula :=  '=E' + j + '-F' + j;
+//   flag:= xlSetCellFormula(formula, j, 9, j, 9);
+ //  Message('1-' + flag);
+ //   xlSTWriteToMatrix(j, 9, formula);
+
+   //  formula := '=СУММЕСЛИ(I'+j+';">0";I'+j+':I'+j+')';  // СУММЕСЛИ
+ //   flag:=xlSetCellFormula(formula, j, 10, j, 10);
+ //    Message(formula + ': ' + flag);
+ //    formula := '=СУММЕСЛИ(I'+j+':I'+j+';">0";I'+j+':I'+j+')';  // СУММЕСЛИ
+ //   flag:=xlSTWriteToMatrix(j, 10, formula);
+   //  Message(formula + ': ' + flag);
+
+  }
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlMergeCells(CurIndex,1,CurIndex,2);
+  xlSTWriteToMatrix(CurIndex,1,'ИТОГО:');
+  iNalFunc.WriteSum(CurIndex, 6, itogo6);// DoubleToStr(itogo6, '[|-]366 666 666 666,88'));
+
+  xlWrapText(9,1,CurIndex,numCol);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32, 3,0,0,9,1,CurIndex,numCol);
+
+  CurIndex:=CurIndex+2;
+  xlMergeCells(CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+  xlMergeCells(CurIndex, 1, CurIndex, numCol);
+  xlAlignCellsEx(2, 2, CurIndex, 1, CurIndex, numCol);
+  CurIndex++;;
+  xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+  CurIndex++;
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  StopVisual('',0);
+
+} */
+procedure PrintReport1;
+var
+  CurIndex
+ ,NPP, i, j
+ ,fN, lN: word;
+  Itogo6, sum6 :double;
+  numCol: word;
+  OrgName, OrgInn: string;
+  SchetK: string;
+  KatStroyNrec: tNrec;
+  formula : string;
+
+   sXLSFileName, sXLTFileName: string;
+   pError : boolean;
+   isFilter : word;
+   RepID: string;
+{
+  pError := false;
+  iNalFunc.GetOrgInfo(OrgName, OrgInn);
+  RepID := 'report_P_27';
+  sXLTFileName := TranslatePath('%ClientStartPath%') + 'XLS\' + RepID + '.xlt';
+ // StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Выгрузка данных отчета...', 0);
+
+!  Set sXLSFileName := xlRep.CreateXLT('d:\sXLT', True);
+  sXLSFileName := xlRep.CreateReport(sXLTFileName, True);
+
+  xlRep.CreateVar(sXLSFileName);
+  xlRep.SetStringVar('Период', 'c ' + DateToStr(dFrom, 'DD/MM/YYYY')
+                           + ' по ' + DateToStr(dTo, 'DD/MM/YYYY'));
+  xlRep.SetStringVar('OrgName', OrgName);
+  xlRep.SetStringVar('OrgInn', OrgInn);
+  xlRep.SetStringVar('Cur_Date',  dateToStr(Cur_Date,'DD Mon YYYY г.'));
+
+  xlRep.PublishVar;
+  xlRep.CreateTbls(sXLSFileName);
+
+
+
+  xlRep.CreateTbl('MainTable');
+  xlRep.CreateTblFld('main_Npp');
+  xlRep.CreateTblFld('main_innum');
+  xlRep.CreateTblFld('main_name');
+  xlRep.CreateTblFld('main_DatV');
+ // xlRep.CreateTblFld('main_sum5');
+  xlRep.CreateTblFld('main_sum6');
+//  xlRep.CreateTblFld('main_sum7');
+ // xlRep.CreateTblFld('main_sum8');
+ // xlRep.CreateTblFld('main_sum9');
+  xlRep.ClearTblBuffer;
+
+  Npp:=1;
+  fN := CurIndex;
+ StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Выгрузка данных отчета', 0);
+  _loop PickBuh where ((cgKau_FpCO == PickBuh.KodTable ))
+  {
+    _loop VidNorma where ('06' = VidNorma.Kod  or '0601' = VidNorma.Kod)
+    _loop KatOS
+    {
+      if not NextVisual
+        break;
+      sum6 :=  GetSumRash(KatOS.NRec, KatOS.DateK, KatOS.DatV);
+
+      xlRep.SetTblStringFldValue('main_Npp', Npp);
+      xlRep.SetTblStringFldValue('main_innum', KatOS.innum);
+      xlRep.SetTblStringFldValue('main_name', KatOS.nameos);
+      xlRep.SetTblStringFldValue('main_DatV', DateToStr(KatOS.DatV, 'DD/MM/YYYY'));
+      //xlRep.SetTblStringFldValue('main_sum5', 0);
+      xlRep.SetTblStringFldValue('main_sum6', sum6);
+      //xlRep.SetTblStringFldValue('main_sum7', '=СУММЕСЛИ(GalRepTblFld_main_sum9;">0";GalRepTblFld_main_sum9)');
+     // xlRep.SetTblStringFldValue('main_sum8', '=СУММЕСЛИ(GalRepTblFld_main_sum9;"<0";GalRepTblFld_main_sum9)');
+    //  xlRep.SetTblStringFldValue('main_sum9', '=GalRepTblFld_main_sum5-GalRepTblFld_main_sum6');
+
+      xlRep.InsTblRow;
+      itogo6 += sum6;
+      Npp++;
+      CurIndex++;
+    }
+  }
+/*  xlRep.SetTblStringFldValue('main_Npp', '');
+  xlRep.SetTblStringFldValue('main_innum', '');
+  xlRep.SetTblStringFldValue('main_name', '');
+  xlRep.SetTblStringFldValue('main_DatV', '');
+  xlRep.SetTblStringFldValue('main_sum6', '');
+  xlRep.InsTblRow;
+  xlRep.SetTblStringFldValue('main_Npp', 'ИТОГО');
+  xlRep.SetTblNumberFldValue('main_sum6', itogo6);     */
+//  xlRep.InsTblRow;
+  xlRep.PublishTbl('MainTable');
+  StopVisual('',0);
+
+  if NOT (pError)
+  {
+    StartNewVisual(vtRotateVisual, vfTimer,'Формирование отчета...', 1);
+    xlRep.LoadReport(sXLSFileName);
+    StopVisual('',0);
+  }
+  xlRep.DisConnectExcel;
+
+}
+procedure Run;
+{
+//  MtClear(#TabVeksl, mfNormal);
+//  FillTable;
+  PrintReport1;
+}
+HandleEvent
+cmInit:
+{
+   delete all PickBuh;
+  if iNalFunc.RunTune(dFrom, dTo)
+    Run;
+}
+end;
+
+
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalP_27 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalP_27  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalP_27');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'Р 2.7 Учет финансового результата от реализации прав на землю';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+    2 : GetGroupName := 'P';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

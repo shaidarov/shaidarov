@@ -1,0 +1,357 @@
+Interface Transp_PutLstChk '01 Протокол проверки путевых листов' EscClose ;
+table struct tmp_PutLstChk
+( PUTLST_NOMER:string[20] //Гос. номер ТС
+ ,PUTLST_NPL:string[20]//Номер ПЛ
+ ,Putlst_Exitdn     : date//Дата выезда по ПЛ
+ ,PUTLST_EXITCH     : time//Время выезда по ПЛ 
+ ,PUTLST_DATOBR     : date//Дата обработки ПЛ
+ ,PUTLST_SPEEDEXI:double //Начальное значение спидометра
+ ,PUTLST_SPEEDRET:double//Конечное значение спидометра
+ ,Putlst_Probegall:double//Общий пробег по данным ПЛ
+ ,PUTLST_NPVIRVAL:double//Начальное значение счётчика м/ч
+ ,PUTLST_FKVIRVAL:double//Конечное значение счётчика м/ч
+ ,PUTLST_TIMESPEC:double//Кол-во моточасов по данным ПЛ
+ ,PRIM:string[100]//Примечание
+ ,DesCr:string[5]
+ ,DesGr:string[20]
+ ,Prn :word // признак что напечатали
+ ,Transp_nrec       : Comp   //Nrec 
+ ,Tiptex_nrec       : comp  // tiptex.nrec
+// ,Tiptex_Name       : String[100]  //Тип Тс
+ ,Katpodr_Nrec      : Comp    //Nrec Подразделения
+// ,Katpodr_Name      : String[100]  //Наименование Подразделения
+ 
+ )
+with index
+( tmp_PutLstChk01 = PUTLST_NOMER+ Putlst_Exitdn + PUTLST_EXITCH  +PUTLST_NPL
+
+);
+
+var
+#include transp_var.vpp
+create view 
+var wcrec:comp;
+
+//select from
+#include transp_table.vpp
+,tmp_PutLstChk(tmp_PutLstChk01)
+
+
+//where ((
+//#include transp_link.vpp
+//))
+;
+
+#include excel_fun.vpp
+#include transp_fun.vpp
+//include transp_putlst.vpp
+#include transp_gsm.vpp
+//==================================
+// сохранение параметров
+//==================================
+Procedure SaveParam ;
+{ SaveMyDsk(dtb,'T01_GSM_01_dtb')
+  SaveMyDsk(dte,'T01_GSM_01_dte')
+  SaveMyDsk(tp_period,'T01_GSM_01_tp_period')
+  SaveMyDsk(tp_option_d,'T01_GSM_01_tp_option_d')
+  
+  SaveMyDsk(filtr_tp,'T01_GSM_01_filtr')
+  SaveMyDsk(logfilekl,'T01_GSM_01_logfilekl')
+#IFDEF Transp_MOL_VIB
+  SaveMyDsk(cFILTR_MOL,'T01_GSM_01_cFILTR_MOL')
+#ENDIF  
+  
+} //Procedure SaveParam ;
+//==================================
+// чтение параметров
+//==================================
+Procedure ReadParam ;
+var wwkl :boolean ;
+{ if Not ReadMyDsk(dtb,'T01_GSM_01_dtb',wwkl) dtb:=date(1,month(cur_date),year(cur_date))
+  if Not ReadMyDsk(dte,'T01_GSM_01_dte',wwkl) dte:=date(last_day(cur_date),month(cur_date),year(cur_date))
+  if Not ReadMyDsk(tp_period,'T01_GSM_01_tp_period',wwkl) tp_period:=0 ;
+  if Not ReadMyDsk(tp_option_d,'T01_GSM_01_tp_option_d',wwkl) tp_option_d:=0 ;
+  if Not ReadMyDsk(filtr_tp,'T01_GSM_01_filtr',wwkl) filtr_tp:=0 ;
+  if Not ReadMyDsk(logfilekl,'T01_GSM_01_logfilekl',wwkl) logfilekl:=false ;
+#IFDEF Transp_MOL_VIB
+  Filtr_Mol:=''
+  if Not ReadMyDsk(cFILTR_MOL,'T01_GSM_01_cFILTR_MOL',wwkl) cFiltr_Mol:=0
+  else
+  { if getfirst persons_mol where (( cFiltr_Mol == persons_mol.nrec ))=0
+      Filtr_Mol:=persons_mol.fio
+  }
+#ENDIF  
+
+} //Procedure ReadParam ;
+
+Procedure PrintPutLst;
+{ if tmp_PutLstChk.Prn=1 then exit;
+  wexrow:=wexrow+1 wexcol:=1;
+  MyPutExcel(tmp_PutLstChk.PUTLST_NOMER,8,0,-1,-1); //Гос. номер ТС
+  MyPutExcel(tmp_PutLstChk.PUTLST_NPL,8,0,-1,-1);//Номер ПЛ
+  MyPutExcel(DateToStr(tmp_PutLstChk.Putlst_Exitdn,'DD/MM/YYYY'),8,0,-1,-1);//Дата выезда по ПЛ
+  MyPutExcel(TimeToStr(tmp_PutLstChk.PUTLST_EXITCH,'HH:MM'),8,0,-1,-1);//Время выезда по ПЛ 
+  MyPutExcel(DateToStr(tmp_PutLstChk.PUTLST_DATOBR,'DD/MM/YYYY'),8,0,-1,-1);//Дата обработки ПЛ
+  MyPutExcelNumber(tmp_PutLstChk.PUTLST_SPEEDEXI,0,8,0,-1,-1); //Начальное значение спидометра
+  MyPutExcelNumber(tmp_PutLstChk.PUTLST_SPEEDRET,0,8,0,-1,-1);//Конечное значение спидометра
+  MyPutExcelNumber(tmp_PutLstChk.Putlst_Probegall,0,8,0,-1,-1);//Общий пробег по данным ПЛ
+  MyPutExcelNumber(tmp_PutLstChk.PUTLST_NPVIRVAL,0,8,0,-1,-1);//Начальное значение счётчика м/ч
+  MyPutExcelNumber(tmp_PutLstChk.PUTLST_FKVIRVAL,0,8,0,-1,-1);//Конечное значение счётчика м/ч
+  MyPutExcelNumber(tmp_PutLstChk.PUTLST_TIMESPEC,0,8,0,-1,-1);//Кол-во моточасов по данным ПЛ
+  MyPutExcel(tmp_PutLstChk.PRIM,8,0,-1,-1);//Примечание
+  update current  tmp_PutLstChk set  tmp_PutLstChk.Prn:=1;
+
+}
+
+//==================================
+// печать
+//==================================
+Function PrintDoc : boolean ;
+var werr:word ;
+    wstr,wpodr:string ; 
+    wnpp :longint ;
+    wkol :double;
+    w_nomer :string;
+    w_speed_b:double;
+    w_moto_b :double;
+{ PrintDoc:=false ;
+  
+  for(i:=1;i<=200;i:=i+1) dmsu[i]:=0 ;
+  werr:=ExcelInit(nmtemplate,true,year(dtb))
+  if werr>0
+  { message('Ошибка инициализации Excel по шаблону '+nmtemplate) ;
+    exit ;
+  }
+  delete all tmp_PutLstChk;
+#DECLARE transp_get_fld   
+  insert tmp_PutLstChk
+  select
+  PUTLST.NOMER //Гос. номер ТС
+ ,PUTLST.NPL//Номер ПЛ
+ ,Putlst.Exitdn  //Дата выезда по ПЛ
+ ,PUTLST.EXITCH  //Время выезда по ПЛ 
+ ,PUTLST.DATOBR  //Дата обработки ПЛ
+ ,PUTLST.SPEEDEXI //Начальное значение спидометра
+ ,PUTLST.SPEEDRET//Конечное значение спидометра
+ ,Putlst.Probegall//Общий пробег по данным ПЛ
+ ,PUTLST.NPVIRVAL//Начальное значение счётчика м/ч
+ ,PUTLST.FKVIRVAL//Конечное значение счётчика м/ч
+ ,PUTLST.TIMESPEC//Кол-во моточасов по данным ПЛ
+ ,''//Примечание
+ ,PutLst.DesCr
+ ,PutLst.DesGr
+ ,0 //Prn  признак что напечатали
+ ,Transp.nrec    //Nrec 
+ ,Tiptex.nrec   // tiptex.nrec
+// ,Tiptex.Name   //Тип Тс
+ ,Katpodr.Nrec  //Nrec Подразделения
+// ,Katpodr.Name  //Наименование Подразделения
+
+#END
+#declare transp_get_cond
+    and  Putlst.Cpol     /== Katpodr.Nrec    //
+    and  Putlst.Ctransp  /== Transp.Nrec     //Связка Пл С Транспортом
+    and  Transp.Ctiptex  /== Tiptex.Nrec     
+
+#end
+ 
+  if (filtr_tp and 1)>0 and (recordsintable(#My_Podrazdelenie)/recordsintable(#katpodr)<0.1)
+  {   
+    #transp_get_fld
+    from MY_PODRAZDELENIE
+    Where ((
+         1 == putlst.STATPL  and
+         My_Podrazdelenie.Katpodr_Nrec == PUTLST.CPOL  and
+         dtb <<= PutLst.Datobr(NOINDEX) and 
+         dte >>= PutLst.Datobr(NOINDEX) 
+         #transp_get_cond
+        )) 
+      and ((filtr_tp and 4)=0 or putlst.descr=FILTR_descr )
+      and ((filtr_tp and 8)=0  or putlst.desgr=FILTR_desgr )
+  }
+  else
+  {  
+    #transp_get_fld
+    Where ((
+         dtb <<= PutLst.Datobr and
+         dte >>= PutLst.Datobr 
+         #transp_get_cond
+        )) And
+         putlst.STATPL     = 1 //обработанные ПЛ
+      and ((filtr_tp and 4)=0 or putlst.descr=FILTR_descr )
+      and ((filtr_tp and 8)=0  or putlst.desgr=FILTR_desgr )
+      ;
+    }     
+#undef transp_get_fld 
+#undef transp_get_cond 
+//========================================
+  chet:=0
+  if not inextvisual('Проверка фильтров') then exit;
+  external _loop tmp_PutLstChk ordered by index tmp_PutLstChk01
+  { chet:=chet+1 ;
+    if (chet mod 10)=0
+    { if not nextvisual then exit ;
+    }
+    /* отберем на этапе отбора
+    if (filtr_tp and 1)>0
+    { if getfirst fastfirstrow My_Podrazdelenie where (( tmp_PutLstChk.Katpodr_Nrec ==My_Podrazdelenie.katpodr_nrec ))<>0
+      { delete current tmp_PutLstChk ; 
+        continue ;
+      }  
+    }
+    */
+    if (filtr_tp and 2)>0
+    { if getfirst fastfirstrow My_TranspSred where (( tmp_PutLstChk.Transp_nrec ==My_TranspSred.Transp_nrec ))<>0
+      { delete current tmp_PutLstChk ; 
+        continue ;
+      }  
+    }
+    if (filtr_tp and 16)>0
+    { if getfirst fastfirstrow My_tiptexVib where (( tmp_PutLstChk.tiptex_nrec ==My_tiptexVib.tiptex_nrec ))<>0
+      { delete current tmp_PutLstChk ; 
+        continue ;
+      }  
+    }
+  } //external _loop tmp_PutLstChk ordered by index tmp_PutLstChk01
+  if getfirst tmp_PutLstChk<>0 then
+  { message('Нет данных')
+    exit;
+  }
+  //===============================
+  if not inextvisual('Идет печать') then exit;
+  wexrow:=2; wexcol:=1;
+  MyPutExcel(GetTpPeriod,0,0,-1,-1)
+
+  wnpp:=0;
+  //вывод данных
+  HeaderStrCount :=5 ;
+  wexrow:=HeaderStrCount+1 ;
+  MyXlCreaMatrix(10000,20)
+  wexrow:=wexrow-1;
+  wkol:=0
+  w_nomer :='??????';
+  w_speed_b:=-999;
+  w_moto_b :=-999;
+
+  do //_loop  tmp_PutLstChk
+  { if not nextvisual then exit;
+    if w_nomer<>tmp_PutLstChk.PutLst_Nomer
+    { w_speed_b:=-999;
+      w_moto_b :=-999;
+      w_nomer:=tmp_PutLstChk.PutLst_Nomer
+    }
+    werr:=0; wstr:='';
+    if w_speed_b<>-999
+    { if w_moto_b<>tmp_PutLstChk.PUTLST_NPVIRVAL 
+      { werr:=werr+1;
+        wstr:=wstr+'Ошибка "счетчик на начало"; '
+      }
+      if w_speed_b<>tmp_PutLstChk.PUTLST_SPEEDEXI
+      { werr:=werr+2;
+        wstr:=wstr+'Ошибка "спидометр на начало"; '
+      }
+    }
+    if tmp_PutLstChk.PUTLST_SPEEDRET-tmp_PutLstChk.PUTLST_SPEEDEXI<>tmp_PutLstChk.Putlst_Probegall
+    { werr:=werr+4;
+      wstr:=wstr+'Ошибка "пробег"'
+    }
+    if tmp_PutLstChk.PUTLST_FKVIRVAL-tmp_PutLstChk.PUTLST_NPVIRVAL<>tmp_PutLstChk.PUTLST_TIMESPEC
+    and (tmp_PutLstChk.PUTLST_FKVIRVAL<>0 or tmp_PutLstChk.PUTLST_NPVIRVAL<>0)
+    { werr:=werr+8;
+      wstr:=wstr+'Ошибка "моточасы"'
+    }
+    w_speed_b:=tmp_PutLstChk.PUTLST_SPEEDRET
+    w_moto_b :=tmp_PutLstChk.PUTLST_FKVIRVAL
+
+    if  (tp_option_d and 1)>0
+    { if werr=0 then continue;
+      if (werr and 3)>0
+      { if getprev tmp_PutLstChk=0 {}
+        PrintPutLst;
+        if getnext tmp_PutLstChk=0 {}
+      }
+    
+    } //if  (tp_option_d and 1)>0
+    
+    tmp_PutLstChk.prim:=wstr;
+    PrintPutLst;
+    if (werr and 2)>0 xlSetbackcolor(0FFFF00h, wexrow, 6,  wexrow, 6)
+    if (werr and 1)>0 xlSetbackcolor(0FFFF00h, wexrow, 9,  wexrow, 9)
+    if (werr and 4)>0 xlSetbackcolor(0FFFF00h, wexrow, 8,  wexrow, 8)
+    if (werr and 8)>0 xlSetbackcolor(0FFFF00h, wexrow, 11,  wexrow, 11)
+
+  } while (getnext tmp_PutLstChk=0)
+  //wexrow:=HeaderStrCount-1 ;
+  MyxlFrameCells(63, 2, 1, 1,HeaderStrCount,1,wexrow,wexcol-1); 
+  wexrow:=wexrow+1 ;
+  
+  MyxlWriteMatrix(wexrow);
+  xlFreeMatrix;
+  matrixkl:=False;
+
+
+   // вывод итогов
+
+  PrintDoc:=true ;
+
+} //Function PrintDoc : boolean ;
+
+//==================================
+// отбор данных
+//==================================
+Function FormDoc : boolean ;
+{ FormDoc:=false ;
+  SaveParam ;
+  GetTranspSpis ;
+  if not TranspSpis_chk then exit ;
+  
+  FormDoc:=PrintDoc ;
+  MyXlEnd ;
+} //Function FormDoc : boolean ;
+//==================================
+// экранная форма задания параметров
+//==================================
+#DECLARE Transp_OptionS_D
+ Опции
+ [.] Только ошибки `
+#END
+#include transp_scr1.vpp
+#UNDEF Transp_OptionS_D
+//==================================
+// дополнит.функция инициализации
+//==================================
+Function Dop_Init :boolean ;
+{  Dop_Init:=true ;
+   nmtemplate:='Avto_PutLstChk.xls' ;
+   InitServTxo(0) 
+
+   ReadParam ;
+   tp_option_d:=tp_option_d or 1;
+}
+//==================================
+// дополнит.функция выбора
+//==================================
+Function Dop_Pick :boolean ;
+{  Dop_Pick:=true ;
+}
+//==================================
+// дополнит.функция завершения
+//==================================
+Function Dop_Done :boolean ;
+{  Dop_Done :=true ;
+   DoneServTxo;
+   SaveParam ;
+}
+//==================================
+// дополнит.функция отработки enter
+//==================================
+Function Dop_Default :boolean ;
+{  Dop_Default:=true ;
+}
+//==================================
+// обработчик событий
+//==================================
+#include transp_handle.vpp
+end.
+#UNDEF Transp_GSM_FLT
+#UNDEF Transp_MOL_VIB
