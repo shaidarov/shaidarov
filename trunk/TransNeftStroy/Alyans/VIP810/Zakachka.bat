@@ -1,0 +1,1 @@
+call vip_loc.bat TNS TNS_Zakachka  TNS\inc

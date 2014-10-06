@@ -1,0 +1,1493 @@
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+#component "F_UserReport"
+
+Interface ImportPutLst EscClose, cyan;
+  show at(,,120,25);
+
+
+Table STRUCT tPutLst
+(
+  Nrec      : Comp
+, GosNumber : String[20]
+, ZavNom    : String[60]
+, ShName    : String
+, sMD       : string[40]
+, wErr      : Word
+, sErr      : String
+, Npp       : String[20]
+, Org       : String[200]
+, Vidrab    : String[200]
+, NoDoc     : String[20]
+, Fio       : String[200]
+, Period    : String[20]
+, dBeg      : Date
+, dEnd      : Date
+, Oil       : String[20]
+, RabDay    : double
+, RabHour   : double
+, Probeg    : double
+, ProbegGr  : double
+, Massa     : double
+, Itogo     : double
+, OilNorm   : double
+, OilFact   : double
+, SpidIn    : double
+, SpidOut   : double
+, OilPrih   : double
+, OilOborud : double
+)
+With Index
+(
+  ZdN01          = GosNumber+ZavNom+dBeg
+, ZdN02          = Nrec(Surrogate)
+, ZdN03          = wErr
+, ZdN04          = dBeg
+, ZdN05          = dEnd
+)
+;
+
+Table STRUCT tKatZak
+(
+  Nrec      : Comp
+, cRec      : Comp
+, NoDoc     : String[20]
+, ProbegAll : double
+, FkTimeMove: double
+, NpGruzTn  : double
+, TimeSpec  : double
+, FkGruzTn  : double // масса груза
+, GruzTnkm  : double // ткм
+, ProbegGR  : double // пробег с грузом
+)
+With Index
+(
+  ZdN01          = Nrec(Surrogate)
+, ZdN02          = cRec
+, ZdN03          = NoDoc
+
+)
+;
+
+Table STRUCT tKnDriver
+(
+  cRec      : Comp
+, Fio       : String[200]
+)
+With Index
+(
+  ZdN01          = Fio
+, ZdN02          = cRec
+)
+;
+
+Table STRUCT tToplivo
+(
+  cRec      : Comp
+, Oil       : String[200]
+)
+With Index
+(
+  ZdN01          = Oil
+, ZdN02          = cRec
+)
+;
+
+Table STRUCT tKatOrg
+(
+  cRec      : Comp
+, Org       : String[200]
+)
+With Index
+(
+  ZdN01          = Org
+, ZdN02          = cRec
+)
+;
+
+Table STRUCT tMarAvt
+(
+  cRec      : Comp
+, Org       : String[200]
+)
+With Index
+(
+  ZdN01          = Org
+, ZdN02          = cRec
+)
+;
+
+Table STRUCT tTs
+(
+  cRec      : Comp
+, GosNumber : String[20]
+, ZavNom    : String[60]
+)
+With Index
+(
+  ZdN01          = GosNumber
+, ZdN02          = cRec
+, ZdN03          = GosNumber+ZavNom
+)
+;
+
+Table STRUCT tTraninf
+(
+  cRec      : Comp
+, Vidrab    : String[20]
+)
+With Index
+(
+  ZdN01          = Vidrab
+, ZdN02          = cRec
+)
+;
+
+var cFileName:string;
+    dbFile:longInt;
+    iSysCode :integer;
+    dopharnazn:comp;
+    wParam:Word;
+    cRepNrec: Comp;
+    wTypeRep: Word;
+Create view v
+As Select
+ *
+From
+  tPutLst(ZdN01)
+, tKnDriver
+, KnDriver
+, tToplivo
+, Toplivo
+, Transp
+, tTraninf
+, PutLst
+, Save_drv
+, SoprHoz
+, ExpSet
+, ExpImpMd
+, PutGsm
+, KatZak
+, tKatZak
+, PutOld
+, MarAvt
+, tMarAvt
+, tKatZak tKatZakbr(ZdN03)
+, WayWps
+, tKatOrg
+, tTs
+, PickRep
+, NormGsm
+Where
+((
+    tKnDriver.cRec == KnDriver.Nrec
+AND tToplivo.cRec   == Toplivo.Nrec
+AND tKatOrg.cRec == KatOrg.Nrec
+AND tTs.cRec      == Transp.Nrec
+AND tTraninf.cRec == Traninf.Nrec
+AND tMarAvt.cRec  == MarAvt.Nrec
+))
+;
+parameters wTypeRep;
+
+Form fLog('StornoDoc.out', 'errr') with NoVisual;
+
+Function GetNumPutLst(sPr,sN: String):String;
+{
+  Result := LPadCh(sPr, '0', 2)+'.'+LPadCh(sN, '0', 6);
+} // function GetNumPutLst
+
+Procedure InsOneExpImpMd(ii: Word; cr: Comp; sn:String);
+{
+  if(GetFirst ExpImpMd Where ((cRepNrec == ExpImpMd.cParent AND ii == ExpImpMd.TypeRec And String(cr) == ExpImpMd.Caption (NoIndex) ))!=tsOK)
+  {
+    ClearBuffer(#ExpImpMd);
+    ExpImpMd.cParent := cRepNrec;
+    ExpImpMd.TypeRec := ii;
+    ExpImpMd.Caption := String(cr);
+    ExpImpMd.Name    := sn;
+    PickRep.cUserDeskRep := cRepNrec;
+    Insert Current ExpImpMd;
+  }
+   else
+    Update Current ExpImpMd Set ExpImpMd.Name := sn;
+
+} // procedure InsOnePICKREP
+
+Procedure DelOneExpImpMd(ii: Word; cr: Comp);
+{
+   Delete ExpImpMd Where ((cRepNrec == ExpImpMd.cParent AND ii == ExpImpMd.TypeRec And String(cr) == ExpImpMd.Caption (NoIndex) ));
+} // procedure InsOnePICKREP
+
+function GetOneExpImpMd(ii: Word; sn: String):comp;
+{
+
+  Result := if(GetFirst ExpImpMd Where ((cRepNrec == ExpImpMd.cParent AND ii == ExpImpMd.TypeRec And sn == ExpImpMd.Name ))=tsOK,Comp(ExpImpMd.Caption),Comp(0));
+
+} // procedure InsOnePICKREP
+
+
+Screen scrMainImp
+ Show(,,,7);
+Fields
+ wParam  : NoProtect;
+Buttons
+  cmOk    ,default,,'Импорт в систему', hcOplTrudhlp, sci1Esc;
+  cmCancel,,,'Выход', hcOplTrudhlp, sci1Esc;
+<<
+
+  `Параметры`
+  [.] Проставлять показания спидометра из картотеки`
+  [.] Проставлять остаток топлива из картотеки`
+
+           <.  Загрузить  .>   <.  ~О~тмена  .>
+
+>>
+End; // screen
+
+TabbedSheet Bottom tsRab
+  show at(,8,,);
+browse brPutLst 'Путевые листы'
+table tPutLst
+  fields  {font={color=if(tPutLst.wErr=Word(0),ColorError,0)}};
+    tPutLst.Npp        #3'Npp'                 ('',hcNoContext,): [3],protect, centered;
+    tPutLst.ShName     #3'Наименование'
+                     , #3'листа'               ('',hcNoContext,): [3],protect, centered;
+    tPutLst.GosNumber  #3'ГосНомер'            ('',hcNoContext,): [10],protect, centered;
+    tPutLst.ZavNom     #3'Зав. №'              ('',hcNoContext,): [10],protect, centered;
+    tPutLst.Org        #3'Заказчик'            ('',hcNoContext,): [20],protect, centered;
+    tPutLst.Vidrab     #3'ВидРаботы'           ('',hcNoContext,): [20],protect, centered;
+    tPutLst.NoDoc      #3'Номер ПЛ'            ('',hcNoContext,): [10],protect, centered;
+    tPutLst.Fio        #3'ФИО'                 ('',hcNoContext,): [20],protect, centered;
+    tPutLst.Period     #3'Период'              ('',hcNoContext,): [6],protect, centered;
+    tPutLst.dBeg       #3'Дата с'              ('',hcNoContext,): Noprotect, centered, {font={Backcolor=ColorNeed}};
+    tPutLst.dEnd       #3'Дата по'             ('',hcNoContext,): Noprotect, centered, {font={Backcolor=ColorNeed}};
+    tPutLst.Oil        #3'топливо'             ('',hcNoContext,): [10],protect, centered;
+    tPutLst.RabDay     #3'раб.дней'            ('',hcNoContext,): [3],protect, centered;
+    tPutLst.RabHour    #3'раб.часов'           ('',hcNoContext,): [3],protect, centered;
+    tPutLst.Probeg     #3'пробег'              ('',hcNoContext,): [5],protect, centered;
+    tPutLst.ProbegGr   #3'пробег',#3'с грузом' ('',hcNoContext,): [5],protect, centered;
+    tPutLst.Massa      #3'масса'               ('',hcNoContext,): [10.2],protect, centered;
+    tPutLst.Itogo      #3'выполнено'           ('',hcNoContext,): [10.2],protect, centered;
+    tPutLst.OilNorm    #3'Расход',#3'норма'    ('',hcNoContext,): [10.2],protect, centered;
+    tPutLst.OilFact    #3'Расход',#3'факт'     ('',hcNoContext,): [10.2],protect, centered;
+    tPutLst.SpidIn     #3'Спидометр',#3'нач.'  ('',hcNoContext,): [10],protect, centered;
+    tPutLst.SpidOut    #3'Спидометр',#3'конеч.'('',hcNoContext,): [10],protect, centered;
+    tPutLst.OilPrih    #3'Приход',#3'ГСМ'      ('',hcNoContext,): [10],protect, centered;
+end; //browse brTotal
+
+Browse brKatZak 'Заказы к ПЛ'
+Table tKatZakBr
+Fields
+    tKatZakBr.NoDoc     #3'Номер ПЛ'            ('',hcNoContext,): [10]  ,protect, centered;
+    tKatZakBr.ProbegAll #3'пробег'              ('',hcNoContext,): [10.2],protect, centered;
+    tKatZakBr.TimeSpec  #3'Время спец.'         ('',hcNoContext,): [10.2],protect, centered;
+    tKatZakBr.FkGruzTn  #3'масса'               ('',hcNoContext,): [10.2],protect, centered;
+    tKatZakBr.GruzTnkm  #3'выполнено'           ('',hcNoContext,): [10.2],protect, centered;
+    tKatZakBr.ProbegGR  #3'пробег',#3'с грузом' ('',hcNoContext,): [10.2],protect, centered;
+End; //browse brTotal
+
+browse brAuto 'Автомобили'
+table tTs
+fields  {font={color=if(tTs.cRec=Comp(0),ColorMark,0);bold=(tTs.cRec=Comp(0))}};
+  tTs.GosNumber   #3'Гос.Номер из файла'               ('',hcNoContext,): [20],protect, centered, PickButton;
+  tTs.ZavNom      #3'Зав.Номер из файла'               ('',hcNoContext,): [20],protect, centered, PickButton;
+  Transp.NOMER    #3'Гос.Номер'                        ('',hcNoContext,): [20],protect, centered, PickButton;
+  Transp.GARNOM   #3'Гаражн.',#3'Номер'                ('',hcNoContext,): [20],protect, centered, PickButton;
+  Transp.ZavNom   #3'Зав.Номер'                        ('',hcNoContext,): [20],protect, centered, PickButton;
+end; //browse brTotal
+
+browse brVidRab 'Виды работ/Выход'
+table tTranInf
+fields  {font={color=if(tTranInf.cRec=Comp(0),ColorMark,0);bold=(tTranInf.cRec=Comp(0))}};
+  tTranInf.VidRab   #3'Виды работ из файла'               ('',hcNoContext,): [20],protect, centered, PickButton;
+  TranInf.Nomkar1   #3'Выход'                             ('',hcNoContext,): [20],protect, centered, PickButton;
+end; //browse brTotal
+
+browse brFio 'Сотрудники'
+table tKnDriver
+fields  {font={color=if(tKnDriver.cRec=Comp(0),ColorMark,0);bold=(tKnDriver.cRec=Comp(0))}};
+  tKnDriver.Fio       #3'ФИО из файла'               ('',hcNoContext,): [50],protect, centered, PickButton;
+  KnDriver.TABN      #3'Таб. номер' ('',hcNoContext,): [10],protect, centered, PickButton;
+  KnDriver.Name      #3'ФИО из картотеки водителей' ('',hcNoContext,): [50],protect, left, PickButton;
+  KnDriver.KLASSV    #3'Класс' ('',hcNoContext,): [5],protect, left, PickButton;
+  KnDriver.NUDOV     #3'Номер удостоверения' ('',hcNoContext,): [20],protect, left, PickButton;
+end; //browse brTotal
+
+browse brOrg 'Организации'
+table tKatOrg
+fields  {font={color=if(tKatOrg.cRec=Comp(0),ColorMark,0);bold=(tKatOrg.cRec=Comp(0))}};
+  tKatOrg.Org         #3'Заказчик из файла'                ('',hcNoContext,): [50],protect, centered, PickButton;
+  KatOrg.Name         #3'Заказчик из каталога организаций' ('',hcNoContext,): [100],protect, centered, PickButton;
+end; //browse brTotal
+
+browse brToplivo 'ГСМ'
+table tToplivo
+fields  {font={color=if(tToplivo.cRec=Comp(0),ColorMark,0);bold=(tToplivo.cRec=Comp(0))}};
+  tToplivo.Oil       #3'Топливо из файла'               ('',hcNoContext,): [50],protect, centered, PickButton;
+  Toplivo.Name     #3'Топливо из каталога МЦ'         ('',hcNoContext,): [100],protect, centered, PickButton;
+end; //browse brTotal
+
+browse brMarAvt 'Маршруты'
+table tMarAvt
+fields  {font={color=if(tMarAvt.cRec=Comp(0),ColorMark,0);bold=(tMarAvt.cRec=Comp(0))}};
+  tMarAvt.Org     #3'Заказчик из файла'               ('',hcNoContext,): [50],protect, centered, PickButton;
+  MarAvt.Nmaravt  #3'Маршрут'                         ('',hcNoContext,): [100],protect, centered, PickButton;
+end; //browse brTotal
+
+end;
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Procedure ShowLog;
+{
+  if(Not fLog.Error)
+   fLog.showFile('Протокол');
+}
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Procedure dLog(sMess:String);
+{
+  fLog.Write(sMess);
+} // function DebugLog
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Procedure AddError(sMess:String);
+{
+  tPutLst.wErr      :=Word(0);
+  tPutLst.sErr      :=sMess;
+  Update Current tPutLst;
+
+  dLog(sMess);
+}
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Function dRFM(Row, Col : longint):Double;
+Var s : String;
+{
+  Result :=0;
+  xlReadFromMatrix(Row, Col ,s);
+  s:=Trim(s);
+  s:= Replace(s,' ','');
+  Result:= Round(Double(Replace(s,',','.')),2);
+} // Function RFM
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Function RFM(Row, Col : longint):String;
+Var s : String;
+{
+  Result :='';
+  xlReadFromMatrix(Row, Col ,s);
+  Result := Trim(s);
+} // Function RFM
+
+//------------------------------------------------------------------------------
+// Пополнение для соответствия каталогов
+//------------------------------------------------------------------------------
+Procedure InsttKnDriver(sName:String);
+Var cR: Comp;
+    len: Word;
+{
+  If(GetFirst tKnDriver Where ((sName == tKnDriver.Fio))=tsOK)
+   exit;
+
+  // До первой точки
+!  len := InStr('.',sName);
+  cR := 0;
+
+!  if(GetFirst KnDriver Where ((sName == KnDriver.Name (NoIndex) )) = tsOK)   cR := KnDriver.Nrec;
+
+  cR := GetOneExpImpMd(3,sName);
+
+  Insert tKnDriver Set tKnDriver.Fio:=sName, tKnDriver.cRec := cR;
+} // procedure InsTs
+
+//------------------------------------------------------------------------------
+// Пополнение для соответствия каталогов
+//------------------------------------------------------------------------------
+Procedure InsttToplivo(sName:String);
+Var cR: Comp;
+{
+  If(GetFirst tToplivo Where ((sName == tToplivo.Oil))=tsOK)
+   exit;
+
+  cR := 0;
+
+  // Поиск по коду
+!  if(GetFirst Toplivo Where ((sName == Toplivo.KodGsm)) = tsOK)   cR := Toplivo.Nrec;
+
+  // Поиск по наименованию
+!  if(cR=Comp(0))  if(GetFirst Toplivo Where ((sName == Toplivo.Name)) = tsOK)   cR := Toplivo.Nrec;
+  cR := GetOneExpImpMd(5,sName);
+
+  Insert tToplivo Set tToplivo.Oil:=sName, tToplivo.cRec := cR;
+} // procedure InsTs
+
+//------------------------------------------------------------------------------
+// Пополнение для соответствия каталогов
+//------------------------------------------------------------------------------
+Procedure InsttMarAvt(sName:String);
+Var cR: Comp;
+{
+  If(GetFirst tMarAvt Where ((sName == tMarAvt.Org))=tsOK)
+   exit;
+
+  cR := GetOneExpImpMd(6,sName);
+  Insert tMarAvt Set tMarAvt.Org:=sName, tMarAvt.cRec := cR;
+
+} // procedure InsTs
+
+
+//------------------------------------------------------------------------------
+// Пополнение для соответствия каталогов
+//------------------------------------------------------------------------------
+Procedure InsttKatOrg(sName:String);
+Var cR: Comp;
+{
+  If(GetFirst tKatOrg Where ((sName == tKatOrg.Org))=tsOK)
+   exit;
+
+  cR := GetOneExpImpMd(4,sName);
+  Insert tKatOrg Set tKatOrg.Org:=sName, tKatOrg.cRec := cR;
+
+} // procedure InsTs
+
+//------------------------------------------------------------------------------
+// Пополнение для соответствия каталогов
+//------------------------------------------------------------------------------
+Procedure InstTraninf(sName:String);
+Var cR: Comp;
+{
+  If(GetFirst tTraninf Where ((sName == tTraninf.VidRab))=tsOK)
+   exit;
+
+  cR := 0;
+
+!  if(GetFirst Traninf Where ((sName == Traninf.NomKar1 (Noindex) )) = tsOK)   cR := Traninf.Nrec;
+  cR := GetOneExpImpMd(2,sName);
+
+
+  Insert tTraninf Set tTraninf.Vidrab:=sName, tTraninf.cRec:= cR;
+} // procedure InsTs
+
+//------------------------------------------------------------------------------
+// Пополнение для соответствия каталогов
+//------------------------------------------------------------------------------
+Procedure InstTs(sName, sZav:String);
+Var cR: Comp;
+{
+  If(GetFirst tTs Where ((sName == tTs.GosNumber And sZav == tTs.ZavNom))=tsOK)
+   exit;
+
+  cR := 0;
+
+  cR := GetOneExpImpMd(1,sName);
+
+  Insert tTs Set tTs.GosNumber:=sName, tTs.ZavNom:=sZav, tTs.cRec:= cR;
+} // procedure InsTs
+
+//------------------------------------------------------------------------------
+// Вычисляем дату начала/окончания ПЛ
+//------------------------------------------------------------------------------
+Procedure SetPeriod;
+Var wP:Word;
+    sPeriod:String;
+    wDate: Date;
+{
+  sPeriod :=Trim(tPutLst.Period);
+  sPeriod := Replace(sPeriod,',','');
+  if(SubStr(sPeriod,LengTh(sPeriod),1)='.')
+   sPeriod:=SubStr(sPeriod,1,LengTh(sPeriod)-1);
+
+  wDate   := StrToDate('01'+Replace(tPutLst.sMD,' ',''),'DDMonthYYYY');
+
+  wP:=inStr('-',sPeriod);
+
+  // на 0-й день нет проверки, нет проверки и на 31 февраля!!! и иже сними!!
+  if(wP=Word(0))
+  {// Одиночное число
+    tPutLst.dBeg:=Date(Word(sPeriod),Month(wDate),Year(wDate));
+    tPutLst.dEnd:=tPutLst.dBeg;
+  }
+  else
+  {// УказанПериод
+    tPutLst.dBeg:=Date(Word(SubStr(sPeriod,1,wP-1)),Month(wDate),Year(wDate));
+    tPutLst.dEnd:=Date(Word(SubStr(sPeriod,wP+1,10)),Month(wDate),Year(wDate));
+  }
+
+} // procedure SetPeriod;
+
+Procedure UpdPutGsm;
+{
+update putgsm where ((putgsm.cputlst /== putlst.nrec)) and putgsm.tipgsm=0 //первый бак
+set
+   PutGsm.SPEEDZAP    := PUTLST.SPEEDEXI
+  ,PutGsm.cTransp    := PutLst.cTransp
+  ,Putgsm.DpPokaz9   := 0                  // данные заполнены - тип расчета Норма-заправка-факт
+  ,PutGsm.ZaprCh     := PUTLST.EXITCH      // Время движения ГСМ = время выезда
+  ,PutGsm.ZaprDn     := PUTLST.EXITDN      // Дата движения ГСМ = дата выезда
+  //время
+  ,PutGsm.TimeAll    := Putlst.TimeAll     // Время всего
+  ,PutGsm.TimeMove   := Putlst.TimeMove    // Время в движении
+  ,PutGsm.TimeStop   := Putlst.TimeStop    // Время простоя
+  ,PutGsm.TimeRep    := Putlst.TimeRep     // Время ремонта
+  ,PutGsm.TimeLoad   := Putlst.TimeLoad    // Время погрузки-разгрузки
+  ,PutGsm.TimeSpec   := Putlst.TimeSpec    // Моточасы (время работы спецоборудования)
+  ,PutGsm.TimeHeat   := Putlst.TimeHeat    // Время работы автономного оборудования
+  ,Putgsm.InterWay   := Putlst.Volume0     // Время внутригаражного простоя
+  ,PutGsm.TimeEngine := Putlst.TimeEngine  // Время простоя со включенным двигателем
+  ,PutGsm.Pok5Cng    := PutLst.Pok5Cng     // Часы на таможне
+  ,PutGsm.Pok5Rb     := PutLst.Pok5Rb      // Часы в радиационной зоне
+  //показатели
+  ,PutGsm.GruzTn     := PutLst.GruzTn      //('Перевезено тонн (пассаж.) - Put_GruzTn')
+  ,PutGsm.DpPokaz3   := PutLst.VolumeAll   //('Объем перевезенного груза - Put_GruzVl')
+  ,PutGsm.ProbegAll  := PutLst.ProbegAll   //('Пробег всего - Put_ProbegAll')
+  ,PutGsm.ProbegGr   := PutLst.ProbegGr    //('Пробег с грузом - Put_ProbegGr')
+  ,PutGsm.GruzTnKm   := PutLst.GruzTnKm    // ('Выполнено ткм (пас-км) - Put_GruzTnkm')
+  ,PutGsm.DpPokaz4   := PutLst.DpPokaz4    //('Пробег средства по собственной территории',
+  ,PutGsm.Pok1Rb     := PutLst.Pok1Rb      //('Пробег средства по собственной территории c грузом',
+  ,PutGsm.Pok2Rb     := PutLst.Pok2Rb      //('Выполнено ткм', собств.терр.
+  ,PutGsm.TimeRz     := PutLst.TimeRz      //('Пробег по CHГ - Put_ProbegCng')
+  ,PutGsm.Pok1Cng    := PutLst.Pok1Cng     //('Пробег средства по СНГ c грузом',
+  ,PutGsm.Pok2Cng    := PutLst.Pok2Cng     //('Выполнено ткм',  СНГ
+  ,PutGsm.ProbegTam  := PutLst.ProbegTam   //('Пробег по загранице - Put_ProbegExt ')
+  ,PutGsm.Pok1Ino    := PutLst.Pok1Ino     //('Пробег средства по инотерритории c грузом',
+  ,PutGsm.Pok2Ino    := PutLst.Pok2Ino     //('Выполнено ткм',  инотерр.
+  ,PutGsm.DpPokaz2   := PutLst.PrPrc       //('Пробег за городом',
+  ,PutGsm.DpPokaz5   := PutLst.DpPokaz5    //('Пробег за городом с грузом',
+  ,PutGsm.TimeDef    := PutLst.TimeDef     //('Выполнено тонно-километров за городом')
+  ,Putgsm.Pok3Cng    := PutLst.Pok3Cng     //('Пробег в городской черте Put_PrCity ',
+  ,Putgsm.Pok3Rb     := PutLst.Pok3Rb      //('Пробег по дорогам 1-ой группы Put_Pr1',
+  ,Putgsm.Pok4Rb     := PutLst.Pok4Rb      //('Пробег по дорогам 2-ой группы Put_Pr2',
+  ,Putgsm.Pok5Ino    := PutLst.Pok5Ino     //('Пробег по дорогам 3-ей группы Put_Pr3',
+  ,Putgsm.Pok3Ino    := PutLst.Pok3Ino     //('Пробег по горным дорогам Put_PrMoun ',
+  ,PutGsm.ProbegWrk  := PutLst.ProbegWrk   //('Пробег с выполнением работы - Put_ProbegWrk')
+  ,PutGsm.NlProbeg   := PutLst.ProbegNullSt + PutLst.ProbegNullRc //('Нулевой пробег - Put_ProbegNlp'
+  ,PutGsm.VolWrk     := PutLst.VolWrk      //('Количество единиц спецработы (кузовов) - Put_KolVar'
+  ,PutGsm.Kolez      := PutLst.Kolez       //('Количество ездок - Put_KolOne'
+  ,PutGsm.Probeg1    := PutLst.SumUsl      //('Пробег прицепов за ТС - Probeg_pri')
+  ,PutGsm.Probeg2    := PutLst.ProbegGrPri //('Пробег прицепов с грузом - ProbegGr_pri')
+  ,PutGsm.GruzTnPri  := PutLst.GruzTnPri   //('Перевезено тонн на прицепах - GruzTn_Pri')
+  ,PutGsm.GruzTnKmPri:= PutLst.GruzTnKmPri //('Выполнено ткм на прицепах - GrTnKm_Pri')
+  ,PutGsm.Weight0    := PutLst.Weight0     //('Суммарный вес прицепов ',
+  ,PutGsm.GruzPod0   := PutLst.GruzPod0    //('Суммарная грузоподъемность ',
+  ,PutGsm.Weight     := PutLst.Weight      //('Вес средства'
+  ,PutGsm.GruzPod    := PutLst.GruzPod     //('Грузоподъемность средства')
+  ;
+} // procedure UpdPutGsm
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Procedure ReadOneSheet(num:longInt);
+Var sheetName: String;
+ i: longInt;
+{
+   xlGetSheetName(num,sheetName);
+
+   SetVisualHeader('Лист '+num+' "'+sheetName+'"')
+   Var lRow, lCol, lRowAdd : LongInt;
+   //lCol:=xlGetSheetColCount(SheetName.lNum);
+   //lRow:=xlGetSheetRowCount(SheetName.lNum);
+   lCol:=20;
+   lRow:=200;
+   lRowAdd:=0;
+
+   var sN,SM  : string;
+   xlGetCellValue(3, 2 ,sM);
+   xlGetCellValue(5, 3 ,sN);
+   sN := upcase(Trim(replace(sN,' ','')));
+
+   Var boInsPut: boolean; boInsPut:=false;
+   Var boF: boolean; boF:=true;
+   if(xlReadMatrixFromExcel(13,1,lRow,lCol))
+   do{
+   for(i:=1;i<=lRow;i++)
+     {
+      //dLog(LongInt(lRowAdd+i)+' '+RFM(i,5));
+      if(UpCase(Trim(RFM(i,8))) = 'ИТОГО')
+       break;
+
+      if(RFM(i,4)='')
+      {
+        if(dRFM(i,11) <0)
+         break;
+
+        if(dRFM(i,12) = 0 And dRFM(i,13)=0 AND dRFM(i,19)=0)
+         break;
+
+/*
+         Var iii: word; Var ddd: Double; ddd:=0;
+         for(iii:=9;iii<=20;iii++)
+          ddd+=dRFM(i,iii);
+
+         if(ddd<=0)
+          Continue;
+*/
+
+
+        ClearBuffer(#tKatZak);
+         tKatZak.cRec      :=tPutLst.Nrec;
+         tKatZak.NoDoc     :=tPutLst.NoDoc;
+         tKatZak.FkTimeMove:=dRFM(i,10);
+         tKatZak.ProbegAll :=dRFM(i,11);
+         tKatZak.FkGruzTn  :=dRFM(i,12);
+         tKatZak.GruzTnkm  :=dRFM(i,13);
+         tKatZak.ProbegGR  :=dRFM(i,19);
+        Insert Current tKatZak;
+
+        tPutLst.RabHour   +=  tKatZak.FkTimeMove;
+        tPutLst.Probeg    +=  tKatZak.ProbegAll;
+        tPutLst.Massa     +=  tKatZak.FkGruzTn;
+        tPutLst.Itogo     +=  tKatZak.GruzTnkm;
+        tPutLst.ProbegGr  +=  tKatZak.ProbegGR;
+        Update Current tPutLst;
+
+        continue;
+
+      }
+
+!      boInsPut := true;
+      ClearBuffer(#tPutLst);
+      tPutLst.wErr      :=Word(1);
+      tPutLst.ShName    :=sheetName;
+      tPutLst.sMD       := sM;
+      tPutLst.GosNumber := sN;
+      InstTs(tPutLst.GosNumber,'');
+      tPutLst.wErr      :=if(Trim(tPutLst.GosNumber)!='' Or Trim(tPutLst.ZavNom)!='',1,0);
+      tPutLst.Npp       := Trim(RFM(i,1));
+      tPutLst.Org       := Trim(RFM(i,2));
+      InsttKatOrg(tPutLst.Org);
+      InsttMarAvt(tPutLst.Org);
+      tPutLst.Vidrab    := Trim(RFM(i,3));
+      InstTraninf(tPutLst.Vidrab);
+      tPutLst.NoDoc     := Trim(RFM(i,4));
+      tPutLst.Fio       := Trim(RFM(i,5));
+      InsttKnDriver(tPutLst.Fio);
+      tPutLst.Period    := Trim(RFM(i,6));
+      SetPeriod;
+      tPutLst.Oil       := Trim(RFM(i,8));
+      InsttToplivo(tPutLst.Oil);
+      tPutLst.RabDay    :=     dRFM(i,9);
+      tPutLst.RabHour   :=     dRFM(i,10);
+      tPutLst.Probeg    :=     dRFM(i,11);
+      tPutLst.Massa     :=     dRFM(i,12);
+      tPutLst.Itogo     :=     dRFM(i,13);
+      tPutLst.OilNorm   :=     dRFM(i,14);
+      tPutLst.OilFact   :=     dRFM(i,15);
+      tPutLst.SpidIn    :=     dRFM(i,16);
+      tPutLst.SpidOut   :=     dRFM(i,17);
+      tPutLst.OilPrih   :=     dRFM(i,18);
+      tPutLst.ProbegGr  :=     dRFM(i,19);
+      tPutLst.OilOborud :=     dRFM(i,20);
+
+      Insert current tPutLst;
+      ClearBuffer(#tKatZak);
+       tKatZak.cRec      :=tPutLst.Nrec;
+       tKatZak.NoDoc     :=tPutLst.NoDoc;
+       tKatZak.ProbegAll :=tPutLst.Probeg;
+       tKatZak.FkTimeMove:=tPutLst.RabHour;
+       tKatZak.FkGruzTn  :=tPutLst.Massa;
+       tKatZak.GruzTnkm  :=tPutLst.Itogo;
+       tKatZak.ProbegGR  :=tPutLst.ProbegGr;
+      Insert Current tKatZak;
+
+     }
+
+     boF:=false;
+     lRowAdd+=lRow;
+     break; // 200
+     //xlClearMatrix;
+
+   }While(xlReadMatrixFromExcel(lRowAdd+1,1,lRowAdd+lRow,lCol))
+
+} // procedure ReadOneSheet
+
+//------------------------------------------------------------------------------
+// Вычисляем дату начала/окончания ПЛ
+//------------------------------------------------------------------------------
+Procedure SetPeriod_Spec;
+Var wP:Word;
+    sPeriod:String;
+    sss: String;
+    wDate: Date;
+{
+  sPeriod :=Trim(tPutLst.Period);
+
+  //wDate   := StrToDate('01 '+,'DD Month YYYY');
+
+  wP:=inStr('-',sPeriod);
+
+  // УказанПериод
+
+    tPutLst.dBeg:=StrToDate(SubStr(sPeriod,1,wP-1)+'.'+tPutLst.sMD,'DD.MM.YYYY');
+    tPutLst.dEnd:=StrToDate(Trim(SubStr(sPeriod,wP+1,10))+'.'+tPutLst.sMD,'DD.MM.YYYY');
+} // procedure SetPeriod;
+
+//------------------------------------------------------------------------------
+// Спец. авто транспорт
+//------------------------------------------------------------------------------
+procedure ReadOneSheet_Spec(num:longInt);
+Var sheetName: String;
+ i: longInt;
+ j: longInt;
+ sTmp: Array[1..14] of String;
+ boFind: Boolean;
+ CountNull: longint;
+{
+   xlGetSheetName(num,sheetName);
+
+   //Message('Лист '+num+' "'+sheetName+'"');
+
+   Var lRow, lCol, lRowAdd : LongInt;
+   //lCol:=xlGetSheetColCount(SheetName.lNum);
+   //lRow:=xlGetSheetRowCount(SheetName.lNum);
+   SetVisualHeader('Лист '+num+' "'+sheetName+'"')
+   lCol:=14;
+   lRow:=200;
+   lRowAdd:=0;
+
+   var sN,SM  : string;
+   CountNull:=0;
+
+
+   boFind:=false;
+   For(lRow:=1;lRow<=30000;lRow++)
+   {
+     for(i:=1;i<=14;i++)
+     {
+      xlGetCellValue(lRow, i ,sTmp[i]);
+      sTmp[i]:=Trim(sTmp[i]);
+     }
+
+     if(sTmp[1]= '')
+       CountNull++;
+     else
+       CountNull:=0;
+
+     // считаем, что после 100 пустых строчек нифига нет. уходим
+     if(CountNull>100)
+      break;
+
+     if(sTmp[1]= 'Карточка учета работы механизма')
+     {
+       Var k,wK: Word; wK:=0;
+       boFind := true;
+       ClearBuffer(#tPutLst);
+       tPutLst.wErr      :=Word(1);
+       xlGetCellValue(lRow+5, 2 ,tPutLst.GosNumber);
+       tPutLst.GosNumber := Upcase(Trim(tPutLst.GosNumber));
+       tPutLst.GosNumber := Replace(tPutLst.GosNumber,'ОТС','');
+       tPutLst.GosNumber := Replace(tPutLst.GosNumber,' ','');
+       tPutLst.ShName    := sheetName;
+
+
+       xlGetCellValue(lRow+5, 8 ,tPutLst.ZavNom);
+       tPutLst.ZavNom:=Trim(tPutLst.ZavNom);
+
+       InstTs(tPutLst.GosNumber, tPutLst.ZavNom);
+       tPutLst.wErr :=if(Trim(tPutLst.GosNumber)!='' Or Trim(tPutLst.ZavNom)!='',1,0);
+
+       xlGetCellValue(lRow+2, 2 ,sM);
+       sM:=Trim(sM);
+
+       tPutLst.sMD       := SubStr(sM,LengTh(sM)-5,4);// Это год
+
+       lRow:=lRow+13;
+       do
+       {
+         xlGetCellValue(lRow, 1 ,sTmp[1]);
+         sTmp[1]:=Trim(sTmp[1]);
+         if(sTmp[1]='ИТОГО:') break;
+         if(sTmp[1]='') break;
+
+         // По аналогии с обычными авто
+         wK++;
+         tPutLst.Npp :=wK;
+
+         xlGetCellValue(lRow, 1 ,tPutLst.Org);
+         InsttKatOrg(tPutLst.Org);
+         InsttMarAvt(tPutLst.Org);
+         xlGetCellValue(lRow, 3 ,tPutLst.Vidrab);
+         InstTraninf(tPutLst.Vidrab);
+
+         xlGetCellValue(lRow, 4 ,tPutLst.NoDoc);
+         xlGetCellValue(lRow, 5 ,tPutLst.Fio);
+         InsttKnDriver(tPutLst.Fio);
+         xlGetCellValue(lRow, 6 ,tPutLst.Period);
+         SetPeriod_Spec;
+
+         xlGetCellValue(lRow, 8 ,tPutLst.Oil);
+         InsttToplivo(tPutLst.Oil);
+
+         xlGetCellValue(lRow, 9 ,sN);
+         tPutLst.RabDay    :=     Double(sN);
+         xlGetCellValue(lRow, 11 ,sN);
+         tPutLst.RabHour   :=     Double(sN);
+
+
+         xlGetCellValue(lRow, 13 ,sN);
+         tPutLst.OilNorm   :=     Double(sN);
+         xlGetCellValue(lRow, 14 ,sN);
+         tPutLst.OilFact   :=     Double(sN);
+         Insert current tPutLst;
+         lRow++;
+
+         ClearBuffer(#tKatZak);
+          tKatZak.cRec      := tPutLst.Nrec;
+          tKatZak.NoDoc     := tPutLst.NoDoc;
+          tKatZak.FkTimeMove:= tPutLst.RabHour;
+          tKatZak.TimeSpec  := tPutLst.RabHour;
+         Insert Current tKatZak;
+       }
+         While(1=1)
+
+     }
+   }
+
+} // procedure ReadOneSheet
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+function FillTmpTable: boolean;
+Var fName:String;
+    lCount : LongInt;
+    i : LongInt;
+{
+  Result := false;
+  fName :=GetFileName('*.xls;*.xlsx','Выбирите файл для загрузки');
+  if(fName='')
+   exit;
+
+  if(Not xlCreateNewExcelWithTemplate(fName,false))
+  {
+    Message('Ошибка открытия файла '+fName);
+    xlKillExcel;
+    exit;
+  }
+
+   StartNewVisual(vtRotateVisual,vfTimer,'Идет загрузка из Excel файла',1);
+
+   xlGetSheetsCount(lCount);
+
+   for(i:=1;i<=lCount;i++)
+   {  Var s: String;
+       if(Not xlSetActiveSheet(i) Or i=0)
+       {
+        StopVisual('',0);
+        xlKillExcel;
+        exit;
+       }
+
+      if(wTypeRep = word(0))
+        ReadOneSheet(i);
+      else
+        ReadOneSheet_Spec(i);
+   }
+
+  StopVisual('',0);
+
+  xlKillExcel;
+
+  Result := true;
+} // function FillTmpTable
+
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+Procedure ImportToGal(boUpdate:Boolean);
+Var boErr: Boolean;
+{
+  boErr := false;
+  if(GetFirst tPutLst Where ((Word(0) == tPutLst.wErr)) =tsOk)
+  {
+   dLog('Не всем путевым листам сопоставлено транспортное средство! Эти путевые листы будут игнорированы!');
+   //boErr:=true;
+  }
+
+  if(GetFirst tPutLst Where ((Date(0,0,0) == tPutLst.dBeg)) =tsOk)
+  {
+   dLog('Не у всех путевых установлена дата начала!');
+   boErr:=true;
+  }
+
+  if(GetFirst tPutLst Where ((Date(0,0,0) == tPutLst.dEnd)) =tsOk)
+  {
+   dLog('Не у всех путевых установлена дата окончания!');
+   boErr:=true;
+  }
+
+// Чек
+  if(GetFirst tKnDriver Where ((Comp(0) == tKnDriver.cRec)) =tsOk)
+  {
+   dLog('Не всем водителям сопоставлены значения из Галактики!');
+   boErr:=true;
+  }
+
+  if(GetFirst tToplivo Where ((Comp(0) == tToplivo.cRec)) =tsOk)
+  {
+   dLog('Не всем видам топлива сопоставлены значения из Галактики!');
+   boErr:=true;
+  }
+
+  if(GetFirst tMarAvt Where ((Comp(0) == tMarAvt.cRec)) =tsOk)
+  {
+   dLog('Не всем организациям сопоставлены значения маршрутов из Галактики!');
+   boErr:=true;
+  }
+
+  if(GetFirst tKatOrg Where ((Comp(0) == tKatOrg.cRec)) =tsOk)
+  {
+   dLog('Не всем организациям сопоставлены значения из Галактики!');
+   boErr:=true;
+  }
+
+  if(GetFirst tTs Where ((Comp(0) == tTs.cRec)) =tsOk)
+  {
+   dLog('Не всем транспортным средствам сопоставлены значения из Галактики! Путевые листы будут игнорированы"');
+!   boErr:=true;
+  }
+
+  if(GetFirst tTraninf Where ((Comp(0) == tTraninf.cRec)) =tsOk)
+  {
+   dLog('Не всем заданиям сопоставлены значения из Галактики!');
+   boErr:=true;
+  }
+
+  if(boErr)
+   {
+     ShowLog;
+     exit;
+   }
+
+  StartNewVisual(vtIndicatorVisual ,vfTimer,'Загрузка... ',RecordsInTable(tntPutLst));
+
+  Var ii: Integer;ii:=0;
+  _Loop tPutLst
+  {
+    var cTr: Comp;
+
+    cTr := if(GetFirst tTs  Where ((tPutLst.GosNumber == tTS.GosNumber AND tPutLst.ZavNom == tTS.ZavNom)) =tsOk,tTs.cRec,0);
+
+    if(cTr = Comp(0))
+    {
+       dLog('[err] ПЛ №'+GetNumPutLst(tPutLst.Npp,tPutLst.NoDoc)+DateToStr(tPutLst.dBeg,' от DD.MM.YYYY')+' не определено ТС. ПЛ не грузился.');
+       continue;
+    }
+
+    if(tPutLst.wErr = Word(0))
+    {
+       dLog('[err] ПЛ №'+GetNumPutLst(tPutLst.Npp,tPutLst.NoDoc)+DateToStr(tPutLst.dBeg,' от DD.MM.YYYY')+' не определено ТС. ПЛ не грузился.');
+       continue;
+    }
+
+
+     if(GetFirst PutLst Where ((
+                                     GetNumPutLst(tPutLst.Npp,tPutLst.NoDoc) == PutLst.Npl
+                                AND  tPutLst.dBeg == PutLst.DatPl (NoIndex)
+                                AND  cTr == PutLst.cTransp (NoIndex)
+                              ))=tsOK)
+     {
+       dLog('[info] ПЛ №'+GetNumPutLst(tPutLst.Npp,tPutLst.NoDoc)+DateToStr(tPutLst.dBeg,' от DD.MM.YYYY')+' уже присутствует в системе.');
+       continue;
+     }
+
+    NextVisual;
+    ii++;
+
+!    if(boUpdate And tPutLst.wErr=0) continue;
+    ClearBuffer(#PutLst);
+     PutLst.DESGR      := sGetTune('User.DesGr');
+     PutLst.DESCR      := sGetTune('User.DesCr');
+     PutLst.cOrgAvt    := coGetTune('MyOrg');
+     PutLst.cOrgtc     := coGetTune('MyOrg');
+     PutLst.Nomer      := tPutLst.GosNumber;
+     PutLst.TipUsl     := Word(1); // Пересчет показателей не проводить
+     PutLst.dPpokaz11  := Word(1); // Выдан
+
+     PutLst.Npl        := GetNumPutLst(tPutLst.Npp,tPutLst.NoDoc); // Номер путевого
+     PutLst.DATPL      := tPutLst.dBeg;
+     PutLst.DatRas     := tPutLst.dBeg;
+     PutLst.EXITDN     := tPutLst.dBeg;
+     PutLst.RETURNDN   := tPutLst.dEnd;
+     PutLst.SPEEDEXI   := tPutLst.SpidIn;
+     PutLst.SPEEDRET   := tPutLst.SpidOut;
+     PutLst.REAL_EXITDN:=tPutLst.dBeg;
+     PutLst.REAL_RETURNDN:=tPutLst.dEnd;
+
+     PutLst.GRUZTN    := tPutLst.Massa;    // Перевезено всего тонн
+
+     PutLst.TimeAll    := tPutLst.RabHour;
+
+     if(wTypeRep = Word(0))
+     {
+        PutLst.TimeMove   := PutLst.TimeAll;
+
+       if(Round(PutLst.GRUZTN,2) != 0)
+        PutLst.GruzTnKm  := tPutLst.Itogo;    // Ткм
+       else
+        PutLst.TimeSpec  := tPutLst.Itogo;    // Моточасы
+     }
+     else
+     {
+      PutLst.TimeSpec   := tPutLst.RabHour;
+     }
+
+     PutLst.cTransp    := cTr;
+     Putlst.cVal       := if(GetFirst tTraninf Where ((tPutLst.VidRab == tTraninf.VidRab)) =tsOk,tTraninf.cRec,0);
+
+     if(GetFirst TRANSP  Where ((PutLst.cTransp == TRANSP.Nrec)) =tsOk)
+     {
+      Putlst.cPol       := Transp.cPodr;
+      PutLst.GarNomer   := Transp.GARNOM;
+     }
+
+     PutLst.PROBEGALL := tPutLst.Probeg;   // Пробег общий
+     PutLst.PROBEGGR  := tPutLst.ProbegGr; // Пробег с грузом
+     PutLst.PROBEGV   := PutLst.PROBEGALL; // Пробег по маршруту
+
+
+     PutLst.cMarAvt   := if(GetFirst tMarAvt Where ((tPutLst.Org == tMarAvt.Org)) =tsOk,tMarAvt.cRec,0);
+     Insert Current PutLst;
+
+    ClearBuffer(#Save_Drv);
+     //Save_Drv.cPodr      := if(GetFirst tKatPodr  Where ((tPutLst.Podr == tKatPOdr.Podr)) =tsOk,tKatPodr.cRec,0);
+     // Appoit+Lschet+Persosn - как то нада синхронизировать, или уже потом???
+     if(GetFirst tKnDriver Where ((tPutLst.Fio  == tKnDriver.Fio)) =tsOk)
+      if(GetFirst KnDriver = tsOk)
+       {
+          Save_Drv.cKnDriver  := KnDriver.nRec;
+          Save_Drv.Fio        := KnDriver.Name;
+          Save_Drv.Tabn       := KnDriver.Tabn;
+          Save_Drv.cPerson    := KnDriver.CPerson;
+          Save_Drv.cLschet    := KnDriver.CLschet;
+          Save_Drv.StrTabn    := KnDriver.StrTabn;
+          //CAPPOINT
+       }
+
+     Save_Drv.cTransp    := PutLst.cTransp;
+     Save_Drv.cPutlst    := PutLst.Nrec;
+    Insert Current Save_Drv;
+
+    ClearBuffer(#PutOld) ;
+     PutOld.cAvtost  := Save_Drv.nrec ;
+     PutOld.TIMEALL  := PutLst.TimeAll;
+     PutOld.TIMEMOVE := PutLst.TIMEMOVE;
+     PutOld.PROBEGALL:= PutLst.PROBEGALL;
+     PutOld.PROBEGGR := PutLst.PROBEGGR;
+    Insert Current Putold ;
+
+     ClearBuffer(#PutGsm);
+       PutGsm.cPutlst  := PutLst.Nrec;
+       PutGsm.cToplivo := if(GetFirst tToplivo Where ((tPutLst.Oil == tToplivo.Oil)) =tsOk,tToplivo.cRec,0);
+       PutGsm.SPEEDZAP := PutLst.SpeedExi;
+       PutGsm.ZAPRDN   := PutLst.DATPL;
+       PutGsm.CSAVE_DRV:= Save_Drv.Nrec;
+       PutGsm.cTransp  := PutLst.cTransp;
+       PutGsm.DpPokaz9 := 0;
+       PutGsm.Vidt     := tPutLst.OilPrih;
+       PutGsm.NorMt    := tPutLst.OilNorm;
+       PutGsm.Faktt    := tPutLst.OilFact-tPutLst.OilOborud;
+       PutGsm.TipGsm   := if(wTypeRep=Word(0),0,1);
+       PUTGSM.CGSMALG=013E000000000073h;
+     Insert Current PutGsm;
+
+     // Это расход спец. оборудования
+     If(Round(tPutLst.OilOborud,2)!=0)
+     {
+       ClearBuffer(#PutGsm);
+         PutGsm.cPutlst  := PutLst.Nrec;
+         PutGsm.cToplivo := if(GetFirst tToplivo Where ((tPutLst.Oil == tToplivo.Oil)) =tsOk,tToplivo.cRec,0);
+         PutGsm.SPEEDZAP := PUTLST.SPEEDEXI;
+         PutGsm.ZAPRDN   := PutLst.DatPl;
+         PutGsm.CSAVE_DRV:= Save_Drv.Nrec;
+         PutGsm.cTransp  := PutLst.cTransp;
+         PutGsm.DpPokaz9 := 0;
+         PutGsm.Faktt    := tPutLst.OilOborud;
+         PutGsm.TipGsm   := if(wTypeRep=Word(0),0,1);
+         PUTGSM.CGSMALG=013E000000000073h;
+       Insert Current PutGsm;
+     }
+
+     UpdPutGsm;
+
+     Var w: Word; w:=0;
+    _Loop tKatZak Where ((tPutLst.Nrec == tKatZak.cRec))
+    {
+     w++;
+     ClearBuffer(#KatZak);
+       KatZak.cPutlst    := PutLst.Nrec;
+       KatZak.cGruzTO    := if(GetFirst tKatOrg  Where ((tPutLst.Org == tKatOrg.Org)) =tsOk,tKatOrg.cRec,0);
+       KatZak.cOrg       := KatZak.cGruzTO;
+       KatZak.DESGR      := sGetTune('User.DesGr');
+       KatZak.DESCR      := sGetTune('User.DesCr');
+       KatZak.NPKOLEZ    :=1;
+       KatZak.FKKOLEZ    :=1;
+       KatZak.EXITDN     := tPutLst.dBeg;
+       KatZak.RETURNDN   := tPutLst.dEnd;
+       KatZak.NPEXITDN   := tPutLst.dBeg;
+       KatZak.NPRETURNDN := tPutLst.dEnd;
+       KatZak.DSOPR      := tPutLst.dBeg;
+       KatZak.DPRICE     := tPutLst.dBeg;
+       KatZak.DOPR       := tPutLst.dBeg;
+       KatZak.CTRANSP    := PutLst.cTransp;
+       KatZak.NomZak     := PutLst.Npl+'.'+String(w);
+       KatZak.Nomer      := '*-*';
+       KatZak.cMarAvt    := PutLst.cMarAvt;
+
+       KatZak.ProbegAll  := tKatZak.ProbegAll;
+       KatZak.TimeSvur   := Word(1);
+       KatZak.cPodrFrom  := Putlst.cPol;
+
+       KatZak.NPGRUZTN   := tKatZak.FKGRUZTN;
+       KatZak.FKGRUZTN   := tKatZak.FKGRUZTN; // масса груза
+       KatZak.ProbeGGr   := tKatZak.PROBEGGR; // пробег с грузом
+
+       if(wTypeRep = Word(0))
+       {
+          KatZak.FkTimeMove := tKatZak.FkTimeMove;
+
+         if(Round(KatZak.FkGruzTn,2) != 0)
+          KatZak.GruzTnKm   := tKatZak.GruzTnKm; // ткм
+         else
+          KatZak.TimeSpec   := tKatZak.GruzTnKm; // ткм
+       }
+       else
+       {
+        KatZak.TimeSpec   := tKatZak.FkTimeMove;
+       }
+
+     Insert Current KatZak;
+    }  // loop KatZak
+
+    ClearBuffer(#WayWps);
+    WayWps.CTRANSP  := PutLst.cTransp;
+    WayWps.CPUTLST  := PutLst.Nrec;
+    WayWps.CMARAVT  := PutLst.cMarAvt;
+    WayWps.EXITDN   := tPutLst.dBeg;
+    WayWps.RETURNDN := tPutLst.dEnd;
+    WayWps.KoleZ := 1;
+    Insert Current WayWps;
+
+    ClearBuffer(#SoprHoz);
+     SoprHoz.TipDoc   := Word(750);
+     SoprHoz.TidkGaL  := Word(750);
+     SoprHoz.cSoprDoc := PutLst.Nrec;
+     SoprHoz.NoDoc    := PutLst.Npl;
+     SoprHoz.DatOb    := PutLst.DatPl;
+
+     SoprHoz.DesGr    := sGetTune('User.DesGr');
+     SoprHoz.DesCr    := sGetTune('User.DesCr');
+     SoprHoz.Direct   := Word(1);
+    Insert Current SoprHoz;
+
+!    Delete current tPutLst;
+  }  // loop tPutLst
+
+  if(wParam >0)
+  {
+
+   _Loop tTs
+   {
+     if(GetFirst Transp != tsOK)
+      continue;
+
+     if(GetFirst PutLst Where (( tTs.cRec == PutLst.cTransp And Date(0,0,0)<< PutLst.EXITDN))!= tsOK)
+      continue;
+
+     if((wParam And 1)>0)
+     {
+        PutLst.SpeedExi:= Transp.SpeedExi;
+
+      if(wTypeRep = word(0))
+        PutLst.NpVirVal:= Transp.TarAvt;
+      else
+        PutLst.TimeSpec:= Transp.TarAvt;
+     Update Current PutLst;
+     }
+
+     if((wParam And 2)>0)
+     {
+       _Loop NormGsm Where(( Word(0) == NormGsm.wHatis And tTs.cRec == NormGsm.cTranSp (NoIndex) ))
+       {
+         if(GetFirst PutGsm Where ((Word(0) == PutGsm.TipInfo And tTs.cRec == PutGsm.cTransp
+                                    And NormGsm.cToplivo ==PutGsm.cToplivo
+                                    And Date(0,0,0) <<= PutGsm.ZapRdn (NoIndex) ))!=tsOk)
+         continue;
+
+         PutGsm.OW := Transp.Ow;
+         PUTGSM.OWV:= PutGsm.Ow+PUTGSM.VIDT-PUTGSM.FAKTT; // Конечный остаток
+         Update Current PutGsm;
+         Break;
+       }
+     }
+
+
+   }  // loop TRANSP
+
+  }
+   StopVisual('',0);
+
+  if(boUpdate)
+   Message('Загрузка завершена! Всего считано '+String(ii)+' записей.');
+
+   ShowLog;
+
+} // procedure ImportTiGal
+
+TableEvent Table tPutLst;
+
+cmUpdateRecord:
+ Update Current tPutLst;
+end;
+
+//------------------------------------------------------------------------------
+//
+//------------------------------------------------------------------------------
+HandleEvent
+cmInit :
+{
+   if(Not ReadMyDsk(wParam, 'ImportSummZd_wParam', false)) wParam:=0; ;
+   if(GetFirst ExpSet Where ((Word(13777) == ExpSet.Code )) !=tsOK)
+   {
+     ClearBuffer(#ExpSet);
+     ExpSet.Code:= Word(13777);
+     Insert Current ExpSet;
+   }
+    cRepNrec := ExpSet.Nrec;
+
+
+   if(Not FillTmpTable)
+   {
+    abort;
+    exit;
+   }
+
+   //ImportToGal(false);
+}
+
+cmPick:
+{
+  Case CurField of
+     #tTs.GosNumber
+   , #tTs.ZavNom
+   , #Transp.ZavNom
+   , #Transp.NOMER
+   , #Transp.GARNOM :
+   {
+      Var  p1: Comp; p1:=tTs.cRec;
+      if(RunInterface(M_Transp::Get_wps,p1,word(0), Date(0,0,0),Comp(0))!=cmCancel)
+      {
+        Set tTs.cRec := p1;
+        Update Current tTs;
+        InsOneExpImpMd(1, tTs.cRec, tTs.GosNumber);
+        //RescanPanel(#tTs);
+      }
+   }
+
+     #tTranInf.VidRab
+   , #TranInf.Nomkar1  :
+   {
+     Var  p1: Comp; p1:=tTranInf.cRec;
+     if(RunInterface(M_TRANSP::SHEET_VX, 1, Date(0,0,0), p1,Date(0,0,0))!=cmCancel)
+      {
+        Set tTranInf.cRec := p1;
+        Update Current tTranInf;
+        InsOneExpImpMd(2, tTranInf.cRec, tTranInf.VidRab);
+        //RescanPanel(#tTs);
+      }
+   }
+
+     #tKnDriver.Fio
+   , #KnDriver.Name
+   , #KnDriver.TABN
+   , #KnDriver.NUDOV
+   , #KnDriver.KLASSV:
+   {
+      Var  p1: Comp; p1:=tKnDriver.cRec;
+      if(RunInterface(M_Transp::Get_Vod,p1,word(0), Date(0,0,0),Comp(0),Comp(0))!=cmCancel)
+      {
+        Set tKnDriver.cRec := p1;
+        Update Current tKnDriver;
+        //RescanPanel(#tKnDriver);
+        InsOneExpImpMd(3, tKnDriver.cRec, tKnDriver.Fio);
+      }
+   }
+
+     #tKatOrg.Org
+   , #KatOrg.Name  :
+   {
+      Var  p1: Comp; p1:=tKatOrg.cRec;
+      if(RunInterface(L_KatOrg::GetKatOr, p1, 0,false,0,0)!=cmCancel)
+      {
+       Set tKatOrg.cRec:=p1;
+       Update Current tKatOrg;
+
+       InsOneExpImpMd(4, tKatOrg.cRec, tKatOrg.Org);
+      }
+   }
+
+     #tToplivo.Oil
+   , #Toplivo.Name    :
+   {
+      Var  p1: Comp; p1:=tToplivo.cRec;
+      if(RunInterface(M_Transp::Get_Gsm, p1, 0)!=cmCancel)
+      {
+       Set tToplivo.cRec:=p1;
+       Update Current tToplivo;
+       //RescanPanel(#tToplivo);
+       InsOneExpImpMd(5, tToplivo.cRec, tToplivo.Oil);
+      }
+   }
+
+     #tMarAvt.Org
+   , #MarAvt.Nmaravt :
+   {
+      Var  p1: Comp; p1:=tMarAvt.cRec;
+      if(RunInterface(M_Transp::Get_Dor, p1, 0,comp(0),comp(0),comp(0))!=cmCancel)
+      {
+       Set tMarAvt.cRec:=p1;
+       Update Current tMarAvt;
+
+       InsOneExpImpMd(6, tMarAvt.cRec, tMarAvt.Org);
+      }
+   }
+  End; //case
+}
+
+cmDelonProtect:
+ {
+  Case CurField of
+
+     #tTs.GosNumber
+   , #tTs.ZavNom
+   , #Transp.ZavNom
+   , #Transp.NOMER
+   , #Transp.GarNom :
+   {
+      DelOneExpImpMd(1, tTs.cRec);
+      Set tTs.cRec:=0;
+      Update Current tTs;
+      //RescanPanel(#tTs);
+   }
+
+     #tTranInf.VidRab
+   , #TranInf.Nomkar1  :
+   {
+      DelOneExpImpMd(2, tTranInf.cRec);
+      Set tTranInf.cRec := 0;
+      Update Current tTranInf;
+   }
+
+     #tKnDriver.Fio
+   , #KnDriver.Name :
+   {
+
+     DelOneExpImpMd(3, tKnDriver.cRec);
+     Set tKnDriver.cRec := 0;
+     Update Current tKnDriver;
+     //RescanPanel(#tKnDriver);
+   }
+     #tKatOrg.Org
+   , #KatOrg.Name  :
+   {
+      DelOneExpImpMd(4, tKatOrg.cRec);
+      Set tKatOrg.cRec:=0;
+      Update Current tKatOrg;
+   }
+     #tToplivo.Oil
+   , #Toplivo.Name    :
+   {
+     DelOneExpImpMd(5, tToplivo.cRec);
+     Set tToplivo.cRec:=0;
+     Update Current tToplivo;
+     //RescanPanel(#tToplivo);
+   }
+  End; //case
+ }
+
+cmOk :
+{
+   ImportToGal(true);
+   //CloseInterface(cmDefault);
+}
+
+cmDone:
+{
+
+  SaveMyDsk(wParam, 'ImportSummZd_wParam');
+}
+end;
+End.
+
+
+#include UserReport.vih
+
+VipInterface UserReport_ImportPutLst Implements IUserReport Licensed(Free);
+Interface UserReport_ImportPutLst;
+Create View;
+Procedure Run;
+{
+  RunInterfaceNoModal('ImportPutLst',0);
+}
+
+Function GetReportName: String;
+{
+  GetReportName := 'Импорт путевых листов';
+}
+
+Function GetPriority : Integer;
+{
+  GetPriority := 0;
+}
+Function GetGroupName (Level : Word) : String;
+{
+  Result := ICase(Level; '', ''; '');
+}
+
+Function VisibleInModule(Ind : Byte) : String;
+{
+  Result := ICase(Ind; '', '*'; '');
+}
+
+end. // interface
+
+VipInterface UserReport_ImportPutLstCpec Implements IUserReport Licensed(Free);
+Interface UserReport_ImportPutLstCpec;
+Create View;
+Procedure Run;
+{
+  //Message('Импорт строительной техники!');
+  RunInterfaceNoModal('ImportPutLst',1);
+}
+
+Function GetReportName: String;
+{
+  GetReportName := 'Импорт путевых листов спец. техника';
+}
+
+Function GetPriority : Integer;
+{
+  GetPriority := 0;
+}
+Function GetGroupName (Level : Word) : String;
+{
+  Result := ICase(Level; '', ''; '');
+}
+
+Function VisibleInModule(Ind : Byte) : String;
+{
+  Result := ICase(Ind; '', '*'; '');
+}
+
+end. // interface

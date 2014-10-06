@@ -1,0 +1,120 @@
+!=====================================
+!==  полезные функции для работы с транспортом
+!======================================
+.var
+// простои
+Prostoy_name : array [1..10] of string;
+Prostoy_code : array [1..10] of string;
+Prostoy_beg  : array [1..10] of string;
+Prostoy_end  : array [1..10] of string;
+
+.endvar
+.create view vPutlst
+var
+ PutLst_Nrec :comp;
+from putlst , texsup , transp
+, morale , morale morale_up, traninf
+where ((
+       PutLst_Nrec == PutLst.Nrec
+and    PutLst.cTransp == Transp.nrec
+//toplivo bak1
+and    transp.CTOPLIVO == toplivo.nrec
+//smeny
+and    PutLst.cVal == TranInf.Nrec
+// состояния
+and    0          == TexSup.WhatIs
+and    word(12005)      == TexSup.TblCode
+and    Putlst.nrec      == TexSup.cWork
+and    Transp.nrec      == Texsup.cavto        (noindex)
+and    TexSup.cmorale   == morale.nrec
+and    morale.CBACK     == morale_up.nrec
+
+));
+!=================================
+!== заполнить простои ============
+!=================================
+.Function FillProstoy(ww_PutLst_nrec :comp) :boolean;
+var kk :word;
+begin
+  FillProstoy:=False
+  for(kk:=1;kk<=10;kk:=kk+1)
+  { Prostoy_name[kk]:=''
+    Prostoy_code[kk]:=''
+    Prostoy_beg[kk]:=''
+    Prostoy_end[kk]:=''
+  }
+  vPutLst.PutLst_nrec :=ww_PutLst_nrec ;
+  if vPutLst.getfirst PutLst<>0
+  { exit;
+  }
+  if vPutLst.getfirst Transp=0 {}
+  kk:=0
+  vPutLst._loop TexSup
+  { if vPutLst.getfirst morale=0
+    { if vPutLst.getfirst morale_up=0
+      { if locase(vPutLst.morale_up.name)='простои'
+        { kk:=kk+1
+          if kk>10 kk:=10;
+          Prostoy_name[kk]:=vPutLst.morale.name
+          Prostoy_code[kk]:=vPutLst.MORALE.TIPTC
+          Prostoy_beg[kk] :=DateToStr(vPutLst.texsup.DATTOBEG,'DD/MM ')
+                           +TimeToStr(vPutLst.texsup.TIMETOBEG,'HH:MM')
+          Prostoy_end[kk] :=DateToStr(vPutLst.texsup.DATTOEND,'DD/MM ')
+                           +TimeToStr(vPutLst.texsup.TIMETOEND,'HH:MM')
+        } //if locase(vPutLst.morale_up.name)='простои'
+      } //if vPutLst.getfirst morale_up=0
+    } //if vPutLst.getfirst morale=0
+  } //vPutLst._loop TexSup
+  FillProstoy:=True;
+//.Function FillProstoy(ww_PutLst_nrec :comp) :boolean;
+ end.
+!=================================
+!== выдрать номер смены из ПЛ   ==
+!=================================
+.Function GetNOMSMENA(ww_PutLst_nrec :comp) :word;
+var i :word;
+begin
+  GetNOMSMENA:=0;
+  vPutLst.PutLst_nrec := ww_PutLst_nrec ;
+  if vPutLst.getfirst PutLst<>0
+  { exit;
+  }
+  GetNOMSMENA := vPutLst.PutLst.NOMSMENA;
+end.
+
+!=================================
+!получим название смены по имени смены из справочника-
+!-для печати режима работы в ПЛ. Если в него входит слово "сменный", то его и печатаем, иначе "8-часовой" а
+ а!=================================
+.Function sGetSMENA(ww_PutLst_nrec :comp) :string;
+var  sSmena :string;
+begin
+ sGetSMENA:='8-часовой';
+ sSmena:='';
+ vPutLst.PutLst_nrec := ww_PutLst_nrec ;
+ if vPutLst.getfirst PutLst<>0
+   { exit;
+   }
+ if vPutLst.getfirst traninf = 0 {}
+
+ sSmena:=vPutLst.traninf.NOMKAR1;
+ if InStr('сменный', loCase(sSmena)) > 0
+      sGetSMENA:='Сменный';
+ а
+ аend.
+
+!=================================
+!получим строковый код топлива для марки топлива в первом баке ТС. Для печати в ПЛ.
+!=================================
+.Function sGetKodToplBak1(ww_PutLst_nrec :comp) :string;
+begin
+     sGetKodToplBak1:=' ';
+     vPutLst.PutLst_nrec := ww_PutLst_nrec ;
+     if vPutLst.getfirst PutLst<>0
+      { exit;
+      }
+     if vPutLst.getfirst transp = 0 {}
+
+     if vPutLst.getfirst toplivo = 0 {}
+     sGetKodToplBak1:=vPutLst.toplivo.KODGSM;
+end.

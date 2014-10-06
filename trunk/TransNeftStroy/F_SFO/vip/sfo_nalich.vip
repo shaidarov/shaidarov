@@ -1,0 +1,631 @@
+Getgr_tnf dialog
+fields
+  grup1 : word;
+  grup2 : word;
+Buttons
+  cmOk,Default,, 'Подтверждение ввода',,scGalDial ;
+
+<< 'Укажите параметры'
+
+  `Какие поля выводить               `
+  [.] Счет                           `
+  [.] Подразделение                  `
+  [.] МОЛ                            `
+  [.] Работник                       `
+  [.] Номенклатура                   `
+  [.] Дата прихода                   `
+  [.] Дата ввода в эксплуатацию      `
+  [.] Процент износа                 `
+  [.] Срок                           `
+
+  `По каким полям не выводить итоги  `
+  [.] Счет                           `
+  [.] Подразделение                  `
+  [.] МОЛ                            `
+  [.] Работник                       `
+  [.] Номенклатура                   `
+  [.] Дата прихода                   `
+  [.] Дата ввода в эксплуатацию      `
+  [.] Процент износа                 `
+  [.] Срок                           `
+
+            <. Продолжить .>     
+                                          >>
+
+
+.LinkForm 'RNAL_MsdfBP_06' Prototype is 'RNAL_MBP'
+.Group 'Подробные'
+.NameInList 'Ведомость наличия спецодежды (ТНФ)'
+.F 'NUL' 
+.var
+schet:string;
+bFileName : string;
+ndFile: longint;
+OutInDBF:BOOLEAN;
+fVBFileName:string
+fXLTFileName:string
+fActiveXLSName:string
+fXLSFileName:string
+isExcelOk:boolean
+sr_n,grup1,grup2,poz:word;
+.endvar
+.Create view t1
+as select mbpin.nrec
+from mbpin,
+     mbpin mbpin1,
+     mbpout,
+     attrnam,
+     attrnam attrnam1,
+     attrval,
+     attrval attrval1,
+     spkau,
+     spkau spkau1
+where ((
+             NRECIN           == mbpin.nrec
+        and  mbpin.cpodr      == katpodr.nrec
+        and  mbpin.cmol       == katmol.nrec
+        and  mbpin.cmbp       == katmbp.nrec
+
+        and  mbpin.cpers      == perscard.nrec
+        and  perscard.clschet == lschet.nrec
+        and  lschet.tperson   == persons.nrec
+
+        and  word(2001)       == AttrNam.wTable								
+        and  'Признак счета'  == AttrNam.Name								
+        and  word(2001)       == AttrVal.wTable								
+        and  NRECIN           == AttrVal.cRec								
+        and  AttrNam.Nrec     == AttrVal.cAttrNam								
+        and  attrval.vcomp    == spkau.nrec
+
+        and  mbpin.cmbpout    == mbpout.nrec
+        and  MBPout.nRec      == PersSFO.cMBPout  (noindex)
+        and  word(1)          == PersSFO.Status                  
+        and  mbpout.cmbpin    == mbpin1.nrec 
+      
+        and  word(2001)       == AttrNam1.wTable								
+        and  'Признак счета'  == AttrNam1.Name								
+        and  word(2001)       == AttrVal1.wTable								
+        and  mbpin1.nrec      == AttrVal1.cRec								
+        and  AttrNam1.Nrec    == AttrVal1.cAttrNam								
+        and  attrval1.vcomp   == spkau1.nrec
+      ))
+;
+
+.fields
+.endfields
+
+.begin
+
+
+if RunDialog('Getgr_tnf',grup1,grup2) = cmCancel
+ {
+ grup1:=511;
+ grup2:=510;
+ }
+
+ if grup1=0
+  {
+   grup1:=511;
+   grup2:=510;
+  }
+
+bFileName :=GetStringParameter('Files','TmpFilesDirectory',0)+'sfo_nalich.dbf';
+ndFile := DBFOpen(bFileName, stCreate);
+  if (ndFile = 0)
+  {
+     message ('Ошибка создания DBF-файла ' + bFileName);
+     Exit;
+  }
+  else
+  {
+   DBFAddField(ndFile, 'sch'     ,  DbChar, 10, 0);
+   DBFAddField(ndFile, 'kodpodr' ,  DbChar, 20, 0); 
+   DBFAddField(ndFile, 'podr'    ,  DbChar, 80, 0); 
+   DBFAddField(ndFile, 'kodmol'  ,  DbChar, 20, 0); 
+   DBFAddField(ndFile, 'namemol' ,  DbChar, 80, 0); 
+   DBFAddField(ndFile, 'tabnom'  ,  DbChar, 20, 0); 
+   DBFAddField(ndFile, 'fio'     ,  DbChar, 80, 0); 
+   DBFAddField(ndFile, 'namemc'  ,  DbChar, 80, 0); 
+   DBFAddField(ndFile, 'barkod'  ,  DbChar, 20, 0); 
+   DBFAddField(ndFile, 'datein'  ,  DbChar, 20, 0); 
+   DBFAddField(ndFile, 'datexp'  ,  DbChar, 20, 0); 
+   DBFAddField(ndFile, 'kol'     ,  DbNum , 20, 3); 
+   DBFAddField(ndFile, 'stoim'   ,  DbNum , 20,16); 
+   DBFAddField(ndFile, 'iznos'   ,  DbNum , 20,16); 
+   DBFAddField(ndFile, 'ostst'   ,  DbNum , 20,16); 
+   DBFAddField(ndFile, 'prizn'   ,  DbChar, 80, 0); 
+   DBFAddField(ndFile, 'srok'    ,  DbNum , 20, 0); 
+  }
+end.
+.{CheckEnter CIRFILT
+.}
+.{CheckEnter CIRCOM
+.[H
+.]H
+.{CheckEnter CIRGRP
+.}
+.{CheckEnter CIROPER
+.begin
+schet:='';
+sr_n:=0;
+
+if t1.getfirst mbpin = tsok
+ {
+
+   if t1.mbpin.INEKSPL = 0
+     {
+               schet := '10-08';
+
+        if t1.getfirst mbpout = tsok
+        if t1.getfirst perssfo = tsok 
+         {
+        if t1.getfirst mbpin1 = tsok
+         {
+
+          if (t1.mbpin1.DATEEKSP<>date(0,0,0) and t1.mbpin1.DATEEND<>date(0,0,0))
+           {
+            sr_n:=Months_Between(t1.mbpin1.DATEEKSP,t1.mbpin1.DATEEND);
+           }
+          else
+             {
+             sr_n:=0;
+             }
+
+
+          if sr_n <= 12 
+           {
+             schet := '013';
+
+           }
+            else 
+           {
+
+            schet := '10-08';
+           }
+
+           if t1.getfirst attrnam1 = tsok
+            {
+           if t1.getfirst attrval1 = tsok
+            {
+           if t1.getfirst spkau1 = tsok
+            {
+      
+            if t1.spkau1.code = '001'
+             {
+
+              schet := '10-08';
+             }
+             else
+                {
+                 schet := '013';
+
+                }
+            }
+            }
+            }
+
+          }
+          }
+            if t1.getfirst attrnam = tsok
+             {
+            if t1.getfirst attrval = tsok
+             {
+            if t1.getfirst spkau = tsok
+             {
+             if t1.spkau.code = '002'
+              {
+
+               schet := '013';
+              }
+             }
+             }
+             }
+            
+     
+     }
+     else 
+        {
+
+           if (t1.mbpin.DATEEKSP<>date(0,0,0) and t1.mbpin.DATEEND<>date(0,0,0))
+            {
+             sr_n:=Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND);
+            }
+           else
+              {
+              sr_n:=0;
+              }
+
+
+         if sr_n <= 12
+          {
+           schet := '013';
+          }
+          else 
+             {
+              schet := '10-09';
+             }
+         if t1.getfirst attrnam = tsok
+          {
+         if t1.getfirst attrval = tsok
+          {
+
+         if t1.getfirst spkau = tsok
+          {
+
+          if t1.spkau.code = '001'
+           {
+            schet := '10-09';
+
+           }
+           else
+              {
+               schet := '013';
+              }
+          }
+          }
+          }
+
+         }
+  }
+
+if schet = '' {schet:='Не определен счет';}
+
+    DBFClearBuffer (ndFile);
+    DBFPutFieldValue(ndFile,'sch'     , schet                                                         );
+    if t1.getfirst katpodr = tsok
+    {
+    DBFPutFieldValue(ndFile,'kodpodr' , t1.katpodr.kod                                                );
+    DBFPutFieldValue(ndFile,'podr'    , t1.katpodr.name                                               );
+    }
+    else
+    {
+    DBFPutFieldValue(ndFile,'kodpodr' , ''                                                            );
+    DBFPutFieldValue(ndFile,'podr'    , ''                                                            );
+    }
+    if t1.getfirst katmol = tsok
+    {
+    DBFPutFieldValue(ndFile,'kodmol'  , t1.katmol.kod                                                 );
+    DBFPutFieldValue(ndFile,'namemol' , t1.katmol.name                                                );
+    }
+    else
+    {
+    DBFPutFieldValue(ndFile,'kodmol'  , ''                                                            );
+    DBFPutFieldValue(ndFile,'namemol' , ''                                                            );
+    }
+
+    if t1.getfirst persons = tsok
+    {
+    DBFPutFieldValue(ndFile,'tabnom'  , t1.persons.TABNMB                                             );
+    DBFPutFieldValue(ndFile,'fio'     , t1.persons.FIO                                                );
+    }
+    else
+    {
+    DBFPutFieldValue(ndFile,'tabnom'  , ''                                                            );
+    DBFPutFieldValue(ndFile,'fio'     , ''                                                            );
+    }
+    if t1.getfirst katmbp = tsok
+    {
+    DBFPutFieldValue(ndFile,'namemc'  , t1.katmbp.name                                                );
+    DBFPutFieldValue(ndFile,'barkod'  , t1.katmbp.nnumber                                             );
+    }
+    else
+    {
+    DBFPutFieldValue(ndFile,'namemc'  , ''                                                            );
+    DBFPutFieldValue(ndFile,'barkod'  , ''                                                            );
+    }
+
+    DBFPutFieldValue(ndFile,'datein'  , if ( LongInt( dIn) > 0,   DateToStr( dIn,   'DD/MM/YYYY'), ''));
+    DBFPutFieldValue(ndFile,'datexp'  , if ( LongInt( dExpl) > 0, DateToStr( dExpl, 'DD/MM/YYYY'), ''));
+    DBFPutFieldValue(ndFile,'kol'     , Kol                                                           );
+    DBFPutFieldValue(ndFile,'stoim'   , trim(string(Stoim,100,16))                                    );
+    DBFPutFieldValue(ndFile,'iznos'   , trim(string(SumIzn,100,16))                                   );
+    DBFPutFieldValue(ndFile,'ostst'   , trim(string(Stoim-SumIzn,100,16))                             );
+    DBFPutFieldValue(ndFile,'prizn'   , if (Perc > 0, String( Perc)+'%', '')                          );
+    DBFPutFieldValue(ndFile,'srok'    , sr_n                                                          );
+
+    if (DBFInsertRecord(ndFile)= tsok) {}
+
+end.
+.}
+.{CheckEnter CIRITOG
+.}
+.}
+.begin
+DBFClose(ndFile);
+fXLTFileName  := TranslatePath('%ClientStartPath%')+'xls\sfo_nalich.xlt';
+//fXLTFileName  := 'd:\delete\sfo_nalich.xlt';
+
+fVBFileName   := GetStringParameter('Files','TmpFilesDirectory',0)+'sfo_nalich.bas';
+
+DeleteFile(fVBFileName);
+if not LogStrToFile(fVBFileName, 'Sub macros()') message('Ошибка записи файла макроса '+fVBFileName);
+LogStrToFile(fVBFileName,'Attribute VB_Name = "ImportedModule111"                                                                                 ');
+LogStrToFile(fVBFileName,'Public Function MakePivotTable(ByVal PivotTableTemplID As Integer) As Boolean                                           ');
+LogStrToFile(fVBFileName,'    Dim OkFlag As Boolean                                                                                               ');
+LogStrToFile(fVBFileName,'    Dim i, j, k As Long                                                                                                 ');
+LogStrToFile(fVBFileName,'    Dim AnaliticsArray() As String                                                                                      ');
+LogStrToFile(fVBFileName,'Dim r, c As String                                                                                                      ');
+LogStrToFile(fVBFileName,'For k = 1 To 1                                                                                                          ');
+LogStrToFile(fVBFileName,'Set DestinationSheet = DestinationWB.Sheets.Add                                                                         ');
+LogStrToFile(fVBFileName,'Set DestinationRange = DestinationSheet.Cells(7, 1)                                                                     ');
+LogStrToFile(fVBFileName,'Set MyPivotTable = MyPivotCache.CreatePivotTable(TableDestination:=DestinationRange) '+chr(39)+' , TableName:="╤тюфэр ╥рсышЎр1" ');
+LogStrToFile(fVBFileName,'UpdateAllFields                                                                                                         ');
+LogStrToFile(fVBFileName,'Select Case k                                                                                                           ');
+LogStrToFile(fVBFileName,'Case 1                                                                                                                  ');
+LogStrToFile(fVBFileName,'With MyPivotTable.PivotFields("╩юышўхёЄтю")                                                                             ');
+LogStrToFile(fVBFileName,'     .Caption = "╩юышўхёЄтю"                                                                                            ');
+LogStrToFile(fVBFileName,'     .Orientation = xlDataField                                                                                         ');
+LogStrToFile(fVBFileName,'     .Position = 1                                                                                                      ');
+LogStrToFile(fVBFileName,'     .NumberFormat = "#,##0.000"                                                                                        ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+LogStrToFile(fVBFileName,'With MyPivotTable.PivotFields("╤ЄюшьюёЄ№")                                                                              ');
+LogStrToFile(fVBFileName,'     .Caption = "╤ЄюшьюёЄ№"                                                                                             ');
+LogStrToFile(fVBFileName,'     .Orientation = xlDataField                                                                                         ');
+LogStrToFile(fVBFileName,'     .Position = 2                                                                                                      ');
+LogStrToFile(fVBFileName,'     .NumberFormat = "#,##0.00"                                                                                         ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+LogStrToFile(fVBFileName,'With MyPivotTable.PivotFields("╚чэюё")                                                                                  ');
+LogStrToFile(fVBFileName,'     .Caption = "╚чэюё"                                                                                                 ');
+LogStrToFile(fVBFileName,'     .Orientation = xlDataField                                                                                         ');
+LogStrToFile(fVBFileName,'     .Position = 3                                                                                                      ');
+LogStrToFile(fVBFileName,'     .NumberFormat = "#,##0.00"                                                                                         ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+LogStrToFile(fVBFileName,'With MyPivotTable.PivotFields("╬ёЄрЄюўэр  ёЄюшьюёЄ№")                                                                   ');
+LogStrToFile(fVBFileName,'     .Caption = "╬ёЄрЄюўэр  ёЄюшьюёЄ№"                                                                                  ');
+LogStrToFile(fVBFileName,'     .Orientation = xlDataField                                                                                         ');
+LogStrToFile(fVBFileName,'     .Position = 4                                                                                                      ');
+LogStrToFile(fVBFileName,'     .NumberFormat = "#,##0.00"                                                                                         ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+LogStrToFile(fVBFileName,'MyPivotTable.PivotFields("─рээ√х").Orientation = xlColumnField                                                          ');
+LogStrToFile(fVBFileName,'MyPivotTable.PivotFields("─рээ√х").Position = 1                                                                         ');
+LogStrToFile(fVBFileName,'MyPivotTable.HasAutoFormat = False                                                                                      ');
+poz:=0;
+if (grup1 and 1) = 1 
+{
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╤ўхЄ")                                                                ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 1) =1 
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+}
+if (grup1 and 2) = 2 
+{
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╩юф яюфЁрчфхыхэш ")                                                             ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╧юфЁрчфхыхэшх")                                                       ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 2) =2 
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+}
+if (grup1 and 4) = 4 
+{
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╩юф ╠╬╦")                                                             ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╠╬╦")                                                                 ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 4) =4 
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+}
+if (grup1 and 8) = 8 
+{
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╥рсхы№э√щ эюьхЁ")                                                     ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╨рсюЄэшъ")                                                            ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 8) =8 
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+}
+if (grup1 and 16) = 16 
+{
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("═ршьхэютрэшх")                                                        ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("═юьхэъырЄєЁэ√щ эюьхЁ")                                                ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 16) =16 
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+}
+if (grup1 and 32) = 32 
+{
+poz:=poz+1;
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("─рЄр яЁшїюфр")                                                        ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 32) =32 
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+poz:=poz+1;
+}
+if (grup1 and 64) = 64
+{
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("─рЄр ттюфр т ¤ъёяыєрЄрЎш■")                                           ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 64) =64
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+poz:=poz+1;
+}
+if (grup1 and 128) = 128
+{
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╧ЁюЎхэЄ шчэюёр")                                                      ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 128) =128
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                                ');
+poz:=poz+1;
+}
+if (grup1 and 256) = 256
+{
+LogStrToFile(fVBFileName,'With DestinationSheet.PivotTables(1).PivotFields("╤Ёюъ")                                                                ');
+LogStrToFile(fVBFileName,'.Orientation = xlRowField                                                                                               ');
+LogStrToFile(fVBFileName,'.Position = '+poz);
+if (grup2 and 256) =256
+{
+LogStrToFile(fVBFileName,'.Subtotals = _                                                                                                          ');
+LogStrToFile(fVBFileName,'Array(False, False, False, False, False, False, False, False, False, False, False, False)                               ');
+}
+LogStrToFile(fVBFileName,'End With                                                                                                               ');
+}
+
+LogStrToFile(fVBFileName,'MyPivotTable.DataPivotField.PivotItems("╤єььр яю яюы■ ╩юышўхёЄтю").Caption = "╩юышўхёЄтю "                              ');
+LogStrToFile(fVBFileName,'MyPivotTable.DataPivotField.PivotItems("╤єььр яю яюы■ ╤ЄюшьюёЄ№").Caption = "╤ЄюшьюёЄ№ "                                ');
+LogStrToFile(fVBFileName,'MyPivotTable.DataPivotField.PivotItems("╤єььр яю яюы■ ╚чэюё").Caption = "╚чэюё "                                        ');
+LogStrToFile(fVBFileName,'MyPivotTable.DataPivotField.PivotItems("╤єььр яю яюы■ ╬ёЄрЄюўэр  ёЄюшьюёЄ№").Caption = "╬ёЄрЄюўэр  "                    ');
+LogStrToFile(fVBFileName,'Case 2                                                                                                                  ');
+LogStrToFile(fVBFileName,'End Select                                                                                                              ');
+LogStrToFile(fVBFileName,'j = 1                                                                                                                   ');
+LogStrToFile(fVBFileName,'SheetName = "╧єёЄющ ышёЄ"                                                                                               ');
+LogStrToFile(fVBFileName,'DestinationSheet.Name = SheetName                                                                                       ');
+LogStrToFile(fVBFileName,'DestinationSheet.PivotTables(1).RowGrand = False                                                                        ');
+LogStrToFile(fVBFileName,'DestinationSheet.PivotTables(1).ColumnGrand = True                                                                      ');
+LogStrToFile(fVBFileName,'DestinationSheet.Columns("A:P").ColumnWidth = 20                                                                        ');
+LogStrToFile(fVBFileName,'DestinationSheet.Cells(1, 1) = CStr(ParametersSheet.Cells(10, 2).Value)                                                 ');
+LogStrToFile(fVBFileName,'    With DestinationSheet.Cells(1, 1).Font                                                                              ');
+LogStrToFile(fVBFileName,'        .Bold = True                                                                                                    ');
+LogStrToFile(fVBFileName,'        .Name = "Arial"                                                                                                 ');
+LogStrToFile(fVBFileName,'        .Size = 8                                                                                                       ');
+LogStrToFile(fVBFileName,'    End With                                                                                                            ');
+LogStrToFile(fVBFileName,'DestinationSheet.Cells(3, 1) = "┬хфюьюёЄ№ эрышўш  ёяхЎюфхцф√"                                                           ');
+LogStrToFile(fVBFileName,'    With DestinationSheet.Cells(3, 1).Font                                                                              ');
+LogStrToFile(fVBFileName,'        .Bold = True                                                                                                    ');
+LogStrToFile(fVBFileName,'        .Name = "Arial"                                                                                                 ');
+LogStrToFile(fVBFileName,'        .Size = 12                                                                                                      ');
+LogStrToFile(fVBFileName,'    End With                                                                                                            ');
+LogStrToFile(fVBFileName,'DestinationSheet.Cells(4, 1) = "эр  " + CStr(ParametersSheet.Cells(11, 2).Value)                                         ');
+LogStrToFile(fVBFileName,'    With DestinationSheet.Cells(4, 1).Font                                                                              ');
+LogStrToFile(fVBFileName,'        .Bold = True                                                                                                    ');
+LogStrToFile(fVBFileName,'        .Name = "Arial"                                                                                                 ');
+LogStrToFile(fVBFileName,'        .Size = 12                                                                                                      ');
+LogStrToFile(fVBFileName,'    End With                                                                                                            ');
+LogStrToFile(fVBFileName,'   Cells.Select                                                                                                         ');
+LogStrToFile(fVBFileName,'Windows(DestinationWB.Name).Activate                                                                                    ');
+LogStrToFile(fVBFileName,'DestinationSheet.Select                                                                                                 ');
+LogStrToFile(fVBFileName,'ActiveWindow.Zoom = 100                                                                                                 ');
+LogStrToFile(fVBFileName,'MakePivotTable = False                                                                                                  ');
+LogStrToFile(fVBFileName,'Application.CommandBars("PivotTable").Visible = False                                                                   ');
+LogStrToFile(fVBFileName,'ActiveWorkbook.ShowPivotTableFieldList = False                                                                          ');
+LogStrToFile(fVBFileName,'ActiveWindow.TabRatio = 0.899                                                                                           ');
+LogStrToFile(fVBFileName,'Next k                                                                                                                  ');
+LogStrToFile(fVBFileName,'Exit Function                                                                                                           ');
+LogStrToFile(fVBFileName,'CustomError:                                                                                                            ');
+LogStrToFile(fVBFileName,'ActiveWindow.Zoom = 85                                                                                                  ');
+LogStrToFile(fVBFileName,'MakePivotTable = False                                                                                                  ');
+LogStrToFile(fVBFileName,'End Function                                                                                                            ');
+LogStrToFile(fVBFileName,'                                                                                                                        ');
+LogStrToFile(fVBFileName,'Public Function CheckFieldItem(PT As PivotTable, FieldName As String, FieldItemName As String) As Boolean               ');
+LogStrToFile(fVBFileName,'Dim i As Long                                                                                                           ');
+LogStrToFile(fVBFileName,'CheckFieldItem = False                                                                                                  ');
+LogStrToFile(fVBFileName,'For i = 1 To PT.PivotFields(FieldName).PivotItems.Count                                                                 ');
+LogStrToFile(fVBFileName,'If PT.PivotFields(FieldName).PivotItems(i).Name = FieldItemName Then CheckFieldItem = True                              ');
+LogStrToFile(fVBFileName,'Next i                                                                                                                  ');
+LogStrToFile(fVBFileName,'End Function                                                                                                            ');
+
+!--------------------------
+
+fXLSFileName  := GetStringParameter('Files','TmpFilesDirectory',0) + 'sfo_nalich.xls';
+
+IsExcelOK     := xlCreateExcelWithTemplate ( fXLTFileName, true ) ;
+!message ('2---'+IsExcelOK);
+IsExcelOK     := xlIsExcelValid ;
+!message ('3---'+IsExcelOK);
+IsExcelOK     := xlGetActiveWorkBookName (fActiveXLSName );
+!message ('4---'+IsExcelOK);
+IsExcelOK     := xlSetActiveSheetByName ('Параметры');
+!message ('5---'+IsExcelOK);
+
+ if( IsExcelOK )
+  {
+    xlSetCellStringValue(bFileName, 1, 2, 1, 2 );
+    xlSetCellStringValue(CommonFormHeader, 10, 2, 10, 2 );
+    xlSetCellDateValue(dfor, 11, 2, 11, 2 );
+
+  }
+  else
+   {
+    Message('Ошибка работы с файлом ' + fXLSFileName + '!');
+    xlKillExcel ;
+    RNAL_MBP.fexit;
+    Exit;
+   }
+
+StartNewVisual(vtRotateVisual, vfTimer+vfThread, 'Работа макроса Visual Basic', 1);
+
+  IsExcelOK     := xlImportModule( fVBFileName ) ;
+  if (isExcelOk)
+  {
+  IsExcelOK     := xlRunMacro( 'Main' );
+  IsExcelOK     := xlSaveAsWorkBookByName( fActiveXLSName , fXLSFileName);
+  IsExcelOK     := xlKillExcel ;
+  }
+  else
+   {
+    Message('Ошибка работы с макросом ' + fVBFileName + '!');
+    xlKillExcel ;
+    RNAL_MBP.fexit;
+    Exit;
+   }
+  StopVisual('',0);
+
+
+RNAL_MBP.fexit;
+end.
+.endform

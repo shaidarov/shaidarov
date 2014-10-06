@@ -1,0 +1,212 @@
+#include ExtAttr.vih
+
+#Component "M_Transp"
+
+//********************************************************************************
+// Нумерация путевых листов по балансовым подразделениям
+//********************************************************************************
+
+#doc
+  Интерфейс просмотра/редактирования последних номеров путевых листов
+#end
+
+const
+LNDTYPE_TNS = 50;
+WHATIS_TNS = 0;
+end;
+
+Interface LastNumD_TNS 'Нумерация путевых листов'
+                  (,,sci1Esc) EscClose, Cyan;
+  show at (,,65,10);
+
+var  oExtAttr   : iExtAttr;
+
+Create View vLastNumD
+var
+boNum4Podr_TNS : boolean;
+woNumKolCH_TNS : word;
+As select
+  'Путевые листы' + if(LastNumD.LNDsubT<>'', ' (по баланс.подразделению)', '')
+    ( fieldname = docnam )
+, LastNumD.*
+, KatPodr.Name
+
+From
+  LastNumD (LastNumD01),
+  KatPodr,
+  SysTran
+Where
+((
+  LNDTYPE_TNS == LastNumD.LNDtype
+))
+;
+
+FORM frmAllErr('LastNumD.out','ERRR') with visual;
+
+Procedure PrintDoc_TNS;
+  {
+    UpdateTable;
+    PushPos(#LastNumD)
+    frmAllErr.write('  Последние номера путевых листов');
+    frmAllErr.write('  ');
+    _Loop LastNumD
+      frmAllErr.write(Pad(docnam,40) + ' ' + Pad(LNDsubT,15) + ' ' + LNDnum);
+    frmAllErr.PutEvent(feBreak);
+    if (frmAllErr.error)
+      frmAllErr.AbortForm;
+    else
+      frmAllErr.ShowFile('Последние номера путевых листов');
+    PopPos(#LastNumD)
+  }
+
+Function InsOneLastNumD_TNS(sLNDsubT : string):boolean;
+{
+   Result := false
+   if getfirst LastNumD where ((LNDTYPE_TNS == LastNumD.LNDtype
+                              and sLNDsubT == LastNumD.LNDsubT))<>tsOK
+      {
+      Result := true;
+      ClearBuffer(#LastNumD)
+      set LastNumD.LNDtype := LNDTYPE_TNS
+      set LastNumD.LNDsubT := UpCase(sLNDsubT)
+      set LastNumD.LNDnum  := '00.' + PadCh('', '0', woNumKolCH_TNS-3)
+      if insert current LastNumD <> tsOK
+         message ('Ошибка добавления нумерации: ' + UpCase(sLNDsubT))
+      }
+}
+
+Procedure ReScanLastNumD_TNS;
+{
+var bIns : boolean; bIns := false;
+var sNameSubT : string;
+
+ReSetBounds(#LastNumD)
+
+bIns := InsOneLastNumD_TNS('') //без подтипов сначала
+if not boNum4Podr_TNS
+   message('Настройка нумерации ПЛ по балансовым подразделениям ТС не активна...')
+else
+   _loop KatPodr 
+   {
+   sNameSubT := ''
+   sNameSubT := trim(oExtAttr.sGetAttr(coKatPodr, KatPodr.Nrec, ATR_NAME_PODR_LASTNUMD))
+   if sNameSubT <> '' bIns := bIns or InsOneLastNumD_TNS(sNameSubT);
+   }
+
+SetBounds(#LastNumD)
+ReReadRecord(#LastNumD)
+
+if bIns message('Переформирование выполнено.')
+else message('Переформирование не требуется.')
+}
+
+/////////////////////////////////////////////////////////////////////
+Window Win1 'Редактирование нумерации путевых листов' (,,sci18Esc) escclose;
+  show at (,,70,12);
+Panel pLastNumD;
+  Table LastNumD;
+Browse br2;
+Fields
+  docnam   #3'Наименование', #3'документа' ('Наименование документа') : [35], protect;
+  LNDsubT  #3'Подтип', #3'нумерации' ('Подтип нумерации согласно баланс.подразделению ТС') : [15], protect;
+  LNDnum   #3'Номер', #3'документа'  ('Введите номер документа, который нужно считать последним на текущий момент') : [15];
+End;
+
+HandleEvent
+
+cmDeleteRecord :
+  delete current LastNumD; //можно теперь удалить
+
+cmInsertRecord :
+  abort;
+
+cmUpdateRecord :
+  update current LastNumD;
+end;
+end;  // Panel
+
+HandleEvent
+cmPrintDoc:
+  PrintDoc_TNS;
+cmHotKeys :
+  PutHotCommAnd(RunMenu('mnuLastNumD_TNS'));
+cmValue55 :
+  ReScanLastNumD_TNS;
+end;
+End; // window
+
+/////////////////////////////////////////////////////////////////////
+Browse br1 (,,sci14EnEsc);
+  Table LastNumD;
+Fields
+  docnam   #3'Наименование', #3'документа' ('Наименование документа') : [35], protect;
+  LNDsubT  #3'Подтип', #3'нумерации' ('Подтип нумерации согласно баланс.подразделению ТС') : [15], protect;
+  LNDnum   #3'Номер', #3'документа'  ('Номер документа, который является последним на текущий момент') : [15], protect; //, NoAutoSize
+End;
+
+HandleEvent
+cmInit :
+  {
+  if GetFirst Systran where ((WHATIS_TNS == Systran.Whatis and
+                            coGetTune('MyOrg')  == SysTran.NrecMyOrg (noindex)
+                            )) <> tsok
+    {
+       if GetFirst SysTran where  ((WHATIS_TNS == SysTran.WhatIs)) = tsOK
+         {
+           Systran.Nrec      := 0;
+           Systran.NrecMyOrg := coGetTune('MyOrg');
+           insert current SysTran;
+         }
+       else
+         {
+         Message (''#3'Не установлены транспортные характеристики организации!');
+         stop;
+         abort;
+         exit;
+         }
+    }
+    boNum4Podr_TNS := boGetTune('RARS_TRANSP.Num4Podr_TNS');
+    woNumKolCH_TNS := wGetTune('RARS_TRANSP.NumKolCH_TNS')
+    if woNumKolCH_TNS=0 woNumKolCH_TNS:=6;
+
+    if getfirst LastNumD <> tsOK
+    {
+      if (message('Таблица последних номеров пуста.'#13
+                + 'Заполнить таблицу на основании подразделений ТНС?'#13,
+                  YesNo) <> cmYes)
+        {
+          stop;
+          abort;
+          exit;
+        }
+      else
+        {
+          ReScanLastNumD_TNS
+        }
+    }
+  }
+
+cmEdit :
+  RunWindow(Win1);
+
+cmPrintDoc:
+  PrintDoc_TNS;
+
+cmHotKeys :
+  PutHotCommAnd(RunMenu('mnuLastNumD_TNS'));
+
+cmValue55 :
+  ReScanLastNumD_TNS;
+
+cmDefault :
+  RunWindow(Win1);
+
+end;
+end. // interface;
+
+mnuLastNumD_TNS Menu
+{
+- 'Переформирование', cmValue55, 'Заполнить таблицу на основании подразделений ТНС', , '', , sci1Esc;
+----------;
+- 'Печать',cmPrintDoc,'Печать документа',,'Ctrl-P',kbCtrlP,sci1Esc;
+}

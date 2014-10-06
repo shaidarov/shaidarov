@@ -1,0 +1,1129 @@
+#define sumformat '\2p[|-]3666`666`666`666.88'
+
+const
+cmMyIns=1221;
+cmMySelAll=1219;
+cmMyClear=1220;
+// почему-то не взялись константы из Mark.inc
+cmSelectAll    =  cmSelAll;
+cmUnSelectAll  =  cmUnSelAll;
+cmMarkUnMark   =  cmDoMarkUnMark;
+cmInvertAll    =  cmDoInvertMark;
+end;
+
+interface GetBuhSchTree 'Множественный выбор счетов и субсчетов', cyan, EscClose, DoAccept;  //
+show at (,,80,20);
+
+view
+var
+  cCurPlSchet 	: comp;
+  aCurTree 	: comp;
+  mMarkDoc	: longint;
+  IndexNo	: longint;
+  namemarker	: string;
+
+as select BUHSCHET.*, BUHSCHET2.*
+from BUHSCHET, synonym BUHSCHET BUHSCHET2
+where ((BUHSCHET.nrec	== BUHSCHET2.cnode and
+        cCurPlSchet	== BUHSCHET.CPLANSSCH and
+        cCurPlSchet	== BUHSCHET2.CPLANSSCH AND
+        aCurTree  	== BUHSCHET.cNode));
+//ORDER BY BUHSCHET.SCHET;
+
+parameters
+  namemarker;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec:=SearchMarker(mMarkDoc,BUHSCHET.NREC,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+tree tr1(,,sci1EnInsTree);
+table BUHSCHET;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  BUHSCHET.LEVELCODE 	'Номер' (,,sci1EnInsTree) : protect;
+  BUHSCHET.NAME 	'Наименование'	: protect;
+end; //fields
+
+TableEvent table BUHSCHET
+  cmTreeTop:
+  {
+    aCurTree := 0;
+  }
+  cmTreeDown:
+  {
+    aCurTree := BUHSCHET.nrec;
+  }
+  cmTreeUp:
+  {
+    aCurTree := BUHSCHET.cnode;
+  }
+  cmTreeNodeType:
+  {
+    if(not IsValid(#BUHSCHET2))
+    {
+      TreeSetNodeType(tr1,ntfText);
+    }
+    else
+    {
+      TreeSetNodeType(tr1,if(TreeNodeIsOpen(tr1),ntfOpen,ntfClose));
+    }
+  }
+end; //tableEvent
+
+HandleEvent
+/*Always
+  {
+    if(CurCommand <> 51 and CurCommand <> 551 and CurCommand <> 50 and CurCommand <> 521 and
+       CurCommand <> 838 and CurCommand <> 1290 and CurCommand <> 436 and CurCommand <> 372 and
+       CurCommand <> 865 and CurCommand <> 1080 and CurCommand <> 357 and CurCommand <> 359 and
+       CurCommand <> 864 and CurCommand <> 859 and CurCommand <> 829 and CurCommand <> 374) Message (CurCommand);
+  } */
+  cmInit:
+  {
+    cCurPlSchet := coGetTune('FIN.USER.CPLANSSCH');
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+    RescanPanel(#BUHSCHET);
+  }
+  cmMarkUnMark:
+  {
+    InvertMarker(mMarkDoc,BUHSCHET.NREC);
+    ReDrawCurrentAndGo(tr1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#BUHSCHET);
+    _loop BUHSCHET
+      InsertMarker(mMarkDoc,BUHSCHET.NREC);
+    PopPos(#BUHSCHET);
+
+    ReReadRecord(#BUHSCHET);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#BUHSCHET);
+  }
+  cmInvertAll:
+  {
+    PushPos(#BUHSCHET);
+    _loop BUHSCHET
+      InvertMarker(mMarkDoc,BUHSCHET.NREC);
+    PopPos(#BUHSCHET);
+    ReReadRecord(#BUHSCHET);
+  }
+  cmDone:
+  {
+    _loop BUHSCHET
+      if IsMarkRec InsertMarker(mMarkDoc,BUHSCHET.CNODE);
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,BUHSCHET.NREC);
+  }
+end; //handleEvent
+end.
+
+interface GetGroupPodr 'Выбор группы подразделений', cyan, EscClose, DoAccept;  //AlwaysReturn - для невизуальных параметров
+show at (,,80,20);
+
+view
+var
+  cCurGrPodr : comp;
+as select * from GrPodr;
+
+parameters
+  cCurGrPodr;
+
+browse br1(,,sci1Esc);
+table GrPodr;
+fields
+  GrPodr.NAME	'Наименование' : protect;
+end; //fields
+
+HandleEvent
+  cmInit:
+  {
+    if tsOk = GetFirst GrPodr where ((cCurGrPodr == GrPodr.nrec)) {}
+  }
+  cmDefault:
+  {
+    cCurGrPodr := GrPodr.nrec;
+  }
+end; //handleEvent
+end.
+
+interface GetGrPodr 'Выбор группы подразделений', cyan, EscClose, DoAccept;  //AlwaysReturn - для невизуальных параметров
+show at (,,80,20);
+
+view
+var
+  cCurGrPodr : comp;
+as select * from GrPodr;
+
+parameters
+  cCurGrPodr;
+
+browse br1(,,sci1Esc);
+table GrPodr;
+fields
+  GrPodr.NAME	'Наименование' : protect;
+end; //fields
+
+HandleEvent
+  cmInit:
+  {
+    if tsOk = GetFirst GrPodr where ((cCurGrPodr == GrPodr.nrec)) {}
+  }
+  cmDefault:
+  {
+    cCurGrPodr := GrPodr.nrec;
+  }
+end; //handleEvent
+end.
+
+#include GetKau.vih
+
+interface GetOneKau 'Выбор аналитики', AlwaysReturn  //Одиночный выбор аналитики
+
+view
+var
+  wtable 	: word;
+  ckau		: comp;
+as select * from katkau where ((wtable == katkau.KODGROUP));
+
+parameters
+  wtable,
+  ckau;
+
+procedure GetKontragent;
+{
+  RunInterface('L_KATORG::GetKatOr', ckau, 0, false, 0, 0);
+}
+
+procedure GetSklad;
+{
+  RunInterface('Z_KATPODR::GetPodr1', ckau, 0)
+}
+
+procedure GetPerson;
+{
+  RunInterface('GetPerson', ckau);
+}
+
+procedure GetNeedKau(var wKau : word);
+{
+  var iGetKau	: GetKau;
+
+  iGetKau.GetCodeKau(cgiPick, wKau, ckau);
+}
+
+
+HandleEvent
+  cmInit:
+  {
+    if(wtable > 0)
+    {
+      if(katkau.SYSNUM = 0)	//системная аналитика
+      {
+        if(wtable = 1) GetKontragent;
+        if(wtable = 2) GetSklad;
+        if(wtable = 3) GetPerson;
+        if(wtable > 3) GetNeedKau(wtable);
+      }
+      else
+      {
+        runInterface('GetSpkauVip',ckau, wtable, '');
+      }
+    }
+    CloseInterface(cmDefault);
+  }
+end; //handleEvent
+end.
+
+interface GetPerson 'Сотрудники предприятия',cyan,EscClose, DoAccept;
+
+view
+var
+  crec		: comp;
+as select persons.*
+from persons;
+
+parameters
+  crec;
+
+browse b1 (,,sci1EscIns);
+table persons;
+fields
+  PERSONS.TABNMB 'Табельный номер': [15], protect;
+  PERSONS.FIO 'ФИО' : [45], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    if tsOk = GetFirst Persons where ((crec == Persons.nrec)){};
+  }
+  cmDefault:
+  {
+    crec := Persons.nrec;
+  }
+end;
+end.
+
+table struct PLPORDOC (
+	NREC	: comp,
+	DATVIP	: date,
+	DATOB	: date,
+	NODOK	: string,
+	SUMPLAT	: double)
+with index (ind1=DATVIP+NODOK+DATOB);
+
+interface GetPlPor 'Выбор платежных документов', cyan, EscClose, DoAccept;
+
+view
+var
+  crec		: comp;
+  tipdoc	: word;
+  NameTitle	: string;
+  startdat	: date;
+as select *
+from PLPOR, PLPORDOC
+where ((
+	tipdoc	== PLPOR.TIDK
+and	startdat<<=PLPOR.DATVIP
+));
+
+parameters
+  crec,
+  tipdoc,
+  NameTitle;
+
+browse b1 (,,sci1EscIns);
+table PLPORDOC;
+fields
+  PLPORDOC.DATVIP 'Выписана': [15], protect;
+  PLPORDOC.DATOB  'Обработана' : [15], protect;
+  PLPORDOC.NODOK  'Номер' : [15], protect;
+  PLPORDOC.SUMPLAT 'Сумма' : [12.2, #sumformat], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    if (NameTitle <> '') settitle(NameTitle);
+    startdat := ADD_DAY(cur_date, -270);
+    _loop PLPOR
+      insert into PLPORDOC set
+	PLPORDOC.NREC	:= PLPOR.NREC,
+	PLPORDOC.DATVIP	:= PLPOR.DATVIP,
+	PLPORDOC.DATOB	:= PLPOR.DATOB,
+	PLPORDOC.NODOK	:= PLPOR.NODOK,
+	PLPORDOC.SUMPLAT:= PLPOR.SUMPLAT;
+    if crec > 0
+      if tsOk = GetFirst PLPORDOC where ((crec == PLPORDOC.NREC (noindex))){};
+  }
+  cmDefault:
+  {
+    crec := PLPORDOC.NREC;
+  }
+end;
+end.
+
+interface GetSomeKatorg 'Контрагенты',cyan,EscClose, DoAccept;
+
+view
+var
+  mMarkDoc, IndexNo	: longint;
+  namemarker		: string;
+as select Katorg.*
+from Katorg;
+
+parameters
+  namemarker;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec:=SearchMarker(mMarkDoc,Katorg.nrec,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+browse b1 (,,sci1EscIns);
+table Katorg;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  if(IsMarkRec,'V','') '*' : [1],skip;
+  Katorg.UNN 'ИНН' : [15], protect;
+  Katorg.name 'Наименование': [45], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+  }
+  cmMarkUnmark:
+  {
+    InvertMarker(mMarkDoc,Katorg.nrec);
+    ReDrawCurrentAndGo(b1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#Katorg);
+    _loop Katorg
+      InsertMarker(mMarkDoc,Katorg.nrec);
+    PopPos(#Katorg);
+
+    ReReadRecord(#Katorg);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#Katorg);
+  }
+  cmInvertAll:
+  {
+    PushPos(#Katorg);
+    _loop Katorg
+      InvertMarker(mMarkDoc,Katorg.nrec);
+    PopPos(#Katorg);
+    ReReadRecord(#Katorg);
+  }
+  cmDone:
+  {
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,Katorg.NREC);
+  }
+end;
+end.
+
+
+#include GetKau.vih
+//#include GetKau.var
+
+interface GetSomeKau 'Выбор аналитики', AlwaysReturn
+
+view
+var
+  wtable 	: word;
+  namemarker	: string;
+as select * from katkau where ((wtable == katkau.KODGROUP));
+
+parameters
+  wtable,
+  namemarker;
+
+procedure GetKontragents;
+{
+  RunInterface('GetSomeKatorg', namemarker)
+}
+
+procedure GetSklads;
+{
+  var mMarkDoc	: longint;
+
+  mMarkDoc := InitMarker(namemarker,8,1,1);
+  ClearMarker(mMarkDoc);
+
+  if RunInterface('Z_KATPODR::GETSOMEPODR')<>CmCancel
+  {
+    ClearMarker(mMarkDoc);
+    _loop pick where ((11 == pick.wlist))
+    {
+      InsertMarker(mMarkDoc,pick.crec);
+    }
+  }
+  donemarker(mMarkDoc,namemarker);
+}
+
+procedure GetPersons;
+{
+  RunInterface('GetSomePersons', namemarker)
+}
+
+procedure GetNeedKaus(var wKau : word);
+{
+  var ckau 	: comp;
+  var kol	: longint;
+  var iGetKau	: GetKau;
+  var mMarkDoc	: longint;
+  var sysMname	: string;
+  var sysMdoc	: longint;
+  var IndexNo	: longint;
+  var i		: integer;
+
+  mMarkDoc := InitMarker(namemarker,8,1,1);
+
+  sysMname := iGetKau.GetMarkerName (wKau);
+  sysMdoc := InitMarker(sysMname,8,1,1);
+  CopyMarker (sysMdoc, mMarkDoc);
+  donemarker(sysMdoc,sysMname);
+
+  kol := iGetKau.GetCodeKau(cgiPick + cgiMulti + cgiNotEdit + cgiNotClear, wKau, ckau);
+
+  if kol > 0
+  {
+    sysMdoc := InitMarker(sysMname,8,1,1);
+    /*
+    mMarkDoc := InitMarker(namemarker,8,1,1);
+    ClearMarker(mMarkDoc);
+
+    for(i := 0; i < GetMarkerCount(sysMdoc); i := i + 1)
+    {
+      IndexNo := i;
+      GetMarker(sysMdoc,IndexNo,ckau);
+      InsertMarker(mMarkDoc,ckau);
+    }
+    */
+    CopyMarker (mMarkDoc, sysMdoc);
+    donemarker(sysMdoc, sysMname);
+  }
+  donemarker(mMarkDoc,namemarker);
+}
+
+HandleEvent
+  cmInit:
+  {
+    if(wtable > 0)
+    {
+
+      GetNeedKaus(wtable);
+      /*
+      if(katkau.SYSNUM = 0)	//системная аналитика
+      {
+        case(wtable) of
+          1:  GetKontragents;
+          2:  GetSklads;
+          3:  GetPersons;
+          else GetNeedKaus(wtable);
+        end;
+      }
+      else
+      {
+        GetNeedKaus(wtable);
+        // runInterface('GetSomeSpkauVip',wtable,namemarker,'');
+      }
+      */
+    }
+  }
+end; //handleEvent
+end.
+
+
+interface GetSomeKlass 'Выбор классификации', DoAccept
+
+view
+var
+  mMarkDoc, IndexNo	: longint;
+  classcod 	: word;
+  namemarker	: string;
+as select * from EXCLASSSEG, EXCLASSNAME
+where ((
+	classcod == EXCLASSSEG.CLASSCODE
+and	classcod == EXCLASSNAME.CLASSCODE ));
+
+parameters
+  classcod,
+  namemarker;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec := SearchMarker(mMarkDoc,EXCLASSSEG.NREC,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+browse b1 (,,sci1EscIns);
+table EXCLASSSEG;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  if(IsMarkRec,'V','') '*' : [1],skip;
+  EXCLASSSEG.VALUE 'Код' : [15], protect;
+  EXCLASSSEG.NAME 'Наименование': [45], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    var NameTitle	: string;
+    NameTitle := 'Выбор классификации (' + EXCLASSNAME.NAME + ')';
+    settitle(NameTitle);
+
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+  }
+  cmMarkUnmark:
+  {
+    InvertMarker(mMarkDoc,EXCLASSSEG.nrec);
+    ReDrawCurrentAndGo(b1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#EXCLASSSEG);
+    _loop EXCLASSSEG
+      InsertMarker(mMarkDoc,EXCLASSSEG.NREC);
+    PopPos(#EXCLASSSEG);
+    ReReadRecord(#EXCLASSSEG);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#EXCLASSSEG);
+  }
+  cmInvertAll:
+  {
+    PushPos(#EXCLASSSEG);
+    _loop EXCLASSSEG
+      InvertMarker(mMarkDoc,EXCLASSSEG.nrec);
+    PopPos(#EXCLASSSEG);
+    ReReadRecord(#EXCLASSSEG);
+  }
+  cmDone:
+  {
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,EXCLASSSEG.NREC);
+  }
+end;
+end.
+
+interface GetSomeMolVip 'Материально-ответственные лица',cyan,EscClose, DoAccept;
+
+view
+var
+  mMarkDoc, IndexNo	: longint;
+  namemarker		: string;
+as select persons.*
+from katmol order by name;
+
+parameters
+  namemarker;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec := SearchMarker(mMarkDoc,katmol.nrec,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+browse b1 (,,sci1EscIns);
+table KATMOL;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  if(IsMarkRec,'V','') '*' : [1],skip;
+  KATMOL.KOD 'Код': [15], protect;
+  KATMOL.NAME 'Наименование' : [45], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+  }
+  cmMarkUnmark:
+  {
+    InvertMarker(mMarkDoc,KATMOL.nrec);
+    ReDrawCurrentAndGo(b1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#KATMOL);
+    _loop KATMOL
+      InsertMarker(mMarkDoc,KATMOL.nrec);
+    PopPos(#KATMOL);
+
+    ReReadRecord(#KATMOL);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#KATMOL);
+  }
+  cmInvertAll:
+  {
+    PushPos(#KATMOL);
+    _loop KATMOL
+      InvertMarker(mMarkDoc,KATMOL.nrec);
+    PopPos(#KATMOL);
+    ReReadRecord(#KATMOL);
+  }
+  cmDone:
+  {
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,KATMOL.NREC);
+  }
+end;
+end.
+
+interface GetSomeOtdel 'Отделы',cyan,EscClose, DoAccept;
+
+view
+var
+  mMarkDoc, IndexNo	: longint;
+  namemarker		: string;
+as select exclassseg.*
+from exclassseg
+where ((89 == exclassseg.classcode));
+
+parameters
+  namemarker;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec := SearchMarker(mMarkDoc,exclassseg.nrec,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+browse b1 (,,sci1EscIns);
+table exclassseg;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  if(IsMarkRec,'V','') '*' : [1],skip;
+  exclassseg.VALUE 'Код': [15], protect;
+  exclassseg.NAME 'Наименование' : [45], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+  }
+  cmMarkUnmark:
+  {
+    InvertMarker(mMarkDoc,exclassseg.nrec);
+    ReDrawCurrentAndGo(b1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#exclassseg);
+    _loop exclassseg
+      InsertMarker(mMarkDoc,exclassseg.nrec);
+    PopPos(#exclassseg);
+
+    ReReadRecord(#exclassseg);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#exclassseg);
+  }
+  cmInvertAll:
+  {
+    PushPos(#exclassseg);
+    _loop exclassseg
+      InvertMarker(mMarkDoc,exclassseg.nrec);
+    PopPos(#exclassseg);
+    ReReadRecord(#exclassseg);
+  }
+  cmDone:
+  {
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,exclassseg.NREC);
+  }
+end;
+end.
+
+interface GetSomePartyVip 'Партии товаров',cyan,EscClose, DoAccept;
+
+view
+var
+  mMarkDoc, IndexNo	: longint;
+  namemarker		: string;
+as select KATPARTY.*
+from KATPARTY
+order by kod;
+
+parameters
+  namemarker;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec := SearchMarker(mMarkDoc,KATPARTY.nrec,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+browse b1 (,,sci1EscIns);
+table KATPARTY;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  if(IsMarkRec,'V','') '*' : [1],skip;
+  KATPARTY.KOD 'Код': [15], protect;
+  KATPARTY.NAME 'Наименование' : [45], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+  }
+  cmMarkUnmark:
+  {
+    InvertMarker(mMarkDoc,KATPARTY.nrec);
+    ReDrawCurrentAndGo(b1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#KATPARTY);
+    _loop KATPARTY
+      InsertMarker(mMarkDoc,KATPARTY.nrec);
+    PopPos(#KATPARTY);
+
+    ReReadRecord(#KATPARTY);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#KATPARTY);
+  }
+  cmInvertAll:
+  {
+    PushPos(#KATPARTY);
+    _loop KATPARTY
+      InvertMarker(mMarkDoc,KATPARTY.nrec);
+    PopPos(#KATPARTY);
+    ReReadRecord(#KATPARTY);
+  }
+  cmDone:
+  {
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,KATPARTY.NREC);
+  }
+end;
+end.
+
+interface GetSomePersons 'Сотрудники предприятия',cyan,EscClose, DoAccept;
+
+view
+var
+  mMarkDoc, IndexNo	: longint;
+  namemarker		: string;
+as select persons.*
+from persons;
+
+parameters
+  namemarker;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec:=SearchMarker(mMarkDoc,persons.nrec,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+browse b1 (,,sci1EscIns);
+table persons;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  if(IsMarkRec,'V','') '*' : [1],skip;
+  PERSONS.TABNMB 'Табельный номер': [15], protect;
+  PERSONS.FIO 'ФИО' : [45], protect;
+end;
+
+Handleevent
+  cmInit:
+  {
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+  }
+  cmMarkUnmark:
+  {
+    InvertMarker(mMarkDoc,persons.nrec);
+    ReDrawCurrentAndGo(b1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#persons);
+    _loop persons
+      InsertMarker(mMarkDoc,persons.nrec);
+    PopPos(#persons);
+
+    ReReadRecord(#persons);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#persons);
+  }
+  cmInvertAll:
+  {
+    PushPos(#persons);
+    _loop persons
+      InvertMarker(mMarkDoc,persons.nrec);
+    PopPos(#persons);
+    ReReadRecord(#persons);
+  }
+  cmDone:
+  {
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,persons.NREC);
+  }
+end;
+end.
+
+const
+cmMyIns=1221;
+cmMySelAll=1219;
+cmMyClear=1220;
+end;
+
+interface GetSomeSpkauVip 'Выбор аналитики', cyan, EscClose, DoAccept;  //AlwaysReturn - для невизуальных параметров
+show at (,,80,20);
+
+view
+var
+  cCurSpkau	: comp;
+  aCurTree 	: comp;
+  KodKau	: word;
+  NameTitle	: string;
+  namemarker	: string;
+  mMarkDoc	: longint;
+  IndexNo	: longint;
+
+as select Spkau.*, Spkau2.*, katkau.*
+from Spkau, synonym Spkau Spkau2
+where ((KodKau		== spkau.KODGRKAU and
+	Spkau.nrec 	== Spkau2.cnode and
+	KodKau		== spkau2.KODGRKAU and
+        aCurTree  	== Spkau.cNode));
+
+parameters
+  KodKau,
+  namemarker,
+  NameTitle;
+
+function IsMarkRec : boolean;
+{
+  IsMarkRec:=SearchMarker(mMarkDoc,spkau.NREC,IndexNo);	//имя, что ищем, возврат порядковый номер найденной записи в маркере
+}
+
+tree tr1(,,sci1EnInsTree);
+table Spkau;
+fields {font = {color = if(IsMarkRec,ColorMark,ColorSysBlack)}};
+  SPKAU.CODE 'Код'			: [15], protect;
+  SPKAU.NAME 'Наименование' 		: [45], protect;
+  SPKAU.LEVELCODE 'Уровневый код'	: [15], protect;
+end; //fields
+
+TableEvent table spkau
+  cmTreeTop:
+  {
+    aCurTree := 0;
+  }
+  cmTreeDown:
+  {
+    aCurTree := SPKAU.nrec;
+  }
+  cmTreeUp:
+  {
+    aCurTree := SPKAU.cnode;
+  }
+  cmTreeNodeType:
+  {
+    if(not IsValid(#SPKAU2))
+    {
+      TreeSetNodeType(tr1,ntfText);
+    }
+    else
+    {
+      TreeSetNodeType(tr1,if(TreeNodeIsOpen(tr1),ntfOpen,ntfClose));
+    }
+  }
+end; //tableEvent
+
+HandleEvent
+  cmInit:
+  {
+    if (NameTitle = '')
+      if tsOk = GetFirst Katkau where ((KodKau == KATKAU.KODGROUP))
+        setTitle(KATKAU.NAME);
+      else {}
+    else
+      settitle(NameTitle);
+
+    mMarkDoc := InitMarker(namemarker,8,1,1);	//имя, размер, количество при создании, приращение
+
+    var i : word;
+    var z : comp;
+    for(i:=0; i < GetMarkerCount(mMarkDoc); i:=i+1)
+    {
+      IndexNo := i;
+      GetMarker(mMarkDoc,IndexNo,z);
+    }
+    RescanPanel(#spkau);
+  }
+  cmMarkUnmark:
+  {
+    InvertMarker(mMarkDoc,spkau.NREC);
+    ReDrawCurrentAndGo(tr1,true);
+  }
+  cmSelectAll:
+  {
+    PushPos(#spkau);
+    _loop spkau
+      InsertMarker(mMarkDoc,spkau.NREC);
+    PopPos(#spkau);
+
+    ReReadRecord(#spkau);
+  }
+  cmUnSelectAll:
+  {
+    ClearMarker(mMarkDoc);
+    RescanPanel(#spkau);
+  }
+  cmInvertAll:
+  {
+    PushPos(#spkau);
+    _loop spkau
+      InvertMarker(mMarkDoc,spkau.NREC);
+    PopPos(#spkau);
+    ReReadRecord(#spkau);
+  }
+  cmDone:
+  {
+//    _loop spkau
+//      if IsMarkRec InsertMarker(mMarkDoc,spkau.CNODE);
+    donemarker(mMarkDoc,namemarker);
+  }
+  cmDefault:
+  {
+    if GetMarkerCount(mMarkDoc) = 0
+      InsertMarker(mMarkDoc,spkau.NREC);
+  }
+end; //handleEvent
+end.
+
+interface GetSpkauVip 'Выбор аналитики', cyan, EscClose, DoAccept;  //AlwaysReturn - для невизуальных параметров
+show at (,,80,20);
+
+view
+var
+  cCurSpkau	: comp;
+  aCurTree 	: comp;
+  KodKau	: word;
+  NameTitle	: string;
+as select Spkau.*, Spkau2.*
+from Spkau, synonym Spkau Spkau2
+where ((KodKau		== spkau.KODGRKAU and
+	Spkau.nrec 	== Spkau2.cnode and
+	KodKau		== spkau2.KODGRKAU and
+        aCurTree  	== Spkau.cNode));
+
+parameters
+  cCurSpkau,
+  KodKau,
+  NameTitle;
+
+tree tr1(,,sci1EscTree);
+table Spkau;
+fields
+  SPKAU.CODE 'Код'			: [15], protect;
+  SPKAU.NAME 'Наименование' 		: [45], protect;
+  SPKAU.LEVELCODE 'Уровневый код'	: [15], protect;
+end; //fields
+
+TableEvent table spkau
+  cmTreeTop:
+  {
+    aCurTree := 0;
+  }
+  cmTreeDown:
+  {
+    aCurTree := SPKAU.nrec;
+  }
+  cmTreeUp:
+  {
+    aCurTree := SPKAU.cnode;
+  }
+  cmTreeNodeType:
+  {
+    if(not IsValid(#SPKAU2))
+    {
+      TreeSetNodeType(tr1,ntfText);
+    }
+    else
+    {
+      TreeSetNodeType(tr1,if(TreeNodeIsOpen(tr1),ntfOpen,ntfClose));
+    }
+  }
+end; //tableEvent
+
+HandleEvent
+  cmInit:
+  {
+    if (NameTitle = '')
+      if tsOk = GetFirst Katkau where ((KodKau == KATKAU.KODGROUP))
+        setTitle(KATKAU.NAME);
+      else {}
+    else
+      settitle(NameTitle);
+  }
+  cmDefault:
+  {
+    cCurSpkau := SPKAU.nrec;
+  }
+end; //handleEvent
+end.

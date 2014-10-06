@@ -1,0 +1,508 @@
+#include PickBuh.vih
+Interface getNastrOSnRec AlwaysReturn;
+create view
+var
+  NastrOSnRec
+        :comp;
+
+from NastrOS
+where ((
+                   'Бухгалтерский учет'==NASTROS.Name
+             and 16==NastrOS.TiDK
+           ));
+
+parameters
+  NastrOSnRec;
+
+  HandleEvent
+    cmInit:{
+      if (GetFirst  NastrOS = tsok){
+        NastrOSnRec:=NastrOS.nRec;
+      } else {
+        NastrOSnRec:=0;
+      }
+      abort;
+    }
+  end;
+end.
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Interface CheckSaldo AlwaysReturn;
+var
+  dSal      : date;
+  Saldo     : double;
+  KodPodrCO : string;  // фильтр филиалы
+
+create view
+from
+  SaldMoun
+, SpKau
+, KatPodr             // фильтр филиалы
+, PickBuh
+, FpCO
+, FpPeriod
+where
+((
+        dSal               == SaldMoun.DateSal
+   and  cgKau_FpCO         == PickBuh.KodTable
+   and  SaldMoun.KAUOS[3] /== SpKau.nRec
+   and  SaldMoun.KAUOS[2] /== FpPeriod.nrec
+   and  SaldMoun.KodSpO    == KatPodr.nRec           // фильтр филиалы
+   and  ( KodPodrCO = SubStr(KatPodr.kod,1,2) )      // фильтр филиалы
+))
+   and  '968' = SaldMoun.DBSCHETO
+
+   and ('2' = SaldMoun.SUBOSSCH
+          and (
+                  '0102'   = SpKau.Code or	//Прямые-Оплата труда
+                  '0103'   = SpKau.Code or	//ПрямыеВознаграждения
+                  '020102' = SpKau.Code or	//Косвенные-Оплата труда
+                  '020103' = SpKau.Code	  //Косвенные-Вознаграждения
+              )
+         or
+         '3' = SaldMoun.SUBOSSCH
+              and
+              (
+                  '020101'=SpKau.Code	//Оплата труда
+              )
+
+       )
+     and
+      (
+         //String(word(DateToStr(dSal,'YY'))+1) =  SubStr(FpPeriod.Code,1,2)
+         InStr(DateToStr(dSal,'YYYY'), FpPeriod.Name) > 0
+       )
+;
+
+parameters
+  dSal, Saldo;         // фильтр филиалы + код первые две цифры кода подразделения
+
+HandleEvent
+cmInit:
+{
+   Saldo:=0;
+   _loop PickBuh
+   {
+message('я в ПикеБухе!');
+     if ( GetFirst FPCO where ((PickBuh.PickRec ==  FPCO.nRec))=tsOk)
+       KodPodrCO := SubStr(FPCO.LevelCode,2,2);
+     _loop SaldMoun
+     { // первые два символа кода подразделения должны быть равно коду ЦО - филиал
+       if ( GetFirst KatPodr = tsOk )       // фильтр филиалы
+         if   SALDMOUN.VIOB = word(1)
+           Saldo:=Saldo + saldmoun.sums;
+         else
+           Saldo:=Saldo - saldmoun.sums;
+     }
+   }
+
+   abort;
+}
+ end;
+
+end.
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Interface CheckOborot AlwaysReturn;
+var
+  dTo       : date;
+  Oborot    : double;
+  KodPodrCO : string;     // фильтр филиалы
+
+create view
+from
+  Oborot
+, SpKau
+, Spkau SpkauKr
+, KatPodr KatPodrD // по дебету      // фильтр филиалы
+, KatPodr KatPodrK // по кредиту     // фильтр филиалы
+, PickBuh
+, FpCO
+, FpPeriod
+where
+((
+        Oborot.KAUOS[3] /== SpKau.nRec
+   and  Oborot.KAUKS[3] /== SpKauKr.nRec
+   and  Oborot.KAUOS[2] /== FpPeriod.nrec
+//-----
+   and  cgKau_FpCO == PickBuh.KodTable
+
+   and  oborot.KodSpO == KatPodrD.nRec               // фильтр филиалы
+   and  ( KodPodrCO = SubStr(KatPodrD.kod,1,2) )     // фильтр филиалы
+
+   and  oborot.KodSpK == KatPodrK.nRec               // фильтр филиалы
+   and  ( KodPodrCO = SubStr(KatPodrK.kod,1,2) )     // фильтр филиалы
+
+))
+	 and '968'=Oborot.DBSCHETO
+             and ('2'=Oborot.SUBOSSCH  and '02011702'=SpKau.Code 	//Общехозяйственные расходы, приходящиеся на основную деятельность
+	       or '3'=Oborot.SUBOSSCH and '0205'=SpKau.Code  )         //Часть общехозяйственных расходов, относящаяся к деятельности обслуживающих производств и хозяйств
+
+	 and '968'=Oborot.KRSCHETK
+             and '4'=Oborot.SUBSCHK and
+		(
+        '02' = SpKauKr.Code or		//Оплата труда
+        '03' = SpKauKr.Code		  //Вознаграждения
+    )
+	 and oborot.datob >= date(01,01,year(dTo))
+	 and oborot.datob <= dTo
+   //-------------------------------------------
+   and
+   (
+     //String(word(DateToStr(dTo,'YY'))+1) =  SubStr(FpPeriod.Code,1,2)
+     InStr(DateToStr(dTo,'YYYY'), FpPeriod.Name) > 0
+   )
+;
+
+parameters
+  dTo, Oborot;        // фильтр филиалы + код
+
+create view ob996
+as select *
+from
+   Oborot Oborot996
+  , KatPodr KatPodrD // по дебету      // фильтр филиалы
+  , KatPodr KatPodrK // по кредиту     // фильтр филиалы
+  , FpPeriod
+where
+((
+//-----
+        Oborot996.KAUKS[1] /== FpPeriod.nrec
+   and dTo >>= oborot996.datob
+   and  Oborot996.KodSpO == KatPodrD.nRec
+   and  ( KodPodrCO = SubStr(KatPodrD.kod,1,2) )     // фильтр филиалы
+//-----
+   and  Oborot996.KodSpK == KatPodrK.nRec
+   and  ( KodPodrCO = SubStr(KatPodrK.kod,1,2) )     // фильтр филиалы
+
+   and 'N929' == Oborot996.SCHETO  //(NoIndex)
+   and 'N996' == Oborot996.SCHETK // (NoIndex)
+   and '01'   == Oborot996.SUBSCHK   (NoIndex)
+
+   and
+   (
+     '01' = Oborot996.SUBOSSCH or '02' = Oborot996.SUBOSSCH
+   )
+   //-------------------------------------------
+ ))
+   and
+   (
+     //String(word(DateToStr(dTo,'YY'))+1) =  SubStr(FpPeriod.Code,1,2)
+     InStr(DateToStr(dTo,'YYYY'), FpPeriod.Name) > 0
+   )
+;
+//---------------------------------
+/*22.08.2011 Гордеев
+Дт 929.01 Кт 900 минус Дт 929.1 Кт 993.4 КАУ <Прямые и косвенные расходы / Расходы, связанные с производством и реализацией, кроме прямых / Страховые взносы>.
+*/
+create view ob929
+as select *
+from
+   Oborot Oborot929
+  , KatPodr KatPodrD // по дебету      // фильтр филиалы
+  , KatPodr KatPodrK // по кредиту     // фильтр филиалы
+  , FpPeriod
+where
+((
+//-----
+	      dTo >>= oborot929.datob
+   and  word(20093)     == spkau.KODGRKAU
+   and  '020104'   == SpKau.Code
+   and  Oborot929.KodSpO == KatPodrD.nRec
+   and  ( KodPodrCO = SubStr(KatPodrD.kod,1,2) )     // фильтр филиалы
+//-----
+   and  Oborot929.KodSpK == KatPodrK.nRec
+   and  ( KodPodrCO = SubStr(KatPodrK.kod,1,2) )     // фильтр филиалы
+
+   and 'N929' == Oborot929.SCHETO  //(NoIndex)
+   and '01'   == Oborot929.SUBOSSCH
+   and (
+        'N900' = Oborot929.SCHETK // (NoIndex)
+        or
+        (
+              'N993' = Oborot929.SCHETK
+          and '4'   = Oborot929.SUBSCHK
+          and SpKau.nrec = Oborot929.KAUKS[3]
+        )
+       )
+))
+;
+//-------------------------------------------
+HandleEvent
+cmInit:
+{
+   Oborot:=0;
+   _loop PickBuh
+   {
+     if ( GetFirst FPCO where ((PickBuh.PickRec ==  FPCO.nRec))=tsOk)
+       KodPodrCO := SubStr(FPCO.LevelCode,2,2);
+     _loop Oborot
+     { // первые два символа кода подразделения должны быть равны коду ЦО - филиал
+       if ( GetFirst KatPodrD = tsOk or GetFirst KatPodrK = tsOk )         // фильтр филиалы
+         Oborot := Oborot + Oborot.sumob;
+     }
+     ob996._loop Oborot996
+     {
+      // первые два символа кода подразделения должны быть равны коду ЦО - филиал
+      if ( ob996.GetFirst KatPodrD = tsOk or ob996.GetFirst KatPodrK = tsOk )         // фильтр филиалы
+         Oborot := Oborot + ob996.Oborot996.Sumob;
+      //    LogStrToFile('C:\Gal810\Oborot.log', ' СчетК='+Oborot.KRSCHETK+'.'+Oborot.SUBOSSCH+' СчетД='+Oborot.DBSCHETO+'.'+Oborot.KRSCHETK +' Подр='+KatPodr.code+' SpKau.Code='+SpKau.Code+' SpKauKr.Code='+SpKauKr.Code+' Сумма='+saldmoun.sums)
+     }
+    //22.08.11--------------------
+    if ob929.GetFirst  SpKau = tsOk {}
+      ob929._loop Oborot929
+        if ( ob929.GetFirst KatPodrD = tsOk or ob929.GetFirst KatPodrK = tsOk )         // фильтр филиалы
+        {
+          if ob929.Oborot929.SCHETK = 'N900'
+          {
+            Oborot := Oborot + ob929.Oborot929.Sumob;
+            LogStrToFile('C:\Col12.log',' плюс Д'+ob929.Oborot929.SCHETO+'.'+ob929.Oborot929.SUBOSSCH+' K'+ob929.Oborot929.KRSCHETK+'.'+ob929.Oborot929.SUBSCHK+' '+ ob929.KatPodrD.Name+' '+ob929.Oborot929.Sumob);
+          }
+          else
+            if ob929.Oborot929.SCHETK = 'N993'
+            {
+              Oborot := Oborot - ob929.Oborot929.Sumob;
+              LogStrToFile('C:\Col12.log','минус Д'+ob929.Oborot929.SCHETO+'.'+ob929.Oborot929.SUBOSSCH+' K'+ob929.Oborot929.KRSCHETK+'.'+ob929.Oborot929.SUBSCHK+' '+ ob929.KatPodrD.Name+' '+ob929.Oborot929.Sumob);
+            }
+        }
+
+        //---------------------
+   }
+
+   abort;
+}
+end;
+
+end.
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Interface CreateTabs AlwaysReturn;
+var
+  dFrom, dTo   : date;
+
+  NastrOSnRec
+, nRecCO       : comp;        // фильтр филиалы
+//FullObSum : double;
+
+#include 2.4.X_Oborot997.var
+create view
+from
+  KatOS
+, FPCO        // фильтр филиалы
+, Vidnorma
+, KauReff
+, dogovor
+, KauReff VipPr
+, KauReff Schet
+, KauReff VidStrah
+//, NastrOs
+, SpKatOS
+, SpKau SpKauShet
+, SpKau SpKauVidStrah
+, SpKau SpKauVidPr
+, SaldMoun
+//, SaldMoun SaldMounK
+, oborot
+, KatPodr
+
+, StoimStruct
+, AttrNam AttrNamSch
+, AttrVal AttrValSch
+, SpKau SpKauSch
+
+, AttrNam AttrNamVid
+, AttrVal AttrValVid
+, SpKau SpKauVid
+, ArcIznos
+,TabKatOS
+#include 2.4.X_Oborot997_From.vpp
+where
+((
+    16==KatOs.TIDK  // фильтр на НМА
+    and cgKau_FpCO == PickBuh.KodTable
+    and  PickBuh.PickRec ==  KatOS.cCO  (NoIndex)       // фильтр филиалы
+    and  PickBuh.PickRec ==  FPCO.nRec           // фильтр филиалы
+
+    and  KatOS.CVID       /==  VIDNORMA.nRec and (SubStr(VIDNORMA.Kod,1,4)='1103') //Личное страхование
+
+    and  '3000'            ==  KauReff.COTABLE //Внешнее КАУ договора к каталогу ОС
+    and  KatOS.nRec        ==  KauReff.cRec
+    and  '14'              ==  KauReff.WKAU
+
+    and  KauReff.CKAU      ==  DOGOVOR.nRec
+
+    and  KatOS.CPODR       ==  KatPodr.nRec //Подразделение учета
+
+    and  '3000'            ==  VipPr.COTABLE //Внешнее КАУ виды продукции, работ, услуг
+    and  KatOS.nRec        ==  VipPr.cRec
+    and  '20009'           ==  VipPr.WKAU
+
+    and  VipPr.CKAU        ==  SpKauVidPr.nRec
+
+    and  '3000'            ==  VidStrah.COTABLE //Внешнее КАУ виды страхования
+    and  KatOS.nRec       /==  VidStrah.cRec
+    and  '20025'           ==  VidStrah.WKAU
+
+    and  VidStrah.CKAU    /==  SpKauVidStrah.nRec and ( '001'=SubStr(SpKauVidStrah.CODE,1,3) )
+
+    and  NastrOSnRec       ==  SpKatOS.CNASTROS
+    and  KatOS.nRec        ==  SpKatOS.CKatOS
+
+    and  '3000'            ==  Schet.COTABLE //Внешнее КАУ счет БУ для начисления амортизации
+    and  KatOS.nRec        ==  Schet.cRec
+    and  '20077'           ==  Schet.WKAU
+
+    and  Schet.CKAU        ==  SpKauShet.nRec
+
+    and  'N997'            ==  SaldMoun.SCHETO    //Условие на сальдо для суммы оплаты на начало периода
+    and  dFrom             ==  SaldMoun.DATESAL
+    and  '33'              ==  SaldMoun.SUBOSSCH
+    and  KatOS.nRec        ==  SaldMoun.KAUOS[2]     (noindex)
+   // and word(1)            ==  SALDMOUN.VIOB    (noindex)
+    //-----------
+//    and 'N997'     == SALDMOUNK.SCHETO    //Условие на сальдо для суммы оплаты на начало периода
+//    and dFrom      == SALDMOUNK.DATESAL
+//    and '33'       == SALDMOUNK.SUBOSSCH
+//    and KatOs.Nrec == SALDMOUNK.KAUOS[2] (noindex)
+//    and word(2)    == SALDMOUNK.VIOB    (noindex)
+    //-----------
+
+    and  'N997'            ==  oborot.SCHETO  //Условие на оборот для суммы оплаты за период
+    and  '33'              ==  oborot.SUBOSSCH
+    and  dFrom            <<=  oborot.DATOB
+    and  dTo              >>=  oborot.DATOB
+    and  KatOS.nRec        ==  oborot.KAUOS[2]       (noindex)
+
+    and  KatOS.nRec        ==  StoimStruct.cDoc
+    and  word(16)          ==  StoimStruct.wType
+
+    and  'СчетЗатрат'      ==  AttrNamSch.name
+    and  coStoimStruct     ==  AttrNamSch.wtable
+
+    and  AttrNamSch.nRec   ==  AttrValSch.cattrnam
+    and  StoimStruct.nRec  ==  AttrValSch.cRec    (noindex)
+    and  coStoimStruct     ==  AttrValSch.wtable  (noindex)
+
+    and  AttrValSch.vComp  ==  SpKauSch.nRec
+
+    and  'Виды продукции, работ, услуг'  ==  AttrNamVid.name
+    and  coStoimStruct     ==  AttrNamVid.wtable
+
+    and  AttrNamVid.nRec   ==  AttrValVid.cattrnam
+    and  StoimStruct.nRec  ==  AttrValVid.cRec(noindex)
+    and  coStoimStruct     ==  attrvalVid.wtable(noindex)
+
+    and  AttrValVid.vComp  ==  SpKauVid.nRec
+//------------------------------------------
+#include 2.4.X_Oborot997_Where.vpp
+//------------------------------------------
+    and  KatOS.nRec        ==  ArcIznos.cKatOS
+    and  NastrOSnRec       ==  ArcIznos.cNastrOS
+))
+    and dFrom <= ArcIznos.DATA
+    and dTo   >= ArcIznos.DATA
+;
+
+parameters
+  dFrom,dTo,VidDecl,DataProv, VsegoSumm999,  VsegoUtoch997_34;      // фильтр филиалы + nRec ЦО
+
+#include 2.4.X_Oborot997.vpp
+
+HandleEvent
+cmInit:
+{
+  delete all from TabKatOS;
+  delete all from TabStoimStruct;
+
+  RunInterface(GetNastrOSnRec, NastrOSnRec);
+ _Loop PickBuh
+  _loop KatOS
+  {
+    SetVisualHeader('Обработка карточки № '+ KatOS.InNum);
+    GetSaldo997_33;
+    GetSaldo997_34;
+    GetOborot997_33;
+    GetOborot97_01;
+
+    if Saldo997_33 <> 0 or Oborot997_33 <> 0
+    {
+      if (Saldo997_33 = Saldo997_34) and Oborot997_33 = 0
+        Continue;
+
+//-----------------------------
+    GetUtochSum;
+//-----------------------------
+    insert TabKatOS;
+
+    TabKatOS._nRecKatOS := KatOS.nRec;
+    TabKatOS._NameKatOS := KatOS.NameOS;
+
+    if ( isValid(#Dogovor) )
+    {
+      TabKatOS._NoDog := Dogovor.NoDoc;
+      TabKatOS._DDog  := DOGOVOR.DDoc;
+    }
+    else
+    {
+      TabKatOS._NoDog := '';
+      TabKatOS._DDog  := date(0,0,0);
+    }
+
+//    if not(isValid(#SaldMoun))
+//      SaldMoun.sums := 0;
+//
+//
+//    if not(isValid(#OBOROT))
+//      oborot.sumob  := 0;
+    if (Saldo997_34 + Oborot97_01 >= 0)
+    {
+      if ((Saldo997_33 + Oborot997_33) <= (Saldo997_34 + Oborot97_01) )
+        TabKatOS._Sum := Saldo997_33 + Oborot997_33;
+      else
+        TabKatOS._Sum := Saldo997_34 + Oborot97_01;
+    }
+    else
+      if ((Saldo997_33 + Oborot997_33) >= (Saldo997_34 + Oborot97_01) )
+        TabKatOS._Sum := Saldo997_33 + Oborot997_33;
+      else
+        TabKatOS._Sum := Saldo997_34 + Oborot97_01;
+
+    if (Saldo997_34 + Oborot97_01 >= 0)
+    {
+      if (Saldo997_33 <= Saldo997_34)
+        TabKatOS._Sum := TabKatOS._Sum - Saldo997_33;
+      else
+        TabKatOS._Sum := TabKatOS._Sum - Saldo997_34;
+    }
+    else
+      if (Saldo997_33 >= Saldo997_34)
+        TabKatOS._Sum := TabKatOS._Sum - Saldo997_33;
+      else
+        TabKatOS._Sum := TabKatOS._Sum - Saldo997_34;
+
+    TabKatOS._Schet := GetNalogShet(SubStr(SpKauShet.Name,1,2), SubStr(SpKauShet.Name,3,2));
+
+    //*****************************
+    if (isValid(#SpKauVidPr))
+      TabKatOS._Vid := SpKauVidPr.NAME+'/'+KatPodr.Name;
+    else
+      TabKatOS._Vid := KatPodr.Name;
+
+    TabKatOS._UtochSum := SumUtoch997_34;
+    TabKatOS._Sum999 := SumProv999;
+    //______________________
+
+    update current TabKatOS;
+
+   FillTabStoim;
+  }
+ }
+  mtChangeRefCount(#TabKatOS,1);
+  mtChangeRefCount(#TabStoimStruct,1);
+
+  abort;
+}
+end; // HandleEvent
+
+end.

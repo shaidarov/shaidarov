@@ -1,0 +1,696 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface txo_atr_sp_ao implements ObjTxoIdentPlugin;
+
+Interface txo_atr_sp_ao;
+var
+  CurSoprHoz:comp;
+  nrec_st,nrec_co, nrec_os, nrec_ok, nrec_vp, nrec_el, nrec_pv, nrec_pd : comp  ;
+  nrec_stp,nrec_cop, nrec_osp, nrec_okp, nrec_vpp, nrec_elp, nrec_pvp, nrec_pdp : comp  ;
+  nrec_sts,nrec_cos, nrec_oss, nrec_oks, nrec_vps, nrec_els, nrec_pvs, nrec_pds : comp  ;
+  nrec_stu,nrec_cou, nrec_osu, nrec_oku, nrec_vpu, nrec_elu, nrec_pvu, nrec_pdu : comp  ;
+
+
+  pay,konv   : word  ;
+
+create view
+as select
+soprhoz.nrec
+from
+  SoprHoz,
+  RashDoc,
+  plpor,
+  attrnam attrnamcs,
+  attrval attrvalcs,
+  attrnam attrnamss,
+  attrval attrvalss,
+  attrnam attrnamos,
+  attrval attrvalos,
+  attrnam attrnamks,
+  attrval attrvalks,
+  attrnam attrnamvs,
+  attrval attrvalvs,
+  attrnam attrnames,
+  attrval attrvales,
+  attrnam attrnamps,
+  attrval attrvalps,
+  attrnam attrnamrs,
+  attrval attrvalrs,
+
+  attrnam attrnamcp,
+  attrval attrvalcp,
+  attrnam attrnamsp,
+  attrval attrvalsp,
+  attrnam attrnamop,
+  attrval attrvalop,
+  attrnam attrnamkp,
+  attrval attrvalkp,
+  attrnam attrnamvp,
+  attrval attrvalvp,
+  attrnam attrnamep,
+  attrval attrvalep,
+  attrnam attrnampp,
+  attrval attrvalpp,
+  attrnam attrnamhp,
+  attrval attrvalhp,
+  attrnam attrnamrp,
+  attrval attrvalrp,
+
+  attrnam attrnamcu,
+  attrval attrvalcu,
+  attrnam attrnamsu,
+  attrval attrvalsu,
+  attrnam attrnamou,
+  attrval attrvalou,
+  attrnam attrnamku,
+  attrval attrvalku,
+  attrnam attrnamvu,
+  attrval attrvalvu,
+  attrnam attrnameu,
+  attrval attrvaleu,
+  attrnam attrnampu,
+  attrval attrvalpu,
+  attrnam attrnamru,
+  attrval attrvalru,
+
+
+  KAUREFF KAUREFFc,
+  KAUREFF KAUREFFs,
+  KAUREFF KAUREFFo,
+  KAUREFF KAUREFFk,
+  KAUREFF KAUREFFe,
+  KAUREFF KAUREFFv,
+  KAUREFF KAUREFFp
+
+
+where ((
+        CurSoprHoz                    == SoprHoz.Nrec
+    and Soprhoz.nrec                  == RashDoc.CKREDCARD (noindex)
+
+    and word(9303)                    == AttrNamrs.wTable
+    and 'Прочие доходы и расходы'     == AttrNamrs.Name
+    and word(9303)                    == AttrValrs.wTable
+    and RashDoc.nrec                  == AttrValrs.cRec
+    and AttrNamrs.Nrec                == AttrValrs.cAttrNam
+
+    and word(9303)                    == AttrNamcs.wTable
+    and 'Центры ответственности'      == AttrNamcs.Name
+    and word(9303)                    == AttrValcs.wTable
+    and RashDoc.nrec                  == AttrValcs.cRec
+    and AttrNamcs.Nrec                == AttrValcs.cAttrNam
+
+    and word(9303)                    == AttrNamss.wTable
+    and 'Статьи затрат'               == AttrNamss.Name
+    and word(9303)                    == AttrValss.wTable
+    and RashDoc.nrec                  == AttrValss.cRec
+    and AttrNamss.Nrec                == AttrValss.cAttrNam
+
+    and word(9303)                    == AttrNamos.wTable
+    and 'Основные средства'           == AttrNamos.Name
+    and word(9303)                    == AttrValos.wTable
+    and RashDoc.nrec                  == AttrValos.cRec
+    and AttrNamos.Nrec                == AttrValos.cAttrNam
+
+    and word(9303)                    == AttrNamks.wTable
+    and 'Объекты строительства'       == AttrNamks.Name
+    and word(9303)                    == AttrValks.wTable
+    and RashDoc.nrec                  == AttrValks.cRec
+    and AttrNamks.Nrec                == AttrValks.cAttrNam
+
+    and word(9303)                    == AttrNamvs.wTable
+    and 'Виды продукции, работ, услуг'== AttrNamvs.Name
+    and word(9303)                    == AttrValvs.wTable
+    and RashDoc.nrec                  == AttrValvs.cRec
+    and AttrNamvs.Nrec                == AttrValvs.cAttrNam
+
+    and word(9303)                    == AttrNames.wTable
+    and 'Элементы затрат'             == AttrNames.Name
+    and word(9303)                    == AttrVales.wTable
+    and RashDoc.nrec                  == AttrVales.cRec
+    and AttrNames.Nrec                == AttrVales.cAttrNam
+
+    and word(9303)                    == AttrNamps.wTable
+    and 'Признак входимости в налогооблагаемую базу'             == AttrNamps.Name
+    and word(9303)                    == AttrValps.wTable
+    and RashDoc.nrec                  == AttrValps.cRec
+    and AttrNamps.Nrec                == AttrValps.cAttrNam
+
+
+    and soprhoz.csoprdoc              == plpor.nrec
+
+    and word(9015)                    == AttrNamrp.wTable
+    and 'Прочие доходы и расходы'     == AttrNamrp.Name
+    and word(9015)                    == AttrValrp.wTable
+    and plpor.nrec                    == AttrValrp.cRec
+    and AttrNamrp.Nrec                == AttrValrp.cAttrNam
+
+    and word(9015)                    == AttrNamcp.wTable
+    and 'Центры ответственности'      == AttrNamcp.Name
+    and word(9015)                    == AttrValcp.wTable
+    and plpor.nrec                    == AttrValcp.cRec
+    and AttrNamcp.Nrec                == AttrValcp.cAttrNam
+
+    and word(9015)                    == AttrNamsp.wTable
+    and 'Статьи затрат'               == AttrNamsp.Name
+    and word(9015)                    == AttrValsp.wTable
+    and plpor.nrec                    == AttrValsp.cRec
+    and AttrNamsp.Nrec                == AttrValsp.cAttrNam
+
+    and word(9015)                    == AttrNamop.wTable
+    and 'Основные средства'           == AttrNamop.Name
+    and word(9015)                    == AttrValop.wTable
+    and plpor.nrec                    == AttrValop.cRec
+    and AttrNamop.Nrec                == AttrValop.cAttrNam
+
+    and word(9015)                    == AttrNamkp.wTable
+    and 'Объекты строительства'       == AttrNamkp.Name
+    and word(9015)                    == AttrValkp.wTable
+    and plpor.nrec                    == AttrValkp.cRec
+    and AttrNamkp.Nrec                == AttrValkp.cAttrNam
+
+    and word(9015)                    == AttrNamvp.wTable
+    and 'Виды продукции, работ, услуг'== AttrNamvp.Name
+    and word(9015)                    == AttrValvp.wTable
+    and plpor.nrec                    == AttrValvp.cRec
+    and AttrNamvp.Nrec                == AttrValvp.cAttrNam
+
+    and word(9015)                    == AttrNamep.wTable
+    and 'Элементы затрат'             == AttrNamep.Name
+    and word(9015)                    == AttrValep.wTable
+    and plpor.nrec                    == AttrValep.cRec
+    and AttrNamep.Nrec                == AttrValep.cAttrNam
+
+    and word(9015)                    == AttrNampp.wTable
+    and 'Признак входимости в налогооблагаемую базу'             == AttrNampp.Name
+    and word(9015)                    == AttrValpp.wTable
+    and plpor.nrec                    == AttrValpp.cRec
+    and AttrNampp.Nrec                == AttrValpp.cAttrNam
+
+    and word(1120)                    == KAUREFFc.COTABLE
+    and SoprHoz.nrec                  == KAUREFFc.CREC
+    and word(22)                      == KAUREFFc.WKAU
+
+    and word(1120)                    == KAUREFFs.COTABLE
+    and SoprHoz.nrec                  == KAUREFFs.CREC
+    and word(20073)                   == KAUREFFs.WKAU
+
+    and word(1120)                    == KAUREFFo.COTABLE
+    and SoprHoz.nrec                  == KAUREFFo.CREC
+    and word(15)                      == KAUREFFo.WKAU
+
+    and word(1120)                    == KAUREFFk.COTABLE
+    and SoprHoz.nrec                  == KAUREFFk.CREC
+    and word(40)                      == KAUREFFk.WKAU
+
+    and word(1120)                    == KAUREFFv.COTABLE
+    and SoprHoz.nrec                  == KAUREFFv.CREC
+    and word(20009)                   == KAUREFFv.WKAU
+
+    and word(1120)                    == KAUREFFe.COTABLE
+    and SoprHoz.nrec                  == KAUREFFe.CREC
+    and word(5017)                    == KAUREFFe.WKAU
+
+    and word(1120)                    == KAUREFFp.COTABLE
+    and SoprHoz.nrec                  == KAUREFFp.CREC
+    and word(20054)                   == KAUREFFp.WKAU
+
+    and word(9015)                    == AttrNamhp.wTable
+    and 'Счет затрат'                 == AttrNamhp.Name
+    and word(9015)                    == AttrValhp.wTable
+    and plpor.nrec                    == AttrValhp.cRec
+    and AttrNamhp.Nrec                == AttrValhp.cAttrNam
+
+    and RashDoc.cnorm                 == NORMRASH.nrec
+
+    and word(9301)                    == AttrNamru.wTable
+    and 'Прочие доходы и расходы'     == AttrNamru.Name
+    and word(9301)                    == AttrValru.wTable
+    and NormRash.nrec                 == AttrValru.cRec
+    and AttrNamru.Nrec                == AttrValru.cAttrNam
+
+    and word(9301)                    == AttrNamcu.wTable
+    and 'Центры ответственности'      == AttrNamcu.Name
+    and word(9301)                    == AttrValcu.wTable
+    and NormRash.nrec                 == AttrValcu.cRec
+    and AttrNamcu.Nrec                == AttrValcu.cAttrNam
+
+    and word(9301)                    == AttrNamsu.wTable
+    and 'Статьи затрат'               == AttrNamsu.Name
+    and word(9301)                    == AttrValsu.wTable
+    and NormRash.nrec                  == AttrValsu.cRec
+    and AttrNamsu.Nrec                == AttrValsu.cAttrNam
+
+    and word(9301)                    == AttrNamou.wTable
+    and 'Основные средства'           == AttrNamou.Name
+    and word(9301)                    == AttrValou.wTable
+    and NormRash.nrec                  == AttrValou.cRec
+    and AttrNamou.Nrec                == AttrValou.cAttrNam
+
+    and word(9301)                    == AttrNamku.wTable
+    and 'Объекты строительства'       == AttrNamku.Name
+    and word(9301)                    == AttrValku.wTable
+    and NormRash.nrec                  == AttrValku.cRec
+    and AttrNamku.Nrec                == AttrValku.cAttrNam
+
+    and word(9301)                    == AttrNamvu.wTable
+    and 'Виды продукции, работ, услуг'== AttrNamvu.Name
+    and word(9301)                    == AttrValvu.wTable
+    and NormRash.nrec                  == AttrValvu.cRec
+    and AttrNamvu.Nrec                == AttrValvu.cAttrNam
+
+    and word(9301)                    == AttrNameu.wTable
+    and 'Элементы затрат'             == AttrNameu.Name
+    and word(9301)                    == AttrValeu.wTable
+    and NormRash.nrec                  == AttrValeu.cRec
+    and AttrNameu.Nrec                == AttrValeu.cAttrNam
+
+    and word(9301)                    == AttrNampu.wTable
+    and 'Признак входимости в налогооблагаемую базу'             == AttrNampu.Name
+    and word(9301)                    == AttrValpu.wTable
+    and NormRash.nrec                  == AttrValpu.cRec
+    and AttrNampu.Nrec                == AttrValpu.cAttrNam
+      ))
+
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Определение аналитики по авансовым отчетам';
+}
+
+
+Window wParam 'Задайте параметры идентификатора &VIP[Obj:"txo_atr_sp_ao"]' (,,) EscClose;
+  Show at (2,30,60,40);
+    Screen scParam (,,);
+
+      Fields
+
+        Konv        : noprotect;
+
+<<
+
+          `          Параметры расчета:                           `
+
+           (.) YES                                                `
+           (.) NOT                                                `
+
+  Данный алгоритм определяет некоторую аналитику в авансовых отчетах.
+  Если параметр [YES], то алгоритм работает:
+  1. Анализируются внешние атрибуты к спецификации авансового отчета:
+     "Центр ответственности"
+     "Статьи затрат"
+     "Объект строительства"
+     "Виды продукции работ, услуг"
+     "Элементы затрат"
+  2. Если результат после выполнения пункта 1 нулевой, то
+     анализируются внешние атрибуты (те же что и в пункте 1)
+     к авансовому отчету.
+  Результат передается в режим 1.
+  Если параметр [NO], то алгоритм не работает.
+
+
+>>
+
+End;
+
+
+HandleEvent // window
+ cmInit :
+         {
+           konv    := 0;
+         }
+ cmDefault : CloseWindow(wParam);
+End;  // HandleEvent
+End;  // window
+
+function ParamMaster : string;
+{
+   RunWindow(wParam);
+   PackFields;
+   case konv of
+     0  : ParamMaster := '[YES:]';
+     1  : ParamMaster := '[NOT:]';
+
+
+   end;
+
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+
+  TxoAllowRecallStoreCycles(hTxo);
+
+   CurSoprHoz := buf.cSoprHoz;                      // позиционирование на SoprHoz
+
+     case TxoParamName(hTxo,1) of
+      'YES'       : {pay:=word(1);}
+      'NOT'       : {pay:=word(2);}
+
+      end;
+
+      TxoBodyClear(hTxo);
+
+     nrec_co:=0; nrec_st:=0; nrec_os:=0; nrec_ok:=0; nrec_vp:=0; nrec_el:=0; nrec_pv:=0; nrec_pd:=0;
+     nrec_cop:=0; nrec_stp:=0; nrec_osp:=0; nrec_okp:=0; nrec_vpp:=0; nrec_elp:=0; nrec_pvp:=0; nrec_pdp:=0;
+     nrec_cos:=0; nrec_sts:=0; nrec_oss:=0; nrec_oks:=0; nrec_vps:=0; nrec_els:=0; nrec_pvs:=0; nrec_pds:=0;
+     nrec_cou:=0; nrec_stu:=0; nrec_osu:=0; nrec_oku:=0; nrec_vpu:=0; nrec_elu:=0; nrec_pvu:=0; nrec_pdu:=0;
+
+    if (pay=word(1))
+      {
+       if getfirst soprhoz  = tsok {}
+
+!----------------------------
+       if getfirst plpor = tsok
+       if getfirst attrnamcp = tsok
+       if getfirst attrvalcp = tsok
+        {
+         nrec_cop:=attrvalcp.vcomp;
+        }
+
+       if getfirst rashdoc  = tsok
+       if getfirst attrnamcs = tsok
+       if getfirst attrvalcs = tsok
+        {
+         nrec_cos:=attrvalcs.vcomp;
+
+        }
+
+       if getfirst NormRash = tsok
+       if getfirst attrnamcu = tsok
+       if getfirst attrvalcu = tsok
+        {
+         nrec_cou:=attrvalcu.vcomp;
+        }
+
+        if nrec_cop<>0
+         {
+          if nrec_cos<>nrec_cou and nrec_cos<>0
+           {
+             nrec_co:=nrec_cos;
+           }
+           else
+            {
+             nrec_co:=nrec_cop;
+            }
+         }
+          else
+           {
+            nrec_co:=nrec_cos;
+           }
+!-----------------------------
+
+       if getfirst attrnamss = tsok
+       if getfirst attrvalss = tsok
+        {
+         nrec_sts:=attrvalss.vcomp;
+        }
+       if getfirst plpor = tsok
+       if getfirst attrnamsp = tsok
+       if getfirst attrvalsp = tsok
+        {
+         nrec_stp:=attrvalsp.vcomp;
+        }
+
+       if getfirst NormRash = tsok
+       if getfirst attrnamsu = tsok
+       if getfirst attrvalsu = tsok
+        {
+         nrec_stu:=attrvalsu.vcomp;
+        }
+
+        if nrec_stp<>0
+         {
+          if nrec_sts<>nrec_stu and nrec_sts<>0
+           {
+             nrec_st:=nrec_sts;
+           }
+           else
+            {
+             nrec_st:=nrec_stp;
+            }
+         }
+          else
+           {
+            nrec_st:=nrec_sts;
+           }
+
+
+!-----------------------------
+
+       if getfirst attrnamos = tsok
+       if getfirst attrvalos = tsok
+        {
+         nrec_oss:=attrvalos.vcomp;
+        }
+
+       if getfirst plpor = tsok
+       if getfirst attrnamop = tsok
+       if getfirst attrvalop = tsok
+        {
+         nrec_osp:=attrvalop.vcomp;
+        }
+
+
+       if getfirst NormRash = tsok
+       if getfirst attrnamou = tsok
+       if getfirst attrvalou = tsok
+        {
+         nrec_osu:=attrvalou.vcomp;
+        }
+
+        if nrec_osp<>0
+         {
+          if nrec_oss<>nrec_osu and nrec_oss<>0
+           {
+             nrec_os:=nrec_oss;
+           }
+           else
+            {
+             nrec_os:=nrec_osp;
+            }
+         }
+          else
+           {
+            nrec_os:=nrec_oss;
+           }
+
+
+!-----------------------------
+
+       if getfirst attrnamks = tsok
+       if getfirst attrvalks = tsok
+        {
+         nrec_oks:=attrvalks.vcomp;
+        }
+
+       if getfirst plpor = tsok
+       if getfirst attrnamkp = tsok
+       if getfirst attrvalkp = tsok
+        {
+         nrec_okp:=attrvalkp.vcomp;
+        }
+
+       if getfirst NormRash = tsok
+       if getfirst attrnamku = tsok
+       if getfirst attrvalku = tsok
+        {
+         nrec_oku:=attrvalku.vcomp;
+        }
+
+        if nrec_okp<>0
+         {
+          if nrec_oks<>nrec_oku and nrec_oks<>0
+           {
+             nrec_ok:=nrec_oks;
+           }
+           else
+            {
+             nrec_ok:=nrec_okp;
+            }
+         }
+          else
+           {
+            nrec_ok:=nrec_oks;
+           }
+
+!-----------------------------
+
+       if getfirst attrnamvs = tsok
+       if getfirst attrvalvs = tsok
+        {
+         nrec_vps:=attrvalvs.vcomp;
+        }
+
+       if getfirst plpor = tsok
+       if getfirst attrnamvp = tsok
+       if getfirst attrvalvp = tsok
+        {
+         nrec_vpp:=attrvalvp.vcomp;
+        }
+
+       if getfirst NormRash = tsok
+       if getfirst attrnamvu = tsok
+       if getfirst attrvalvu = tsok
+        {
+         nrec_vpu:=attrvalvu.vcomp;
+        }
+
+        if nrec_vpp<>0
+         {
+          if nrec_vps<>nrec_vpu and nrec_vps<>0
+           {
+             nrec_vp:=nrec_vps;
+           }
+           else
+            {
+             nrec_vp:=nrec_vpp;
+            }
+         }
+          else
+           {
+            nrec_vp:=nrec_vps;
+           }
+
+!-----------------------------
+
+       if getfirst attrnames = tsok
+       if getfirst attrvales = tsok
+        {
+         nrec_els:=attrvales.vcomp;
+        }
+
+       if getfirst plpor = tsok
+       if getfirst attrnamep = tsok
+       if getfirst attrvalep = tsok
+        {
+         nrec_elp:=attrvalep.vcomp;
+        }
+
+
+       if getfirst NormRash = tsok
+       if getfirst attrnameu = tsok
+       if getfirst attrvaleu = tsok
+        {
+         nrec_elu:=attrvaleu.vcomp;
+        }
+
+        if nrec_elp<>0
+         {
+          if nrec_els<>nrec_elu and nrec_els<>0
+           {
+             nrec_el:=nrec_els;
+           }
+           else
+            {
+             nrec_el:=nrec_elp;
+            }
+         }
+          else
+           {
+            nrec_el:=nrec_els;
+           }
+
+!-----------------------------
+
+       if getfirst attrnamps = tsok
+       if getfirst attrvalps = tsok
+        {
+         nrec_pvs:=attrvalps.vcomp;
+        }
+
+       if getfirst plpor = tsok
+       if getfirst attrnampp = tsok
+       if getfirst attrvalpp = tsok
+        {
+         nrec_pvp:=attrvalpp.vcomp;
+        }
+
+       if getfirst NormRash = tsok
+       if getfirst attrnampu = tsok
+       if getfirst attrvalpu = tsok
+        {
+         nrec_pvu:=attrvalpu.vcomp;
+        }
+
+        if nrec_pvp<>0
+         {
+          if nrec_pvs<>nrec_pvu and nrec_pvs<>0
+           {
+             nrec_pv:=nrec_pvs;
+           }
+           else
+            {
+             nrec_pv:=nrec_pvp;
+            }
+         }
+          else
+           {
+            nrec_pv:=nrec_pvs;
+           }
+
+
+       if getfirst attrnamrs = tsok
+       if getfirst attrvalrs = tsok
+        {
+         nrec_pds:=attrvalrs.vcomp;
+        }
+
+       if getfirst plpor = tsok
+       if getfirst attrnamrp = tsok
+       if getfirst attrvalrp = tsok
+        {
+         nrec_pdp:=attrvalrp.vcomp;
+        }
+
+       if getfirst NormRash = tsok
+       if getfirst attrnamru = tsok
+       if getfirst attrvalru = tsok
+        {
+         nrec_pdu:=attrvalru.vcomp;
+        }
+
+        if nrec_pdp<>0
+         {
+          if nrec_pds<>nrec_pdu and nrec_pds<>0
+           {
+             nrec_pd:=nrec_pds;
+           }
+           else
+            {
+             nrec_pd:=nrec_pdp;
+            }
+         }
+          else
+           {
+            nrec_pd:=nrec_pds;
+           }
+!-----------------------------
+
+           if getfirst plpor = tsok
+           if getfirst attrnamhp = tsok
+           if getfirst attrvalhp = tsok
+
+
+         TxoBodyAddKau(hTxo, wflkau_mode1, 20057, nrec_pd);
+         TxoBodyAddKau(hTxo, wflkau_mode1, 22   , nrec_co);
+         TxoBodyAddKau(hTxo, wflkau_mode1, 20073, nrec_st);
+         TxoBodyAddKau(hTxo, wflkau_mode1, 15   , nrec_os);
+         TxoBodyAddKau(hTxo, wflkau_mode1, 40   , nrec_ok);
+         TxoBodyAddKau(hTxo, wflkau_mode1, 20009, nrec_vp);
+         TxoBodyAddKau(hTxo, wflkau_mode1, 5017 , nrec_el);
+         TxoBodyAddKau(hTxo, wflkau_mode1, 20054, nrec_pv);
+
+         TxoBodySetSum(hTxo, soprhoz.summa, 0, 0);
+         TxoBodyInsert(hTxo);
+
+      }
+
+}
+
+handleevent
+end;
+
+end.

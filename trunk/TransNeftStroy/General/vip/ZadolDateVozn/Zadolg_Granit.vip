@@ -1,0 +1,1181 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2011 корпорация ГАЛАКТИКА                            ║
+ ║ Проект        : ГАЛАКТИКА                                                         ║
+ ║ Система       : Отчет пользователя                                                ║
+ ║ Версия        : 8.10                                                              ║
+ ║ Назначение    : Взаиморасчеты на основании бухгалтерских данных                   ║
+ ║ Разработал    : Викторович Владимир Анатольевич, ПНР vo@galaktika.by              ║
+ ║ Изменения     : Несмиян Станислав Валерьевич, ПНР Stanislav.Nesmiyan@galaktika.by ║
+ ╚═══════════════════════════════════════════════════════════════════════════════════╝
+*/
+
+
+//            Дата сальдо       Дата начала отч     Дата конца отч
+//  ___________________|_______________|__________________|_________________________
+//  Oborot_before_c     Oborot_before   Oborot_inside
+
+
+#include ShowKau.vpp    // цепануть название аналитики
+#include PickBuh.vih    // Обьектный интерфейс работы с таблицей PickBuh
+
+#define GetDbSch(Schet) SubStr(#Schet,2,cgSchetLength-1)
+
+Const
+#include KauConst.inc
+#include BuhConst.inc
+#include GloConst.inc
+    cDebet          = 1;
+    cCredit         = 2;
+    cDS             = 1;  // DebetSign
+    cKS             = 1;   // KreditSign
+    saldo_v         = 1;
+    oborot          = 2;
+    saldo_i         = 3;
+    ExcelMaxVol     = 65536;
+    ExcelColNum     = 68;    //количество колонок в Excel при выгрузке данных напрямую в Excel
+    nreport         = 21000;
+    vAgeLimitDef    = 10000; //ограничение по возрасту задолженности по умолчанию
+    updUDR          = 0;     //режим вызова VariablesToUserDeskRep - обновить текущую запись
+    insUDR          = 1;     //режим вызова VariablesToUserDeskRep - добавить новую запись
+    defNastrName    = '<Настройка по умолчанию>';
+end;
+
+Interface Zadolg 'Аналитический отчет по бухгалтерским данным' (,,scI1EnEsc);
+Show at(,, 72, 30);
+//var
+
+#include PickBuh.var    // Переменная типа "Интерфейс работы с таблицей PickBuh"
+
+Table Struct Saldo
+    (
+        T1          : word,
+        T2          : word,
+        T3          : word,
+        T4          : word,
+        T5          : word,
+        T6          : word,
+
+        DataType    : word,
+        SaldoDat    : date,
+        SaldoType   : word,
+        Schet       : string,
+        SubSchet    : string,
+        An1         : comp,
+        An2         : comp,
+        An3         : comp,
+        An4         : comp,
+        An5         : comp,
+        An6         : comp,
+        AnPodr      : comp,
+        Val         : comp, // валюта
+        DolgDat     : date,
+
+        StSchet     : string,
+        StSubSchet  : string,
+        St1         : string[80],
+        St2         : string[80],
+        St3         : string[80],
+        St4         : string[80],
+        St5         : string[80],
+        St6         : string[80],
+        StPodr      : string[80],
+        StVal       : string[8],
+        StTypeInitDoc:string[80],
+        StNoInitDoc : string[20],
+        TypeInitDoc : word,
+        cInitDoc    : comp,
+
+        S1          : double,
+        S2          : double,
+        KatOrgIer1_01: string[151],
+        KatOrgIer1_02: string[151],
+        KatOrgIer1_03: string[151],
+        KatOrgIer1_04: string[151],
+        KatOrgIer1_05: string[151],
+        KatOrgIer1_06: string[151],
+        KatOrgIer1_07: string[151],
+        KatOrgIer1_08: string[151],
+        KatOrgIer1_09: string[151],
+        KatOrgIer1_10: string[151],
+
+        KatOrgIer2_01: string[151],
+        KatOrgIer2_02: string[151],
+        KatOrgIer2_03: string[151],
+        KatOrgIer2_04: string[151],
+        KatOrgIer2_05: string[151],
+        KatOrgIer2_06: string[151],
+        KatOrgIer2_07: string[151],
+        KatOrgIer2_08: string[151],
+        KatOrgIer2_09: string[151],
+        KatOrgIer2_10: string[151],
+
+        KatOrgIer3_01: string[151],
+        KatOrgIer3_02: string[151],
+        KatOrgIer3_03: string[151],
+        KatOrgIer3_04: string[151],
+        KatOrgIer3_05: string[151],
+        KatOrgIer3_06: string[151],
+        KatOrgIer3_07: string[151],
+        KatOrgIer3_08: string[151],
+        KatOrgIer3_09: string[151],
+        KatOrgIer3_10: string[151],
+
+        BaseDocRPunkt : string[81],
+        Attr          : double,
+        AttrKontr     : String,
+        Class         : String,
+        Dogovor       : String,
+        OnlyWorkDaysFlag  : boolean,
+        OrgAddr       : String,
+        OrgTel        : String,
+        DogVid        : String,
+        DogSubj       : String,
+        DogPodr       : String,
+        DogOtvFIO     : String,
+        Flag_del      : Boolean
+
+      , DogDbeg       : date
+      , DogDend       : date
+      , DogDdoc       : date
+      , DogSum        : double
+      , DogSumNDS     : double
+      , DogNrec       : comp
+      , DogDesCr      : string
+      , DogDesGr      : string
+      , DogStatus     : string
+      , NoVnut        : string
+      , NoVnesh       : string
+      , OrgName       : string
+      , OrgUNN        : string
+      , DogOrgName    : string
+      , DogOrgUNN     : string
+
+      , PersFIO       : string
+      , PersTabN      : string [20]
+      , PersPodrN     : string
+      , PersPodrK     : string [20]
+      , PersDolzh     : string
+      , KurPodrDoc    : string
+
+      , SchetKor      : string
+      , SubSchKor     : string
+
+      , T1Kor         : word
+      , T2Kor         : word
+      , T3Kor         : word
+      , T4Kor         : word
+      , T5Kor         : word
+      , T6Kor         : word
+
+      , St1Kor        : string[80]
+      , St2Kor        : string[80]
+      , St3Kor        : string[80]
+      , St4Kor        : string[80]
+      , St5Kor        : string[80]
+      , St6Kor        : string[80]
+      , StPodrKor     : string[80]
+
+      , An1Kor        : comp
+      , An2Kor        : comp
+      , An3Kor        : comp
+      , An4Kor        : comp
+      , An5Kor        : comp
+      , An6Kor        : comp
+      , AnPodrKor     : comp
+    )
+    with index
+    (
+        Saldo1 = DataType + SaldoDat + SaldoType + Schet + SubSchet + An1 + An2 + An3 + An4 + An5 + An6 + AnPodr + DolgDat + Val + TypeInitDoc + cInitDoc,
+        Saldo2 = Flag_del,
+        Saldo3 = DataType + Schet + SubSchet + SaldoDat + DolgDat,
+        Saldo4 = Flag_del + DataType + SaldoDat + SaldoType + Schet + SubSchet + An1 + An2 + An3 + An4 + An5 + An6 + AnPodr + DolgDat,
+        Saldo5 = Schet + SubSchet + S1,
+        Saldo6 = Schet + SubSchet + SaldoType + SaldoDat
+    );
+create view
+var
+    bound_DataType          : word;
+    bound_SDate             : date;
+
+    bound_DateBeg           : date;
+    bound_DateEnd           : date;
+    bound_DateBeg_c         : date;
+    bound_DatevAge          : date;
+
+    bound_SaldoDatZ         : date;
+
+    bound_SaldoDat          : date;
+    bound_SaldoType         : word;
+
+    bound_Schet             : string;
+    bound_SubSchet          : string;
+    bound_An1               : comp;
+    bound_An2               : comp;
+    bound_An3               : comp;
+    bound_An4               : comp;
+    bound_An5               : comp;
+    bound_An6               : comp;
+    bound_An7               : comp;
+    bound_AnPodr            : comp;
+    bound_Val               : comp;
+    bound_DolgDat           : date;
+
+    v_Val2                  : comp;
+
+    v_cPlansSch             : comp;
+    MainTitle               : string;
+    LastDate                : date;
+
+    vTypePick               : word;
+
+    v_OborotcOrg            : comp;
+    v_CurOrg                : comp;
+    bound_Org               : comp;
+    v_OborotcBaseDoc        : comp;
+
+    v_StSchet               : string;
+    v_StSubSchet            : string;
+    v_Schet                 : string;
+    v_SubSchet              : string;
+
+    v_OrgFilterStr          : string;
+    v_OrgFilterComp         : comp;   //ссылка на организацию. Если выбрано несколько, то = comp(0)
+    v_OrgFilterWord         : word;   //количество выбранных организаций в фильтре
+
+    v_OrgHier               : boolean;
+    v_OrgHierStr1           : string;
+    v_OrgHierStr2           : string;
+    v_OrgHierStr3           : string;
+    v_AddOptions            : word;
+    v_SpecOptions           : word;
+
+    v_OrgHierComp1          : comp;
+    v_OrgHierComp2          : comp;
+    v_OrgHierComp3          : comp;
+
+    v_AttrNam               : comp;
+    v_AttrNamName           : string;
+
+    v_AttrNamDog            : comp;
+    v_AttrNamDogName        : string;
+
+    v_ExClass               : comp;
+    v_ExClassName           : string;
+
+    vTechnology             : byte;
+    vSaldoAnalitics         : word;
+
+    vPrefixOut              : string;
+
+    vTemplateFilePathNameDef: string;
+    vMacrosNameDef          : string;
+
+    _Valut                  : comp;
+    vDataFilePath           : string;
+    vDataFileName           : string;
+    vDataFilePathName       : string;
+    vWBName                 : string;
+    vAgeLimit               : longint;
+    vTemplateFilePathName   : string;
+    vMacrosFilePathName     : string;
+    vMacrosName             : string;
+    vMaxlevel               : byte;
+    isMultiSch              : boolean;
+    isMultiSub              : boolean;
+    SchetCount, SubSchetCount : double;
+    VisualStringFirstLine   : string;
+    Flag                    : boolean;
+    Flag2                   : boolean;
+    vErrorFlag              : boolean;
+    vStopFlag               : boolean;
+    vErrorDescr             : string;
+    Mode3Need                 : boolean;
+    MonHandle               : longint;
+    i                       : longint;
+    MaxIerLevels            : byte;
+    IsCAUpdated             : boolean;
+    IsOrgAnExist            : boolean;
+    IsOrgAnExistAll         : boolean;
+    OrgAnNum                : byte;
+    IsDOAnExist             : boolean;
+    IsDOAnExistAll          : boolean;
+    DOAnNum                 : byte;
+    SaldoSign               : integer;
+    TipDoc                  : word;
+    marker                  : longint;
+    SumCompare              : double;
+    stName                  : string;
+    DogAnalit               : comp;
+    OrgAnalit               : comp;
+    PersAnalit              : comp;
+    wListOrgFilter, wListOrgFilterSave, wListSchet, wListSubSchet : word; //wList для хранения в PickRep
+    _Flag                   : boolean;    // перенёс переменную из процедуры - признак сопроводительного Документа
+as select *
+from
+
+             SaldMoun,
+
+    Oborot  Oborot_before_c_D,
+    Oborot  Oborot_before_c_K,
+    Oborot  Oborot_before_D,
+    Oborot  Oborot_inside_D,
+
+    Oborot  Oborot_before_K,
+    Oborot  Oborot_inside_K,
+
+    Saldo,
+    Saldo   Saldo_Fill,
+    Saldo   Saldo_Z,
+    Saldo   Saldo_Print (Saldo2),
+    Saldo   Saldo_del,
+    Saldo   Saldo_Z1,
+    Saldo   Saldo_Ins,
+
+     UserDeskRep
+    ,UserdeskRep UserDeskRepBrowse
+    ,PlansSch               (ReadOnly)
+    ,BuhSchet
+    ,BuhSchet SchetO        (ReadOnly)
+//    ,BuhSchet SchetK        (ReadOnly)
+    ,BuhSchet SchetSubO     (ReadOnly)
+    ,BuhSchet SchetSubK     (ReadOnly)
+    ,PickBuh
+    ,PickBuh    PickBuhSub
+    ,Pick
+    ,PickRep     PickRepSource
+    ,PickRep     PickRepDest
+    ,PickRep     sOrgPickRep
+    ,PickRep
+    ,KatOrg      sPickKatOrg          (ReadOnly)
+    ,KatOrgDescr sPickVidOrg          (ReadOnly)
+
+    ,KatOrgDescr sKatOrgDescrGetIer1  (ReadOnly)
+    ,KatOrgDescr sKatOrgDescrGetIer12 (ReadOnly)
+    ,KontrIer    sKontrHierGetIer1    (ReadOnly)
+
+    ,KatOrgDescr sKatOrgDescrGetIer2  (ReadOnly)
+    ,KatOrgDescr sKatOrgDescrGetIer22 (ReadOnly)
+    ,KontrIer    sKontrHierGetIer2    (ReadOnly)
+
+    ,KatOrgDescr sKatOrgDescrGetIer3  (ReadOnly)
+    ,KatOrgDescr sKatOrgDescrGetIer32 (ReadOnly)
+    ,KontrIer    sKontrHierGetIer3    (ReadOnly)
+
+    ,BaseDoc                          (ReadOnly)
+    ,TTNDoc                           (ReadOnly)
+    ,MarPunkt                         (ReadOnly)
+
+    ,KatSopr
+    ,KatPodr
+    ,SpSopr
+    ,SpSopHoz
+    ,SpDocNal
+
+// Подключение внешних атрибутов
+    , katorg katorg_An
+    , AttrNam
+    , AttrVal
+    , synonym AttrNam AttrNamDog
+    , synonym AttrVal AttrValDog
+
+//  Внешняя классификация
+    , ExClassName
+    , ExClassVal
+    , ExClassSeg
+
+//атрибуты договора (из аналитики)
+    , Dogovor
+    , KatVidd
+    , AttrDog
+    , KatPodr        KatPodr2
+
+//атрибуты Работника (из аналитики)
+    , Persons
+    , Appointments
+    , Catalogs
+    , KatPodr        KatPodrPers
+
+where
+((
+    UserName  == UserDeskRepBrowse.OwnName and
+    nreport   == UserDeskRepBrowse.nrep    and
+    // для переноса сальдо на следующий конец периода
+    saldo_v             == Saldo_Z.DataType and
+    bound_Schet         == Saldo_Z.Schet and
+    bound_SubSchet      == Saldo_Z.SubSchet and
+    bound_SaldoDatZ     == Saldo_Z.SaldoDat and
+    date (0,0,0)        == Saldo_Z.DolgDat and
+
+    saldo_v             == Saldo_Z1.DataType and
+    bound_Schet         == Saldo_Z1.Schet and
+    bound_SubSchet      == Saldo_Z1.SubSchet and
+    bound_SaldoDatZ     == Saldo_Z1.SaldoDat and
+
+    // для погашения противоположного сальдо и для погашения однозначного сальдо при доводке
+    false               == Saldo_Fill.flag_del             and
+    bound_DataType      == Saldo_Fill.DataType             and
+    bound_SaldoDat      == Saldo_Fill.SaldoDat             and
+    bound_SaldoType     == Saldo_Fill.SaldoType            and
+    bound_Schet         == Saldo_Fill.Schet                and
+    bound_SubSchet      == Saldo_Fill.SubSchet             and
+    bound_An1           == Saldo_Fill.An1                  and
+    bound_An2           == Saldo_Fill.An2                  and
+    bound_An3           == Saldo_Fill.An3                  and
+    bound_An4           == Saldo_Fill.An4                  and
+    bound_An5           == Saldo_Fill.An5                  and
+    bound_An6           == Saldo_Fill.An6                  and
+    bound_AnPodr        == Saldo_Fill.AnPodr               and
+//    bound_Val           == Saldo_Fill.Val                  and
+    bound_DolgDat       >> Saldo_Fill.DolgDat             and
+
+    bound_Schet         == Oborot_before_c_D.SchetO        and
+    bound_An1           == Oborot_before_c_D.KauOs[1]      and
+    bound_DateBeg_c     >> Oborot_before_c_D.DatOb         and
+    bound_DatevAge     <<= Oborot_before_c_D.DatOb         and
+    bound_SubSchet      == Oborot_before_c_D.SubOsSch      (noindex) and
+    bound_An2           == Oborot_before_c_D.KauOs[2]      (noindex) and
+    bound_An3           == Oborot_before_c_D.KauOs[3]      (noindex) and
+    bound_An4           == Oborot_before_c_D.KauOs[4]      (noindex) and
+    bound_An5           == Oborot_before_c_D.KauOs[5]      (noindex) and
+    bound_An6           == Oborot_before_c_D.KauOs[6]      (noindex) and
+    bound_AnPodr        == Oborot_before_c_D.kodSpo        (noindex)
+
+    and bound_Schet         == Oborot_before_c_K.SchetK
+    and bound_An1           == Oborot_before_c_K.Kauks[1]
+    and bound_DateBeg_c     >> Oborot_before_c_K.DatOb
+    and bound_DatevAge     <<= Oborot_before_c_K.DatOb
+    and bound_SubSchet      == Oborot_before_c_K.SubSchK       (noindex)
+    and bound_An2           == Oborot_before_c_K.Kauks[2]      (noindex)
+    and bound_An3           == Oborot_before_c_K.Kauks[3]      (noindex)
+    and bound_An4           == Oborot_before_c_K.Kauks[4]      (noindex)
+    and bound_An5           == Oborot_before_c_K.Kauks[5]      (noindex)
+    and bound_An6           == Oborot_before_c_K.Kauks[6]      (noindex)
+    and bound_AnPodr        == Oborot_before_c_K.kodSpk        (noindex)
+
+    // получение названия валюты
+    and v_Val2              == KlVal.Nrec
+    // получение названия плана счета
+    and v_cPlansSch         ==  PlansSch.NRec
+    // получение названия счета
+    and v_Schet             ==  SchetO.Schet
+    and cgDefSub            ==  SchetO.SubSch
+    // получение названия субсчета
+    and v_Schet             ==  SchetSubO.Schet
+    and v_SubSchet          ==  SchetSubO.SubSch
+
+    and v_Schet             ==  SchetSubK.Schet
+
+    // для фильтра по организациям
+    and UserName                 == sOrgPickRep.ownname
+    and UserDeskRep.nrec         == sOrgPickRep.cUserDeskRep
+    and wListOrgFilter           == sOrgPickRep.wList
+    // для развертывания иерархии 1
+    and v_OborotcOrg             == sKatOrgDescrGetIer1.cRec
+    and v_OrgHierComp1           == sKontrHierGetIer1.cGroup
+    and sKatOrgDescrGetIer1.Nrec == sKontrHierGetIer1.cRecDs
+    and v_CurOrg                 == sKatOrgDescrGetIer12.Nrec
+
+    // для развертывания иерархии 2
+    and v_OborotcOrg             == sKatOrgDescrGetIer2.cRec
+    and v_OrgHierComp2           == sKontrHierGetIer2.cGroup
+    and sKatOrgDescrGetIer2.Nrec == sKontrHierGetIer2.cRecDs
+    and v_CurOrg                 == sKatOrgDescrGetIer22.Nrec
+
+    // для развертывания иерархии 3
+    and v_OborotcOrg             == sKatOrgDescrGetIer3.cRec
+    and v_OrgHierComp3           == sKontrHierGetIer3.cGroup
+    and sKatOrgDescrGetIer3.Nrec == sKontrHierGetIer3.cRecDs
+    and v_CurOrg                 == sKatOrgDescrGetIer32.Nrec
+
+    // для выбора атрибутов ДО
+    and v_OborotcBaseDoc    == BaseDoc.Nrec
+    and word(1102)          == TTNDoc.wTable
+    and BaseDoc.Nrec        == TTNDoc.cDoc
+    and TTNDoc.cPunktR      == MarPunkt.Nrec
+
+    and Saldo_Print.cInitDoc== KatSopr.Nrec
+    and KatSopr.cpodrfrom   == KatPodr.nrec
+    and KatSopr.Nrec        == SpSopr.cSopr
+    and SpSopr.NRec         == SpSopHoz.cSpSopr
+    and SpSopr.Nrec         == SpDocNal.cSpDoc
+    and TipDoc              == SpDocNal.TipDoc
+    and SpSopr.cMcUsl       == KatMc.Nrec
+    and Katmc.cgroupmc      == groupmc.Nrec
+    and SpSopr.cMcUsl       == KatUsl.NRec
+    and Katusl.cgroupusl    == groupusl.Nrec
+
+// внешний атрибут 'Дней для оплаты'
+    and v_OborotcOrg        == katorg_An.nrec
+    and v_AttrNam           == AttrNam.nrec
+    and word (1418)         == AttrVal.wtable
+    and Katorg_An.nrec      == AttrVal.crec
+    and AttrNam.nrec        == AttrVal.cattrnam
+
+// внешний атрибут 'Договор'
+    and v_AttrNamDog        == AttrNamDog.nrec
+    and word (1418)         == AttrValDog.wtable
+    and Katorg_An.nrec      == AttrValDog.crec
+    and AttrNamDog.nrec     == AttrValDog.cattrnam
+
+
+// внешний классификатор "Рабочие/календарные дни"
+    and v_ExClass                 == ExClassName.nrec
+    and ExClassName.classcode     == ExClassVal.classcode
+    and KatOrg_An.nrec            == ExClassVal.crec
+    and ExClassVal.cClassSeg      == ExClassSeg.nrec
+))
+//без фильтра по организации
+bounds SaldMoun =
+    bound_Schet         == SaldMoun.SchetO                 and
+    bound_SubSchet      == SaldMoun.SubOsSch               and
+    bound_SDate         == SaldMoun.DateSal
+
+bounds ObBD     =
+    bound_Schet        == Oborot_before_D.SchetO           and
+    bound_SubSchet     == Oborot_before_D.SubOsSch         and
+    bound_DateBeg_c    <<= Oborot_before_D.DatOb           and
+    bound_DateBeg      >>  Oborot_before_D.DatOb
+
+bounds ObBK     =
+    bound_Schet        == Oborot_before_K.SchetK           and
+    bound_SubSchet     == Oborot_before_K.SubSchK          and
+    bound_DateBeg_c    <<= Oborot_before_K.DatOb           and
+    bound_DateBeg      >>  Oborot_before_K.DatOb
+
+bounds ObID     =
+    bound_Schet         == Oborot_inside_D.SchetO          and
+    bound_SubSchet      == Oborot_inside_D.SubOsSch        and
+    bound_DateBeg      <<= Oborot_inside_D.DatOb           and
+    bound_DateEnd      >>= Oborot_inside_D.DatOb
+
+bounds ObIK      =
+    bound_Schet         == Oborot_inside_K.SchetK          and
+    bound_SubSchet      == Oborot_inside_K.SubSchK         and
+    bound_DateBeg      <<= Oborot_inside_K.DatOb           and
+    bound_DateEnd      >>= Oborot_inside_K.DatOb
+
+//с фильтром по организации
+#declare SaldMoun(OrgAnNum)
+bounds SaldMoun#OrgAnNum =
+    bound_Schet         == SaldMoun.SchetO                 and
+    bound_Org           == SaldMoun.KAUOS[#OrgAnNum]       and
+    bound_SDate         == SaldMoun.DateSal                and
+    bound_SubSchet      == SaldMoun.SubOsSch  (noindex)
+#end
+    #SaldMoun(1)
+    #SaldMoun(2)
+    #SaldMoun(3)
+    #SaldMoun(4)
+    #SaldMoun(5)
+    #SaldMoun(6)
+
+#declare ObBD(OrgAnNum)
+bounds ObBD#OrgAnNum    =
+    bound_Schet        == Oborot_before_D.SchetO           and
+    bound_Org          == Oborot_before_D.KAUOS[#OrgAnNum] and
+    bound_DateBeg_c    <<= Oborot_before_D.DatOb           and
+    bound_DateBeg      >>  Oborot_before_D.DatOb           and
+    bound_SubSchet     == Oborot_before_D.SubOsSch   (noindex)
+#end
+    #ObBD(1)
+    #ObBD(2)
+    #ObBD(3)
+    #ObBD(4)
+    #ObBD(5)
+    #ObBD(6)
+
+#declare ObBK(OrgAnNum)
+bounds ObBK#OrgAnNum    =
+    bound_Schet        == Oborot_before_K.SchetK           and
+    bound_Org          == Oborot_before_K.KAUKS[#OrgAnNum] and
+    bound_DateBeg_c    <<= Oborot_before_K.DatOb           and
+    bound_DateBeg      >>  Oborot_before_K.DatOb           and
+    bound_SubSchet     == Oborot_before_K.SubSchK   (noindex)
+#end
+   #ObBK(1)
+   #ObBK(2)
+   #ObBK(3)
+   #ObBK(4)
+   #ObBK(5)
+   #ObBK(6)
+
+#declare ObID(OrgAnNum)
+bounds ObID#OrgAnNum     =
+    bound_Schet         == Oborot_inside_D.SchetO           and
+    bound_Org           == Oborot_inside_D.KAUOS[#OrgAnNum] and
+    bound_DateBeg      <<= Oborot_inside_D.DatOb            and
+    bound_DateEnd      >>= Oborot_inside_D.DatOb            and
+    bound_SubSchet      == Oborot_inside_D.SubOsSch  (noindex)
+#end
+   #ObID(1)
+   #ObID(2)
+   #ObID(3)
+   #ObID(4)
+   #ObID(5)
+   #ObID(6)
+
+#declare ObIK(OrgAnNum)
+bounds ObIK#OrgAnNum     =
+    bound_Schet         == Oborot_inside_K.SchetK           and
+    bound_Org           == Oborot_inside_K.KAUKS[#OrgAnNum] and
+    bound_DateBeg      <<= Oborot_inside_K.DatOb            and
+    bound_DateEnd      >>= Oborot_inside_K.DatOb            and
+    bound_SubSchet      == Oborot_inside_K.SubSchK  (noindex)
+#end
+   #ObIK(1)
+   #ObIK(2)
+   #ObIK(3)
+   #ObIK(4)
+   #ObIK(5)
+   #ObIK(6)
+;
+
+Procedure _SetBounds;
+{
+#declare SubAllBounds(OrgAnNum)
+    if BoundActive(tbSaldMoun#OrgAnNum) SubBounds(tbSaldMoun#OrgAnNum);
+    if BoundActive(tbObBD#OrgAnNum) SubBounds(tbObBD#OrgAnNum);
+    if BoundActive(tbObBK#OrgAnNum) SubBounds(tbObBK#OrgAnNum);
+    if BoundActive(tbObID#OrgAnNum) SubBounds(tbObID#OrgAnNum);
+    if BoundActive(tbObIK#OrgAnNum) SubBounds(tbObIK#OrgAnNum);
+#end
+    #SubAllBounds( )
+    #SubAllBounds(1)
+    #SubAllBounds(2)
+    #SubAllBounds(3)
+    #SubAllBounds(4)
+    #SubAllBounds(5)
+    #SubAllBounds(6)
+    if v_OrgFilterWord = word(0)
+    {
+        AddBounds (tbSaldMoun);
+        AddBounds (tbObBD);
+        AddBounds (tbObBK);
+        AddBounds (tbObID);
+        AddBounds (tbObIK);
+    }
+    else
+    {
+    case OrgAnNum of
+#declare AddBoundsOrg(OrgAnNum)
+      #OrgAnNum:
+      {
+        AddBounds (tbSaldMoun#OrgAnNum);
+        AddBounds (tbObBD#OrgAnNum);
+        AddBounds (tbObBK#OrgAnNum);
+        AddBounds (tbObID#OrgAnNum);
+        AddBounds (tbObIK#OrgAnNum);
+      }
+#end
+     #AddBoundsOrg(1)
+     #AddBoundsOrg(2)
+     #AddBoundsOrg(3)
+     #AddBoundsOrg(4)
+     #AddBoundsOrg(5)
+     #AddBoundsOrg(6)
+     end;
+    }
+}
+
+#include pmarker.vpp
+#include Zadolg_Granit_func01.vpp   // функции работы с интерфейсом
+#include zadolg_granit_func02.vpp   // функции, формирующие данные
+#include zadolg_granit_func03.vpp   // функции, выгружающие данные
+
+!-------------------------------------------------------------------------------
+Window wSaveAs 'Введите наименование' (,,sci1Esc) EscClose, DoAccept;
+Show at (20,20,72,26);
+Screen scEditName
+fields
+  stName : [60], NoProtect;
+buttons
+  cmOk,Default;
+  cmCancel;
+<<
+
+ Наименование настройки
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+        <.~П~родолжить.> <. Отмена   .>
+>>
+end; // screen scEditName
+HandleEvent
+cmOk :
+{
+  if UpCase(stName) = UpCase(DefNastrName) Message('Настройка по умолчанию может быть только одна. Задайте другое имя!');
+    else if stName = '' Message('Имя настройки не может быть пустым!');
+      else PutCommand(cmDefault);
+}
+end;
+end; // window wSaveAs
+!-------------------------------------------------------------------------------
+
+Window wGetNastr 'Выберите настройку' (,,sci1478EnEsc) Cyan, EscClose, DoAccept;
+Show at (,,70,25);
+browse brGetNastr
+table UserDeskRepBrowse
+fields
+  UserDeskRepBrowse.repname : [60], Protect;
+end; // browse brGetNastr
+HandleEvent
+cmInit: if getfirst UserDeskRepBrowse where ((UserDeskRep.nrec == UserDeskRepBrowse.nrec)) <> tsOk {};
+cmOk :
+{
+  PutCommand(cmDefault);
+}
+cmEdit:
+{
+  stName := UserDeskRepBrowse.repname;
+  if (UserDeskRepBrowse.repname = defNastrName)
+  {
+   Message ('Нельзя переименовать настройку по умолчанию!');
+  }
+  else if (RunWindowModal (wSaveAs) = cmDefault)
+  {
+    UserDeskRepBrowse.repname := stName;
+    update current UserDeskRepBrowse;
+    RereadRecord(#UserDeskRepBrowse);
+  }
+}
+cmDelete:
+{
+  if (UserDeskRepBrowse.repname = DefNastrName)
+  {
+    message('Нельзя удалять настройку по умолчанию!');
+    abort; exit;
+  }
+  if (UserDeskRepBrowse.nrec = UserdeskRep.nrec)
+  {
+    message('Нельзя удалять текущую выбранную настройку!');
+    abort; exit;
+  }
+  if (message('Удалить настройку "'+UserDeskRepBrowse.repname+'"?', YesNo) = Yes)
+  {
+    _delPickRep (UserDeskRepBrowse.nrec, wListOrgFilter);     //удаляем фильтр по организациям
+    _delPickRep (UserDeskRepBrowse.nrec, wListOrgFilterSave); //удаляем фильтр по организациям
+    _delPickRep (UserDeskRepBrowse.nrec, wListSchet);         //удаляем выбранные счета
+    _delPickRep (UserDeskRepBrowse.nrec, wListSubSchet);      //удаляем выбранные субсчета
+    delete current UserDeskRepBrowse;
+    RereadRecord(#UserDeskRepBrowse);
+  }
+}
+cmInsert:
+{
+  stName := 'Новая настройка';
+  if (RunWindowModal (wSaveAs) = cmDefault)
+  {
+    AddNewUserDeskRep;
+    UserDeskRepBrowse.repname := stName;
+    update current UserDeskRepBrowse;
+  }
+  RereadRecord(#UserDeskRepBrowse);
+  abort;
+}
+end;
+end; // Window wGetNastr
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+Screen scNastr (,,sci1Esc)
+show at (,,,3) Fixed_Y;
+fields
+  UserDeskRep.repname (,,sci13EnEsc) : Protect, {Font = {Bold = true}};
+buttons
+#ifdef Atl51
+  cmValue10,[SingleLine];
+  cmValue11,[SingleLine];
+  cmValue12,[SingleLine];
+#else
+  cmValue10;
+  cmValue11;
+  cmValue12;
+#endif
+<<
+ `Настройка`   <. Сохранить   .> <. Сохранить как .> <. Удалить     .>
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scNastr
+!-------------------------------------------------------------------------------
+
+TabbedSheet Top MainTabScreen show at (,4,71)   ;
+
+Screen scGetParameters 'Основные параметры';
+Fields
+    'Основные параметры' : Skip, Centered,{Font = {Bold = true; Color = ColorSysWhite; BackColor = ColorMark}};
+    bound_DateBeg (,,sci13EnEsc)  : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; Color = if (bound_DateBeg > bound_DateEnd, ColorError, 0); BackColor = GetBackColor(#bound_DateBeg)}};
+    bound_DateEnd (,,sci13EnEsc)  : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; BackColor = GetBackColor(#bound_DateEnd)}};
+    v_StSchet     (,,sci13EnEsc)  : Protect, QuickChoice, PickButton,{Font = {Bold = if(SchetCount = 1, true, false); BackColor = GetBackColor(#v_StSchet)}};
+    v_StSubSchet (,,sci13EnEsc)   : Protect, QuickChoice, PickButton,{Font = {Bold = if(SubSchetCount = 1, true, false)}};
+    v_OrgFilterStr (,,sci13EnEsc) : NoStatic, Protect, QuickChoice, pickbutton;
+    v_OrgHier  : noprotect;
+    v_OrgHierStr1 (,,sci13EnEsc)  : Protect, pickbutton;
+    v_OrgHierStr2 (,,sci13EnEsc)  : Protect, pickbutton;
+    v_OrgHierStr3 (,,sci13EnEsc)  : Protect, pickbutton;
+    v_AttrNamName (,,sci13EnEsc)  : Protect, pickbutton;
+    v_AttrNamDogName (,,sci13EnEsc) : Protect, pickbutton;
+    v_ExClassName (,,sci13EnEsc)  : Protect, pickbutton;
+    v_AddOptions    : noprotect;
+    v_SpecOptions   : noprotect;
+Buttons
+   cmOK, Default,,,;
+   cmCancel,,,,;
+
+<< 'Введите параметры формирования отчета'
+.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Формировать отчёт c` .@@@@@@@@@@  `по` .@@@@@@@@@@
+
+  `По счету`    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `По субсчету` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  `Фильтр по организации`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  [.] Выводить иерархию по организации`
+  `Группировка 1`             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Группировка 2`             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Группировка 3`             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  `Атрибут со сроком погашения задолженности` .@@@@@@@@@@@@@@@@@@@@@
+  `Атрибут с номером договора`                .@@@@@@@@@@@@@@@@@@@@@
+  `Классификатор 'Рабоч./календ. дни'`        .@@@@@@@@@@@@@@@@@@@@@
+
+  [.] Выводить пункт разгрузки по ДО`
+
+  [.] Выводить аналитику по спецификации первичного документа`
+
+        <.      Ok       .>         <.     Отмена      .>
+
+>>
+End;
+
+Screen scGetTechnicalParameters 'Параметры выгрузки';
+Fields
+    'Параметры выгрузки' : Skip, Centered,{Font = {Bold = true; Color = ColorSysWhite; BackColor = ColorMark}};
+    vSaldoAnalitics                 : noprotect;
+    vTechnology                     : noprotect;
+    vTemplateFilePathName (,,sci13EnEsc): protect, pickbutton;
+    vMacrosName                     : noprotect, {Font = {BackColor = GetBackColor(#vMacrosName)}};
+    vAgeLimit          ('Данный параметр позволяет ограничить время формирования отчета, но при этом часть дат возникновения задолженностей будет не определено.') : noprotect;
+Buttons
+
+<< 'Введите дополнительные параметры формирования отчета'
+.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Формировать сальдо в разрезе валюты`
+
+   `Технология выгрузки данных`
+   (.) напрямую в Excel`
+   (.) в DBF и прямое его использование в Excel`
+   (.) в DBF и использование его через ADO`
+
+   `Адрес файла шаблона`
+   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   `Имя формирующего макроса`
+   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+    Ограничение по возрасту документов при
+    определении даты задолженности .@@@@@@@
+>>
+End; // s
+End; // // TabbedSheet
+HandleEvent
+cmInit  :
+{
+    InitVariables;
+    LoadNastr;
+    SelectFormat(scGetParameters);
+    SelectField(#bound_DateBeg);
+    PutCommand(cmCheckField);
+}
+cmDone:
+{
+    QuerySaveNastr;
+}
+cmOk:
+{
+var StartTime   : _DateTime;
+var EndTime     : _DateTime;
+
+    StartTime   := _CurDateTime;
+
+    vStopFlag := False;
+    vErrorFlag:= False;
+    Mode3Need := False;
+
+    if CheckParameters
+    {
+      QuerySaveNastr;
+      FillData;
+
+      if not vStopFlag and not vErrorFlag
+      {
+          if vTechnology = 0
+              PrintData_v1
+          else
+              PrintData_v2;
+      }
+
+      if not vStopFlag
+      {
+          if vErrorFlag
+              Message ('Выполнение отчета произошло с ошибками!' + chr(13) + vErrorDescr, error);
+          else
+              {
+              EndTime   := _CurDateTime;
+//              Message ('Время формирования отчета ' + trim (String ((double (EndTime) - double(StartTime)) / 60 / 60, 10, 2)))
+              }
+      }
+    }
+}
+
+cmPlansNo:       // перейти на другой план счетов
+{
+var v_cPlansSchBefore : comp;
+
+   v_cPlansSchBefore := v_cPlansSch;
+   if (runinterface('F_PLANSSCH::GetPlansSch', v_cPlansSchBefore) <> cmDefault)
+   {
+       Message ('Не удалось выбрать план счетов',error);
+       Exit;
+   }
+   else
+   {
+     if (v_cPlansSchBefore <> v_cPlansSch)
+     {
+      SetDefOSch(true, true);
+      v_cPlansSch := v_cPlansSchBefore;
+      if getfirst PlansSch = tsOk
+      {
+      MainTitle := 'Аналитический отчет по бухгалтерским данным (' +  PlansSch.Name + ')';
+      SetTitle(MainTitle);
+      }
+     }
+   }
+   RecalcFields;
+}
+
+
+cmHotKeys :
+  PutHotCommand(RunMenu('Zadolg_Granit_HotKeys0'));
+
+cmOpenSearch :
+{
+    ProcessCommand(cmPick);
+}
+
+cmDelOnProtect :
+{
+    case (CurField) of
+      #v_StSchet    :
+        {    SetDefOSch(true,true);
+        }
+      #v_StSubSchet :
+        {
+          SetDefOSch(false,true);
+        }
+
+      #v_OrgFilterStr  :
+       {
+         DelPickRep (wListOrgFilter);
+         v_OrgFilterComp := comp(0);
+         v_OrgFilterWord := word(0);
+         v_OrgFilterStr  := '';
+       }
+
+      #v_OrgHierStr1  :
+       {
+           v_OrgHierStr1 := '';
+           v_OrgHierComp1:= 0;
+       }
+
+      #v_OrgHierStr2  :
+       {
+           v_OrgHierStr2 := '';
+           v_OrgHierComp2:= 0;
+       }
+
+      #v_OrgHierStr3  :
+       {
+           v_OrgHierStr3 := '';
+           v_OrgHierComp3:= 0;
+       }
+
+      #v_AttrNamName  :
+       {
+
+          v_AttrNam     := 0;
+          v_AttrNamName := '';
+       }
+      #v_AttrNamDogName  :
+        {
+          v_AttrNamDog     := 0;
+          v_AttrNamDogName := '';
+        }
+
+        #v_ExClassName  :
+        {
+          v_ExClass     := 0;
+          v_ExClassName := '';
+        }
+
+    end;
+    RecalcFields;
+}
+
+cmPick:
+{
+        Var NumPick : Word;
+        Case CurField of
+
+        #vTemplateFilePathName:
+        {
+            vTemplateFilePathName := GetFileName ('*.xlt', 'Выберите файл шаблона');
+            if length (vTemplateFilePathName) = 0
+                set vTemplateFilePathName := vTemplateFilePathNameDef;
+
+             if locase(substr (vTemplateFilePathName, length(vTemplateFilePathName) - 3, 4)) <> '.xlt'
+                set vTemplateFilePathName := vTemplateFilePathNameDef;
+
+        }
+
+        #v_StSchet:
+        {
+            RestoreSchetMarker;
+            if (QuickChoiceName <> '') QuickChoiceName := 'qcBuh_SchetAndSub';
+            RunInterface('f_buhschet::getbuhschet', (cgiPickMult or if((SchetCount + SubSchetCount) > 0, cgiNotClear, 0)), v_cPlansSch, v_Schet, v_SubSchet);
+            RecalcFields;
+
+        }
+
+        #v_StSubSchet:
+        {
+            RestoreSchetMarker;
+            if (QuickChoiceName <> '') and SchetCount = 1 QuickChoiceName := 'qcBuh_SubSchet'
+              else QuickChoiceName := '';
+            RunInterface('f_buhschet::getbuhschet', (cgiPickMult or if((SchetCount + SubSchetCount) > 0, cgiNotClear, 0)),v_cPlansSch, v_Schet, v_SubSchet);
+            RecalcFields;
+        }
+
+        #v_OrgFilterStr  :
+        {
+          PickRep2Marker( 'KatOrg', wListOrgFilter, v_OrgFilterComp );
+          SetKatOrgDescrMarker;
+          if ( RunInterface('L_KATORG::GetSomeKontrPrim', True) <> cmCancel )
+          {
+              DelPickRep(wListOrgFilter);
+              Marker2PickRep ('KatOrg',  wListOrgFilter, v_OrgFilterComp, v_OrgFilterWord);
+          }
+          RecalcOrgFilterStr;
+        } // #v_OrgFilterStr
+
+        #v_OrgHierStr1    :
+        {
+            if RunInterface ('l_katorg::getvidorg', v_OrgHierComp1, comp(0)) = cmCancel then { exit;}
+            RecalcOrgHierStr;
+        }
+
+        #v_OrgHierStr2    :
+        {
+            if RunInterface ('l_katorg::getvidorg', v_OrgHierComp2, comp(0)) = cmCancel then { exit;}
+            RecalcOrgHierStr;
+        }
+
+        #v_OrgHierStr3    :
+        {
+            if RunInterface ('l_katorg::getvidorg', v_OrgHierComp3, comp(0)) = cmCancel then { exit;}
+            RecalcOrgHierStr;
+        }
+
+        #v_AttrNamName  :
+        {
+            if RunInterface ('C_EXTCLASS::PickAttrNam', v_AttrNam, word (1418)) = cmCancel then { exit;}
+           if getfirst AttrNam = tsOk v_AttrNamName := AttrNam.name;
+            else v_AttrNamName := '';
+        }
+
+        #v_AttrNamDogName  :
+        {
+            if RunInterface ('C_EXTCLASS::PickAttrNam', v_AttrNamDog, word (1418)) = cmCancel then { exit;}
+           if getfirst AttrNamDog = tsOk v_AttrNamDogName := AttrNamDog.name;
+             else v_AttrNamDogName := '';
+        }
+
+        #v_ExClassName  :
+        {
+           if RunInterface ('C_EXTCLASS::GetKL', word(1418), v_ExClass) = cmCancel then { exit;}
+           if getfirst ExClassName = tsOk v_ExClassName := ExClassName.name;
+              else v_ExClassName := '';
+        }
+        #UserDeskRep.repname :
+        {
+           QuerySaveNastr;
+           if (RunWindowModal(wGetNastr) = cmDefault)
+           {
+             if getfirst UserDeskRep where ((UserDeskRepBrowse.nrec == UserDeskRep.nrec)) = tsOK
+             UserDeskRepToVariables;
+           }
+           RereadRecord(#UserDeskRep);
+        }
+
+    end; // case
+    RereadRecord;
+} // cmPick
+
+cmCheckField:
+{
+    Case CurField of
+        #v_OrgHier       : {}
+        #v_OrgHierStr1   : {}
+        #v_OrgHierStr2   : {}
+        #v_OrgHierStr3   : {}
+        #v_OrgFilterStr  : {}
+        #v_AddOptions    : {}
+
+    End;
+    RecalcFields;
+    Rereadrecord;
+}
+
+cmValue10: //сохранить
+{
+    VariablesToUserDeskrep(updUDR);
+}
+
+cmValue11: //сохранить как...
+{
+   stName := UserDeskRep.RepName + ' (копия)';
+    if (RunWindowModal(wSaveAs) = cmDefault)
+    {
+         VariablesToUserDeskRep(insUDR);
+         RereadRecord;
+    }
+}
+
+cmValue12 :
+{ // удалить
+  if (UserDeskRep.repname = DefNastrName)
+  {
+    message('Нельзя удалять настройку по умолчанию!');
+    abort; exit;
+  }
+  if (message('Удалить настройку "'+UserDeskRep.repname+'"?', YesNo) = Yes)
+  {
+    delPickRep (wListOrgFilter);     //удаляем фильтр по организациям
+    delPickRep (wListOrgFilterSave); //удаляем фильтр по организациям
+    delPickRep (wListSchet);         //удаляем выбранные счета
+    delPickRep (wListSubSchet);      //удаляем выбранные субсчета
+    delete current UserDeskRep;
+    LoadNastr;
+    Rereadrecord;
+  }
+}
+
+cmAlt1: if #IsBetaTester RunInterface('F_BUHREP::PickBuhView');       // Просмотр PickBuh
+
+End;
+End.
+
+Zadolg_Granit_HotKeys0 Menu
+{
+- 'Смена плана счетов',cmPlansNo, 'Смена текущего плана счетов',hcKonsM1PlanSch,'Alt-P',kbAltP,sci1Esc;
+}

@@ -1,0 +1,433 @@
+//(c)Marchanka
+Getzad_tnf dialog
+fields
+  tip : word;
+Buttons
+  cmOk,Default,, 'Подтверждение ввода',,scGalDial ;
+
+<< 'Укажите параметры'
+
+  `Выбери тип задолженности     `
+  (.) Дебиторская               `
+  (.) Кредиторская              `
+
+         <. Продолжить .>
+                                 >>
+
+
+.LinkForm 'ANUCH_SH_tns71' Prototype is 'ANUCH_SH'
+.Group 'Аналитика по операциям'
+.NameInList 'Анализ задолженности по 71 счету (ТНС)'
+.var
+doc_mvf, podr_mvf, dolj_mvf    : string;
+pos_x,xx, n_pp, k:Integer ;
+FBasName,Fmacros:String ;
+sum_d,sum_kont,sum_ob,sum_it: double;
+tip : word;
+T_temp  : LongInt;
+NREC : word;
+DATEDOC : word;
+DOC : word;
+SUMMA : word;
+npp:double;
+x:integer;
+y,y2:boolean;
+.endvar
+
+.Create view t1
+as select
+katorg.nrec,
+dogovor.nrec
+from
+     katorg,
+     dogovor,
+     mgcard
+where ((
+           Kau1Nrec == persons.nrec
+      and  persons.nrec == APPOINTMENTS.PERSON
+      and  APPOINTMENTS.POST == CATALOGS.nrec
+      and  persons.galdep == katpodr.nrec
+      and  cSoprHoz == soprhoz.nrec
+      and  soprhoz.TIDKGAL == katdoc.TIDKGAL
+      ))
+;
+
+.fields
+.endfields
+.begin
+
+ if RunDialog('Getzad_tnf',tip) = cmCancel
+  {Exit;}
+
+FBasName :=GetStringParameter('Files','TmpFilesDirectory',0)+'analiz_dzadolj_71.xls';
+fmacros := GetStringParameter('Files','TmpFilesDirectory',0)+'macros.bas';
+DeleteFile(FBasName);
+xlCreateExcel(FBasName,true);
+xlSetActiveWorkBookByName('analiz_dzadolj_71');
+   xlGetSheetsCount(xx);
+   while xx > 1
+    do
+     {
+       xlSetActiveSheet(xx);
+       xlDeleteSheet(xx);
+       xlGetSheetsCount(xx);
+     }
+   xlSetSheetName(1,'Анализ дебиторской задолженности');
+   xlSetActiveSheet(1);
+   pos_x:=1;
+
+   xlSetCellStringValue(CommonFormHeader , pos_x, 1, pos_x, 1);
+   xlSetFontSize(8, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+   pos_x:=pos_x+2;
+   if tip = word(0)
+   {
+   xlSetCellStringValue('Реестр дебиторской задолженности по подотчетным суммам на '+c0p3, pos_x, 1, pos_x, 1);
+   }
+   else
+   {
+   xlSetCellStringValue('Реестр кредиторской задолженности по подотчетным суммам на '+c0p3, pos_x, 1, pos_x, 1);
+   }
+
+   xlSetFontSize(12, pos_x, 1, pos_x, 7);
+   xlMergeCells( pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 7);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 7);
+   pos_x:=pos_x+2;
+
+
+   xlSetCellStringValue('Номер п/п'                         , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Фамилия, Имя, Отчество сотрудника' , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Табельный номер'                   , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('Стурктурное подразделение'         , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue('Должность'                         , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue('Документ'                          , pos_x, 6, pos_x, 6);
+   xlSetCellStringValue('Сумма, руб.'                       , pos_x, 7, pos_x, 7);
+
+   xlSetFontSize (10, pos_x, 1, pos_x, 7);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 7);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 7);
+
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+
+   xlSetColumnWidth( 6,  pos_x, 1, pos_x, 1);
+   xlSetColumnWidth(25,  pos_x, 2, pos_x, 2);
+   xlSetColumnWidth(10,  pos_x, 3, pos_x, 3);
+   xlSetColumnWidth(25,  pos_x, 4, pos_x, 4);
+   xlSetColumnWidth(20,  pos_x, 5, pos_x, 5);
+   xlSetColumnWidth(30,  pos_x, 6, pos_x, 6);
+   xlSetColumnWidth(12,  pos_x, 7, pos_x, 7);
+
+   xlWrapText(pos_x, 1, pos_x, 7);
+
+   pos_x:=pos_x+1;
+
+end.
+.if OKFILANS
+Применен фильтр...
+.{
+.{
+.}
+.}
+.else
+.end
+.{
+.if OKANRSUB
+.else
+.end
+.{
+.if OKANRPODR
+.else
+.end
+.{
+.if OKANRKAU1
+.begin
+podr_mvf:='';
+dolj_mvf:='';
+if t1.getfirst persons = tsok
+ {
+   if t1.getfirst katpodr = tsok
+    {
+     podr_mvf := t1.katpodr.name;
+    }
+   if t1.getfirst APPOINTMENTS = tsok
+   if t1.getfirst CATALOGS = tsok
+    {
+     dolj_mvf:=t1.CATALOGS.name;
+    }
+ }
+npp:=0;
+end.
+.else
+.end
+.{
+.if OKANRKAU2
+.else
+.end
+.{
+.if OKANRKAU3
+.else
+.end
+.{
+.if OKANRKAU4
+.else
+.end
+.{
+.if OKANRKAU5
+.else
+.end
+.{
+.if OKANRKAU6
+.else
+.end
+.{
+.{
+.begin
+doc_mvf := '';
+sum_ob := 0;
+if t1.getfirst soprhoz = tsok
+ {
+ if (c7p10>0 and tip=word(0))
+  {
+    doc_mvf := katdoc.name+' '+t1.soprhoz.nodoc+' от '+c7p1+'г., '+c4p1 ;
+    sum_ob := round(double(c7p10),2);
+    if t1.getfirst Mgcard where (( doc_mvf == Mgcard.serial ))<> tsok
+     {
+      t1.ClearBuffer(t1.tnMgcard);
+      t1.Mgcard.ndoc := 'TmpTmp' ;
+      t1.Mgcard.serial   := doc_mvf;
+      t1.Mgcard.RESDOUBLE[1] := sum_ob;
+      if t1.insert current Mgcard = tsok {}
+     }
+     else
+      {
+       t1.Mgcard.RESDOUBLE[1] := t1.Mgcard.RESDOUBLE[1] + sum_ob;
+       if t1.update current Mgcard = tsok {}
+      }
+  }
+  if (c7p11>0 and tip=word(1))
+   {
+    doc_mvf := katdoc.name+' '+t1.soprhoz.nodoc+' от '+c7p1+'г., '+c4p1 ;
+    sum_ob := round(double(c7p11),2);
+    if t1.getfirst Mgcard where (( doc_mvf == Mgcard.serial ))<> tsok
+     {
+      t1.ClearBuffer(t1.tnMgcard);
+      t1.Mgcard.ndoc := 'TmpTmp' ;
+      t1.Mgcard.serial   := doc_mvf;
+      t1.Mgcard.RESDOUBLE[1] := sum_ob;
+      if t1.insert current Mgcard = tsok {}
+     }
+     else
+      {
+       t1.Mgcard.RESDOUBLE[1] := t1.Mgcard.RESDOUBLE[1] + sum_ob;
+       if t1.update current Mgcard = tsok {}
+      }
+   }
+ }
+
+end.
+.}
+.}
+.if OKANRSUMKAU6
+.else
+.end
+.}
+.if OKANRSUMKAU5
+.else
+.end
+.}
+.if OKANRSUMKAU4
+.else
+.end
+.}
+.if OKANRSUMKAU3
+.else
+.end
+.}
+.if OKANRSUMKAU2
+.begin
+
+y:=false;
+if (tip=word(0) and round(double(c5_p5),2)>0)
+ {
+ y:=true;
+ sum_kont:=round(double(c5_p5),2);
+ }
+if (tip=word(1) and round(double(c5_p6),2)>0)
+ {
+ y:=true;
+ sum_kont:=round(double(c5_p6),2);
+ }
+
+if y
+ {
+
+  sum_it:=sum_kont;
+  if t1.getlast Mgcard = tsok
+  do
+  {
+  if sum_it>0
+   {
+   sum_it := sum_it-t1.Mgcard.RESDOUBLE[1]   ;
+   }
+  }
+  while t1.getprev Mgcard = tsok
+
+
+ if sum_it>0
+ {
+   n_pp:=n_pp+1
+   xlSetCellStringValue(chr(39)+n_pp                , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+t1.persons.fio      , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+t1.persons.tabnmb   , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue(chr(39)+podr_mvf            , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue(chr(39)+dolj_mvf            , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue(chr(39)+'сальдо на '+c0p2+'г., '+c4p1  , pos_x, 6, pos_x, 6);
+   xlSetCellStringValue(sum_it                 , pos_x, 7, pos_x, 7);
+   sum_d:=sum_d+sum_it;
+
+   xlWrapText(pos_x, 1, pos_x, 7);
+   xlShrinkCells(pos_x, 1, pos_x, 7);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 7);
+
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 6);
+   xlAlignCellsEx( 4, 2, pos_x, 7, pos_x, 7);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+
+   pos_x:=pos_x+1;
+ }
+
+  if t1.getlast Mgcard = tsok
+  do
+  {
+  if sum_kont>0
+   {
+   n_pp:=n_pp+1
+   xlSetCellStringValue(chr(39)+n_pp                , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(chr(39)+t1.persons.fio      , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue(chr(39)+t1.persons.tabnmb   , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue(chr(39)+podr_mvf            , pos_x, 4, pos_x, 4);
+   xlSetCellStringValue(chr(39)+dolj_mvf            , pos_x, 5, pos_x, 5);
+   xlSetCellStringValue(chr(39)+t1.Mgcard.serial  , pos_x, 6, pos_x, 6);
+  if sum_kont >= t1.Mgcard.RESDOUBLE[1]
+   {
+   xlSetCellStringValue(t1.Mgcard.RESDOUBLE[1]   , pos_x, 7, pos_x, 7);
+   sum_d:=sum_d+t1.Mgcard.RESDOUBLE[1];
+   }
+   else
+    {
+     xlSetCellStringValue(sum_kont                    , pos_x, 7, pos_x, 7);
+     sum_d:=sum_d+sum_kont;
+    }
+   xlWrapText(pos_x, 1, pos_x, 7);
+   xlShrinkCells(pos_x, 1, pos_x, 7);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 7);
+
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 6);
+   xlAlignCellsEx( 4, 2, pos_x, 7, pos_x, 7);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+
+   pos_x:=pos_x+1;
+   sum_kont := sum_kont-t1.Mgcard.RESDOUBLE[1]   ;
+   }
+  }
+  while t1.getprev Mgcard = tsok
+ }
+t1.delete all Mgcard where (('TmpTmp' == Mgcard.ndoc));
+
+end.
+.else
+.end
+.}
+.if OKANRSUMKAU1
+.else
+.end
+.}
+.if OKANRSUMPODR
+.else
+.end
+.}
+.if OKANRSUMSUB
+.if OKROLLSUBANUCH
+.else
+.end
+.else
+.end
+.}
+.begin
+   xlSetCellStringValue('ИТОГО'       , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue(sum_d , pos_x, 7, pos_x, 7);
+
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 7);
+
+   xlMergeCells( pos_x, 1, pos_x, 6);
+
+   xlSetFontSize(8, pos_x, 1, pos_x, 7);
+   xlShrinkCells(pos_x, 1, pos_x, 7);
+
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 4, 2, pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+
+   pos_x:=pos_x+3;
+end.
+.if OKROLLSCHANUCH
+.else
+.end
+.begin
+
+DeleteFile(Fmacros);
+if not LogStrToFile(Fmacros, 'Sub macros()') message('Ошибка записи файла макроса '+fmacros);
+LogStrToFile(Fmacros, '    With ActiveSheet.PageSetup                                        ');
+LogStrToFile(Fmacros, '       .PrintTitleRows = "$5:$5"                                     ');
+LogStrToFile(Fmacros, '       .Orientation = xlLandscape                                    ');
+LogStrToFile(Fmacros, '       .LeftMargin = Application.InchesToPoints(0.72)                ');   // левое поле
+LogStrToFile(Fmacros, '       .RightMargin = Application.InchesToPoints(0.1)                ');   // правое поле
+LogStrToFile(Fmacros, '       .TopMargin = Application.InchesToPoints(0.2)                  ');   // верхнее поле
+LogStrToFile(Fmacros, '       .BottomMargin = Application.InchesToPoints(0.2)               ');   // нижнее поле
+LogStrToFile(Fmacros, '       .HeaderMargin = Application.InchesToPoints(0.32)              ');   // верхний колонтитул
+LogStrToFile(Fmacros, '       .FooterMargin = Application.InchesToPoints(0.32)              ');   // нижний колонтитул
+LogStrToFile(Fmacros, '    End With                                                          ');
+LogStrToFile(Fmacros, '    Columns("G:G").Select                                             ');
+LogStrToFile(Fmacros, '    Selection.NumberFormat = "#,##0.00"                               ');
+LogStrToFile(Fmacros, 'End Sub                                                               ');
+if not xlImportModule(Fmacros) message ('Ошибка загрузки макроса');
+
+xlGetSheetsCount(xx);
+   while xx > 0
+    do
+     {
+       xlSetActiveSheet(xx);
+       if not xlRunMacro('macros') message('Ошибка запуска макроса');
+       DeleteFile(Fmacros);
+       xx:=xx-1;
+     }
+
+xlKillExcel;
+ANUCH_SH.fexit;
+end.
+.endform

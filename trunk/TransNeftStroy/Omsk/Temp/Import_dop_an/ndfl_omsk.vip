@@ -1,0 +1,140 @@
+Interface ndfl_omsk 'Закачка' (,,) , DoAccept; // наимнование интерфейса
+
+var
+  Handle    : longint;
+  _dir      : string ;
+  _path     : string ;
+  kod_podr  : string ;
+  kod_mol   : string ;
+  kod_lk    : string ;
+  kod_mol_pr, kod_podr_pr : string ;
+  kod_grsfo : string ;
+  kod_norm  : string ;
+  kod_mc    : string ;
+  date_beg  : date   ;
+  date_end  : date   ;
+  kol_sfo   : double ;
+  stoim_sfo : double ;
+  iznos_sfo : double ;
+  last_num  : string ;
+  name_mc, name_ed   : string;
+  y         : boolean;
+  sum_itog  : double ;
+  iznos_itog,n_pp : double;
+  pos_x : integer;
+  katsopr_nrec, spsopr_nrec, katorg_nrec, dogovor_nrec : comp;
+  x1,x2,y1,y2 : longint;
+  name_kont : string;
+  unn_kont  : string;
+  dog_kont  : string;
+  nom_doc   : string;
+  str_data_doc  : string;
+  sum_doc   : double;
+  prim_doc  : string;
+  vnn_kont  : string;
+  vnn_dog, pr_kont, pr_dog   : string;
+  data_doc  : date;
+  tab_n : integer;
+  kod_p : string;
+  mes_n : word;
+  lsc_nrec, podr_nrec :comp;
+
+Create view
+ as select *
+ from
+      lschet,
+      katpodr,
+      SUMVIDOP,
+      OTPDOP
+;
+
+HandleEvent
+
+  CmInit:
+{
+
+     set _path := GetFileName('*.xls','Выбери файл');
+     StartNewVisual(vtRotateVisual, vfTimer,'Подождите...идет анализ данных', 0);
+     xlCreateExcelWithTemplate (_path,true);
+     pos_x:=1;
+     xlSetActiveSheet(1);
+     xlGetUsedRange(x1,y1,x2,y2);
+      do
+       {
+      NextVisual();
+      SetVisualTitle(pos_x);
+
+      tab_n    :=0;
+      kod_p    :='';
+      mes_n    :=0;
+
+
+      xlGetCellValue(pos_x, 1,tab_n    );
+      xlGetCellValue(pos_x, 2,kod_p    );
+      xlGetCellValue(pos_x, 3,mes_n    );
+
+      kod_p := trim(kod_p);
+
+      lsc_nrec:=0; podr_nrec:=0;
+
+      if getfirst lschet where ((tab_n == lschet.tabn)) = tsok
+       {
+        lsc_nrec := lschet.nrec;
+       }
+       else
+        {
+         LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'imp_ndfl.log','Табельный номер|'+tab_n);
+        }
+
+      if getfirst katpodr where ((kod_p == katpodr.kod)) = tsok
+       {
+        podr_nrec := katpodr.nrec;
+       }
+       else
+        {
+         LogStrToFile(GetStringParameter('Files','TmpFilesDirectory',0)+'imp_ndfl.log','Подразделение|'+kod_p);
+        }
+
+    if (lsc_nrec<>0 and podr_nrec<>0)
+     {
+      _loop  sumvidop where  ((
+                                       lsc_nrec == sumvidop.CLSCH     and
+                                       2011 == sumvidop.YEARN         and
+                                       mes_n == sumvidop.mesn
+                                   ))
+       {
+        ClearBuffer(#OTPDOP);
+        OTPDOP.CKAUD[1]     := podr_nrec;
+        OTPDOP.TBLD[1]      := word(2);
+        if insert current OTPDOP = tsok
+         {
+          sumvidop.OLDCLSCH := OTPDOP.nrec;
+          if update current sumvidop = tsok {}
+         }
+       }
+     }
+
+      pos_x:=pos_x+1;
+
+  }While (pos_x<=x2)
+
+
+    xlKillExcel;                         // Окончание работы с Excel
+
+    StopVisual('',0);
+
+    message('Конвертация завершена !');
+
+!-------------------------------------------------------------------------------------------------------
+}
+End;
+End.
+
+.Form 'Закачка допаналитики в лицевые счета'
+.Ard
+.F 'Nul'
+.begin
+        RunInterface ('ndfl_omsk');
+end.
+
+.endform

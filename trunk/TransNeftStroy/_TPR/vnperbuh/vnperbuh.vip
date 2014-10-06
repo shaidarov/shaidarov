@@ -1,0 +1,476 @@
+#include TxoApi.vih
+#include ChgPar.vih
+
+// Начиная с версии 5.85 в наименовании интерфейса
+// обязательно использовать префикс "Txo_"
+
+// Указываем, что наш интерфейс реализует расчет идентификатора ТХО
+VipInterface Txo_VnPerBuh implements ObjTxoIdentPlugin;
+
+// Простой интерфейс для обработки карточки ОС
+Interface Txo_VnPerBuh;
+
+var iChgPar    : OsChgPar;
+var tbSpKatOs  : type$SpKatOs;
+var tbKatOs    : type$KatOs;
+
+// Логическая таблица, описывает связь карточки ОС и источников финансирования
+table struct TxoSM
+(
+   schet   : string,
+   subsch  : string,
+   kau     : array [1..6] of comp,
+   tbl     : array [1..6] of word,
+   cpodr   : comp,
+   sum     : double
+)
+With Index
+(
+  TxoSM1  =  schet + subsch + cpodr
+           + tbl[1] + kau[1] + tbl[2] + kau[2] + tbl[3] + kau[3]
+           + tbl[4] + kau[4] + tbl[5] + kau[5] + tbl[6] + kau[6]
+)
+;
+create view
+var
+  sParam     : string;
+
+  plans
+ ,schet
+ ,subs       : string;
+
+  os_nrec    : comp;
+
+  dBeg
+ ,dEnd       : date;
+
+  kau_os     : word;
+
+as  select
+    *
+ from
+   SpMove,
+   spmove spmovedoc,
+   moveos,
+   spmoveos,
+   planssch,
+   buhschet,
+   oborot,
+   saldmoun,
+   nastros,
+   txosm,
+   KATORGDESCR,
+   katos
+
+bounds kau1d = plans+schet        == Oborot.SchetO
+          and  os_nrec            == Oborot.KAUOS[1]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBOSSCH (noindex)
+
+bounds kau1ds = plans+schet        == saldmoun.SchetO
+          and  os_nrec            == saldmoun.KAUOS[1]
+          and  dBeg               == saldmoun.DATESAL
+          and  subs               == saldmoun.SUBOSSCH (noindex)
+
+bounds kau2d = plans+schet        == Oborot.SchetO
+          and  os_nrec            == Oborot.KAUOS[2]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBOSSCH (noindex)
+
+bounds kau2ds = plans+schet        == saldmoun.SchetO
+          and  os_nrec            == saldmoun.KAUOS[2]
+          and  dBeg               == saldmoun.DATESAL
+          and  subs               == saldmoun.SUBOSSCH (noindex)
+
+bounds kau3d = plans+schet        == Oborot.SchetO
+          and  os_nrec            == Oborot.KAUOS[3]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBOSSCH (noindex)
+
+bounds kau3ds = plans+schet        == saldmoun.SchetO
+          and  os_nrec            == saldmoun.KAUOS[3]
+          and  dBeg               == saldmoun.DATESAL
+          and  subs               == saldmoun.SUBOSSCH (noindex)
+
+bounds kau4d = plans+schet        == Oborot.SchetO
+          and  os_nrec            == Oborot.KAUOS[4]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBOSSCH (noindex)
+
+bounds kau4ds = plans+schet        == saldmoun.SchetO
+          and  os_nrec            == saldmoun.KAUOS[4]
+          and  dBeg               == saldmoun.DATESAL
+          and  subs               == saldmoun.SUBOSSCH (noindex)
+
+bounds kau5d = plans+schet        == Oborot.SchetO
+          and  os_nrec            == Oborot.KAUOS[5]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBOSSCH (noindex)
+
+bounds kau5ds = plans+schet        == saldmoun.SchetO
+          and  os_nrec            == saldmoun.KAUOS[5]
+          and  dBeg               == saldmoun.DATESAL
+          and  subs               == saldmoun.SUBOSSCH (noindex)
+
+bounds kau6d = plans+schet        == Oborot.SchetO
+          and  os_nrec            == Oborot.KAUOS[6]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBOSSCH (noindex)
+
+bounds kau6ds = plans+schet        == saldmoun.SchetO
+          and  os_nrec            == saldmoun.KAUOS[6]
+          and  dBeg               == saldmoun.DATESAL
+          and  subs               == saldmoun.SUBOSSCH (noindex)
+
+bounds kau1k = plans+schet        == Oborot.SchetK
+          and  os_nrec            == Oborot.KAUKS[1]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBSCHK (noindex)
+bounds kau2k = plans+schet        == Oborot.SchetK
+          and  os_nrec            == Oborot.KAUKS[2]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBSCHK (noindex)
+bounds kau3k = plans+schet        == Oborot.SchetK
+          and  os_nrec            == Oborot.KAUKS[3]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBSCHK (noindex)
+bounds kau4k = plans+schet        == Oborot.SchetK
+          and  os_nrec            == Oborot.KAUKS[4]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBSCHK (noindex)
+bounds kau5k = plans+schet        == Oborot.SchetK
+          and  os_nrec            == Oborot.KAUKS[5]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBSCHK (noindex)
+bounds kau6k = plans+schet        == Oborot.SchetK
+          and  os_nrec            == Oborot.KAUKS[6]
+          and  dBeg              <<= Oborot.DatOb
+          and  dEnd              >>= Oborot.DatOb
+          and  subs               == Oborot.SUBSCHK (noindex)
+;
+
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Внутреннее перемещение. Внешние КАУ из "Изменяемые параметры" (суммы и аналитика co счетов бухгалтерского учета)';
+}
+
+function ParamMaster : string;
+{
+  message('Задается счет/субсчет по которому нужны суммы, например Т01.01');
+  ParamMaster := '[Счет.субсчет:T01.01]';
+}
+
+procedure Push_Bounds_d;
+{
+ case kau_os of
+  1:
+  {
+   PushBounds(tbkau1d);
+   PushBounds(tbkau1ds);
+  }
+  2:
+  {
+   PushBounds(tbkau2d);
+   PushBounds(tbkau2ds);
+  }
+  3:
+  {
+   PushBounds(tbkau3d);
+   PushBounds(tbkau3ds);
+  }
+  4:
+  {
+   PushBounds(tbkau4d);
+   PushBounds(tbkau4ds);
+  }
+  5:
+  {
+   PushBounds(tbkau5d);
+   PushBounds(tbkau5ds);
+  }
+  6:
+  {
+   PushBounds(tbkau6d);
+   PushBounds(tbkau6ds);
+  }
+ end;
+}
+
+procedure Push_Bounds_k;
+{
+ case kau_os of
+  1:
+   PushBounds(tbkau1k);
+  2:
+   PushBounds(tbkau2k);
+  3:
+   PushBounds(tbkau3k);
+  4:
+   PushBounds(tbkau4k);
+  5:
+   PushBounds(tbkau5k);
+  6:
+   PushBounds(tbkau6k);
+ end;
+}
+
+procedure initTable;
+{
+ Push_Bounds_d;
+ _loop saldmoun
+ {
+  if getfirst fastfirstrow TxoSM where ((saldmoun.scheto              == TxoSM.schet
+                                     and saldmoun.subossch            == TxoSM.subsch
+                                     and saldmoun.kodspo              == TxoSM.cpodr
+                                     and saldmoun.tblos[1]            == TxoSM.tbl[1]
+                                     and saldmoun.kauos[1]            == TxoSM.kau[1]
+                                     and saldmoun.tblos[2]            == TxoSM.tbl[2]
+                                     and saldmoun.kauos[2]            == TxoSM.kau[2]
+                                     and saldmoun.tblos[3]            == TxoSM.tbl[3]
+                                     and saldmoun.kauos[3]            == TxoSM.kau[3]
+                                     and saldmoun.tblos[4]            == TxoSM.tbl[4]
+                                     and saldmoun.kauos[4]            == TxoSM.kau[4]
+                                     and saldmoun.tblos[5]            == TxoSM.tbl[5]
+                                     and saldmoun.kauos[5]            == TxoSM.kau[5]
+                                     and saldmoun.tblos[6]            == TxoSM.tbl[6]
+                                     and saldmoun.kauos[6]            == TxoSM.kau[6])) <> tsOk
+  {
+    ClearBuffer(#TxoSM);
+    TxoSM.schet   :=saldmoun.scheto;
+    TxoSM.subsch  :=saldmoun.subossch;
+    TxoSM.tbl     :=saldmoun.tblos;
+    TxoSM.kau     :=saldmoun.kauos;
+    TxoSM.cpodr   :=saldmoun.kodspo;
+    TxoSM.sum     :=if(saldmoun.viob=1,saldmoun.sums,-saldmoun.sums);
+    insert current TxoSM;
+  }
+   else update current TxoSM set TxoSM.sum:=TxoSM.sum+if(saldmoun.viob=1,saldmoun.sums,-saldmoun.sums);
+ };
+ _loop oborot
+ {
+  if getfirst fastfirstrow TxoSM where ((oborot.scheto              == TxoSM.schet
+                                     and oborot.subossch            == TxoSM.subsch
+                                     and oborot.kodspo              == TxoSM.cpodr
+                                     and oborot.tblos[1]            == TxoSM.tbl[1]
+                                     and oborot.kauos[1]            == TxoSM.kau[1]
+                                     and oborot.tblos[2]            == TxoSM.tbl[2]
+                                     and oborot.kauos[2]            == TxoSM.kau[2]
+                                     and oborot.tblos[3]            == TxoSM.tbl[3]
+                                     and oborot.kauos[3]            == TxoSM.kau[3]
+                                     and oborot.tblos[4]            == TxoSM.tbl[4]
+                                     and oborot.kauos[4]            == TxoSM.kau[4]
+                                     and oborot.tblos[5]            == TxoSM.tbl[5]
+                                     and oborot.kauos[5]            == TxoSM.kau[5]
+                                     and oborot.tblos[6]            == TxoSM.tbl[6]
+                                     and oborot.kauos[6]            == TxoSM.kau[6])) <> tsOk
+  {
+    ClearBuffer(#TxoSM);
+    TxoSM.schet   :=oborot.scheto;
+    TxoSM.subsch  :=oborot.subossch;
+    TxoSM.tbl     :=oborot.tblos;
+    TxoSM.kau     :=oborot.kauos;
+    TxoSM.cpodr   :=oborot.kodspo;
+    TxoSM.sum     :=oborot.sumob;
+    insert current TxoSM;
+  }
+   else update current TxoSM set TxoSM.sum:=TxoSM.sum+oborot.sumob;
+ };
+ Push_Bounds_k;
+ _loop oborot
+ {
+  if getfirst fastfirstrow TxoSM where ((oborot.schetk              == TxoSM.schet
+                                     and oborot.subschk             == TxoSM.subsch
+                                     and oborot.kodspk              == TxoSM.cpodr
+                                     and oborot.tblks[1]            == TxoSM.tbl[1]
+                                     and oborot.kauks[1]            == TxoSM.kau[1]
+                                     and oborot.tblks[2]            == TxoSM.tbl[2]
+                                     and oborot.kauks[2]            == TxoSM.kau[2]
+                                     and oborot.tblks[3]            == TxoSM.tbl[3]
+                                     and oborot.kauks[3]            == TxoSM.kau[3]
+                                     and oborot.tblks[4]            == TxoSM.tbl[4]
+                                     and oborot.kauks[4]            == TxoSM.kau[4]
+                                     and oborot.tblks[5]            == TxoSM.tbl[5]
+                                     and oborot.kauks[5]            == TxoSM.kau[5]
+                                     and oborot.tblks[6]            == TxoSM.tbl[6]
+                                     and oborot.kauks[6]            == TxoSM.kau[6])) <> tsOk
+  {
+    ClearBuffer(#TxoSM);
+    TxoSM.schet   :=oborot.schetk;
+    TxoSM.subsch  :=oborot.subschk;
+    TxoSM.tbl     :=oborot.tblks;
+    TxoSM.kau     :=oborot.kauks;
+    TxoSM.cpodr   :=oborot.kodspk;
+    TxoSM.sum     :=-oborot.sumob;
+    insert current TxoSM;
+  }
+   else update current TxoSM set TxoSM.sum:=TxoSM.sum-oborot.sumob;
+ };
+ _loop TxoSM
+ {
+  if abs(TxoSM.sum) < dogettune('FIN.COMPARE.SUMNDE')
+   delete current TxoSM;
+ };
+}
+function GetNewKau(oldVal : comp; kod : word) : comp;
+{
+ var temp:comp;
+ case kod of
+  1, 14, 72, 20012, 20034, 20055, 20067, 20068, 20081, 50001
+   :{
+     if iChgPar.isPresentKauReff(kod)
+      temp:=iChgPar.GetKauReffNewValues(kod)
+      else temp:= oldVal;
+     result:= temp;
+    };
+  68
+   :{
+     if iChgPar.isPresentKauReff(1)
+     {
+      temp:=iChgPar.GetKauReffNewValues(1)
+      if temp<>0
+      {
+       if getfirst fastfirstrow KATORGDESCR where ((temp == KATORGDESCR.CREC)) = tsOk
+        temp:=KATORGDESCR.cgroup
+        else temp:=0;
+      };
+     } else temp:=oldVal;
+     result:= temp;
+    };
+  56
+   :{
+     if iChgPar.isPresentParameterInOperation(cgOsChg_Isp)
+      temp:= tbSpKatOs.cisp
+      else temp:= oldVal;
+     result:= temp;
+    };
+  else result:= oldVal;
+ end;
+}
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   sParam := TxoParamValue(hTxo,1);
+   // установить ограничения на логическую таблицу
+   //message(buf.TiDkGal); 15
+   //message(TxoParamname(hTxo,1)+chr(13)+TxoParamValue(hTxo,1)+chr(13)+TxoParamcount(hTxo));
+   //message(string(buf.cSoprDoc,0,0));
+   var error_m: string;
+   var i: word;
+   var temp:comp;
+   plans := substr(sParam,1,1);
+   if instr('.',sParam)>0
+    {
+     schet := substr(sParam,2,pos('.',sParam)-2);
+     subs  := substr(sParam,pos('.',sParam)+1,length(sParam)-pos('.',sParam));
+    } else
+       {
+        schet := substr(sParam,2,length(sParam)-1)
+        subs  := '';
+       };
+   //message(plans+chr(13)+schet+chr(13)+subs+chr(13)+sParam);
+   if getfirst fastfirstrow planssch where ((plans == planssch.kod))<> tsOk
+     error_m:='Нет плана счетов '+plans;
+   if error_m ='' and getfirst fastfirstrow buhschet where ((plans+schet  == buhschet.schet
+                                                         and subs         == buhschet.subsch))<> tsOk
+     error_m:='Указан несуществующий счет '+plans+schet+'.'+subs;
+   if error_m =''
+     for (i:=1; i<=6; i := i+1)
+      {
+       if buhschet.KODTABLE[i]=word(15)
+        {
+          error_m:='Ok';
+          kau_os:=i;
+        };
+      };
+   if error_m = ''
+    error_m:='На счете '+plans+schet+'.'+subs+' нет аналитики ОС';
+   if error_m ='Ok'
+   {
+    if getfirst fastfirstrow spmovedoc where ((buf.cSoprDoc == spmovedoc.nrec)) = tsOk
+    if getfirst fastfirstrow moveos where ((spmovedoc.cmoveos == moveos.nrec)) = tsOk
+    {
+     dBeg:=date(1,month(moveos.DatOb),year(moveos.DatOb));
+     dEnd:=dgettune('DAT_M_OT');
+     if dBeg > dEnd
+      dBeg := dEnd;
+     dEnd:=date(Last_Day(moveos.DatOb),month(moveos.DatOb),year(moveos.DatOb));
+     TxoHeadClear(hTxo);
+     LoadVipInterface(iChgPar);
+     if getfirst fastfirstrow nastros where ((word(15)           == nastros.tidk
+                                          and buhschet.CPLANSSCH == nastros.CPLANSSCH (noindex))) = tsOk
+     if getfirst fastfirstrow spmove where ((moveos.nrec       == spmove.cmoveos
+                                         and nastros.nrec      == spmove.cnastros)) = tsOk
+     _loop spmoveos where ((spmove.nrec == spmoveos.cspmove))
+     {
+      os_nrec:=spmoveos.CKATOS;
+      initTable;
+
+      ClearAdvRecord(tbKatOs);
+      ClearAdvRecord(tbSpKatOs);
+      iChgPar.SetMoveOsRec(SpMoveOs.cMoveOs);
+      iChgPar.SetNastrOsRec(SpMoveOs.cNastrOs);
+      iChgPar.SetKatOsRec(SpMoveOs.cKatOs);
+      iChgPar.PutKatOsNewValues(tbKatOs);
+      iChgPar.PutSpKatOsNewValues(tbSpKatOs);
+
+      _loop txoSM
+      {
+       TxoBodyClear(hTxo);
+       for (i:=1; i<=6; i := i+1)
+       {
+        if TxoSM.tbl[i]<>0
+         TxoBodyAddKau (hTxo, 166, TxoSM.tbl[i], TxoSM.kau[i]);
+        if buhschet.KODTABLE[i]<>0
+        {
+         temp:=GetNewKau(if(TxoSM.tbl[i]<>0, TxoSM.kau[i],0), if(buhschet.KODTABLE[i]= 72 and plans='N',50001,buhschet.KODTABLE[i]));
+         if temp<>0
+          TxoBodyAddKau (hTxo, 167, buhschet.KODTABLE[i], temp);
+        };
+       };
+
+       TxoBodyAddKau (hTxo, 166, 2, TxoSM.cpodr);
+
+       if MOVEOS.SYSOPER = 2 // внутреннее перемещение
+       {
+         TxoBodyAddKau (hTxo, 167, 2, MoveOs.CNEWPODR);
+       }
+       else
+       { // подразделение может меняться и в операции изменения параметров и других
+         if iChgPar.isPresentParameter(cgOsChg_Podr)
+         {
+           TxoBodyAddKau (hTxo, 167, 2, tbKatOs.cPodr);
+         }
+         else
+         {
+           TxoBodyAddKau (hTxo, 167, 2, TxoSM.cpodr);
+         }
+       }
+
+       TxoBodyAddKau (hTxo, 167, 15, if(spmoveos.CKATOSNEW=0,spmoveos.CKATOS,spmoveos.CKATOSNEW));
+       if spmoveos.CKATOSNEW=0
+        TxoBodySetSum(hTxo, TxoSM.SUM,0, 0)
+        else
+        {
+         if getfirst fastfirstrow katos where ((spmoveos.CKATOS == katos.nrec)) = tsOk
+          TxoBodySetSum(hTxo, TxoSM.SUM*spmoveos.kol/(spmoveos.kol+katos.kol),0, 0)
+        };
+       TxoBodyInsert(hTxo);
+      };
+      delete all from TxoSM;
+     }
+    }
+   } else message(error_m);
+}
+end.

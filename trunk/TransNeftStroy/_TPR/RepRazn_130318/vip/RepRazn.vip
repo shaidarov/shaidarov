@@ -1,0 +1,1299 @@
+/*
+Доработки:
+ - Доработана возможность корректно сравнить данные в случае отсутствия архива по ОС (например, при старте ведения учета в системе)
+ - Реализована сверка ПР по примечанию проводок
+ - Расхождения выделены цветом и шрифтом
+ - Доработана обработка "списания временных разниц" для случая когда у ОС 82 признак использования в НУ.
+   Это выражается в отрицательной сумме в колонке для начисления НВР или ВВР,
+   а также в проводках Д 99.04 - К 09 и Д 77 - К 99.04
+
+Перспективы доработки:
+ - Выкидывает расхождения в случае выбытия ОС.
+*/
+
+#include getkau.vih
+#include PickBuh.vih
+
+Interface RepRazn 'Сверка разниц ОС';
+show at (0,0,55,14);
+
+table Struct mt_osrazn
+(
+  _NrecOS   : comp,
+  _InnumOS  : string,
+  _NameOS   : string,
+  _DesGr    : string,
+  _DatV     : date,
+
+  _NVVROper : double,
+  _NVVRBU   : double,
+
+  _VVVROper : double,
+  _VVVRBU   : double,
+
+  _NNVROper : double,
+  _NNVRBU   : double,
+
+  _VNVROper : double,
+  _VNVRBU   : double,
+
+  _PRAOper   : double,
+  _PRABU     : double,
+
+  _PROOper   : double,
+  _PROBU     : double
+)
+with index
+(
+    mt_osrazn00 = _NrecOS
+  , mt_osrazn01 = _InnumOS
+  , mt_osrazn02 = _NVVROper + _NVVRBU + _VVVROper + _VVVRBU + _NNVROper + _NNVRBU + _VNVROper + _VNVRBU + _PROOper + _PROBU + _PRAOper + _PRABU
+);
+
+var
+   ThousandSeparator : char;
+   DecimalSeparator  : char;
+   PrecNum           : word;
+   NumberFormat      : string;
+   DiffOnly          : boolean;
+   WithPR            : boolean;
+   ExcludeVyb        : boolean;
+   AlertColor        : longint;
+create view
+var
+   nReport
+                : word;
+   iGetKau
+                : GetKau;
+as select
+     if (UserDeskRep.ResWord[1] = 0, 'Все ЦО',
+     if (UserDeskRep.ResWord[1] > 1, 'Множественный выбор (' + UserDeskRep.ResWord[1] + ')',
+     if (UserDeskRep.ResWord[1] = 1 and UserDeskRep.ResComp[1]=0, 'Не определенные ЦО', fpco.Name)))
+           (FieldName = sfpco),
+     UserDeskRep.Resdate[1]  (FieldName = dFrom),
+     UserDeskRep.Resdate[2]  (FieldName = dTo),
+     UserDeskRep.Resdate[3]  (FieldName = dFromB),
+     UserDeskRep.Resdate[4]  (FieldName = dToB),
+     UserDeskRep.ResWord[2]  (FieldName = Options),
+     UserDeskRep.ResWord[3]  (FieldName = precision)
+from
+     mt_osrazn
+   , PickRep
+   , UserDeskRep
+   , fpco
+   , PickBuh
+where ((
+           UserName                              == UserDeskRep.OwnName
+      and  nReport                               == UserDeskRep.nRep
+      and  UserDeskRep.ResComp[1]                == fpco.nrec
+))
+order by mt_osrazn._InnumOS;
+procedure DelPickRep(wKau : Word);
+{
+  Delete PickRep where ((UserName         == PickRep.OwnName      and
+                         UserDeskRep.NRec == PickRep.cUserDeskRep and
+                         wKau             == PickRep.wList));
+}
+procedure DelPickBuh(wKau : Word);
+{
+  Delete PickBuh where ((wKau == PickBuh.KodTable ));
+}
+procedure PickBuh2PickRep(wKau : Word);
+{
+  _loop PickBuh where ((wKau == PickBuh.KodTable ))
+  {
+    ClearBuffer(#PickRep);
+    PickRep.OwnName      := UserName;
+    PickRep.wList        := wKau;
+    PickRep.cRec         := PickBuh.PickRec;
+    PickRep.cUserDeskRep := UserDeskRep.NRec;
+    PickRep.PICKKOL      := PickBuh.PICKKOL;
+    PickRep.PICKNUM      := PickBuh.Pick;
+    Insert Current PickRep;
+  };
+}
+procedure PickRep2PickBuh(wKau : Word);
+{
+  _loop PickRep where ((UserName         == PickRep.OwnName      and
+                        UserDeskRep.NRec == PickRep.cUserDeskRep and
+                        wKau             == PickRep.wList))
+  {
+    ClearBuffer(#PickBuh);
+    PickBuh.KodTable := PickRep.wList;
+    PickBuh.PickRec  := PickRep.cRec;
+    PickBuh.Pick     := PickRep.PICKNUM;
+    PickBuh.PickKol  := PickRep.PICKKOL;
+    Insert Current PickBuh;
+  };
+}
+////////////////////////////////////////////////
+procedure SetFiltersInDsql(hstr : longint);
+var n:word;
+{
+// ЦО
+    if( UserDeskRep.ResWord[1] > 1 )
+     {
+      sqlAddStr(hstr, ' and k.cco in (');
+      n:=0;
+      _loop PickRep where (( UserName          == PickRep.OwnName
+                         and UserDeskRep.nRec  == PickRep.cUserDeskRep
+                         and cgKau_FpCO        == PickRep.wList
+                         ))
+      {
+       n ++;
+       if n=1 sqlAddStr(hstr, ' #comp('+PickRep.cRec+')')
+       else sqlAddStr(hstr, ', #comp('+PickRep.cRec+')');
+      };
+      sqlAddStr(hstr, ')');
+     }
+     else
+      if( UserDeskRep.ResWord[1] = 1 )
+       sqlAddStr(hstr, ' and k.cco = #comp('+UserDeskRep.ResComp[1]+')');
+}
+////////////////////////////////////
+procedure InitData;
+var stmt, hstr: longint;
+    sql_result,err: integer;
+    date_otch, date_arh: date;
+
+    NrecOS   : comp;
+    InnumOS  : string;
+    NameOS   : string;
+    DesGr    : string;
+    DatV     : date;
+
+    NVVROper : double;
+    NVVRBU   : double;
+    VVVROper: double;
+    VVVRBU: double;
+    NNVROper: double;
+    NNVRBU: double;
+    VNVROper: double;
+    VNVRBU: double;
+    PRAOper  : double;
+    PRABU    : double;
+    PROOper  : double;
+    PROBU    : double;
+{
+  date_otch:=date(Last_Day(dFrom),Month(dFrom),Year(dFrom));
+  StartNewVisual (vtRotateVisual, vfTimer, 'Обработка картотеки...', 0);
+  SetVisualTitle ('Подготовка данных');
+
+  while date_otch<=dTo do
+  {
+    date_arh:=date(Last_Day(Sub_Months(date_otch,1)),Month(Sub_Months(date_otch,1)),Year(Sub_Months(date_otch,1)));
+    SetVisualHeader ('Обработка картотеки '+string(date_otch));
+    nextvisual;
+
+    stmt := sqlAllocStmt;
+    hstr := 0;
+    sqlBindParam(stmt, 1, date_arh);
+    sqlBindParam(stmt, 2, date_arh);
+    sqlBindParam(stmt, 3, date_otch);
+
+    sqlAddStr(hstr, '    select k.nrec,                                                                                              ');
+    sqlAddStr(hstr, '           k.innum,                                                                                             ');
+    sqlAddStr(hstr, '           k.nameos,                                                                                            ');
+    sqlAddStr(hstr, '           k.DesGr,                                                                                             ');
+    sqlAddStr(hstr, '           k.DatV,                                                                                              ');
+    sqlAddStr(hstr, '           sum(sp.vvrnachm) * GetKol.kol * 0.2,                                                                 ');
+    sqlAddStr(hstr, '           sum(sp.vvrpogm)  * GetKol.kol * 0.2,                                                                 ');
+    sqlAddStr(hstr, '           sum(sp.nvrnachm) * GetKol.kol * 0.2,                                                                 ');
+    sqlAddStr(hstr, '           sum(sp.nvrpogm)  * GetKol.kol * 0.2,                                                                 ');
+    sqlAddStr(hstr, '           sum(case                                                                                             ');
+    sqlAddStr(hstr, '                when sp.prm > 0 then sp.PRM                                                                        ');
+    sqlAddStr(hstr, '                else 0                                                                                             ');
+    sqlAddStr(hstr, '              end * GetKol.kol * 0.2),                                                                             ');
+    sqlAddStr(hstr, '           sum(case                                                                                             ');
+    sqlAddStr(hstr, '                when sp.prm < 0 then sp.PRM * (-1)                                                                 ');
+    sqlAddStr(hstr, '                else 0                                                                                             ');
+    sqlAddStr(hstr, '              end * GetKol.kol * 0.2)                                                                              ');
+    sqlAddStr(hstr, '    from KatOS k,                                                                                               ');
+    sqlAddStr(hstr, '         OsRazn sp,                                                                                             ');
+    sqlAddStr(hstr, '         (                                                                                                      ');
+    sqlAddStr(hstr, '           select   a.Kol as Kol,                                                                               ');
+    sqlAddStr(hstr, '                    Kat.Nrec as Nrec                                                                            ');
+    sqlAddStr(hstr, '             from                                                                                               ');
+    sqlAddStr(hstr, '               KatOS Kat                                                                                        ');
+    sqlAddStr(hstr, '               join nastros n on  (    n.tidk = 15                                                              ');
+    sqlAddStr(hstr, '                                   and n.name = ''БУХГАЛТЕРСКИЙ УЧЕТ'')                                         ');
+    sqlAddStr(hstr, '               join arciznos a on (     Kat.nrec                               = a.ckatos                       ');
+    sqlAddStr(hstr, '                                        and n.nrec                             = a.cnastros                     ');
+    sqlAddStr(hstr, '                                        and ?                                  = a.data)                        ');
+    sqlAddStr(hstr, '             where                                                                                              ');
+    sqlAddStr(hstr, '               Kat.TiDk = 15                                                                                    ');
+    sqlAddStr(hstr, '           union                                                                                                ');
+    sqlAddStr(hstr, '           select   Kat.Kol as Kol,                                                                             ');
+    sqlAddStr(hstr, '                    Kat.Nrec as Nrec                                                                            ');
+    sqlAddStr(hstr, '             from                                                                                               ');
+    sqlAddStr(hstr, '               KatOS Kat                                                                                        ');
+    sqlAddStr(hstr, '             where not exists (                                                                                 ');
+    sqlAddStr(hstr, '                               select a.Nrec                                                                    ');
+    sqlAddStr(hstr, '                               from                                                                             ');
+    sqlAddStr(hstr, '                                 KatOS Kat1                                                                     ');
+    sqlAddStr(hstr, '                                 join nastros n on  (    n.tidk = 15                                            ');
+    sqlAddStr(hstr, '                                                     and n.name = ''БУХГАЛТЕРСКИЙ УЧЕТ'')                       ');
+    sqlAddStr(hstr, '                                 join arciznos a on (     Kat1.nrec                          = a.ckatos         ');
+    sqlAddStr(hstr, '                                                      and n.nrec                             = a.cnastros       ');
+    sqlAddStr(hstr, '                                                      and ?                                  = a.data)          ');
+    sqlAddStr(hstr, '                                 where                                                                          ');
+    sqlAddStr(hstr, '                                   Kat1.Nrec = Kat.Nrec                                                         ');
+    sqlAddStr(hstr, '                             )                                                                                  ');
+    sqlAddStr(hstr, '             and Kat.TiDk = 15                                                                                  ');
+    sqlAddStr(hstr, '         ) GetKol                                                                                               ');
+    sqlAddStr(hstr, '    where                                                                                                       ');
+    sqlAddStr(hstr, '          15                   = k.tidk                                                                         ');
+    SetFiltersInDsql(hstr);
+    sqlAddStr(hstr, '      and k.TiDk               = sp.TiDk                                                                        ');
+    sqlAddStr(hstr, '      and k.nrec               = sp.cdoc                                                                        ');
+    sqlAddStr(hstr, '      and ?                    = sp.data                                                                        ');
+    sqlAddStr(hstr, '      and k.Nrec               = GetKol.Nrec                                                                    ');
+    sqlAddStr(hstr, '    group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV, GetKol.kol                                                              ');
+
+    sqlBindCol(stmt,  1, NrecOS);
+    sqlBindCol(stmt,  2, InnumOS);
+    sqlBindCol(stmt,  3, NameOS);
+    sqlBindCol(stmt,  4, DesGr);
+    sqlBindCol(stmt,  5, DatV);
+
+    sqlBindCol(stmt,  6, NVVROper);
+    sqlBindCol(stmt,  7, VVVROper);
+    sqlBindCol(stmt,  8, NNVROper);
+    sqlBindCol(stmt,  9, VNVROper);
+    sqlBindCol(stmt, 10, PROOper);
+    sqlBindCol(stmt, 11, PRAOper);
+
+    err :=  sqlExecStmt(stmt, hstr);
+    nextvisual;
+    if (err<> tsOk)
+     message('Ошибка в запросе ' + err );
+    while sqlFetch(stmt)=tsOk do
+    {
+     nextvisual;
+     if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+      {
+        clearbuffer(#mt_osrazn);
+        mt_osrazn._NrecOS  := NrecOS;
+        mt_osrazn._InnumOS := InnumOS;
+        mt_osrazn._NameOS  := NameOS;
+        mt_osrazn._DesGr   := DesGr;
+        mt_osrazn._DatV    := DatV;
+        insert current mt_osrazn;
+      };
+
+     update current mt_osrazn
+       set
+         mt_osrazn._NVVROper := mt_osrazn._NVVROper + NVVROper,
+         mt_osrazn._VVVROper := mt_osrazn._VVVROper + VVVROper,
+         mt_osrazn._NNVROper := mt_osrazn._NNVROper + NNVROper,
+         mt_osrazn._VNVROper := mt_osrazn._VNVROper + VNVROper,
+         mt_osrazn._PROOper  := mt_osrazn._PROOper + PROOper,
+         mt_osrazn._PRAOper  := mt_osrazn._PRAOper + PRAOper
+       ;
+    };
+
+    sqlFreeStr(hStr);
+    sqlFreeStmt(stmt);
+    date_otch:=date(Last_Day(Add_Months(date_otch,1)),Month(Add_Months(date_otch,1)),Year(Add_Months(date_otch,1)));
+  };
+////////////////////////////////////////
+  SetVisualHeader ('Обработка проводок Д09');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.scheto = ''T09''          ');
+  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+  sqlAddStr(hstr, '  and o.KAUOS[2] = k.nrec         ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+  sqlBindCol(stmt, 6, NVVRBU);
+//  sqlBindCol(stmt, 4, VVVRBU);
+//  sqlBindCol(stmt, 4, NNVRBU);
+//  sqlBindCol(stmt, 4, VNVRBU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+    if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+    {
+      clearbuffer(#mt_osrazn);
+      mt_osrazn._NrecOS  := NrecOS;
+      mt_osrazn._InnumOS := InnumOS;
+      mt_osrazn._NameOS  := NameOS;
+      mt_osrazn._DesGr   := DesGr;
+      mt_osrazn._DatV    := DatV;
+      insert current mt_osrazn;
+    };
+
+    update current mt_osrazn
+    set
+      mt_osrazn._NVVRBU := mt_osrazn._NVVRBU + NVVRBU
+
+    nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+
+  ///////////////////////////////////
+  SetVisualHeader ('Обработка проводок K09 (кроме Д99)');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.schetk = ''T09''          ');
+  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+  sqlAddStr(hstr, '  and o.schetO <> ''T99''         '); // изменена обработка "списания ВР"
+  sqlAddStr(hstr, '  and o.KAUKS[2] = k.nrec         ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+//  sqlBindCol(stmt, 4, NVVRBU);
+  sqlBindCol(stmt, 6, VVVRBU);
+//  sqlBindCol(stmt, 4, NNVRBU);
+//  sqlBindCol(stmt, 4, VNVRBU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+    if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+    {
+      clearbuffer(#mt_osrazn);
+      mt_osrazn._NrecOS  := NrecOS;
+      mt_osrazn._InnumOS := InnumOS;
+      mt_osrazn._NameOS  := NameOS;
+      mt_osrazn._DesGr   := DesGr;
+      mt_osrazn._DatV    := DatV;
+      insert current mt_osrazn;
+    };
+
+    update current mt_osrazn
+    set
+      mt_osrazn._VVVRBU := mt_osrazn._VVVRBU + VVVRBU;
+
+    nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+  ///////////////////////////////////
+
+
+  ///////////////////////////////////
+  SetVisualHeader ('Обработка проводок Д99 - K09');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.schetk = ''T09''          ');
+//  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+  sqlAddStr(hstr, '  and o.schetO = ''T99''          '); // изменена обработка "списания ВР"
+  sqlAddStr(hstr, '  and o.KAUKS[2] = k.nrec         ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+  sqlBindCol(stmt, 6, NVVRBU);
+//  sqlBindCol(stmt, 4, VVVRBU);
+//  sqlBindCol(stmt, 4, NNVRBU);
+//  sqlBindCol(stmt, 4, VNVRBU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+    if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+    {
+      clearbuffer(#mt_osrazn);
+      mt_osrazn._NrecOS  := NrecOS;
+      mt_osrazn._InnumOS := InnumOS;
+      mt_osrazn._NameOS  := NameOS;
+      mt_osrazn._DesGr   := DesGr;
+      mt_osrazn._DatV    := DatV;
+      insert current mt_osrazn;
+    };
+
+    update current mt_osrazn
+    set
+      mt_osrazn._NVVRBU := mt_osrazn._NVVRBU - NVVRBU; // изменена обработка "списания ВР"
+
+    nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+  ///////////////////////////////////
+
+
+
+
+  SetVisualHeader ('Обработка проводок K77');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.schetk = ''T77''          ');
+  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+  sqlAddStr(hstr, '  and o.KAUKS[2] = k.nrec         ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+//  sqlBindCol(stmt, 4, NVVRBU);
+//  sqlBindCol(stmt, 4, VVVRBU);
+  sqlBindCol(stmt, 6, NNVRBU);
+//  sqlBindCol(stmt, 4, VNVRBU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+    if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+    {
+      clearbuffer(#mt_osrazn);
+      mt_osrazn._NrecOS  := NrecOS;
+      mt_osrazn._InnumOS := InnumOS;
+      mt_osrazn._NameOS  := NameOS;
+      mt_osrazn._DesGr   := DesGr;
+      mt_osrazn._DatV    := DatV;
+      insert current mt_osrazn;
+    };
+
+    update current mt_osrazn
+    set
+      mt_osrazn._NNVRBU := mt_osrazn._NNVRBU + NNVRBU;
+
+    nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+
+
+
+  ///////////////////////////////////
+  SetVisualHeader ('Обработка проводок Д77 (кроме 99.04)');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.scheto = ''T77''          ');
+  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+  sqlAddStr(hstr, '  and o.schetK <> ''T99''         ');  // изменена обработка "списания ВР"
+  sqlAddStr(hstr, '  and o.KAUOS[2] = k.nrec         ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+//  sqlBindCol(stmt, 4, NVVRBU);
+//  sqlBindCol(stmt, 4, VVVRBU);
+//  sqlBindCol(stmt, 4, NNVRBU);
+  sqlBindCol(stmt, 6, VNVRBU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+   if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+   {
+      clearbuffer(#mt_osrazn);
+      mt_osrazn._NrecOS  := NrecOS;
+      mt_osrazn._InnumOS := InnumOS;
+      mt_osrazn._NameOS  := NameOS;
+      mt_osrazn._DesGr   := DesGr;
+      mt_osrazn._DatV    := DatV;
+      insert current mt_osrazn;
+   };
+
+   update current mt_osrazn
+   set
+     mt_osrazn._VNVRBU := mt_osrazn._VNVRBU + VNVRBU;
+
+   nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+
+
+
+
+  ///////////////////////////////////
+  SetVisualHeader ('Обработка проводок Д77 - К99');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.scheto = ''T77''          ');
+//  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+  sqlAddStr(hstr, '  and o.schetK = ''T99''          ');  // изменена обработка "списания ВР"
+  sqlAddStr(hstr, '  and o.KAUOS[2] = k.nrec         ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+//  sqlBindCol(stmt, 4, NVVRBU);
+//  sqlBindCol(stmt, 4, VVVRBU);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+  sqlBindCol(stmt, 6, NNVRBU);
+//  sqlBindCol(stmt, 4, VNVRBU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+   if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+   {
+      clearbuffer(#mt_osrazn);
+      mt_osrazn._NrecOS  := NrecOS;
+      mt_osrazn._InnumOS := InnumOS;
+      mt_osrazn._NameOS  := NameOS;
+      mt_osrazn._DesGr   := DesGr;
+      mt_osrazn._DatV    := DatV;
+      insert current mt_osrazn;
+   };
+
+   update current mt_osrazn
+   set
+     mt_osrazn._NNVRBU := mt_osrazn._NNVRBU - NNVRBU;
+
+   nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+
+
+
+
+  ///////////////////////////////////
+  SetVisualHeader ('Обработка проводок Д99.04');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.SchetO   = ''T99''        ');
+  sqlAddStr(hstr, '  and o.SubOsSch = ''04''         ');
+  sqlAddStr(hstr, '  and o.SchetK   = ''T68''        '); // чтобы исключить проводки 99 - 09 и 77 - 99
+  sqlAddStr(hstr, '  and o.SubSchK  = ''01''         '); // чтобы исключить проводки 99 - 09 и 77 - 99
+//  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+//  sqlAddStr(hstr, '  and o.SubOsSch <> o.SubSchK      ');
+  sqlAddStr(hstr, '  and SubString(o.SodPr, 1, InStr('','', o.SodPr, 1) - 1) = k.Innum ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+  sqlBindCol(stmt, 6, PROBU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+     if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+     {
+        clearbuffer(#mt_osrazn);
+        mt_osrazn._NrecOS  := NrecOS;
+        mt_osrazn._InnumOS := InnumOS;
+        mt_osrazn._NameOS  := NameOS;
+        mt_osrazn._DesGr   := DesGr;
+        mt_osrazn._DatV    := DatV;
+        insert current mt_osrazn;
+     };
+
+     update current mt_osrazn
+        set mt_osrazn._PROBU := mt_osrazn._PROBU + PROBU;
+
+     nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+
+  ///////////////////////////////////
+  SetVisualHeader ('Обработка проводок К99.04');
+  nextvisual;
+  stmt := sqlAllocStmt;
+  hstr := 0;
+  sqlBindParam(stmt, 1, dFromB);
+  sqlBindParam(stmt, 2, dToB);
+
+  sqlAddStr(hstr, 'select k.nrec,                    ');
+  sqlAddStr(hstr, '       k.innum,                   ');
+  sqlAddStr(hstr, '       k.nameos,                  ');
+  sqlAddStr(hstr, '       k.DesGr,                   ');
+  sqlAddStr(hstr, '       k.DatV,                    ');
+  sqlAddStr(hstr, '       sum(o.sumob)               ');
+  sqlAddStr(hstr, 'from katos k, oborot o            ');
+  sqlAddStr(hstr, 'where k.tidk = 15                 ');
+  SetFiltersInDsql(hstr);
+  sqlAddStr(hstr, '  and o.schetK   = ''T99''        ');
+  sqlAddStr(hstr, '  and o.SubSchK  = ''04''         ');
+  sqlAddStr(hstr, '  and o.schetO   = ''T68''        '); // чтобы исключить проводки 99 - 09 и 77 - 99
+  sqlAddStr(hstr, '  and o.SubOsSch = ''01''         '); // чтобы исключить проводки 99 - 09 и 77 - 99
+//  sqlAddStr(hstr, '  and o.scheto <> o.schetk        ');
+//  sqlAddStr(hstr, '  and o.SubOsSch <> o.SubSchK      ');
+  sqlAddStr(hstr, '  and SubString(o.SodPr, 1, InStr('','', o.SodPr, 1) - 1) = k.Innum ');
+  sqlAddStr(hstr, '  and o.datob >= ?                ');
+  sqlAddStr(hstr, '  and o.datob <= ?                ');
+  sqlAddStr(hstr, 'group by k.nrec, k.innum, k.nameos, k.DesGr, k.DatV');
+
+  sqlBindCol(stmt, 1, NrecOS);
+  sqlBindCol(stmt, 2, InnumOS);
+  sqlBindCol(stmt, 3, NameOS);
+  sqlBindCol(stmt, 4, DesGr);
+  sqlBindCol(stmt, 5, DatV);
+  sqlBindCol(stmt, 6, PRABU);
+
+  err :=  sqlExecStmt(stmt, hstr);
+  if (err<> tsOk)
+   message('Ошибка в запросе ' + err );
+  while sqlFetch(stmt)=tsOk do
+  {
+     if getfirst fastfirstrow mt_osrazn where ((NrecOS == mt_osrazn._NrecOS)) <> tsOk
+     {
+        clearbuffer(#mt_osrazn);
+        mt_osrazn._NrecOS  := NrecOS;
+        mt_osrazn._InnumOS := InnumOS;
+        mt_osrazn._NameOS  := NameOS;
+        mt_osrazn._DesGr   := DesGr;
+        mt_osrazn._DatV    := DatV;
+        insert current mt_osrazn;
+     };
+
+     update current mt_osrazn
+        set mt_osrazn._PRABU := mt_osrazn._PRABU + PRABU;
+
+     nextvisual;
+  };
+  sqlFreeStr(hStr);
+  sqlFreeStmt(stmt);
+
+///////////////////////////////////
+  SetVisualHeader ('Подготовка данных');
+  nextvisual;
+
+  if WithPR
+  {
+    delete mt_osrazn where ((
+                               0==_NVVROper and 0==_NVVRBU
+                           and 0==_VVVROper and 0==_VVVRBU
+                           and 0==_NNVROper and 0==_NNVRBU
+                           and 0==_VNVROper and 0==_VNVRBU
+                           and 0==_PROOper  and 0==_PROBU
+                           and 0==_PRAOper  and 0==_PRABU
+                         ));
+
+    if DiffOnly
+       _loop mt_osrazn
+       {
+         if  round(_NVVROper, PrecNum) = round(_NVVRBU, PrecNum)
+         and round(_VVVROper, PrecNum) = round(_VVVRBU, PrecNum)
+         and round(_NNVROper, PrecNum) = round(_NNVRBU, PrecNum)
+         and round(_VNVROper, PrecNum) = round(_VNVRBU, PrecNum)
+         and round(_PROOper,  PrecNum) = round(_PROBU, PrecNum)
+         and round(_PRAOper,  PrecNum) = round(_PRABU, PrecNum)
+           delete current mt_osrazn;
+         nextvisual;
+       };
+
+  }
+  else
+  {
+    delete mt_osrazn where ((
+                               0==_NVVROper and 0==_NVVRBU
+                           and 0==_VVVROper and 0==_VVVRBU
+                           and 0==_NNVROper and 0==_NNVRBU
+                           and 0==_VNVROper and 0==_VNVRBU
+                         ));
+
+    if DiffOnly
+       _loop mt_osrazn
+       {
+         if  round(_NVVROper, PrecNum) = round(_NVVRBU, PrecNum)
+         and round(_VVVROper, PrecNum) = round(_VVVRBU, PrecNum)
+         and round(_NNVROper, PrecNum) = round(_NNVRBU, PrecNum)
+         and round(_VNVROper, PrecNum) = round(_VNVRBU, PrecNum)
+           delete current mt_osrazn;
+         nextvisual;
+       };
+  }
+
+  StopVisual ('', 0);
+};
+
+procedure PrintReport;
+var
+   CurIndex
+ , numCol
+ , i              : word;
+
+   itogo1, itogo2
+ , itogo3, itogo4
+ , itogo5, itogo6
+ , itogo7, itogo8
+ , itogo9, itogo10
+ , itogo11, itogo12
+                  : double;
+{
+  numCol := 16;
+
+  xlCreateExcel('report.xls',true);
+
+  ThousandSeparator := xlGetThousandSeparator;
+  DecimalSeparator  := xlGetDecimalSeparator;
+
+  xlCreateMatrix(RecordsInTable(tnmt_osrazn)+9, numCol);
+
+  xlSetColumnWidth(16,1,1,1,1);
+  xlSetColumnWidth(50,1,2,1,2);
+  xlSetColumnWidth(15,1,3,1, numCol);
+  xlSetColumnWidth(7, 1, numCol-1 , 1, numCol-1);
+
+  CurIndex:=1;
+
+  // xlAlignCellsEx(3, 2, CurIndex, 1, CurIndex, numCol);
+  xlSTWriteToMatrix(CurIndex,1,_DateTimeToStr (_CurDateTime, '[DD/MM/YY HH:NN:SS] ')+sgettune('USER.OWNNAME'));
+  CurIndex ++;
+
+  xlMergeCells(CurIndex, 1, CurIndex, numCol);
+  xlSetFontStyle(1, CurIndex, 1, CurIndex + 5, numCol);
+
+  xlAlignCellsEx(3, 2, CurIndex, 1, CurIndex + 5, numCol);
+  xlSetFontSize(12, CurIndex, 1, CurIndex + 3, 1);
+  xlSTWriteToMatrix(CurIndex,1,'Сверка разниц ОС с проводками');
+  CurIndex += 2;
+
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex, numCol);
+  xlSTWriteToMatrix(CurIndex, 1, 'Картотека за период с '+dateToStr(dFrom,'DD/MM/YYYY')+' по '+dateToStr(dTo,'DD/MM/YYYY'));
+  CurIndex ++;
+
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex, numCol);
+  xlSTWriteToMatrix(CurIndex, 1, 'Проводки за период с '+dateToStr(dFromB,'DD/MM/YYYY')+' по '+dateToStr(dToB,'DD/MM/YYYY'));
+  CurIndex += 2;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'Инвентарный номер');
+  xlSTWriteToMatrix(CurIndex,2,'Наименование объекта');
+  xlSTWriteToMatrix(CurIndex,3,'Начислено ОНА по данным картотеки');
+  xlSTWriteToMatrix(CurIndex,4,'Начислено ОНА по данным бухгалтерского учета');
+  xlSTWriteToMatrix(CurIndex,5,'Погашено ОНА по данным картотеки');
+  xlSTWriteToMatrix(CurIndex,6,'Погашено ОНА по данным бухгалтерского учета');
+  xlSTWriteToMatrix(CurIndex,7,'Начислено ОНО по данным картотеки');
+  xlSTWriteToMatrix(CurIndex,8,'Начислено ОНО по данным бухгалтерского учета');
+  xlSTWriteToMatrix(CurIndex,9,'Погашено ОНО по данным картотеки');
+  xlSTWriteToMatrix(CurIndex,10,'Погашено ОНО по данным бухгалтерского учета');
+  xlSTWriteToMatrix(CurIndex,11,'Начислено ПНО по данным картотеки');
+  xlSTWriteToMatrix(CurIndex,12,'Начислено ПНО по данным бухгалтерского учета');
+  xlSTWriteToMatrix(CurIndex,13,'Погашено ПНА по данным картотеки');
+  xlSTWriteToMatrix(CurIndex,14,'Погашено ПНА по данным бухгалтерского учета');
+
+  xlSTWriteToMatrix(CurIndex,15, 'ГрДескр');
+  xlSTWriteToMatrix(CurIndex,16, 'Дата выбытия');
+  CurIndex++;
+
+  xlAlignCellsEx(3, 2, CurIndex, 1, CurIndex, numCol);
+   for(i := 0; i <= numCol; i++)
+    xlSTWriteToMatrix(CurIndex, i, string(i));
+
+  CurIndex++;
+  itogo1  := 0;
+  itogo2  := 0;
+  itogo3  := 0;
+  itogo4  := 0;
+  itogo5  := 0;
+  itogo6  := 0;
+  itogo7  := 0;
+  itogo8  := 0;
+
+  itogo9  := 0;
+  itogo10 := 0;
+  itogo11 := 0;
+  itogo12 := 0;
+
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Формирование отчета', 0);
+  _loop mt_osrazn
+  {
+    if not NextVisual
+      break;
+    // xlAlignCellsEx(xlGeneral, 2, CurIndex, 1, CurIndex, 1);
+    xlSTWriteToMatrix(CurIndex, 1, ''''+mt_osrazn._InnumOS);
+    xlSTWriteToMatrix(CurIndex, 2, mt_osrazn._NameOS);
+    xlDoWriteToMatrix(CurIndex, 3, round(mt_osrazn._NVVROper, PrecNum));
+    xlDoWriteToMatrix(CurIndex, 4, round(mt_osrazn._NVVRBU,   PrecNum));
+    xlDoWriteToMatrix(CurIndex, 5, round(mt_osrazn._VVVROper, PrecNum));
+    xlDoWriteToMatrix(CurIndex, 6, round(mt_osrazn._VVVRBU,   PrecNum));
+    xlDoWriteToMatrix(CurIndex, 7, round(mt_osrazn._NNVROper, PrecNum));
+    xlDoWriteToMatrix(CurIndex, 8, round(mt_osrazn._NNVRBU,   PrecNum));
+    xlDoWriteToMatrix(CurIndex, 9, round(mt_osrazn._VNVROper, PrecNum));
+    xlDoWriteToMatrix(CurIndex, 10, round(mt_osrazn._VNVRBU,  PrecNum));
+    xlDoWriteToMatrix(CurIndex, 11, round(mt_osrazn._PROOper, PrecNum));
+    xlDoWriteToMatrix(CurIndex, 12, round(mt_osrazn._PROBU,   PrecNum));
+    xlDoWriteToMatrix(CurIndex, 13, round(mt_osrazn._PRAOper, PrecNum));
+    xlDoWriteToMatrix(CurIndex, 14, round(mt_osrazn._PRABU,   PrecNum));
+
+    xlStWriteToMatrix(CurIndex, 15, mt_osrazn._DesGr);
+    xlDtWriteToMatrix(CurIndex, 16, mt_osrazn._DatV);
+
+    if round(mt_osrazn._NVVROper, PrecNum) <> round(mt_osrazn._NVVRBU,   PrecNum)
+    {
+      xlSetFontColor(AlertColor, CurIndex, 3, CurIndex, 4);
+      xlSetFontStyle(xlBold, CurIndex, 3, CurIndex, 4);
+    }
+    if round(mt_osrazn._VVVROper, PrecNum) <> round(mt_osrazn._VVVRBU,   PrecNum)
+    {
+      xlSetFontColor(AlertColor, CurIndex, 5, CurIndex, 6);
+      xlSetFontStyle(xlBold, CurIndex, 5, CurIndex, 6);
+    }
+    if round(mt_osrazn._NNVROper, PrecNum) <> round(mt_osrazn._NNVRBU,   PrecNum)
+    {
+      xlSetFontColor(AlertColor, CurIndex, 7, CurIndex, 8);
+      xlSetFontStyle(xlBold, CurIndex, 7, CurIndex, 8);
+    }
+    if round(mt_osrazn._VNVROper, PrecNum) <> round(mt_osrazn._VNVRBU,  PrecNum)
+    {
+      xlSetFontColor(AlertColor, CurIndex, 9, CurIndex, 10);
+      xlSetFontStyle(xlBold, CurIndex, 9, CurIndex, 10);
+    }
+    if round(mt_osrazn._PROOper, PrecNum) <> round(mt_osrazn._PROBU,   PrecNum)
+    {
+      xlSetFontColor(AlertColor, CurIndex, 11, CurIndex, 12);
+      xlSetFontStyle(xlBold, CurIndex, 11, CurIndex, 12);
+    }
+    if round(mt_osrazn._PRAOper, PrecNum) <> round(mt_osrazn._PRABU,   PrecNum)
+    {
+      xlSetFontColor(AlertColor, CurIndex, 13, CurIndex, 14);
+      xlSetFontStyle(xlBold, CurIndex, 13, CurIndex, 14);
+    }
+
+    itogo1 += _NVVROper;
+    itogo2 += _NVVRBU;
+    itogo3 += _VVVROper;
+    itogo4 += _VVVRBU;
+    itogo5 += _NNVROper;
+    itogo6 += _NNVRBU;
+    itogo7 += _VNVROper;
+    itogo8 += _VNVRBU;
+
+    itogo9  += _PROOper;
+    itogo10 += _PROBU;
+    itogo11 += _PRAOper;
+    itogo12 += _PRABU;
+
+    CurIndex++;
+  }
+
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlMergeCells(CurIndex,1,CurIndex,2);
+  xlSTWriteToMatrix(CurIndex,1,'ИТОГО:');
+
+  xlDoWriteToMatrix(CurIndex, 3, itogo1);
+  xlDoWriteToMatrix(CurIndex, 4, itogo2);
+  xlDoWriteToMatrix(CurIndex, 5, itogo3);
+  xlDoWriteToMatrix(CurIndex, 6, itogo4);
+  xlDoWriteToMatrix(CurIndex, 7, itogo5);
+  xlDoWriteToMatrix(CurIndex, 8, itogo6);
+  xlDoWriteToMatrix(CurIndex, 9, itogo7);
+  xlDoWriteToMatrix(CurIndex, 10, itogo8);
+  xlDoWriteToMatrix(CurIndex, 11, itogo9);
+  xlDoWriteToMatrix(CurIndex, 12, itogo10);
+  xlDoWriteToMatrix(CurIndex, 13, itogo11);
+  xlDoWriteToMatrix(CurIndex, 14, itogo12);
+
+  xlWrapText(7,1,7,numCol);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32, 3,0,0,7,1,8,numCol);
+  xlFrameCells(1 or 2 or 4 or 8, 3,0,0,7,1,CurIndex,numCol);
+  xlFrameCells(16 or 32, 1,0,0,7,1,CurIndex,numCol);
+
+  if PrecNum < 2
+    PrecNum := 2;
+
+  NumberFormat := '#' + ThousandSeparator + '##0' + DecimalSeparator + PadCh('', '0', PrecNum);
+  xlSetNumberFormat(NumberFormat, 9, 3, CurIndex, numCol - 2);
+
+  xlSetNumberFormat('@', 9, numCol - 1, CurIndex, numCol - 1);
+  xlAlignCellsEx(3, 2, 9, numCol - 1, CurIndex, numCol - 1);
+
+  xlSetNumberFormat('ДД.ММ.ГГГГ', 9, numCol, CurIndex, numCol);
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  StopVisual('',0);
+
+}
+procedure Run;
+{
+//  MtClear(#TabVeksl, mfNormal);
+//  FillTable;
+  PrecNum    := UserDeskRep.ResWord[3];
+  DiffOnly   := (Options and 1) = 1;
+  WithPR     := (Options and 2) = 2;
+  ExcludeVyb := (Options and 4) = 4;
+  AlertColor := comp('FF0000h');
+
+  InitData;
+  PrintReport;
+//  CloseInterface (cmDone);
+}
+screen inData;
+  show at (,,,);
+  noTableNavigation;
+  fields
+    dFrom ('Дата c',,) : [,'DD/MM/YYYY'], NoProtect;
+    dTo ('Дата по',,) : [,'DD/MM/YYYY'], NoProtect;
+    dFromB ('Дата c',,) : [,'DD/MM/YYYY'], NoProtect;
+    dToB ('Дата по',,) : [,'DD/MM/YYYY'], NoProtect;
+    sfpco ('Фильтр по ЦО',,sci13Esc  ): Protect, PickButton;
+    Options : NoProtect;
+    precision : NoProtect;
+  buttons
+    cmRun, default;
+    cmDone;
+<<
+    Ограничения по картотеке:
+    c  .@@@@@@@@@@   по .@@@@@@@@@@
+    Ограничения по проводкам:
+    c  .@@@@@@@@@@   по .@@@@@@@@@@
+    Фильтр по центрам ответственности:
+    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    [.] Выводить в отчет только расхождения`
+    [.] Анализировать также постоянные разницы`
+
+  Количество знаков для округления при сравнении .@@@
+
+  <.Выполнить.>           <. Выйти .>
+
+>>
+//     [.] Исключать проводки по операции выбытия ОС`
+
+end;
+HandleEvent
+cmInsertRecord:
+  Insert Current UserDeskRep;
+
+cmUpdateRecord:
+{  UserDeskRep.OwnName := UserName;
+   update current UserDeskRep;
+}
+
+cmDeleteRecord:
+    Delete Current UserDeskRep;
+cmInit:
+{
+  nReport      := 21022;
+  if (GetFirst UserDeskRep <> tsOK)
+    {
+      ClearBuffer(#UserDeskRep);
+       UserDeskRep.OwnName := UserName;
+       UserDeskRep.nRep    := nReport;
+      insert current UserDeskRep;
+    }
+  set UserDeskRep.ResWord[3]:=3;
+  if (UserDeskRep.Resdate[1]=0)
+     set UserDeskRep.Resdate[1]:=dgettune('OS.OTCHPERIOD');
+  if (UserDeskRep.Resdate[2]=0)
+     set UserDeskRep.Resdate[2]:=date(Last_Day(UserDeskRep.Resdate[1]),Month(UserDeskRep.Resdate[1]),Year(UserDeskRep.Resdate[1]));
+  if (UserDeskRep.Resdate[3]=0)
+     set UserDeskRep.Resdate[3]:=UserDeskRep.Resdate[1];
+  if (UserDeskRep.Resdate[4]=0)
+     set UserDeskRep.Resdate[4]:=UserDeskRep.Resdate[2];
+  RescanPanel(#UserDeskRep);
+  if( dFrom > dTo )
+  {
+    SetFontBackgroundColor(0, #dFrom, 18);
+    SetFontBackgroundColor(0, #dTo, 18);
+  };
+  if( dFromB > dToB )
+  {
+    SetFontBackgroundColor(0, #dFromB, 18);
+    SetFontBackgroundColor(0, #dToB, 18);
+  };
+}
+cmPick:
+{
+  var vComp: comp;
+  var vWord: word;
+  case CurField of
+   #sfpco:
+    {
+      DelPickBuh(cgKau_FpCO);
+      PickRep2PickBuh(cgKau_FpCO);
+      vComp:=UserDeskRep.ResComp[1];
+      vWord := iGetKau.GetCodeKau(cgiPickMult or if (UserDeskRep.ResWord[1]>1, cgiNotClear, 0), cgKau_FpCO, vComp);
+      if vWord <> 0
+      {
+       set UserDeskRep.ResWord[1]:=vWord;
+       set UserDeskRep.ResComp[1]:=vComp;
+       DelPickRep(cgKau_FpCO);
+       PickBuh2PickRep(cgKau_FpCO);
+      };
+    }
+  end; // case
+  RescanPanel(#UserDeskRep);
+}
+cmDelOnProtect:
+{
+  case CurField of
+    #sfpco:
+      {
+       DelPickRep(cgKau_FpCO);
+       DelPickBuh(cgKau_FpCO);
+       Set UserDeskRep.ResComp[1] := 0;
+       Set UserDeskRep.ResWord[1] := 0;
+      }
+  end; // case
+  RescanPanel(#UserDeskRep);
+}
+cmCheckField :
+{
+  case CurField Of
+     #precision:
+     {
+      if precision<0 or precision>8
+       SetFontBackgroundColor(0, #precision, 18)
+       else SetFontBackgroundColor(0, #precision, 0);
+     }
+     #dFrom:
+    {
+       if( dFrom > dTo )
+         SetFontBackgroundColor(0, #dFrom, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dFrom, 0);
+         SetFontBackgroundColor(0, #dTo, 0);
+       }
+    }
+     #dTo:
+    {
+       if( dFrom > dTo )
+         SetFontBackgroundColor(0, #dTo, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dFrom, 0);
+         SetFontBackgroundColor(0, #dTo, 0);
+       }
+    }
+     #dFromB:
+    {
+       if( dFromB > dToB )
+         SetFontBackgroundColor(0, #dFromB, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dFromB, 0);
+         SetFontBackgroundColor(0, #dToB, 0);
+       }
+    }
+     #dToB:
+    {
+       if( dFromB > dToB )
+         SetFontBackgroundColor(0, #dToB, 18);
+       else
+       {
+         SetFontBackgroundColor(0, #dFromB, 0);
+         SetFontBackgroundColor(0, #dToB, 0);
+       }
+    }
+  end;
+}
+cmRun:
+{
+ if precision>=0 and precision<=8
+  if (dFrom <= dTo) and (dFromB <= dToB)
+  {
+   Run;
+   CloseInterface (cmDone);
+  } else message('Проверьте введенные интервалы дат')
+  else message('Количество знаков для округления должно быть от 0 до 8');
+ }
+cmDone:
+{
+ CloseInterface (cmDone);
+}
+end;
+end.
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_RepRazn Implements IUserReport Licensed(Free);
+
+Interface UserReport_RepRazn  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('RepRazn');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'Сверка начисления разниц с проводками';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Сверка OC';
+//    2 : GetGroupName := 'A';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := 'B_OSN';
+  end;
+end;
+
+end. // interface

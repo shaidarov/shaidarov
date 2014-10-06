@@ -1,0 +1,214 @@
+Interface Update_sumvidop_new 'Дополнительная аналитика в архиве оплат -10' (,,), DoAccept;
+create view
+var
+  vNrec_OtpDop: comp;
+  iNrec_Sumvidop: comp;
+  iNrec_Brigade: comp;
+as
+ select * from
+  Sumvidop,
+  OtpDop
+ where
+           ((
+        iNrec_Sumvidop == Sumvidop.NRec and
+    Sumvidop.OLDCLSCH  == OtpDop.Nrec   // Если есть "Дополнительная аналитика"
+           ))
+           ;
+
+Parameters iNrec_Sumvidop,iNrec_Brigade;
+
+Procedure Insert_OtpDop;
+  {
+    ClearBuffer(#OtpDop);
+    OtpDop.ATL_ORIGINOFFICE  := 318;
+    Insert current OtpDop;
+    vNrec_OtpDop:= OtpDop.NREC;     // Nrec OtpDop
+   } // Конец Procedure Insert_OtpDop
+
+Procedure Update_Sumvidop_new2;
+ {
+//---------------UpDate current OtpDop----------------------
+     IF GetFirst OtpDop
+         where
+            ((vNrec_OtpDop == OtpDop.Nrec)) =tsok
+            {
+        OtpDop.ATL_ORIGINOFFICE  := 318;
+        OtpDop.cKaud[1]          := iNrec_Brigade;
+        OtpDop.Tbld[1]           := 2;
+            UpDate current OtpDop;
+LogStrToFile('d:\Galaktika\2.txt', OtpDop.nRec);
+            }
+//---------------UpDate current Perexod----------------------
+
+     IF GetFirst Sumvidop
+         where
+            ((iNrec_Sumvidop == Sumvidop.NREC)) =tsok
+            {
+                  Sumvidop.OLDCLSCH := vNrec_OtpDop;
+                  UpDate current Sumvidop;
+LogStrToFile('d:\Galaktika\3.txt', Sumvidop.nRec);
+            }
+
+ } // Конец Procedure
+
+HandleEvent
+   cmInit:
+    {
+     StartNewVisual(vtNumericVisual, vfTimer, 'Корректировка допаналитики',1);
+     Insert_OtpDop();
+     Update_Sumvidop_new2();
+     StopVisual('',0);
+    }  // cmOk
+  end; // HandleEvent
+end.   // Interface
+
+.Form 'NDFL_UPDATE_OP_new'
+.ard
+.group 'Корректировка допаналитики 2011'
+.NameInList 'Корректировка архива оплат'
+.F 'Update.Out'
+.DEFO PortRait
+.var
+  Chek_Podr      :integer;
+  Data_Otch      : date;
+  wYear          : word;
+  wMonth         : word;
+  DN              : date;
+  DK              : date;
+  Nrec_Persons    : comp;
+  Nrec_Lschet     : comp;
+  Nrec_Podr       : comp;     // Наименование Должности
+  Nrec_Sumvidop   : comp;
+  Nrec_OtpDop     : comp;
+
+!=====================================================================================
+  Tabn_        :LongInt; // Параметр для Interface Update_Korrekt
+  Nrec_Perexod :comp;    // Параметр для Interface Update_Korrekt
+  DatIzm_ : date;
+  DatOk_  : date;
+  FIO_ : string;
+  Name_Katpodr:string;
+  N : Integer;
+  Vidopl_: integer;
+  Mesn_:integer;
+!=====================================================================================
+.endvar
+
+.Create view v_Sumvidop
+as select
+  sumvidop.nRec, sumvidop.clsch, sumvidop.tperson, sumvidop.brigade
+ from
+   sumvidop
+ , synonym katpodr brigade
+ , Persons
+       where ((
+           sumvidop.brigade == brigade.nrec
+       and sumvidop.tPerson == Persons.nRec
+!       and sumvidop.oldclsch==otpdop.nrec
+!       and '100500'==sumvidop.tabn (noindex)
+       ))
+       and sumvidop.yearn=2011
+  //   and sumvidop.vidopl <> 35
+  //   and sumvidop.vidopl <> 36
+  //   and sumvidop.vidopl = 11
+  //   and sumvidop.oldclsch=0000000000000000h
+       and
+(
+    sumvidop.brigade = 000100000001BE78h  // {Name_Katpodr:= 'с.Веденка';}
+ or sumvidop.brigade = 000100000001C5B6h  // {Name_Katpodr:= 'ст.Губерово';}
+ or sumvidop.brigade = 000100000001D2E9h  // {Name_Katpodr:= 'Ноябрьск';}
+ or sumvidop.brigade = 013E000000029CF1h  // {Name_Katpodr:= 'с.Лесопильное';}
+ or sumvidop.brigade = 013E00000002595Dh  // {Name_Katpodr:= 'п.Ласточка';}
+ or sumvidop.brigade = 013E000000036BA8h  // {Name_Katpodr:= 'г.Дальнереченск';}
+ or sumvidop.brigade = 013E0000000460E4h  // {Name_Katpodr:= 'д.Раменье';}
+ or sumvidop.brigade = 013E00000004611Ch  // {Name_Katpodr:= 'Каргасокский р-он';}
+ or sumvidop.brigade = 013E000000029CF1h  // {Name_Katpodr:= 'Бикинский р-н';}
+ or sumvidop.brigade = 013E0000000463D2h  // {Name_Katpodr:= 'ОАО "ЦСНП"';}
+ or sumvidop.brigade = 013E0000000463D1h  // {Name_Katpodr:= 'ОАО "СМН"';}
+
+)    // and otpdop.ckaud[1]<>sumvidop.brigade
+
+and
+
+  (sumvidop.clsch=013E000000001220h
+or sumvidop.clsch=0001000000000AE1h
+or sumvidop.clsch=013E000000001559h
+or sumvidop.clsch=0001000000000A27h
+or sumvidop.clsch=0001000000000A3Ch
+  )
+order by tabn,mesn;
+
+.Begin
+!   Data_Otch := dGetTune('up.Datotch');   // Дата отчетного периода в ЗАРПЛАТЕ
+   wYear    := 2011;
+   wMonth   := 1;
+   DN := date(01,01,2011);
+   DK := Date(31,12,2011);
+   N := 0;
+
+LogStrToFile('d:\Galaktika\5.txt', 'begin');
+end.
+.fields
+   DN
+   DK
+.endfields
+
+                              СПИСОК  СОТРУДНИКОВ
+                 у которых скорректирована допаналитика в архиве оплат
+                        с @@@@@@@@@@ г. по @@@@@@@@@@ г.
+┌─────┬───────┬────────────────────────────────────┬─────────────────┬──────────┬──────────┐
+│ №   │ Таб.  │    Фамилия Имя Отчество            │  Подразделение  │   Месяц  │   Код    │
+│п/п  │  №    │                                    │                 │          │  выплаты │
+├─────┼───────┼────────────────────────────────────┼─────────────────┼──────────┼──────────┤
+.{table 'v_Sumvidop'
+.Begin
+LogStrToFile('d:\Galaktika\6.txt', 'v_Sumvidop');
+   N := N+1;
+! if N=2 {break;Exit;}
+   Tabn_         := 0;
+   Nrec_Perexod  := 0h;
+   Nrec_Podr     := 0h;
+   Name_Katpodr  := ' ';
+
+   Tabn_         := v_Sumvidop.Sumvidop.Tabn;    // Табельный номер
+   Nrec_Sumvidop := v_Sumvidop.Sumvidop.Nrec;
+   Nrec_Podr     := v_Sumvidop.Sumvidop.Brigade;
+   MesN_         := v_Sumvidop.Sumvidop.Mesn;
+   vidopl_ := v_Sumvidop.Sumvidop.Vidopl;
+   FIO_ := v_Sumvidop.Persons.FIO;
+
+   IF Nrec_Podr = 000100000001BE78h   {Name_Katpodr:= 'с.Веденка';}
+   IF Nrec_Podr = 000100000001C5B6h   {Name_Katpodr:= 'ст.Губерово';}
+   IF Nrec_Podr = 000100000001D2E9h   {Name_Katpodr:= 'Ноябрьск';}
+   IF Nrec_Podr = 013E000000029CF1h   {Name_Katpodr:= 'с.Лесопильное';}
+   IF Nrec_Podr = 013E00000002595Dh   {Name_Katpodr:= 'п.Ласточка';}
+   IF Nrec_Podr = 013E000000036BA8h   {Name_Katpodr:= 'г.Дальнереченск';}
+   IF Nrec_Podr = 013E0000000460E4h   {Name_Katpodr:= 'д.Раменье';}
+   IF Nrec_Podr = 013E00000004611Ch   {Name_Katpodr:= 'Каргасокский р-он';}
+   IF Nrec_Podr = 013E000000029CF1h   {Name_Katpodr:= 'Бикинский р-н';}
+   IF Nrec_Podr = 013E0000000463D2h   {Name_Katpodr:= 'ОАО "ЦСНП"';}
+   IF Nrec_Podr = 013E0000000463D1h   {Name_Katpodr:= 'ОАО "СМН"';}
+
+
+   if (RunInterface(Update_sumvidop_new,Nrec_Sumvidop,Nrec_Podr) = tsOK) {
+LogStrToFile('d:\Galaktika\1.txt', 'Update_sumvidop_new');
+     } else {
+LogStrToFile('d:\Galaktika\11.txt', 'Update_sumvidop_new');
+       }
+
+End.
+.fields
+  N
+  Tabn_
+  FIO_
+  Name_Katpodr
+  MesN_
+  vidopl_
+.endfields
+│&&&&&│&&&&&&&│@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@│@@@@@@@@@@@@@@@@@│@@@@@@@@@@│@@@@@@@@@@│
+.} // Конец {table 'v_Perexod'
+.Begin
+  message ('Корректировка ДОПОЛНИТЕЛЬНОЙ АНАЛИТИКИ - завершена');
+  Exit;
+End.
+.endform

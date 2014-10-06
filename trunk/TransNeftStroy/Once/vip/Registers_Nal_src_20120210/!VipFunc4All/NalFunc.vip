@@ -1,0 +1,595 @@
+#include NalFunc.vih
+#include GetKau.vih            // Обьектный интерфес выбора КАУ
+#include marker.vih  // макросы для пометки записей
+Interface NalFunc;
+
+var
+  OrgName, INN:string;
+  dFrom
+ ,dTo: date;
+
+ Filter_CO: tNRec;
+ mFilter_CO: word;
+ Filter_tidk: word;
+ Filter_OS: tNrec;
+ mFilter_OS: word;
+ NeedMees: boolean;
+ COCodeStSy   ,
+ PodrCodeStSy ,
+ SyQuant      : word;
+ FltBySPO     : word;
+ AdvFlt       : boolean;
+ TxtField     : string;
+
+ pMarker : IMarker(Marker) new ;
+#include GetKau.var     // Переменная типа "Интерфеса выбора КАУ"
+#include PickBuh.var
+
+const
+  MultiStr           = 'множественный выбор';
+  numCol=11;
+end;
+
+
+#declare MultiKauShow(mKau, wKau, cKau)
+  if (#mKau = 0, '',
+    if (#mKau = 1, if (GetAnyKAU(cgAkNoDef, #wKau, #cKau),
+      GivenAnName(1), ''),
+      MultiStr + ' (' + string(#mKau) + ')'))
+#end
+
+
+create view
+as select
+  #MultiKauShow(mFilter_CO, cgKau_FpCO, Filter_CO) (FieldName = DlgCO)
+  ,#MultiKauShow(mFilter_OS, Filter_tidk, Filter_OS) (FieldName = DlgOS)
+  ,if(Filter_tidk = cgKau_OS, 'Основные средства',
+     if(Filter_tidk = cgKau_NMA, 'Нематериальные активы','')) (FieldName = DlgKatOSName)
+from
+  PodrFilter
+  ,KatOS
+  ,SpKatOS
+  ,KatOrg
+  ,PickBuh
+  ,FPCO
+  ,KatPodr
+  ,Refin
+where
+((
+  Filter_tidk == KatOS.Tidk
+  and KatOS.Nrec==SpKatOS.cKatOS
+))
+bounds ByKatOSCO = Filter_CO == KatOS.cCO(NoIndex)
+order by katos.datek
+//where
+//((
+
+//))
+;
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+procedure GetOrgInfo(var OrgName: string; var INN: string);
+{
+  OrgName:='';
+  INN:='';
+
+  if (GetFirst  KatOrg where ((coGetTune('MYORG')==KatOrg.Nrec)) = tsOk)
+  {
+    OrgName:=KatOrg.Name;
+    INN:=KatOrg.Unn;
+  }
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function MyShowKau(wKau: word; cKau: tNRec): string;
+{
+  Result := if(GetAnyKAU(cgAkNoDef, wKau, cKau), GivenAnName(1),'');
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function MyShowKauCode(wKau: word; cKau: tNRec): string;
+{
+  Result := if(GetAnyKAU(cgAkNoDef, wKau, cKau), GivenAnName(cgAnCode),'');
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function GetBackColor(FieldNum: integer): integer;
+{
+  Result := 0;
+  case FieldNum of
+    #dFrom  : Result := if (longint(dFrom ) = 0, ColorNeed, 0);
+    #dTo    : Result := if (longint(dTo) = 0, ColorNeed, 0);
+  end; // case
+}
+procedure InitMyMarker(mode : boolean = true);
+{
+//  message('dd');
+  pMarker.StoreName := 'MNALOSAUTO';
+  pMarker.Caption  := (' Отмечено [%d] ');
+  pMarker.AutoSave := True;
+  pMarker.LoadAuto := false;
+
+  pMarker.UnselectAll;
+
+  pMarker.Disable := false;// (not mode);
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+window wTuneKatOS doAccept,cyan;
+show at (1,1,90,24);
+ browse brKatOS ;
+ table KATOS;
+ RecMarker = pMarker {KatOs.nRec};
+     fields
+       KATOS.INNUM 'инв №' ('инв №') : [15], Protect;
+       KATOS.NAMEOS 'наименование' ('наименование') : [35], Protect;
+       KATOS.DATEK 'дата ввода' ('дата ввода') : [10], Protect;
+       SPKATOS.STOIM 'стоимость' ('стоимость') : [20, '[|-]366`666`666`666`666.88'], Protect;
+  end;
+
+  HandleEvent
+    cmInit:
+      DisableCommand(cmValue1);
+    cmDefault:
+       Filter_OS := KatOS.Nrec;
+    cmHotkeys:
+      PutHotCommand(RunMenu('katos_HotKeys'));
+    cmFilterSave:
+    {
+      if iGetKau.GetCodeKau(cgiPick, cgKau_FpCO, Filter_CO) <> 0
+      {
+        set Filter_CO := Filter_CO;
+        if (not BoundActive(tbByKatOSCO))
+        {
+          AddBounds(tbByKatOSCO);
+          EnableCommand(cmValue1);
+        }
+      }
+      ReReadRecord;
+    }
+    cmValue1:
+    {
+      if (BoundActive(tbByKatOSCO))
+      {
+        SubBounds(tbByKatOSCO);
+        DisableCommand(cmValue1);
+      }
+      ReReadRecord;
+    }
+  end;
+/*screen scTune ('',,sci13EnEsc)
+fields
+  DlgKatOSName: Skip;
+  DlgOS : Protect, PickButton;
+buttons
+  cmOk,Default,,'Обработка данных',hcAllBOk,sci1Esc;
+  cmCancel,,,'Отмена',hcAllBCancel,sci1Esc;
+<<
+ .@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+          <.Сформировать.> <.   Отмена   .>
+>>
+end;
+HandleEvent
+cmInit:
+{
+  dFrom := date(1, 01, year(cur_date));
+  dTo := cur_date;
+}
+cmOk:
+  PutCommand(cmDefault);
+cmPick:
+{
+  case CurField of
+    #DlgCO:
+    {
+      mFilter_CO := iGetKau.GetCodeKau(cgiPickMult or if (mFilter_CO>0, cgiNotClear, 0), cgKau_FpCO, Filter_CO);
+    }
+    #DlgOS:
+    {
+   //   mFilter_OS := iGetKau.GetCodeKau(cgiPickMult or if (mFilter_OS>0, cgiNotClear, 0), Filter_tidk, Filter_OS);
+      mFilter_OS := iGetKau.GetCodeKau(cgiPick, Filter_tidk, Filter_OS);
+
+    }
+  end;
+  RereadRecord;
+}
+end;          */
+
+end; //window
+procedure ClearPodrFilter;
+{
+  delete all PodrFilter;
+}
+
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+window wTune doAccept ;
+show at(,,65,11);
+!-------------------------------------------------------------------------------
+screen scTune ('',,sci13EnEsc)
+  table FpCO; // чтобы словить табличные события
+fields
+  dFrom : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; Color = if (dFrom > dTo, ColorError, 0); BackColor = GetBackColor(#dFrom)}};
+  dTo : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; BackColor = GetBackColor(#dTo)}};
+  DlgCO : Protect, PickButton;
+  FltBySPO     : noprotect;
+  TxtField     : skip;
+  COCodeStSy   : noprotect;
+  PodrCodeStSy : noprotect;
+  SyQuant      : noprotect;
+buttons
+  cmOk,Default,,'Обработка данных',hcAllBOk,sci1Esc;
+  cmCancel,,,'Отмена',hcAllBCancel,sci1Esc;
+
+<<
+`За период`        &с  .@@@@@@@@@@ `по`.@@@@@@@@@@
+`Центр ответственности`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ [.] фильтровать по проводкам`
+ `Правило соответствия кодов ЦО и Подразделений` .@@
+   `Первый символ кода ЦО`             .@@@@
+   `Первый символ кола подразделения`  .@@@@
+   `Количество символов для сравнения` .@@@@
+
+          <.Сформировать.> <.   Отмена   .>
+>>
+end;
+  procedure SetwTuneControls;
+  {
+    if AdvFlt and mFilter_CO > 0
+    {
+      SetFieldState (#FltBySPO,     sfVisible);
+      ShowLabel4Field (#FltBySPO);
+
+      if (FltBySPO and 1) = 1
+      {
+        // Базылев попросил не грузить пользователя подробностями,
+        // поэтому правило сопоставления подразделений не светим никогда
+        /*
+        SetFieldState (#COCodeStSy,   sfVisible);
+        SetFieldState (#PodrCodeStSy, sfVisible);
+        SetFieldState (#SyQuant,      sfVisible);
+        SetFieldState (#TxtField,     sfVisible);
+
+        ShowLabel4Field (#COCodeStSy);
+        ShowLabel4Field (#PodrCodeStSy);
+        ShowLabel4Field (#SyQuant);
+        ShowLabel4Field (#TxtField);
+        */
+        ClearFieldState (#COCodeStSy,   sfVisible);
+        ClearFieldState (#PodrCodeStSy, sfVisible);
+        ClearFieldState (#SyQuant,      sfVisible);
+        ClearFieldState (#TxtField,     sfVisible);
+
+        HideLabel4Field (#COCodeStSy);
+        HideLabel4Field (#PodrCodeStSy);
+        HideLabel4Field (#SyQuant);
+        HideLabel4Field (#TxtField);
+      }
+      else
+      {
+        ClearFieldState (#COCodeStSy,   sfVisible);
+        ClearFieldState (#PodrCodeStSy, sfVisible);
+        ClearFieldState (#SyQuant,      sfVisible);
+        ClearFieldState (#TxtField,     sfVisible);
+
+        HideLabel4Field (#COCodeStSy);
+        HideLabel4Field (#PodrCodeStSy);
+        HideLabel4Field (#SyQuant);
+        HideLabel4Field (#TxtField);
+      }
+    }
+    else
+    {
+        ClearFieldState (#FltBySPO,     sfVisible);
+        ClearFieldState (#COCodeStSy,   sfVisible);
+        ClearFieldState (#PodrCodeStSy, sfVisible);
+        ClearFieldState (#SyQuant,      sfVisible);
+        ClearFieldState (#TxtField,     sfVisible);
+
+        HideLabel4Field (#FltBySPO);
+        HideLabel4Field (#COCodeStSy);
+        HideLabel4Field (#PodrCodeStSy);
+        HideLabel4Field (#SyQuant);
+        HideLabel4Field (#TxtField);
+    }
+    RereadRecord;
+  }
+
+  TableEvent table FpCO
+    cmCheckField:
+    {
+      Case CurField of
+        #DlgCO:
+        {
+          SetwTuneControls;
+        }
+        #FltBySPO:
+        {
+          SetwTuneControls;
+        }
+      end;
+    }
+  end;
+
+HandleEvent
+cmInit:
+{
+  dFrom := date(1, 01, year(cur_date));
+    dTo   := date(Last_Day(cur_date), Month(cur_date), Year(cur_date));
+
+    var dateChanged : boolean;
+    if dict.GetMyOfficeNo != word(305)  //не СЗМН
+    {
+     if not ReadMyDsk ( FltBySPO, 'FltBySPO', dateChanged )
+       FltBySPO   := 0;
+     if not ReadMyDsk ( COCodeStSy, 'COCodeStSy', dateChanged )
+       COCodeStSy   := 2;
+     if not ReadMyDsk ( PodrCodeStSy, 'PodrCodeStSy', dateChanged )
+       PodrCodeStSy := 1;
+     if not ReadMyDsk ( SyQuant, 'SyQuant', dateChanged )
+       SyQuant      := 2;
+    } else
+     {
+      if not ReadMyDsk ( FltBySPO, 'FltBySPO', dateChanged )
+        FltBySPO   := 0;
+      if not ReadMyDsk ( COCodeStSy, 'COCodeStSy', dateChanged )
+        COCodeStSy   := 2;
+      if not ReadMyDsk ( PodrCodeStSy, 'PodrCodeStSy', dateChanged )
+        PodrCodeStSy := 2;
+      if not ReadMyDsk ( SyQuant, 'SyQuant', dateChanged )
+        SyQuant      := 2;
+     };
+    SetwTuneControls;
+  }
+
+  cmDone:
+  {
+    SaveMyDsk ( FltBySPO, 'FltBySPO' );
+    SaveMyDsk ( COCodeStSy, 'COCodeStSy' );
+    SaveMyDsk ( PodrCodeStSy, 'PodrCodeStSy' );
+    SaveMyDsk ( SyQuant, 'SyQuant');
+}
+
+cmOk:
+{
+    if (mFilter_CO = 0)
+    {
+      if NeedMees
+        Message('Не выбран центр ответственности. Отчет будет сформирован по предприятию в целом.');
+
+      PutCommand(cmDefault);
+    }
+  else
+    PutCommand(cmDefault);
+}
+cmPick:
+{
+  case CurField of
+    #DlgCO:
+    {
+      mFilter_CO := iGetKau.GetCodeKau(cgiPickMult or if (mFilter_CO>0, cgiNotClear, 0), cgKau_FpCO, Filter_CO);
+        SetwTuneControls;
+    }
+  end;
+  RereadRecord;
+}
+end;
+
+end; //window
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function CreatePodrFilter: boolean;
+var
+  KodSpo: string;
+{
+  delete all PodrFilter;
+  Result := false;
+  _loop PickBuh where ((cgKau_FpCO == PickBuh.KodTable ))
+  {
+    if GetFirst FPCO where ((PickBuh.PickRec == FPCO.NRec)) = tsOK
+/*      if ( SubStr(FPCO.LevelCode,1,1) <> 'Ф' )
+      {
+         message('Выбран не филиал');
+         delete all PodrFilter;
+         exit;
+      }  */
+    // KodSpo := SubStr(PickBuh.PickKod,5, 2);
+    KodSpo := SubStr(FPCO.LevelCode, COCodeStSy, SyQuant);
+    _loop KatPodr where (KodSpo = SubStr(KatPodr.Kod, PodrCodeStSy, SyQuant))
+     {
+       ClearBuffer(#PodrFilter);
+       PodrFilter.cPodr := KatPodr.NRec;
+       PodrFilter.sName := KatPodr.Name;
+       insert current PodrFilter;
+       //update PickBuh set PickBuh.PickKod := SubStr(PickBuh.PickKod,5,2);
+     }
+    }
+  Result := true;
+  }
+
+
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function CheckPodrFilter(_cPodr : tNrec): boolean;
+{
+  Result := false;
+  if getfirst PodrFilter where (( _cPodr == PodrFilter.cPodr )) = tsOk
+  {
+  Result := true;
+}
+}
+
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function RunTune(var dBeg: date; var dEnd: date): boolean;
+{
+  Result := false;
+  NeedMees := true;
+  AdvFlt := false;
+  if RunWindowModal(wTune)  <> cmCancel
+  {
+   if CreatePodrFilter
+    {
+      dBeg := dFrom;
+      dEnd := dTo;
+      Result := true;
+    }
+  }
+}
+
+!-------------------------------------------------------------------------------------------------------------
+function RunTuneV2(var dBeg: date; var dEnd: date): boolean;
+{
+  Result := false;
+
+  NeedMees := true;
+  AdvFlt := true;
+  if RunWindowModal(wTune)  <> cmCancel
+  {
+    if CreatePodrFilter
+    {
+      dBeg := dFrom;
+      dEnd := dTo;
+      Result := true;
+    }
+  }
+}
+
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function RunTuneNoMess(var dBeg: date; var dEnd: date): boolean;
+{
+  Result := false;
+  NeedMees := false;
+  if RunWindowModal(wTune)  <> cmCancel
+  {
+    if CreatePodrFilter
+    {
+      dBeg := dFrom;
+      dEnd := dTo;
+      Result := true;
+    }
+  }
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function RunTuneWKatOS(tidk: word): tNrec;
+var
+  pickrec: tnrec;
+  SaveMarker: longint;
+{
+  Result := 0;
+  Filter_tidk := tidk;
+  InitMyMarker;
+  if RunWindowModal(wTuneKatOS) <> cmCancel
+  {
+    Result := Filter_OS;
+
+    SaveMarker := InitMarker('NALOSMARKER', 8,100,10);
+    ClearMarker(SaveMarker);
+
+    //можно на pMarker.ExportTo заменить
+    ResetBounds(#pMarker);
+    _loop pMarker
+      InsertMarker(SaveMarker, pMarker.pnRec);
+    SetBounds(#pMarker);
+
+    if (GetMarkerCount(SaveMarker) = 0)
+      InsertMarker(SaveMarker, Filter_OS);
+
+    DoneMarker(SaveMarker, 'NALOSMARKER');
+
+  }
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+procedure WriteDate(Row, Column: word; d: date);
+{
+  if (d != date(0,0,0))
+    xlSTWriteToMatrix(Row, Column, ' '+DateToStr(d,'DD/MM/YYYY'));
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+procedure WriteNum(Row, Column: word; sum: double);
+{
+  xlSetNumberFormat('# ##0', Row, Column, Row, Column);
+  xlSTWriteToMatrix(Row, Column, sum);
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+procedure WriteSum(Row, Column: word; sum: double);
+{
+  xlSetNumberFormat('# ##0,00', Row, Column, Row, Column);
+  xlSTWriteToMatrix(Row, Column, sum);
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function GetSRefin(dRefin: date):double;
+{
+  Result := 0;
+  if (GetFirst Refin where ((dRefin >>= Refin.DATREC)) = tsOk)
+    Result := Refin.Proc;
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function GetDays(d1, d2: date): integer;
+{
+  Result := 0;
+  if( (d1 != date(0,0,0)) and (d2 != date(0,0,0)) )
+    Result := CalcDaysBetweenDates(d1, d2, FALSE);
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function CheckOborotCO(KodSpo: tNRec): boolean;
+{
+  if (mFilter_CO > 0)
+    Result := RecordExists PodrFilter where ((KodSpo == PodrFilter.cPodr)) = tsOk;
+  else
+    Result := true; // если не были выбраны ЦО, то фомрируем без фильтра (возвращаем "всегда в фильтре")
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function CheckCO(CO: tNRec): boolean;
+{
+  if (mFilter_CO > 0)
+    Result := iPickBuh.FoundInPickByRec(cgKau_FpCO, CO);
+  else
+    Result := true; // если не были выбраны ЦО, то формируем по всем ЦО.
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function CheckKatOs(cRec: tNRec): boolean;
+{
+  if (mFilter_OS > 0)
+    Result := iPickBuh.FoundInPickByRec(Filter_tidk, cRec);
+  else
+    Result := true;
+}
+end.
+
+katos_HotKeys Menu
+{
+- 'Установка ограничений по центру ответственности',cmFilterSave,'Установка ограничений по центру ответственности.',hcOsVFiltr,'Alt-B',kbAltB,sci1Esc;
+- 'Снятие ограничений по центру ответственности',cmValue1,'Снятие ограничений по центру ответственности.',hcOsVFiltr,'Alt-B',kbAltB,sci1Esc;
+}

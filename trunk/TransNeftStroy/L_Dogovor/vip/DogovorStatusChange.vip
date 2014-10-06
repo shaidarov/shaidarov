@@ -1,0 +1,281 @@
+#include DogovorStatusChange.vih
+#include Notes.vih
+#include StatLog.vih
+
+#define InterfaceName DogovorStatusChange
+
+Interface DogovorStatusChange 'Пакетное изменение статуса договоров' DoAccept;
+  show at (1,1,100,12);
+
+  #include StatLog.var
+  #include Notes.var
+
+  var
+    cNewNote      : comp;
+    sNewNote      : string;
+    wNewStatus    : word;
+    sComment      : string[80];
+    sTXTFileName  : string;
+    LogFilePath   : string;
+    LogSpliter    : string;
+
+  create view
+    as select *
+    from
+        Dogovor
+      , KatNotes
+      , KatNotes KatNotesScr
+    where
+    ((
+        cNewNote == KatNotesScr.NRec
+    ))
+  ;
+
+  File gfFile;
+
+  Function DogovorStatusChangeFromTXT (_NewStat : word; _cNewStat : comp; _Comment : string[80]; _sTXTFileName : string): boolean;
+    var sField : string;
+    var cDog   : comp;
+    var Res    : word;
+  {
+
+    if ExistFile (_sTXTFileName)
+    {
+      gfFile.OpenFile(_sTXTFileName, stOpenRead);
+
+      StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, 'Идет обработка данных', 40);
+      while (not gfFile.EOF)
+      do
+      {
+        gfFile.ReadLn(sField);
+        cDog := comp(sField);
+        if cDog <> 0
+        {
+          if getfirst Dogovor where ((  cDog == Dogovor.NRec )) = tsOk
+          {
+            /*
+              if (coGetTune('Oper.Dogovor.BeforeChangeStatus') <> 0)
+                wResult := RunInterface( 'SimpleWayToRunAlgorithm'
+                               , coGetTune('Oper.Dogovor.BeforeChangeStatus')
+                               , word(7)
+                               , Dogovor.nRec
+                               , comp(0));
+
+              if (wResult = cmNo) or (wResult = cmDefault)
+                {
+                  Message(''#3+'По результатам выполнения алгоритма'+''#13+
+                          ''#3+'изменение статуса запрещено',Information);
+                  abort;
+                  Exit;
+                }
+
+              if (wResult = cmCancel)
+                if Message(''#3+'В процессе выполнения алгоритма произошли ошибки!'+''#13+
+                           ''#3+'Продолжить?', YesNo + Confirmation) <> cmYes
+                  {
+                    abort;
+                    Exit;
+                  }
+            */
+
+            Res := oStatLog.StatLog_InsNewStat (    Dogovor.TiDk       // _DocType : word;        // тип документа
+                                                  , Dogovor.NRec       // _cDoc    : comp;        // nRec документа
+                                                  , Dogovor.Status     // _OldStat : word;        // старый статус
+                                                  , Dogovor.cNote      // _cOldStat : comp;       // nRec старого статуса
+                                                  , _NewStat           // _NewStat : word;        // новый статус
+                                                  , _cNewStat          // _cNewStat : comp;       // nRec нового статуса
+                                                  , _Comment           // _Comment : string[80]   // комментарий в историю
+                                               ); // : word ; // код ошибки
+
+            // !!! обработчик Res
+            set Dogovor.Status := _NewStat;
+            set Dogovor.cNote  := _cNewStat;
+            update current Dogovor;
+
+            /*
+             if (coGetTune('Oper.Dogovor.AfterChangeStatus') <> 0)
+               RunInterface( 'SimpleWayToRunAlgorithm'
+                           , coGetTune('Oper.Dogovor.AfterChangeStatus')
+                           , word(7)
+                           , Dogovor.nRec
+                           , comp(0));
+            */
+          } // if getfirst Dogovor where ((  cDog == Dogovor.NRec )) = tsOk
+        } // cDog <> 0
+
+        if Not NextVisual
+          break;
+      } // while (not gfFile.EOF)
+
+      gfFile.Close;
+      StopVisual('',0);
+    } // ExistFile (_sTXTFileName)
+  } // Function DogovorStatusChangeFromTXT
+
+  // --------------------------------------------------------------------------
+  //
+  // --------------------------------------------------------------------------
+  Panel pnParams;
+    Table KatNotesScr;
+
+    Screen scParams (,,sci13Esc);
+      show at (,,,);
+      fields
+        KatNotesScr.Name ('Статус для установки')                      : protect, pickbutton;
+        sComment      ('Комментарий к изменению статуса договоров') : noprotect;
+        sTXTFileName  ('Путь к файлу с перечнем Nrec')              : protect, pickbutton;
+      buttons
+        cmOk    , Default, , 'Наполнить временную таблицу', , sci1Esc;
+        cmCancel, , , 'Отмена', , sci1Esc;
+
+    << 'Пакетное закрытие договоров'
+    Данный интерфейс предназначен для пакетного закрытия договоров по NRec из txt файла.
+    Каждый NRec в файле должен начинаться с новой строки.
+    `Статус для установки`
+    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Комментарий к изменению статуса договоров`
+    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Путь к файлу с перечнем Nrec`
+    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     <. Выполнить изменение статуса договора .>    <.           Отмена            .>
+
+    >>
+    end; // screen
+
+    HandleEvent
+      cmOk    :
+      {
+        if sTXTFileName <> ''
+        {
+          LogFilePath := GetStringParameter('Files','OutputFilesDirectory',0) + '#InterfaceName' + '.log';
+          DeleteFile(LogFilePath);
+          DogovorStatusChangeFromTXT(wNewStatus, cNewNote, sComment, sTXTFileName);
+          Message('Операция изменения статуса завершена!');
+        }
+      }
+      cmCancel:
+      {
+        CloseInterface(cmCancel);
+      }
+    end; // HandleEvent panel pnParam
+  end; // panel pnParam
+
+
+  HandleEvent
+    cmInit:
+    {
+      LogSpliter     := chr(9);
+      // DateFormat  := 'YYYYMMDD';
+
+      if not readMyDsk (sTXTFileName, '#InterfaceName_sTXTFileName', true)
+        set sTXTFileName :='';
+    }
+
+    cmDone:
+    {
+      saveMyDsk (sTXTFileName, '#InterfaceName_sTXTFileName');
+    }
+
+    cmPick:
+    {
+      case CurField of
+        #sTXTFileName:
+        {
+          var res : string;
+          res:=GetFileName ('*.txt', 'Задайте TXT файл с Nrec-ами договоров' ) ;
+          if res <> ''
+           set sTXTFileName := res;
+        }
+
+        #KatNotesScr.Name:
+        {
+          var pKatNotes : comp;
+
+          getfirst Dogovor;
+          if RunInterface ('GetSomKatNotes'
+                                            , Dogovor.TiDk    // pVidDoc,   // фильтр вида документа ( 0 - фильтр не задан )
+                                            , 0               // pSysNum,   // системная группа: нужна для выбора статусов из нескольких видов документов (VidDoc)
+                                                                             // word(1)  - платежные документы
+                                                                             // word(7)  - кассовые документы
+                                                                             // word(37) - налоговый учет
+                                            , 0               // pStatus,   // 0 - выбирать все, иначе битовая маска запрещенных
+                                            , false           // OkOne,     // TRUE - групповой выбор FALSE - только один
+                                            , pKatNotes       // pKatNotes  // входной-выходной - KatNotes.nRec
+                          ) <> cmCancel
+          {
+            if getfirst KatNotes where (( pKatNotes == KatNotes.NRec )) = tsOk
+            {
+              set cNewNote   := pKatNotes;
+              set sNewNote   := KatNotes.Name;
+              set wNewStatus := KatNotes.Status;
+            }
+          }
+        }
+       end; // case
+    }
+
+    cmDelOnProtect:
+    {
+      case CurField of
+        #sTXTFileName:
+        {
+          sTXTFileName := '';
+        }
+
+        #KatNotesScr.Name:
+        {
+          cNewNote   := 0;
+          sNewNote   := '';
+          wNewStatus := 0;
+        }
+      end;
+    }
+
+  end; // HanleEvent Interface
+end.
+
+
+// ===========================================================================
+// ========================== Отчет пользователя =============================
+// ===========================================================================
+
+#include UserReport.vih
+
+VipInterface UserReport_#InterfaceName Implements IUserReport;
+
+Interface UserReport_#InterfaceName;
+
+create view;
+
+procedure Run;
+begin
+   RunInterface('#InterfaceName');
+end;
+
+function GetReportName: String;
+begin
+  GetReportName := 'Пакетное изменение статуса договоров на основе списка NRec из TXT файла';
+end;
+
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Утилиты модуля Управление договорами';
+  end;
+end;
+
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+function VisibleInModule(Ind : Byte) : String;
+begin
+  // VisibleInModule := '*';
+  case Ind of
+    1 : VisibleInModule := 'DOGOVOR';
+  end;
+end;
+end.

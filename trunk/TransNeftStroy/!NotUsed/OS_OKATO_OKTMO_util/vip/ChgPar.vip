@@ -1,0 +1,3966 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║ Система       : Основные средства                                         ║
+ ║ Назначение    : Работа с дополнительными изменяемыми параметрами ИК       ║
+ ║                 по операциям ОС, НМА                                      ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+! todo (future)
+!  Сделать контроль заполненности данных по всем методам учета. Например,
+!  если по одному из методов данные не заполнены, то выдавать предупреждение
+!  (подумать в какой момент).
+
+! todo (future)
+!  Не помешает и контроль на заполнение по текущему методу учета.
+
+#include ChgPar.vih
+#include GetMol.vih
+#include ShowKau.vpp
+#include FpCo.vih
+#include Contexts.vih
+#include GetKau.vih           // Обьектный интерфес выбора КАУ
+#include SpecOb.vih
+#include GetAlgam.vih  // Выбор алгоритма
+#include GetHozOper.vih
+#include GtKauTbl.vih
+#include KauReff.vih
+#include OSStr.vih
+#include CheckOpe.vih
+
+#doc
+  Работа с дополнительными изменяемыми параметрами ИК по операциям ОС, НМА
+#end
+interface OsChgPar;
+
+#include GetKau.var           // Переменная типа "Интерфеса выбора КАУ"
+var iKauReff : EditKauReff;   // переманная типа интерфейса "EditKauReff"
+var iSpecOb  : SpecOb;
+var iOSStr : OSStr;
+var pCheckOper : CheckOper;
+
+
+type tOsChgParRec = record as table OsChgPar;
+
+Function GetParStrValue(pwTiDk : word; pbOsChgPar : type$OsChgPar) : string; forward;
+Function GetParStrValueFromKatOS(pwParCode : word; pbKatOs : type$KatOs; pbSpKatOs : type$SpKatOs) : string; forward;
+Procedure Init_ParamNameList;  forward;
+Procedure SetValueProtection;  forward;
+Procedure SetRecordProtection; forward;
+Procedure Insert_Current_OsChgParNew; forward;
+Procedure UpDate_Current_OsChgParNew; forward;
+Function GetValueFromKatOS(pwParCode : word; pbKatOs : type$KatOs; pbSpKatOs : type$SpKatOs) : string;  forward;
+
+// #include ServKau.vih
+// #include Fld_Amort_Name.vpp  // наименования колонок/полей и строк подсказки в зависимости от страны
+
+Create view loOsChgPar
+var
+  cMoveOsNRec  : comp; // текущая операция
+  cNastrOsNRec : comp; // текущий метод учета
+  cKatOsNRec   : comp; // текущая карточка (для сохраненных значений до операции)
+  cKatOSNRec_New : comp; // текущая карточка (для новых значений)
+  _brChgPar_AllKatOS
+, _CurrentBrChgPar
+, _brChgPar_KatOS
+, _brChgPar    : longint;
+  wCurrentParCode
+, w_SysOper
+, w_CurReffKau : word;
+  sNameParamDate : string;
+  dDateOsChg_DateK : date;
+  boIsIndividualStoim : boolean; // признак индивидуальности стоимостных характеристик: стоимости, износа...
+  #include Fld_Amort.var        // наименования колонок/полей и строк подсказки в зависимости от страны
+
+  // Настройки
+  wCountry : word;
+  OS_ChangeParmOnlyOneMU : boolean;
+
+
+Select
+//-----------------
+  if ( IsValid(tnOsChgParOld), GetParStrValue(MoveOs.TipDoc, OsChgParOld.Buffer)
+     , if ( Not IsValid(tnKatOS_Old), 'значение неопределено'
+          , if ( cKatOsNRec = 0, '   ...'
+               , GetParStrValueFromKatOS(OsChgParNew.ParCode, KatOs_Old.Buffer, SpKatOs_Old.Buffer)
+               )
+          ) )
+    (FieldName = fsParOldValue)
+//-----------------
+, if ( Not IsValidNew(tnOsChgParNew) OR (OsChgParNew.NRec = 0), ''
+     , GetParStrValue(MoveOs.TipDoc, OsChgParNew.Buffer)  + if ( _CurrentBrChgPar = _brChgPar
+          , if ( (OsChgParNew.cKatOS <> 0) AND IsValid(tnKatOS_New), ' (ИК № ' + KatOS_New.InNum + ' ' + KatOS_New.NameOS + ')', '' )
+          , ''
+          )
+     )
+    (FieldName = fsParNewValue)
+//-----------------
+, if ( _CurrentBrChgPar <> _brChgPar_AllKatOS , ''
+     , if ( IsValid(tnOsChgParOld), GetParStrValue(MoveOs.TipDoc, OsChgParOld.Buffer)
+        , GetParStrValueFromKatOS(wCurrentParCode, KatOs.Buffer, SpKatOs.Buffer)
+          )
+     )
+    (FieldName = fsCurrentValue)
+
+//-----------------
+from
+  MoveOs,
+  SpMoveOs,
+  OsChgPar,
+  OsChgPar OsChgParOld,
+  OsChgPar OsChgParNew
+, KatOs
+, KatOs KatOs_Old
+, KatOs KatOs_New
+, SpKatOS
+, SpKatOS SpKatOS_Old
+, KatKau
+, KatNalGr
+, NalGrOs
+
+where
+((
+  cMoveOsNRec         == MoveOs.NRec          and
+  // сохраненные значения ИК до проведения операции
+  cMoveOsNRec         == OsChgParOld.cMoveOs  and
+  cgOsChg_OldVal      == OsChgParOld.wType    and
+  cKatOsNRec          == OsChgParOld.cKatOs   and
+  OsChgParNew.ParCode == OsChgParOld.ParCode  and
+  ( cNastrOsNRec = OsChgParOld.cNastrOs or
+    comp(0)      = OsChgParOld.cNastrOs )     and
+  cKatOsNRec          == KatOs_Old.NRec       and
+  cKatOsNRec          == SpKatOs_Old.cKatOS   and
+  cNastrOsNRec        == SpKatOs_Old.cNastrOS and
+  OsChgParNew.cKatOs  == KatOS_New.NRec
+))
+order by OsChgParNew.cMoveOs, OsChgParNew.wType, OsChgParNew.cKatOs, OsChgParNew.ParCode
+order by OsChgParOld.cMoveOs, OsChgParOld.wType, OsChgParOld.cKatOs, OsChgParOld.ParCode
+
+// новые значения для всех ИК по операции
+Bounds byOsChgParNew =
+       cMoveOsNRec         == OsChgParNew.cMoveOs  and
+       cgOsChg_NewVal      == OsChgParNew.wType    and
+       ( cNastrOsNRec = OsChgParNew.cNastrOs or
+         comp(0)      = OsChgParNew.cNastrOs )
+
+// новые значения для ИК по операции
+Bounds byOsChgParNew_KatOS =
+       cMoveOsNRec         == OsChgParNew.cMoveOs  and
+       cgOsChg_NewVal      == OsChgParNew.wType    and
+       (( comp(0)        = OsChgParNew.cKatOs or
+          cKatOSNRec_New = OsChgParNew.cKatOs )     and
+        ( cNastrOsNRec   = OsChgParNew.cNastrOs or
+          comp(0)        = OsChgParNew.cNastrOs))
+//
+Bounds byKatKau =
+       Word(OsChgParNew.dValue) == KatKau.KodGroup
+
+// внешние КАУ
+Condition byOsChgParOld =
+          if ( OsChgParNew.ParCode = cgOsChg_KauReff
+             , Word(OsChgParNew.dValue)
+             , Word(OsChgParOld.dValue)
+             ) = Word(OsChgParOld.dValue)
+//-----------------------------------------------------------------------------
+Bounds bySpMoveOS =
+       cMoveOsNRec  == SpMoveOS.cMoveOS
+   and cNastrOsNRec == SpMoveOS.cNastrOs
+
+Bounds byKatOS =
+       SpMoveOS.cKatOs == KatOs.NRec
+
+Bounds bySpKatOS =
+       KatOs.NRec   == SpKatOs.cKatOS
+   and cNastrOsNRec == SpKatOs.cNastrOS
+// старые значения для всех ИК для заданного параметра по операции
+Bounds byOsChgParOld_AllKatOS =
+       cMoveOsNRec         == OsChgParOld.cMoveOs
+   and cgOsChg_OldVal      == OsChgParOld.wType
+   and SpMoveOS.cKatOs     == OsChgParOld.cKatOs
+   and wCurrentParCode     == OsChgParOld.ParCode
+   and ( cNastrOsNRec = OsChgParOld.cNastrOs or
+         comp(0)      = OsChgParOld.cNastrOs )
+
+// новые значения для всех ИК для заданного параметра по операции
+Bounds byOsChgParNew_AllKatOS =
+       cMoveOsNRec         == OsChgParNew.cMoveOs
+   and cgOsChg_NewVal      == OsChgParNew.wType
+   and SpMoveOS.cKatOs     == OsChgParNew.cKatOs
+   and wCurrentParCode     == OsChgParNew.ParCode
+   and ( cNastrOsNRec = OsChgParNew.cNastrOs or
+         comp(0)      = OsChgParNew.cNastrOs )
+;
+
+
+//------------------------------------------------------------------------------
+var wPrevParCode : word;    // значение кода до редактирования записи
+var bClrOtherMeth: boolean; // флаг удаления данных в других методах
+var wMayEdit     : word;    // признак разрешающий или запрещающий редактирование
+    // cgChgParMayNotEdit         = 0; Запрещено редактирование данных
+    // cgChgParMayEditAllMeth     = 1; Разрешено редактирование данных для всех методов учета
+    // cgChgParMayEditOnlyCurMeth = 2; Разрешено редактирование только для текущего метода учета
+    // cgChgParMayEditOnlyCurOS   = 4; Разрешено редактирование только для текущей карточки
+var sReason      : string;  // фраза о причине запрета редактирования данных
+var _SaveCurrentBrChgPar : longint;
+var _SaveKatOsNRec       : comp;
+
+//------------------------------------------------------------------------------
+Function ChgParColorZap : word;
+{
+  ChgParColorZap := 0;
+
+  if ( ( ((OsChgParNew.ParCode = cgOsChg_StoimPs)
+       OR (OsChgParNew.ParCode = cgOsChg_IznosPs)
+       OR (OsChgParNew.ParCode = cgOsChg_Stoim)
+       OR (OsChgParNew.ParCode = cgOsChg_BaseStoim)
+       OR (OsChgParNew.ParCode = cgOsChg_StoimL)) AND boIsIndividualStoim )
+    AND (cKatOsNRec = 0) )
+    ChgParColorZap := ColorOSNotAmort;
+};
+
+
+//******************************************************************************
+Window wiChgPar 'Дополнительные изменяемые параметры' (,hcNoContext,), EscClose;
+
+Browse brChgPar;
+  Table OsChgParNew;
+fields
+  // ВНИМАНИЕ !!! В параметрах статус строки для наименования параметра
+  // обязательно должна быть F3 (cmPick), чтобы при нажатии на F3 сначала
+  // происходило срабатывание события cmPick в котором делается проверка можно
+  // ли изменять его значение, а потом уже выпадал список значений.
+  {Font = {Color = ChgParColorZap}};
+  OsChgParNew.ParCode #3'Наименование параметра'('Наименование изменяемого параметра',,sci1378Esc) : [35], Protect, NoAutoSize,
+    [LIST 0 ''];
+  fsParNewValue       #3'Новое значение'('Новое значение изменяемого параметра',,sci1378Esc) : [23], Protect;
+end; // browse
+
+Browse brChgPar_KatOS;
+  Table OsChgParNew;
+fields
+  // ВНИМАНИЕ !!! В параметрах статус строки для наименования параметра
+  // обязательно должна быть F3 (cmPick), чтобы при нажатии на F3 сначала
+  // происходило срабатывание события cmPick в котором делается проверка можно
+  // ли изменять его значение, а потом уже выпадал список значений.
+  OsChgParNew.ParCode #3'Наименование параметра'('Наименование изменяемого параметра',,sci1378Esc) : [35], Protect, NoAutoSize,
+    [LIST 0 ''];
+  fsParOldValue       #3'Предыдущее значение'('Предыдущее значение изменяемого параметра',,sci178Esc)  : [22], Protect;
+  fsParNewValue       #3'Новое значение'('Новое значение изменяемого параметра',,sci1378Esc) : [23], Protect;
+end; // browse
+end; // window
+
+
+//******************************************************************************
+Window wiEditChgPar_AllKatOS 'Редактирование значений параметра для всех ИК операции' (,hcNoContext,sci1Esc), EscClose;
+  Show At ( , , , );
+
+Screen scrCurParCode;
+  Show At ( , , , 1);
+  Table SpMoveOS;
+
+Fields
+  GetNameParCode(wCurrentParCode) ('Наименование изменяемого параметра',,sci13Esc) : Skip;
+<<
+  Наименование параметра:.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // browse
+
+Browse brChgPar_AllKatOS;
+  Show At ( , 2, ,);
+Table SpMoveOS;
+
+Fields
+  KatOS.InNum    #3'№',#3'инвентарный'   ('Инвентарный номер',,sci1Esc)                          :[16], Protect, noAutoSize;
+  KatOS.NameOs   #3'Наименование'        ('Наименование объекта',,sci1Esc)                       :[30], Protect;
+  fsCurrentValue #3'Предыдущее значение' ('Предыдущее значение изменяемого параметра',,sci1Esc)  :[22], Protect;
+  fsParNewValue  #3'Новое значение'      ('Новое значение изменяемого параметра',,sci13Esc)      :[23], Protect;
+end; // browse
+End;  // Window
+
+
+// ===========================================================================
+//
+//   Процедуры для внутреннего использования
+//
+// ---------------------------------------------------------------------------
+
+function PutCVal(var vcFld : comp; pcVal : comp) : boolean;
+{
+  PutCVal := (vcFld != pcVal);
+  vcFld := pcVal;
+}
+
+function PutDVal(var vdFld : double; pdVal : double) : boolean;
+{
+  PutDVal := (vdFld != pdVal);
+  vdFld := pdVal;
+}
+
+function PutDateVal(var vd_Fld : date; pd_Val : comp) : boolean;
+{
+  PutDateVal := (Longint(vd_Fld) != Longint(pd_Val));
+  vd_Fld := Longint(pd_Val);
+}
+// ---------------------------------------------------------------------------
+// Заполнение поля в карточке (KatOs) по значению в записи таблицы изменяемых
+// параметров.
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwParCode  - код параметра
+//     vbKatOs    - буфер для заполнения
+//     pbOsChgPar - буфер-источник данных
+// ---------------------------------------------------------------------------
+// Возвращает true если произошло изменение значений в переданном буфере.
+// ---------------------------------------------------------------------------
+function PutKatOsBuf(pwParCode : word; var vbKatOs : type$KatOs; pbOsChgPar : type$OsChgPar) : boolean;
+{
+  PutKatOsBuf := false;
+  case pwParCode of
+      cgOsChg_Podr     : PutKatOsBuf := PutCVal(vbKatOs.cPodr,   pbOsChgPar.cValue);
+      cgOsChg_Mol      : PutKatOsBuf := PutCVal(vbKatOs.cMol,    pbOsChgPar.cValue);
+      cgOsChg_OKOF     : PutKatOsBuf := PutCVal(vbKatOs.cOKOF,   pbOsChgPar.cValue);
+      cgOsChg_PrSb     : PutKatOsBuf := PutCVal(vbKatOs.cPrSb,   pbOsChgPar.cValue);
+      cgOsChg_CO       : PutKatOsBuf := PutCVal(vbKatOs.cCO,     pbOsChgPar.cValue);
+      cgOsChg_Sposob   : {
+                           var Old_cSposob : comp;
+                           Old_cSposob := vbKatOs.cSposob;
+                           PutKatOsBuf := PutCVal(vbKatOs.cSposob, pbOsChgPar.cValue);
+                           if PutKatOsBuf
+                             iSpecOb.UpdateSpecOb(Old_cSposob, pbOsChgPar.cValue, vbKatOs.Nrec);
+                         }
+      cgOsChg_Grup     : PutKatOsBuf := PutCVal(vbKatOs.cGrup,   pbOsChgPar.cValue);
+      cgOsChg_DateK    : PutKatOsBuf := PutDateVal(vbKatOs.DateK, pbOsChgPar.cValue);
+      cgOsChg_Kol      : PutKatOsBuf := PutDVal(vbKatOs.Kol, pbOsChgPar.dValue);
+  end;
+}
+// ---------------------------------------------------------------------------
+// Заполнение поля в карточке (SpKatOs) по значению в записи таблицы изменяемых
+// параметров.
+// ---------------------------------------------------------------------------
+// Передаваемые параметры: аналогично PutKatOsBuf.
+// ---------------------------------------------------------------------------
+// Возвращает true если произошло изменение значений в переданном буфере.
+// ---------------------------------------------------------------------------
+function PutSpKatOsBuf(pwParCode : word; var vbSpKatOs : type$SpKatOs; pbOsChgPar : type$OsChgPar) : boolean;
+{
+  PutSpKatOsBuf := false;
+  case pwParCode of
+      cgOsChg_Isp      : PutSpKatOsBuf := PutCVal(vbSpKatOs.cIsp,    pbOsChgPar.cValue);
+      cgOsChg_HozOper  : PutSpKatOsBuf := PutCVal(vbSpKatOs.cHozOper,pbOsChgPar.cValue);
+      cgOsChg_Metod    : PutSpKatOsBuf := PutCVal(vbSpKatOs.cMetod,  pbOsChgPar.cValue);
+      cgOsChg_SrokIsp  : PutSpKatOsBuf := PutDVal(vbSpKatOs.SrokIsp, pbOsChgPar.dValue);
+      cgOsChg_PoprKoef : PutSpKatOsBuf := PutDVal(vbSpKatOs.PoprKoef,pbOsChgPar.dValue);
+      cgOsChg_GrAm     : PutSpKatOsBuf := PutCVal(vbSpKatOs.cGrAm,   pbOsChgPar.cValue);
+      cgOsChg_Norma    : PutSpKatOsBuf := PutCVal(vbSpKatOs.cNorma,  pbOsChgPar.cValue);
+      cgOsChg_StoimPs  : PutSpKatOsBuf := PutDVal(vbSpKatOs.StoimPs, pbOsChgPar.dValue);
+      cgOsChg_IznosPs  : PutSpKatOsBuf := PutDVal(vbSpKatOs.IznosPs, pbOsChgPar.dValue);
+      cgOsChg_Stoim    : PutSpKatOsBuf := PutDVal(vbSpKatOs.Stoim, pbOsChgPar.dValue);
+      cgOsChg_BaseStoim: PutSpKatOsBuf := PutDVal(vbSpKatOs.DbReserv, pbOsChgPar.dValue);
+      cgOsChg_StoimL   : PutSpKatOsBuf := PutDVal(vbSpKatOs.StoimL, pbOsChgPar.dValue);
+  end;
+}
+// ---------------------------------------------------------------------------
+// Получить значение налоговой группы
+// ---------------------------------------------------------------------------
+Function GetKatNalGrValue(pwType : word; pcKatOS: comp) : comp;
+{
+  GetKatNalGrValue := 0;
+
+  if (GetFirst OsChgPar where (( cMoveOsNRec     == OsChgPar.cMoveOs   and
+                                 pwType          == OsChgPar.wType    and
+                                 pcKatOS         == OsChgPar.cKatOs   and
+                                 cgOsChg_NalogGr == OsChgPar.ParCode )) = tsOk)
+    GetKatNalGrValue := OsChgPar.cValue
+  else
+    if (GetFirst OsChgPar where (( cMoveOsNRec     == OsChgPar.cMoveOs   and
+                                   pwType          == OsChgPar.wType    and
+                                   Comp(0)         == OsChgPar.cKatOs   and
+                                   cgOsChg_NalogGr == OsChgPar.ParCode )) = tsOk)
+      GetKatNalGrValue := OsChgPar.cValue
+    else
+      if (pcKatOs <> Comp(0))
+        if (GetFirst NalGrOS where ((pcKatOs == NalGrOS.cKatOs)) = tsOk)
+          GetKatNalGrValue := NalGrOS.cKatNalGr
+}
+
+// ---------------------------------------------------------------------------
+// Заполнение значений в записи таблицы изменяемых параметров по значениям в
+// карточке (KatOs).
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwParCode  - код параметра
+//     pbKatOs    - буфер-источник данных
+//     vbOsChgPar - буфер для заполнения
+// ---------------------------------------------------------------------------
+procedure PutChgBuf(pwParCode : word; pbKatOs : type$KatOs; var vbOsChgPar : type$OsChgPar);
+{
+  vbOsChgPar.cValue := 0;
+  vbOsChgPar.dValue := 0;
+  case pwParCode of
+      cgOsChg_Podr     :  vbOsChgPar.cValue := pbKatOs.cPodr;
+      cgOsChg_Mol      :  vbOsChgPar.cValue := pbKatOs.cMol;
+      cgOsChg_OKOF     :  vbOsChgPar.cValue := pbKatOs.cOKOF;
+      cgOsChg_PrSb     :  vbOsChgPar.cValue := pbKatOs.cPrSb;
+      cgOsChg_CO       :  vbOsChgPar.cValue := pbKatOs.cCO;
+      cgOsChg_Sposob   :  vbOsChgPar.cValue := pbKatOs.cSposob;
+      cgOsChg_Grup     :  vbOsChgPar.cValue := pbKatOs.cGrup;
+      cgOsChg_DateK    :  vbOsChgPar.cValue := Comp(LongInt(pbKatOs.DateK));
+      cgOsChg_NalogGr  :  vbOsChgPar.cValue := GetKatNalGrValue(cgOsChg_OldVal, pbKatOs.NRec);
+      cgOsChg_Kol      :  vbOsChgPar.dValue := pbKatOs.Kol;
+  end;
+}
+
+// ---------------------------------------------------------------------------
+// Заполнение значений в записи таблицы изменяемых параметров по значениям в
+// карточке (SpKatOs).
+// ---------------------------------------------------------------------------
+// Передаваемые параметры: аналогично PutChgBuf.
+// ---------------------------------------------------------------------------
+procedure PutSpChgBuf(pwParCode : word; pbSpKatOs : type$SpKatOs; var vbOsChgPar : type$OsChgPar);
+{
+  vbOsChgPar.cValue := 0;
+  vbOsChgPar.dValue := 0;
+  case pwParCode of
+      cgOsChg_Isp      :  vbOsChgPar.cValue := pbSpKatOs.cIsp;
+      cgOsChg_HozOper  :  vbOsChgPar.cValue := pbSpKatOs.cHozOper;
+      cgOsChg_Metod    :  vbOsChgPar.cValue := pbSpKatOs.cMetod;
+      cgOsChg_SrokIsp  :  vbOsChgPar.dValue := pbSpKatOs.SrokIsp;
+      cgOsChg_PoprKoef :  vbOsChgPar.dValue := pbSpKatOs.PoprKoef;
+      cgOsChg_GrAm     :  vbOsChgPar.cValue := pbSpKatOs.cGrAm;
+      cgOsChg_Norma    :  vbOsChgPar.cValue := pbSpKatOs.cNorma;
+      cgOsChg_StoimPs  :  vbOsChgPar.dValue := pbSpKatOs.StoimPs;
+      cgOsChg_IznosPs  :  vbOsChgPar.dValue := pbSpKatOs.IznosPs;
+      cgOsChg_Stoim    :  vbOsChgPar.dValue := pbSpKatOs.Stoim;
+      cgOsChg_BaseStoim:  vbOsChgPar.dValue := pbSpKatOs.DbReserv;
+      cgOsChg_StoimL   :  vbOsChgPar.dValue := pbSpKatOs.StoimL;
+  end;
+}
+
+// ===========================================================================
+//
+//   ObjInterface ObjMoveOsChgPar;
+//
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Установка текущей операции
+// ---------------------------------------------------------------------------
+public Procedure SetMoveOsRec(pcMoveOsNRec : comp);
+{
+  cMoveOsNRec := pcMoveOsNRec;
+  FixRelations(cMoveOsNRec);
+  boIsIndividualStoim := True;
+
+  if IsValidAll(tnMoveOS)
+    case MoveOs.SysOper of
+    //--------------------
+      cgOs_51_Amort
+    , cgOs_101_OsRazn
+    , cgOs_201_OsRazn
+    , cgOs_102_OsRazn
+    , cgOs_202_OsRazn :
+        boIsIndividualStoim := False;
+    end;
+}
+
+// ---------------------------------------------------------------------------
+// Установка текущего метода учета
+// ---------------------------------------------------------------------------
+public Procedure SetNastrOsRec(pcNastrOsNRec : comp);
+{
+  cNastrOsNRec := pcNastrOsNRec;
+  FixRelations(cNastrOsNRec);
+}
+
+// ---------------------------------------------------------------------------
+// Установка текущей инвентарной карточки
+// ---------------------------------------------------------------------------
+public Procedure SetKatOsRec(pcKatOsNRec : comp);
+{
+  cKatOsNRec := pcKatOsNRec;
+  cKatOsNRec_New := pcKatOsNRec;
+
+  if ( cKatOsNRec <> comp(0) )
+  {
+    if Not BoundActive(tbbyOsChgParNew_KatOS)
+      PushBounds(tbbyOsChgParNew_KatOS);
+
+    SetFormat(_brChgPar_KatOS)
+    _CurrentBrChgPar := _brChgPar_KatOS;
+  }
+  else
+  {
+    if Not BoundActive(tbbyOsChgParNew)
+      PushBounds(tbbyOsChgParNew);
+
+    SetFormat(_brChgPar)
+    _CurrentBrChgPar := _brChgPar;
+  }
+
+  FixRelations(cKatOsNRec);
+  FixRelations(cKatOsNRec_New);
+}
+
+// ---------------------------------------------------------------------------
+// Удаление данных по заданной операции
+// ---------------------------------------------------------------------------
+public Function DelMoveOs(pcMoveOsNRec : comp) : boolean;
+{
+  DelMoveOs := True;
+
+  if RecordExists OsChgPar where ((pcMoveOsNRec == OsChgPar.cMoveOs )) = tsOk
+    DelMoveOs := delete OsChgPar where ((pcMoveOsNRec == OsChgPar.cMoveOs )) = tsOk;
+}
+
+// ---------------------------------------------------------------------------
+// предыдущее значение Внешнего КАУ
+// pwKau - код внешнего КАУ
+// ---------------------------------------------------------------------------
+Function GetKauReffOldValues(pwKau : word) : comp;
+{
+  GetKauReffOldValues := 0;
+
+  if ( RecordExists OsChgPar
+                    where (( cMoveOsNRec     == OsChgPar.cMoveOs  and
+                             cgOsChg_OldVal  == OsChgPar.wType    and
+                             cKatOsNRec      == OsChgPar.cKatOs   and
+                             cgOsChg_KauReff == OsChgPar.ParCode )) <> tsOk )
+    Exit;
+
+  if ( GetFirst FastFirstRow OsChgPar
+                where (( cMoveOsNRec     == OsChgPar.cMoveOs  and
+                         cgOsChg_OldVal  == OsChgPar.wType    and
+                         cKatOsNRec      == OsChgPar.cKatOs   and
+                         cgOsChg_KauReff == OsChgPar.ParCode )) = tsOk )
+  {
+    do
+    {
+      if ( Word(OsChgPar.dValue) = pwKau )
+      {
+        GetKauReffOldValues := OsChgPar.cValue;
+        Break
+      }
+    }
+    while (GetNext OsChgPar
+                   where (( cMoveOsNRec     == OsChgPar.cMoveOs  and
+                            cgOsChg_OldVal  == OsChgPar.wType    and
+                            cKatOsNRec      == OsChgPar.cKatOs   and
+                            cgOsChg_KauReff == OsChgPar.ParCode )) = tsOk )
+  }
+}
+
+//----------------------------------------------------------------------------
+//  Установить налоговую группу для карточки ОС
+Function SetNalGrOSValue(pwType: word; pcKatOS: comp): comp;
+var
+ cRecNalGrOS: comp;
+{
+  SetNalGrOSValue := Comp(0);
+
+  if (pcKatOs <> Comp(0))
+  {
+    cRecNalGrOS := GetKatNalGrValue(pwType, pcKatOS)
+
+    if (RecordExists NalGrOS where ((cRecNalGrOS == NalGrOS.cKatNalGr and
+                                     pcKatOs     == NalGrOS.cKatOs)) <> tsOk)
+    {
+      if (GetFirst NalGrOS where ((pcKatOs == NalGrOS.cKatOs)) = tsOk)
+      {
+        NalGrOS.cKatNalGr := cRecNalGrOS
+        if (Update Current NalGrOS = tsOk)
+          SetNalGrOSValue := NalGrOS.NRec
+      }
+      else
+      {
+        if (cRecNalGrOS <> Comp(0))
+        {
+          ClearBuffer(tnNalGrOS);
+          NalGrOS.cKatNalGr := cRecNalGrOS;
+          NalGrOS.cKatOs    := pcKatOs;
+          if (Insert Current NalGrOS = tsOk)
+            SetNalGrOSValue := NalGrOS.NRec
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// новое значение Внешнего КАУ
+// pwKau - код внешнего КАУ
+Function GetKauReffNewValues(pwKau : word) : comp;
+{
+  GetKauReffNewValues := 0;
+
+  if ( loOsChgPar.GetFirst FastFirstRow OsChgPar
+                        where ((
+                                 cMoveOsNRec     == OsChgPar.cMoveOs  and
+                                 cgOsChg_NewVal  == OsChgPar.wType    and
+                                 cKatOsNRec      == OsChgPar.cKatOs   and
+                                 cgOsChg_KauReff == OsChgPar.ParCode  and
+                                 pwKau           == OsChgPar.dValue (NoIndex)
+                              )) <> tsOk )
+  {
+    GetKauReffNewValues := loOsChgPar.OsChgPar.cValue;
+    Exit;
+  }
+
+  if ( loOsChgPar.GetFirst FastFirstRow OsChgPar
+                        where ((
+                                 cMoveOsNRec     == OsChgPar.cMoveOs  and
+                                 cgOsChg_NewVal  == OsChgPar.wType    and
+                                 0               == OsChgPar.cKatOs   and
+                                 cgOsChg_KauReff == OsChgPar.ParCode  and
+                                 pwKau           == OsChgPar.dValue (NoIndex)
+                              )) <> tsOk )
+  {
+    GetKauReffNewValues := OsChgPar.cValue;
+    Exit;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Функция проверки можно ли в параметре задать разные значения для разных
+// методов учета. Т.е. будет ли у него одно значение на все методы учета
+// (параметр для KatOs) или оно может быть задано отдельно для каждого метода
+// учета (параметр для SpKatOs).
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwParCode - код параметра
+// ---------------------------------------------------------------------------
+function isMultiMethod(pwParCode:word) : boolean;
+{
+  case pwParCode of
+    cgOsChg_Isp,
+    cgOsChg_HozOper,
+    cgOsChg_Metod,
+    cgOsChg_SrokIsp,
+    cgOsChg_PoprKoef,
+    cgOsChg_StoimPs,
+    cgOsChg_IznosPs,
+    cgOsChg_Stoim,
+    cgOsChg_StoimL,
+    cgOsChg_BaseStoim,
+    cgOsChg_GrAm,
+    cgOsChg_Norma :
+      isMultiMethod := true;
+  else
+    isMultiMethod := false;
+  end;
+}
+
+// ---------------------------------------------------------------------------
+// Функция проверки разрешено ли параметру иметь одинаковые значения в
+// различных методах учета.
+// Актуально только для параметров к SpKatOs.
+//     pwParCode - код параметра
+// ---------------------------------------------------------------------------
+function mayHaveSameValue(pwParCode:word) : boolean;
+{
+  case pwParCode of
+    cgOsChg_HozOper : result := false;
+  else
+    result := true;
+  end;
+}
+
+//******************************************************************************
+create view loPrevRec
+var
+  cOsChgPar  : comp;
+  cNastrOsNRec : comp;
+from
+  OsChgPar
+where
+((
+  cOsChgPar        == OsChgPar.nRec and
+
+  OsChgPar.cMoveOs == SpMoveOS.cMoveOS  and    // другой МУ
+  cNastrOsNRec     == SpMoveOS.cNastrOS and
+  SpMoveOS.cKatOs  == KatOS.NRec        and
+  SpMoveOS.cKatOs  == SpKatOS.cKatOS    and
+  cNastrOsNRec     == SpKatOS.cNastrOS
+));
+
+// ---------------------------------------------------------------------------
+// Создание данных по заданному методу учета для текущей операции на основе данных существующей записи
+Procedure SetNewValueFromOther(_cOsChgPar: comp; _cNewNastrOs: comp; var _cValue: comp; var _dValue: double);
+var
+  vbKatOs   : type$KatOs;
+  vbSpKatOs : type$SpKatOs;
+  strParValue : string;
+{
+  loPrevRec.cOsChgPar    := _cOsChgPar;
+  loPrevRec.cNastrOsNRec := _cNewNastrOs;
+  if (loPrevRec.getFirst OsChgPar <> tsOk )
+    Exit;
+
+      // Если в списке параметров будут какие-то значения которые должны быть не
+      // просто скопированы, а как-то сформированы на основе исходного метода учета,
+      // то здесь обязательно нужен будет вызов процесса формирования этого
+      // значения для нового метода учета
+
+      if ( not mayHaveSameValue(loPrevRec.OsChgPar.ParCode) )
+      {
+        _cValue := 0;
+        _dValue := 0;
+      }
+      else if (OS_ChangeParmOnlyOneMU) and ( isMultiMethod(loPrevRec.OsChgPar.ParCode) )      // из SpKatos  102.118905
+      {
+        vbKatOs     := type$KatOS(loPrevRec.KatOS.Buffer);
+        vbSpKatOs   := type$SpKatOS(loPrevRec.SpKatOs.Buffer);
+        strParValue := GetValueFromKatOS(loPrevRec.OsChgPar.ParCode, vbKatOs, vbSpKatOs);
+
+        _cValue := comp(strParValue);
+        _dValue := double(strParValue);
+      }
+      else    // из первой записи
+      {
+        _cValue := loPrevRec.OsChgPar.cValue;
+        _dValue := loPrevRec.OsChgPar.dValue;
+      }
+}
+
+//******************************************************************************
+create view loNastrOs
+var
+  cMoveOsNRec  : comp;
+  cNastrOsNRec : comp;
+from
+  OsChgPar
+where
+((
+  cMoveOsNRec      == OsChgPar.cMoveOs  and
+  cNastrOsNRec     == OsChgPar.cNastrOs
+));
+
+// ---------------------------------------------------------------------------
+// Создание данных по заданному методу учета для текущей операции на основе
+// данных текущего метода учета.
+// ---------------------------------------------------------------------------
+public Function AddNastrOsForMoveOs(pcNastrOsNRec : comp) : boolean;
+{
+
+  loNastrOs.cMoveOsNRec  := cMoveOsNRec;
+  loNastrOs.cNastrOsNRec := pcNastrOsNRec;
+
+  AddNastrOsForMoveOs := true;
+  if loNastrOs.RecordExists OsChgPar = tsOk
+    exit;
+  // if (OS_ChangeParmOnlyOneMU)
+  //  Exit;
+
+  loNastrOs.cNastrOsNRec := cNastrOsNRec;
+  AddNastrOsForMoveOs := false;
+  _try
+  {
+    loNastrOs._loop OsChgPar
+    {
+      loNastrOs.OsChgPar.NRec     := 0;
+      loNastrOs.OsChgPar.cNastrOs := pcNastrOsNRec;
+
+      SetNewValueFromOther(loNastrOs.OsChgPar.nRec, pcNastrOsNRec, loNastrOs.OsChgPar.cValue, loNastrOs.OsChgPar.dValue);
+
+      loNastrOs.insert current OsChgPar;
+    }
+    AddNastrOsForMoveOs := true;
+  }
+  _except on ExDatabase: {}
+}
+
+// ---------------------------------------------------------------------------
+// Удаление данных по заданному методу учета по всем операциям
+// ---------------------------------------------------------------------------
+public Function DelNastrOs(pcNastrOsNRec : comp) : boolean;
+{
+  DelNastrOs := loNastrOs.delete OsChgPar where ((pcNastrOsNRec == OsChgPar.cNastrOs)) = tsOk;
+}
+
+//******************************************************************************
+Table Struct mtTbl
+  (
+   cRec     : comp
+  )
+with index
+  (  indx00  = cRec  );
+
+create view loValue
+var
+  cMoveOsNRec
+, cNastrOsNRec
+, cKatOsNRec
+, cKatOsNRec_New : comp;
+
+from
+  OsChgPar OsChgParOld,
+  OsChgPar OsChgParNew,
+  mtTbl
+
+where
+((
+  // новые значения ИК по операции
+  cMoveOsNRec    == OsChgParNew.cMoveOs  and
+  cgOsChg_NewVal == OsChgParNew.wType    and
+  cNastrOsNRec   == OsChgParNew.cNastrOs (NoIndex) and
+  (
+    comp(0)        = OsChgParNew.cKatOs   OR
+    cKatOsNRec_New = OsChgParNew.cKatOs
+  )                                      and
+  // сохраненные значения ИК до проведения операции
+  cMoveOsNRec    == OsChgParOld.cMoveOs  and
+  cgOsChg_OldVal == OsChgParOld.wType    and
+  cKatOsNRec     == OsChgParOld.cKatOs   and
+  cNastrOsNRec   == OsChgParOld.cNastrOs
+))
+;
+
+//------------------------------------------------------------------------------
+// Удаляет сохраненные старые значения для заданного KatOs по операции
+public Function DelKatOsOldValues(pcKatOsNRec : comp) : boolean;
+{
+  result := false;
+  loValue.delete all mtTbl;
+
+  _try
+  {
+    loValue.cMoveOsNRec  := cMoveOsNRec;
+    loValue.cNastrOsNRec := 0;
+    loValue.cKatOsNRec   := pcKatOsNRec;
+
+    loValue._loop  OsChgParOld
+    {
+        if ( ((loValue.OsChgParOld.ParCode = cgOsChg_StoimPs) OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_IznosPs) OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_Stoim)   OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_StoimL)  OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+          Continue
+        else
+          loValue.insert current mtTbl  set mtTbl.cRec := loValue.OsChgParOld.nRec;
+    }
+
+    loValue._loop mtTbl
+      loValue.Delete OsChgParOld where ((loValue.mtTbl.cRec == OsChgParOld.nRec));
+    loValue.delete all mtTbl;
+    result := true;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::DelKatOsOldValues:'+ExploreException); }
+}
+
+//------------------------------------------------------------------------------
+// Удаляет сохраненные старые значения для заданного SpKatOs по операции
+public Function DelSpKatOsOldValues(pcKatOsNRec : comp; pcNastrOsNRec : comp) : boolean;
+{
+  result := false;
+  loValue.delete all mtTbl;
+
+  _try
+  {
+    loValue.cMoveOsNRec  := cMoveOsNRec;
+    loValue.cNastrOsNRec := pcNastrOsNRec;
+    loValue.cKatOsNRec   := pcKatOsNRec;
+
+    loValue._loop  OsChgParOld
+    {
+        if ( ((loValue.OsChgParOld.ParCode = cgOsChg_StoimPs) OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_IznosPs) OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_Stoim)   OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_StoimL)  OR
+              (loValue.OsChgParOld.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+          loValue.insert current mtTbl  set mtTbl.cRec := loValue.OsChgParOld.nRec;
+    }
+
+    loValue._loop mtTbl
+       loValue.Delete OsChgParOld where ((loValue.mtTbl.cRec == OsChgParOld.nRec));
+    loValue.delete all mtTbl;
+    result := true;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::DelSpKatOsOldValues:'+ExploreException); }
+}
+
+//------------------------------------------------------------------------------
+// Удаляет сохраненные старые значения для определенного типа параметра
+Function DelOsChgParOldValues(pcKatOsNRec : comp; pcNastrOsNRec : comp; pwPrevParam: word) : boolean;
+{
+  DelOsChgParOldValues := false;
+  _try
+  {
+    loValue.cMoveOsNRec  := cMoveOsNRec;
+    loValue.cNastrOsNRec := pcNastrOsNRec;
+    loValue.cKatOsNRec   := pcKatOsNRec;
+
+    loValue.Delete OsChgParOld where
+            (( loValue.cMoveOsNRec  == OsChgParOld.cMoveOs  and
+               cgOsChg_OldVal       == OsChgParOld.wType    and
+               loValue.cKatOsNRec   == OsChgParOld.cKatOs   and
+               pwPrevParam          == OsChgParOld.ParCode  and
+               loValue.cNastrOsNRec == OsChgParOld.cNastrOs
+            ));
+
+    DelOsChgParOldValues := true;
+  }
+  _except
+  on ExDataBase :
+  {
+    FPLog('ChgPar::DelOsChgParOldValues:'+ExploreException);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Удаление данных по карточке при удалении позиции операции
+Function DelKatOsAllValues(pcMoveOsNRec: comp; pcKatOsNRec : comp) : boolean;
+{
+  DelKatOsAllValues := False;
+
+  _try
+  {
+    // удалим новые значения
+    if ( RecordExists OsChgPar where ((pcMoveOsNRec    == OsChgPar.cMoveOs and
+                                       cgOsChg_NewVal  == OsChgPar.wType   and
+                                       pcKatOsNRec     == OsChgPar.cKatOs)) = tsOk ) {};
+      if ( Delete OsChgPar where ((pcMoveOsNRec    == OsChgPar.cMoveOs and
+                                   cgOsChg_NewVal  == OsChgPar.wType   and
+                                   pcKatOsNRec     == OsChgPar.cKatOs)) = tsOk ) {};
+
+    // удалим старые значения
+    if ( RecordExists OsChgPar where ((pcMoveOsNRec    == OsChgPar.cMoveOs and
+                                       cgOsChg_OldVal  == OsChgPar.wType   and
+                                       pcKatOsNRec     == OsChgPar.cKatOs)) = tsOk ) {};
+      if ( Delete OsChgPar where ((pcMoveOsNRec    == OsChgPar.cMoveOs and
+                                   cgOsChg_OldVal  == OsChgPar.wType   and
+                                   pcKatOsNRec     == OsChgPar.cKatOs)) = tsOk ) {};
+
+    DelKatOsAllValues := True;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::DelKatOsAllValues:'+ExploreException); }
+}
+
+// ---------------------------------------------------------------------------
+// Проверяет есть ли в текущей операции сохраненные данные о состоянии
+// заданной карточки до проведения операции по заданному методу учета.
+// Если метод учета = 0, то проверяется наличие сохраненных данных
+// независящих от метода учета.
+// ---------------------------------------------------------------------------
+function hasSavedOldValues(pcKatOsNRec : comp; pcNastrOsNRec : comp) : boolean;
+{
+  loValue.cMoveOsNRec  := cMoveOsNRec;
+  loValue.cNastrOsNRec := pcNastrOsNRec;
+  loValue.cKatOsNRec   := pcKatOsNRec;
+  hasSavedOldValues := False;
+
+  // так должно быстрее отработать
+  loValue._loop OsChgParOld
+    {
+      if ( ((loValue.OsChgParOld.ParCode = cgOsChg_StoimPs) OR
+            (loValue.OsChgParOld.ParCode = cgOsChg_IznosPs) OR
+            (loValue.OsChgParOld.ParCode = cgOsChg_Stoim)   OR
+            (loValue.OsChgParOld.ParCode = cgOsChg_StoimL)  OR
+            (loValue.OsChgParOld.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+        Continue
+      else
+      {
+        hasSavedOldValues := True;
+        Break;
+      }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Сохраняет старые значения (до проведения операции) полей KatOs для
+// текущей операции по заданному списку параметров.
+// Если данные по какой-то причине уже сохранены, то повторное сохранение  не делается.
+// ---------------------------------------------------------------------------
+public Function SaveKatOsOldValues( pbKatOs : type$KatOs ) : boolean;
+{
+  SaveKatOsOldValues := True;
+
+  if hasSavedOldValues(cKatOsNRec, 0)
+    exit;
+
+  SaveKatOsOldValues := false;
+  _try
+  {
+    loValue.cMoveOsNRec  := cMoveOsNRec;
+    loValue.cNastrOsNRec := 0;
+    loValue.cKatOsNRec   := cKatOsNRec;
+    loValue.cKatOsNRec_New := cKatOsNRec;
+
+    loValue._loop OsChgParNew
+    {
+      if ( ((loValue.OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+        Continue;
+
+      loValue.ClearBuffer(loValue.tnOsChgParOld);
+      loValue.OsChgParOld.wType    := cgOsChg_OldVal;
+      loValue.OsChgParOld.cMoveOs  := loValue.cMoveOsNRec;
+      loValue.OsChgParOld.cNastrOs := loValue.cNastrOsNRec;
+      loValue.OsChgParOld.cKatOs   := loValue.cKatOsNRec;
+      loValue.OsChgParOld.ParCode  := loValue.OsChgParNew.ParCode;
+
+      if ( loValue.OsChgParNew.ParCode = cgOsChg_KauReff )
+      {
+        loValue.OsChgParOld.dValue := Word(loValue.OsChgParNew.dValue);
+        loValue.OsChgParOld.cValue := iKauReff.GetKauReff( coKatOS, pbKatOs.NRec, Word(loValue.OsChgParNew.dValue));
+      }
+      else
+        PutChgBuf(loValue.OsChgParNew.ParCode, pbKatOs, loValue.OsChgParOld.buffer)
+
+      if ( loValue.Insert current OsChgParOld =tsOk) {};
+    }
+
+    SaveKatOsOldValues := true;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::SaveKatOsOldValues:'+ExploreException); }
+}
+
+// ---------------------------------------------------------------------------
+// Сохраняет старые значения (до проведения операции) полей SpKatOs для
+// текущей операции по заданному списку параметров
+// Если данные по какой-то причине уже сохранены, то повторное сохранение не делается.
+// WARNING !!! Данные о значениях до проведения операции могут появиться
+// не только в результате отработки этого метода, но и в случае создания
+// данных для нового метода учета, если в исходном методе такие данные были
+// сохранены.
+// ---------------------------------------------------------------------------
+public Function SaveSpKatOsOldValues( pbSpKatOs : type$SpKatOs ) : boolean;
+var boIsIns : boolean;
+    bufOsChgPar : type$OsChgPar;
+{
+  SaveSpKatOsOldValues := True;
+
+  if hasSavedOldValues(cKatOsNRec, cNastrOsNRec)
+    exit;
+
+  SaveSpKatOsOldValues := False;
+  _try
+  {
+    loValue.cMoveOsNRec  := cMoveOsNRec;
+    loValue.cNastrOsNRec := cNastrOsNRec;
+    loValue.cKatOsNRec   := cKatOsNRec;
+    loValue.cKatOsNRec_New := pbSpKatOs.cKatOS;
+
+    loValue._loop OsChgParNew
+    {
+      boIsIns := True;
+
+      if ( ((loValue.OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+            (loValue.OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+      {
+        if ( loValue.GetFirst OsChgParOld
+                     where (( cMoveOsNRec                 == OsChgParOld.cMoveOs  and
+                              cgOsChg_OldVal              == OsChgParOld.wType    and
+                              cKatOsNRec                  == OsChgParOld.cKatOs   and
+                              loValue.OsChgParNew.ParCode == OsChgParOld.ParCode  and
+                              cNastrOsNRec                == OsChgParOld.cNastrOs
+                           )) = tsOk )
+        {
+          boIsIns := False;
+          PutSpChgBuf(loValue.OsChgParNew.ParCode, pbSpKatOs, bufOsChgPar)
+
+          if ((loValue.OsChgParOld.cValue <> bufOsChgPar.cValue) OR  (loValue.OsChgParOld.dValue <> bufOsChgPar.dValue))
+          {
+            loValue.OsChgParOld.cValue := bufOsChgPar.cValue;
+            loValue.OsChgParOld.dValue := bufOsChgPar.dValue;
+            if (loValue.Update Current OsChgParOld = tsOK) {};
+          }
+        }
+      }
+
+      if boIsIns
+      {
+        loValue.ClearBuffer(loValue.tnOsChgParOld);
+        loValue.OsChgParOld.wType    := cgOsChg_OldVal;
+        loValue.OsChgParOld.cMoveOs  := loValue.cMoveOsNRec;
+        loValue.OsChgParOld.cNastrOs := loValue.cNastrOsNRec;
+        loValue.OsChgParOld.cKatOs   := loValue.cKatOsNRec;
+        loValue.OsChgParOld.ParCode  := loValue.OsChgParNew.ParCode;
+        PutSpChgBuf(loValue.OsChgParNew.ParCode, pbSpKatOs, loValue.OsChgParOld.buffer)
+
+        if (loValue.Insert Current OsChgParOld = tsOk) {};
+      }
+    }
+
+    SaveSpKatOsOldValues := true;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::SaveSpKatOsOldValues:'+ExploreException); }
+}
+
+// ---------------------------------------------------------------------------
+// Сохраняет старые значения (до проведения операции) полей SpKatOs для
+// текущей операции для заданного параметров
+// Если данные по какой-то причине уже сохранены, то повторное сохранение не делается.
+// WARNING !!! Данные о значениях до проведения операции могут появиться
+// не только в результате отработки этого метода, но и в случае создания
+// данных для нового метода учета, если в исходном методе такие данные были
+// сохранены.
+// ---------------------------------------------------------------------------
+Function SaveSpKatOsValues_ParCode(pbSpKatOs: type$SpKatOs; pwType, pwParCode: word) : boolean;
+var
+  bufOsChgPar : type$OsChgPar;
+{
+  SaveSpKatOsValues_ParCode := False;
+
+  _try
+  {
+    loValue.cMoveOsNRec  := cMoveOsNRec;
+    loValue.cNastrOsNRec := cNastrOsNRec;
+    loValue.cKatOsNRec   := cKatOsNRec;
+    loValue.cKatOsNRec_New := pbSpKatOs.cKatOs;
+
+    case pwType of
+    //------------
+    cgOsChg_OldVal:
+    {
+      if ( loValue.GetFirst OsChgParNew = tsOk )
+        Do
+        {
+          if ( loValue.OsChgParNew.ParCode = pwParCode )
+          {
+            if ( loValue.RecordExists OsChgParOld
+                         where (( cMoveOsNRec  == OsChgParOld.cMoveOs  and
+                                  pwType       == OsChgParOld.wType    and
+                                  cKatOsNRec   == OsChgParOld.cKatOs   and
+                                  pwParCode    == OsChgParOld.ParCode  and
+                                  cNastrOsNRec == OsChgParOld.cNastrOs
+                               )) <> tsOk )
+            {
+              loValue.ClearBuffer(loValue.tnOsChgParOld);
+              loValue.OsChgParOld.wType    := pwType;
+              loValue.OsChgParOld.cMoveOs  := loValue.cMoveOsNRec;
+              loValue.OsChgParOld.cNastrOs := loValue.cNastrOsNRec;
+              loValue.OsChgParOld.cKatOs   := loValue.cKatOsNRec;
+              loValue.OsChgParOld.ParCode  := loValue.OsChgParNew.ParCode;
+              PutSpChgBuf(pwParCode, pbSpKatOs, loValue.OsChgParOld.buffer)
+
+              if (loValue.insert current OsChgParOld = tsOK) {};
+            }
+            else
+            {
+              if ( loValue.GetFirst OsChgParOld
+                           where (( cMoveOsNRec  == OsChgParOld.cMoveOs  and
+                                    pwType       == OsChgParOld.wType    and
+                                    cKatOsNRec   == OsChgParOld.cKatOs   and
+                                    pwParCode    == OsChgParOld.ParCode  and
+                                    cNastrOsNRec == OsChgParOld.cNastrOs
+                                 )) = tsOk )
+              {
+                PutSpChgBuf(pwParCode, pbSpKatOs, bufOsChgPar)
+
+                if ((loValue.OsChgParOld.cValue <> bufOsChgPar.cValue) OR
+                    (loValue.OsChgParOld.dValue <> bufOsChgPar.dValue))
+                {
+                  loValue.OsChgParOld.cValue := bufOsChgPar.cValue;
+                  loValue.OsChgParOld.dValue := bufOsChgPar.dValue;
+                  if (loValue.Update Current OsChgParOld = tsOK) {};
+                }
+              }
+            }
+          }
+        }
+        While ( loValue.GetNext OsChgParNew = tsOk )
+    }
+    //------------
+    cgOsChg_NewVal:
+    {
+      if (loValue.GetFirst OsChgParNew
+                           where (( cMoveOsNRec  == OsChgParNew.cMoveOs  and
+                                    pwType       == OsChgParNew.wType    and
+                                    cKatOsNRec   == OsChgParNew.cKatOs   and
+                                    pwParCode    == OsChgParNew.ParCode  and
+                                    cNastrOsNRec == OsChgParNew.cNastrOs )) <> tsOk )
+      {
+        loValue.ClearBuffer(loValue.tnOsChgParNew);
+        loValue.OsChgParNew.wType    := pwType;
+        loValue.OsChgParNew.cMoveOs  := loValue.cMoveOsNRec;
+        loValue.OsChgParNew.cNastrOs := loValue.cNastrOsNRec;
+        loValue.OsChgParNew.cKatOs   := loValue.cKatOsNRec;
+        loValue.OsChgParNew.ParCode  := pwParCode;
+        PutSpChgBuf(pwParCode, pbSpKatOs, loValue.OsChgParNew.buffer)
+
+        if (loValue.Insert Current OsChgParNew = tsOK) {};
+      }
+      else
+      {
+        loValue._LOOP OsChgParNew
+        {
+          if ( loValue.OsChgParNew.ParCode = pwParCode )
+          {
+            PutSpChgBuf(pwParCode, pbSpKatOs, bufOsChgPar)
+
+            if ((loValue.OsChgParOld.cValue <> bufOsChgPar.cValue) OR
+                (loValue.OsChgParOld.dValue <> bufOsChgPar.dValue))
+            {
+              loValue.OsChgParOld.cValue := bufOsChgPar.cValue;
+              loValue.OsChgParOld.dValue := bufOsChgPar.dValue;
+              if (loValue.Update Current OsChgParOld = tsOK) {};
+            }
+          }
+        }
+      }
+    }
+    //------------
+    end
+
+    SaveSpKatOsValues_ParCode := True;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::SaveSpKatOsValues_ParCode:'+ExploreException); }
+}
+
+// ---------------------------------------------------------------------------
+// Флаг того, что операция содержит изменение значений в KatOs.
+// ---------------------------------------------------------------------------
+public Function isPresentKatOsData : boolean;
+{
+  loValue.cMoveOsNRec  := cMoveOsNRec;
+  loValue.cNastrOsNRec := 0;
+  isPresentKatOsData := (loValue.GetFirst OsChgParNew = tsOk);
+}
+// ---------------------------------------------------------------------------
+// Флаг того, что операция содержит изменение значений в SpKatOs.
+// ---------------------------------------------------------------------------
+public Function isPresentSpKatOsData : boolean;
+{
+  loValue.cMoveOsNRec  := cMoveOsNRec;
+  loValue.cNastrOsNRec := cNastrOsNRec;
+  isPresentSpKatOsData := (loValue.GetFirst OsChgParNew = tsOk);
+}
+
+//******************************************************************************
+create view loPrP
+var
+  cMoveOsNRec : comp;
+  wParCode    : word;
+from
+  OsChgPar
+where
+((
+  cMoveOsNRec    == OsChgPar.cMoveOs and
+  cgOsChg_NewVal == OsChgPar.wType   and
+//  0              == OsChgPar.cKatOs  and
+
+( comp(0)               = OsChgPar.cKatOs or
+  loOsChgPar.cKatOsNRec = OsChgPar.cKatOs ) and
+
+  wParCode       == OsChgPar.ParCode (noindex)
+));
+// ---------------------------------------------------------------------------
+// Флаг того, что операция содержит изменение указанного параметра
+// Передаваемые параметры:
+//     pwParCode  - код параметра
+// ---------------------------------------------------------------------------
+public Function isPresentParameter( pwParCode : word ) : boolean;
+{
+  loPrP.cMoveOsNRec := cMoveOsNRec;
+  loPrP.wParCode    := pwParCode;
+
+  case pwParCode of
+  //---------------
+    cgOsChg_StoimPs
+  , cgOsChg_IznosPs
+  , cgOsChg_Stoim
+  , cgOsChg_StoimL
+  , cgOsChg_BaseStoim:
+    {
+      if Not boIsIndividualStoim
+        isPresentParameter := (loPrP.RecordExists OsChgPar = tsOk)
+      else
+      {
+        loPrP.ResetBounds(loPrP.tnOsChgPar);
+        isPresentParameter := (loPrP.RecordExists OsChgPar
+                                     where (( cMoveOsNRec    == OsChgPar.cMoveOs and
+                                              cgOsChg_NewVal == OsChgPar.wType   and
+                                      loOsChgPar.cKatOsNRec  == OsChgPar.cKatOS  and
+                                              wParCode       == OsChgPar.ParCode and
+                                     ( loOsChgPar.cNastrOSNRec = OsChgPar.cNastrOS
+                                       or 0 = OsChgPar.cNastrOS )
+                                           )) = tsOk);
+        loPrP.SetBounds(loPrP.tnOsChgPar);
+      }
+    }
+  //---------------
+  else
+    isPresentParameter := (loPrP.RecordExists OsChgPar = tsOk);
+  end;
+}
+
+//------------------------------------------------------------------------------
+// Флаг того, что операция содержит указанный параметр
+// Передаваемые параметры:
+//     pwParCode  - код параметра
+// ---------------------------------------------------------------------------
+Function isPresentParameterInOperation( pwParCode : word ) : boolean;
+{
+  loPrP.cMoveOsNRec := cMoveOsNRec;
+  loPrP.wParCode    := pwParCode;
+  loPrP.ResetBounds(loPrP.tnOsChgPar);
+  isPresentParameterInOperation := (loPrP.RecordExists OsChgPar
+                                          where (( cMoveOsNRec    == OsChgPar.cMoveOs and
+                                                   cgOsChg_NewVal == OsChgPar.wType   and
+                                                   pwParCode      == OsChgPar.ParCode (NoIndex)
+                                                )) = tsOk);
+  loPrP.SetBounds(loPrP.tnOsChgPar);
+}
+
+// ---------------------------------------------------------------------------
+// Флаг того, что операция содержит изменение Внешнего КАУ заданного кода
+// ---------------------------------------------------------------------------
+Function isPresentKauReff(pwKau : word): boolean;
+{
+  isPresentKauReff := False;
+  loPrP.cMoveOsNRec := cMoveOsNRec;
+  loPrP.wParCode    := cgOsChg_KauReff;
+
+  if ( loPrP.RecordExists OsChgPar = tsOk )
+    if ( loPrP.GetFirst FastFirstRow OsChgPar = tsOk )
+      do
+        if ( pwKau = Word(loPrP.OsChgPar.dValue) )
+        {
+          isPresentKauReff := True;
+          Break;
+        }
+      while ( loPrP.GetNext OsChgPar = tsOk )
+}
+
+// ---------------------------------------------------------------------------
+// Заполняет в буфере KatOs новые значения дополнительных параметров по текущей операции.
+// Необходима, например, при проведении операции.
+// Возвращает true если произошло изменение значений в переданном буфере.
+// ---------------------------------------------------------------------------
+public function PutKatOsNewValues( var vbKatOs : type$KatOs ) : boolean;
+{
+  result := false;
+  loValue.cMoveOsNRec  := cMoveOsNRec;
+  loValue.cNastrOsNRec := 0;
+  loValue.cKatOsNRec   := cKatOsNRec;
+  loValue.cKatOsNRec_New := vbKatOs.NRec;
+
+  loValue._loop OsChgParNew
+  {
+    if ( loValue.OsChgParNew.ParCode <> cgOsChg_KauReff )
+    {
+      if PutKatOsBuf(loValue.OsChgParNew.ParCode, vbKatOs, loValue.OsChgParNew.buffer)
+        result := true;
+    }
+    else
+    {
+      if ( loValue.OsChgParNew.cValue = 0 )
+        result := iKauReff.DeleteReff( coKatOS, vbKatOs.NRec, Word(loValue.OsChgParNew.dValue) )
+      else
+        result := iKauReff.SetKauReff( coKatOS, vbKatOs.NRec, Word(loValue.OsChgParNew.dValue), loValue.OsChgParNew.cValue );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Заполняет в буфере SpKatOs новые значения дополнительных параметров по текущей
+// операции и текущему методу учета.
+// Необходима, например, при проведении операции.
+// Возвращает true если произошло изменение значений в переданном буфере.
+// ---------------------------------------------------------------------------
+public function PutSpKatOsNewValues( var vbSpKatOs : type$SpKatOs ) : boolean;
+{
+  result := false;
+  loValue.cMoveOsNRec  := cMoveOsNRec;
+  loValue.cNastrOsNRec := cNastrOsNRec;
+  loValue.cKatOsNRec   := cKatOsNRec;
+  loValue.cKatOsNRec_New := vbSpKatOs.cKatOs;
+
+  loValue._loop OsChgParNew
+    if PutSpKatOsBuf(loValue.OsChgParNew.ParCode,vbSpKatOs,loValue.OsChgParNew.buffer)
+      result := true;
+}
+
+// ---------------------------------------------------------------------------
+// Заполняет в буфере KatOs старые значения дополнительных параметров по текущей
+// операции и текущей карточке
+// Необходима, например, при отмене проведения операции.
+// Возвращает true если произошло изменение значений в переданном буфере.
+// ---------------------------------------------------------------------------
+public function PutKatOsOldValues( var vbKatOs : type$KatOs ) : boolean;
+{
+  PutKatOsOldValues := false;
+  loValue.cMoveOsNRec  := cMoveOsNRec;
+  loValue.cNastrOsNRec := 0;
+  loValue.cKatOsNRec   := cKatOsNRec;
+
+  loValue._loop OsChgParOld
+  {
+    if ( loValue.OsChgParOld.ParCode <> cgOsChg_KauReff )
+    {
+      if PutKatOsBuf(loValue.OsChgParOld.ParCode, vbKatOs, loValue.OsChgParOld.buffer)
+        PutKatOsOldValues := true;
+    }
+    else
+    {
+      if ( loValue.OsChgParOld.cValue = comp(0) )
+        PutKatOsOldValues := iKauReff.DeleteReff( coKatOS, vbKatOs.NRec, Word(loValue.OsChgParOld.dValue) )
+      else
+        PutKatOsOldValues := iKauReff.SetKauReff( coKatOS, vbKatOs.NRec, Word(loValue.OsChgParOld.dValue), loValue.OsChgParOld.cValue );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Заполняет в буфере SpKatOs старые значения дополнительных параметров по
+// текущей операции, текущему методу учета и карточке.
+// Необходима, например, при отмене проведения операции.
+// Возвращает true если произошло изменение значений в переданном буфере.
+// ---------------------------------------------------------------------------
+public function PutSpKatOsOldValues( var vbSpKatOs : type$SpKatOs ) : boolean;
+{
+  PutSpKatOsOldValues := false;
+  loValue.cMoveOsNRec  := cMoveOsNRec;
+  loValue.cNastrOsNRec := cNastrOsNRec;
+  loValue.cKatOsNRec   := cKatOsNRec;
+
+  loValue._loop OsChgParOld
+    if PutSpKatOsBuf(loValue.OsChgParOld.ParCode,vbSpKatOs,loValue.OsChgParOld.buffer)
+      PutSpKatOsOldValues := true;
+}
+
+// ===========================================================================
+//
+//   Визуальная часть
+//
+// ---------------------------------------------------------------------------
+
+create view loParNam
+var
+  cKatMolRec  : comp;
+  cIspOsRec   : comp;
+  cHozOperRec : comp;
+  cOsAlgRec   : comp;
+  cKodOfRec   : comp;
+  cPrSbRec    : comp;
+  cCORec      : comp;
+  cSposobRec  : comp;
+  cGrupRec    : comp;
+  cNormaRec   : comp;
+  cKatNalGr   : comp;
+from
+   KatMol
+ , IspOs
+ , HozOper
+ , OsAlg
+ , KodOf
+ , PrSb
+ , FpCO
+ , Sposob
+ , GrOs
+ , VidNorma
+ , KatNalGr
+where
+((
+  cKatMolRec  == KatMol.NRec  and
+  cIspOsRec   == IspOs.NRec   and
+  cHozOperRec == HozOper.NRec and
+  cOsAlgRec   == OsAlg.NRec   and
+  cSposobRec  == Sposob.nRec  and
+  cGrupRec    == GrOs.nRec    and
+  cKodOfRec   == KodOf.NRec   and
+  cPrSbRec    == PrSb.NRec    and
+  cCORec      == FpCO.NRec    and
+  cNormaRec   == VidNorma.NRec and
+  cKatNalGr   == KatNalGr.NRec
+));
+
+Function GetNormaName(_cRec:comp):string;
+{
+  loParNam.cNormaRec := _cRec;
+  GetNormaName := '';
+
+  if ( loParNam.GetFirst VidNorma = tsOk )
+    GetNormaName := Trim(String(loParNam.VidNorma.Norma, 12, 4));
+}
+
+function GetKatMolName(_cRec:comp):string;
+{
+  loParNam.cKatMolRec := _cRec;
+  if ( loParNam.GetFirst KatMol = tsOk )
+    GetKatMolName := loParNam.KatMol.Name;
+  else
+    GetKatMolName := '';
+}
+
+function GetIspOsName(_cRec:comp):string;
+{
+  loParNam.cIspOsRec := _cRec;
+  if ( loParNam.GetFirst IspOs = tsOk )
+    GetIspOsName := loParNam.IspOs.NameIs;
+  else
+    GetIspOsName := '';
+}
+
+function GetHozOperName(_cRec:comp):string;
+{
+  loParNam.cHozOperRec := _cRec;
+  if ( loParNam.GetFirst HozOper = tsOk )
+    GetHozOperName := loParNam.HozOper.Name1;
+  else
+    GetHozOperName := '';
+}
+
+function GetOsAlgName(_cRec:comp):string;
+{
+  loParNam.cOsAlgRec := _cRec;
+  if ( loParNam.GetFirst OsAlg = tsOk )
+    GetOsAlgName := loParNam.OsAlg.Name;
+  else
+    GetOsAlgName := '';
+}
+
+function GetKodOfName(_cRec:comp):string;
+{
+  loParNam.cKodOfRec := _cRec;
+  if ( loParNam.GetFirst KodOf = tsOk )
+    GetKodOfName := loParNam.KodOf.Name_of;
+  else
+    GetKodOfName := '';
+}
+
+function GetPrSbName(_cRec:comp):string;
+{
+  loParNam.cPrSbRec := _cRec;
+  if ( loParNam.GetFirst PrSb = tsOk )
+    GetPrSbName := loParNam.PrSb.Name;
+  else
+    GetPrSbName := '';
+}
+
+function GetFpCOName(_cRec:comp):string;
+{
+  loParNam.cCORec := _cRec;
+  if ( loParNam.GetFirst FpCO = tsOk )
+    GetFpCOName := loParNam.FpCO.Name;
+  else
+    GetFpCOName := '';
+}
+
+function GetSposobName(_cRec:comp) : string;
+{
+  loParNam.cSposobRec := _cRec;
+  if ( loParNam.GetFirst Sposob = tsOk )
+    GetSposobName := loParNam.Sposob.NameSb;
+  else
+    GetSposobName := '';
+
+}//GetSposobName
+
+function GetGrupName(_cRec:comp):string;
+{
+  loParNam.cGrupRec := _cRec;
+  if ( loParNam.GetFirst GrOs = tsOk )
+    GetGrupName := loParNam.GrOs.NameGr;
+  else
+    GetGrupName := '';
+}//GetGrupName
+
+Function GetNalogGrup(_cRec:comp):string;
+{
+  loParNam.cKatNalGr := _cRec;
+
+  if ( loParNam.GetFirst KatNalGr = tsOk )
+    GetNalogGrup := loParNam.KatNalGr.Name;
+  else
+    GetNalogGrup := '';
+}
+
+// Формирование подписи: год, года, лет
+// Если есть дробная часть, то пишем: года
+function YearSuffix(pdVal:double) : string;
+var R : string;
+{
+  R := '';
+
+  if ( pdVal != Round(pdVal) )
+  {
+    R := 'года';
+  }
+
+  if ( R = '' and pdVal > 9 )
+  {
+    pdVal := integer(pdVal) mod 100;
+    if (pdVal >= 11) and (pdVal <= 19)
+      R := 'лет';
+  }
+
+  if (R = '')
+  {
+    pdVal := integer(pdVal) mod 10;
+    if ((pdVal >= 5) and (pdVal <= 9)) or (pdVal = 0)
+      R := 'лет'
+    else
+      if (pdVal >= 2) and (pdVal <= 4)
+        R := 'года'
+      else
+        R := 'год';
+  }
+
+  YearSuffix := R;
+}
+
+// ---------------------------------------------------------------------------
+// Расшифровка значения параметра
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwTiDk     - тип: ОС или НМА
+//     pbOsChgPar - буфер таблицы параметров
+// ---------------------------------------------------------------------------
+function GetParStrValue(pwTiDk : word; pbOsChgPar : type$OsChgPar) : string;
+{
+  case pbOsChgPar.ParCode of
+  //------------------------
+    cgOSChg_None:     GetParStrValue := '';
+  //------------------------
+    cgOsChg_Podr:     GetParStrValue := #ShowKau(cgKau_KatPodr,pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_Mol:      GetParStrValue := #ShowKau(cgKau_KatMOL,pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_Isp:      GetParStrValue := #ShowKau(if(pwTiDk = 15,cgKau_IspOs,cgKau_IspNMA),pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_HozOper:  GetParStrValue := GetHozOperName(pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_Metod:    GetParStrValue := GetOsAlgName(pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_SrokIsp:  GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]3666666666.8999') + ' ' +
+                                         if(wGetTune('OS.SrokIspEdIzm')=0,'мес',YearSuffix(pbOsChgPar.dValue));
+  //------------------------
+    cgOsChg_PoprKoef: GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]3666666666.8999');
+  //------------------------
+    cgOsChg_GrAm:     GetParStrValue := #ShowKau(cgKau_AmortGr,pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_Norma:    GetParStrValue := GetNormaName(pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_OKOF:     GetParStrValue := GetKodOfName(pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_PrSb:     GetParStrValue := #ShowKau(if(pwTiDk = 15,cgKau_PrSbOs,cgKau_PrSbNMA),pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_CO:       GetParStrValue := #ShowKau(cgKau_FpCO,pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_Sposob:   GetParStrValue := GetSposobName(pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_Grup:     GetParStrValue := #ShowKau(cgKau_GrOs,pbOsChgPar.cValue);
+  //------------------------
+    cgOsChg_StoimPs:  GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]36666666666666.8999');
+  //------------------------
+    cgOsChg_IznosPs:  GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]36666666666666.8999');
+  //------------------------
+    cgOsChg_Stoim:    GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]36666666666666.8999');
+  //------------------------
+    cgOsChg_StoimL:   GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]36666666666666.8999');
+  //------------------------
+    cgOsChg_BaseStoim:GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]36666666666666.8999');
+  //------------------------
+    cgOsChg_KauReff:  GetParStrValue := if ( Not IsValid(tnKatKau), '', KatKau.Code + '::' + #ShowKau(KatKau.KodGroup, pbOsChgPar.cValue) );
+  //------------------------
+    cgOsChg_DateK  :
+      GetParStrValue := if (Longint(pbOsChgPar.cValue) = 0, '', DateToStr(Longint(pbOsChgPar.cValue), 'DD/MM/YYYY'));
+  //------------------------
+    cgOsChg_NalogGr:
+    {
+      GetParStrValue := '';
+
+      if (pbOsChgPar.cValue <> Comp(0))
+      {
+        var cRecNGr: comp;
+        cRecNGr := pbOsChgPar.cValue;
+
+        if (GetFirst KatNalGr where ((cRecNGr == KatNalGr.NRec)) = tsOk)
+          GetParStrValue := KatNalGr.Name
+      }
+    }
+  //------------------------
+    cgOsChg_Kol:    GetParStrValue := DoubleToStr(pbOsChgPar.dValue,'\4p[|-]36666666666666.8999');
+  //------------------------
+  else
+    GetParStrValue := FormatStr_1('<параметр неизвестен, код %d>',pbOsChgPar.ParCode);
+  end;
+}
+
+// ---------------------------------------------------------------------------
+// Расшифровка значения параметра на основании карточки
+// Передаваемые параметры:
+//     pwParCode  - код параметра
+//     pbKatOs    - буфер-источник KatOS данных
+//     pbSpKatOs  - буфер-источник SpKatOS данных
+// ---------------------------------------------------------------------------
+Function GetParStrValueFromKatOS(pwParCode : word; pbKatOs : type$KatOs; pbSpKatOs : type$SpKatOs) : string;
+{
+  GetParStrValueFromKatOS := '';
+
+  case pwParCode of
+  //---------------
+    cgOsChg_Podr :
+      GetParStrValueFromKatOS := #ShowKau(cgKau_KatPodr, pbKatOs.cPodr);
+  //---------------
+    cgOsChg_Mol :
+      GetParStrValueFromKatOS := #ShowKau(cgKau_KatMOL, pbKatOs.cMol);
+  //---------------
+    cgOsChg_OKOF :
+      GetParStrValueFromKatOS := GetKodOfName(pbKatOs.cOKOF);
+  //---------------
+    cgOsChg_PrSb :
+      GetParStrValueFromKatOS := #ShowKau(if(pbKatOs.TiDk = 15, cgKau_PrSbOs, cgKau_PrSbNMA), pbKatOs.cPrSb);
+  //---------------
+    cgOsChg_CO :
+      GetParStrValueFromKatOS := #ShowKau(cgKau_FpCO, pbKatOs.cCO);
+  //---------------
+    cgOsChg_Sposob :
+      GetParStrValueFromKatOS := GetSposobName(pbKatOs.cSposob);
+  //---------------
+    cgOsChg_Grup :
+      GetParStrValueFromKatOS := #ShowKau(cgKau_GrOs, pbKatOs.cGrup);
+  //---------------
+    cgOsChg_Isp :
+      GetParStrValueFromKatOS := #ShowKau(if(pbKatOs.TiDk = 15, cgKau_IspOs, cgKau_IspNMA), pbSpKatOs.cIsp);
+  //---------------
+    cgOsChg_HozOper :
+      GetParStrValueFromKatOS := GetHozOperName(pbSpKatOs.cHozOper);
+  //---------------
+    cgOsChg_Metod :
+      GetParStrValueFromKatOS := GetOsAlgName(pbSpKatOs.cMetod);
+  //---------------
+    cgOsChg_SrokIsp :
+      GetParStrValueFromKatOS := DoubleToStr(pbSpKatOs.SrokIsp,'\4p[|-]3666666666.8999') + ' '
+                               + if (wGetTune('OS.SrokIspEdIzm') = 0, 'мес', YearSuffix(pbSpKatOs.SrokIsp));
+  //---------------
+    cgOsChg_PoprKoef :
+      GetParStrValueFromKatOS := DoubleToStr(pbSpKatOs.PoprKoef,'\4p[|-]3666666666.8999');
+  //---------------
+    cgOsChg_GrAm :
+      GetParStrValueFromKatOS := #ShowKau(cgKau_AmortGr, pbSpKatOs.cGrAm);
+  //---------------
+    cgOsChg_Norma :
+      GetParStrValueFromKatOS := GetNormaName(pbSpKatOs.cNorma);
+  //---------------
+    cgOsChg_StoimPs :
+      GetParStrValueFromKatOS := DoubleToStr(pbSpKatOs.StoimPs,'\4p[|-]36666666666666.8999');
+  //---------------
+    cgOsChg_IznosPs :
+      GetParStrValueFromKatOS := DoubleToStr(pbSpKatOs.IznosPs,'\4p[|-]36666666666666.8999');
+  //---------------
+    cgOsChg_Stoim :
+      GetParStrValueFromKatOS := DoubleToStr(pbSpKatOs.Stoim, '\4p[|-]36666666666666.8999');
+  //---------------
+    cgOsChg_StoimL :
+      GetParStrValueFromKatOS := DoubleToStr(pbSpKatOs.StoimL, '\4p[|-]36666666666666.8999');
+  //---------------
+    cgOsChg_BaseStoim :
+      GetParStrValueFromKatOS := DoubleToStr(pbSpKatOs.DbReserv, '\4p[|-]36666666666666.8999');
+  //---------------
+    cgOsChg_KauReff:
+    {
+      var cRecKauValue : comp;
+
+      if Not IsValid(tnOsChgParOld)
+      {
+        // нужно вытянуть значение КАУ для текщуго KatOS
+        if IsValid(tnKatKau)
+          cRecKauValue := iKauReff.GetKauReff(coKatOS, pbKatOs.NRec, KatKau.KodGroup);
+      }
+      else
+        cRecKauValue := OsChgParOld.cValue;
+
+      GetParStrValueFromKatOS := if ( Not IsValid(tnKatKau)
+                                    , ''
+                                    , KatKau.Code + '::' + #ShowKau(KatKau.KodGroup, cRecKauValue) );
+    }
+  //---------------
+    cgOsChg_DateK :
+      GetParStrValueFromKatOS := if (Longint(pbKatOs.DateK) = 0, '', DateToStr(pbKatOs.DateK, 'DD/MM/YYYY'));
+  //---------------
+    cgOsChg_NalogGr:
+    {
+      GetParStrValueFromKatOS := '';
+
+      if (GetFirst NalGrOS where ((pbKatOs.NRec==NalGrOs.cKatOS)) = tsOk)
+        if (GetFirst KatNalGr where ((NalGrOs.cKatNalGr == KatNalGr.NRec)) = tsOk)
+          GetParStrValueFromKatOS := KatNalGr.Name
+    }
+  //---------------
+    cgOsChg_Kol :
+      GetParStrValueFromKatOS := DoubleToStr(pbKatOs.Kol, '\4p[|-]36666666666666.8999');
+  //---------------
+  end;
+}
+
+// ---------------------------------------------------------------------------
+// Строкое значение параметра на основании карточки
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwParCode  - код параметра
+//     pbKatOs    - буфер-источник KatOS данных
+//     pbSpKatOs  - буфер-источник SpKatOS данных
+// ---------------------------------------------------------------------------
+Function GetValueFromKatOS(pwParCode : word; pbKatOs : type$KatOs; pbSpKatOs : type$SpKatOs) : string;
+{
+  GetValueFromKatOS := '';
+
+  case pwParCode of
+  //---------------
+    cgOsChg_Podr :
+      GetValueFromKatOS := String(pbKatOs.cPodr, 0, 0);
+  //---------------
+    cgOsChg_Mol :
+      GetValueFromKatOS := String(pbKatOs.cMol, 0, 0);
+  //---------------
+    cgOsChg_OKOF :
+      GetValueFromKatOS := String(pbKatOs.cOKOF, 0, 0);
+  //---------------
+    cgOsChg_PrSb :
+      GetValueFromKatOS := String(pbKatOs.cPrSb, 0, 0);
+  //---------------
+    cgOsChg_CO :
+      GetValueFromKatOS := String(pbKatOs.cCO, 0, 0);
+  //---------------
+    cgOsChg_Sposob :
+      GetValueFromKatOS := String(pbKatOs.cSposob, 0, 0);
+  //---------------
+    cgOsChg_Grup :
+      GetValueFromKatOS := String(pbKatOs.cGrup, 0, 0);
+  //---------------
+    cgOsChg_Isp :
+      GetValueFromKatOS := String(pbSpKatOs.cIsp, 0, 0);
+  //---------------
+    cgOsChg_HozOper :
+      GetValueFromKatOS := String(pbSpKatOs.cHozOper, 0, 0);
+  //---------------
+    cgOsChg_Metod :
+      GetValueFromKatOS := String(pbSpKatOs.cMetod, 0, 0);
+  //---------------
+    cgOsChg_SrokIsp :
+      GetValueFromKatOS := DoubleToStr(pbSpKatOs.SrokIsp,'\4p[|-]3666666666.8999') + ' '
+                               + if (wGetTune('OS.SrokIspEdIzm') = 0, 'мес', YearSuffix(pbSpKatOs.SrokIsp));
+  //---------------
+    cgOsChg_PoprKoef :
+      GetValueFromKatOS := DoubleToStr(pbSpKatOs.PoprKoef,'\4p[|-]3666666666.8999');
+  //---------------
+    cgOsChg_GrAm :
+      GetValueFromKatOS := String(pbSpKatOs.cGrAm, 0, 0);
+  //---------------
+    cgOsChg_Norma :
+      GetValueFromKatOS := String(pbSpKatOs.cNorma, 0, 0);
+  //---------------
+    cgOsChg_DateK :
+      GetValueFromKatOS := if (Longint(pbKatOs.DateK) = 0, '', DateToStr(pbKatOs.DateK, 'DD/MM/YYYY'));
+  //---------------
+    cgOsChg_Kol :
+      GetValueFromKatOS := DoubleToStr(pbKatOs.Kol,'\4p[|-]3666666666.8999');
+  //---------------
+  end;
+}
+
+//------------------------------------------------------------------------------
+Window winSetValueDate ('', ,sci1Esc) EscClose, doAccept;
+  Show At (,,50, 3);
+
+Screen scrSetValueDate;
+  noTableNavigation;
+Fields
+  sNameParamDate   : Skip;
+  dDateOsChg_DateK : [10, 'DD/MM/YYYY'], NoProtect;
+<<
+
+.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.@@@@@@@@@@
+>>
+end;
+
+End;  // Window
+
+// ---------------------------------------------------------------------------
+// Выбор значения из соответствующих каталогов
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwTiDk    - тип ОС или НМА
+//     pwParCode - код параметра
+//     vcRec     - значение (возвращаемый параметр)
+// ---------------------------------------------------------------------------
+// Возвращает TRUE, если было выбрано отличное от исходного значение.
+// ---------------------------------------------------------------------------
+function PickParValue(pwTiDk : word; pwParCode : word; var vcRec : comp) : boolean;
+var
+  tcOldRec : comp;
+  wCodeKau : word;
+{
+  tcOldRec := vcRec;
+  wCodeKau := 0;
+
+  case pwParCode of
+  //---------------
+    cgOsChg_Podr:     wCodeKau := cgKau_KatPodr;
+  //---------------
+    cgOsChg_Mol:      wCodeKau := cgKau_KatMOL;
+  //---------------
+    cgOsChg_Isp:      wCodeKau := if (pwTiDk = 15, cgKau_IspOs, cgKau_IspNMA);
+  //---------------
+    cgOsChg_HozOper:  PickParValue := (RunInterface('GetHozOper', 0, pwTiDk, cgOs_5_Amort, vcRec, (cgiPick or cgiSetFilter)) = cmDefault);
+  //---------------
+    cgOsChg_Metod:    PickParValue := (RunInterface('GetAlgAmort',vcRec,'начисления амортизации',pwTiDk,0,0) = cmDefault);
+  //---------------
+    cgOsChg_GrAm:     wCodeKau := cgKau_AmortGr;
+  //---------------
+    cgOsChg_Norma:    PickParValue := (RunInterface('KatVidNorma', pwTiDk, vcRec, Word(0 + 8), False, 1) = cmDefault);
+  //---------------
+    cgOsChg_OKOF:     PickParValue := (RunInterface('KodOkof',vcRec,0) = cmDefault);
+  //---------------
+    cgOsChg_PrSb:     wCodeKau := if (pwTiDk = 15, cgKau_PrSbOs, cgKau_PrSbNMA);
+  //---------------
+    cgOsChg_CO:       wCodeKau := cgKau_FpCO;
+  //---------------
+    cgOsChg_Sposob:   PickParValue := (RunInterface('GetSposobAmort', vcRec, 0) = cmDefault);
+  //---------------
+    cgOsChg_Grup:     wCodeKau := cgKau_GrOs;
+  //---------------
+    cgOsChg_KauReff:  wCodeKau := w_CurReffKau;
+  //---------------
+    cgOsChg_DateK:
+    {
+      dDateOsChg_DateK := Longint(vcRec);
+      sNameParamDate := 'Дата ввода в эксплуатацию';
+      SetWindowTitle(winSetValueDate, 'Ввод нового значения');
+      RunWindowModal(winSetValueDate);
+      vcRec := Comp(dDateOsChg_DateK);
+      PickParValue := True;
+    }
+  //---------------
+    cgOsChg_NalogGr:
+    {
+      if (RunInterface('GetKatNalGr', pwTiDk, vcRec, Comp(0)) <> cmDefault)
+        vcRec := tcOldRec
+      else
+        PickParValue := True;
+    }
+  end;
+
+  if (wCodeKau <> 0)
+    PickParValue := (iGetKau.GetCodeKau(cgiPick, wCodeKau, vcRec) <> 0);
+
+  PickParValue := PickParValue and (tcOldRec != vcRec);
+}
+
+
+// ---------------------------------------------------------------------------
+// Проверка возможности редактирования параметра по заданному методу учета
+// для текущей операции.
+// Для текущего метода учета проверка осуществляется по установленному флагу
+// в свойстве wMayEdit. Для других методов учета анализируется проведенность
+// текущей операции.
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwParCode     - код параметра
+//     pcNastrOsNRec - метод учета
+// ---------------------------------------------------------------------------
+function mayEditValue(pwParCode:word; pcNastrOsNRec:comp) : boolean;
+{
+  mayEditValue := false; // неизвестный вариант
+
+  if ( wMayEdit = cgChgParMayNotEdit )
+    mayEditValue := false
+  else
+  {
+    if ( (wMayEdit AND cgChgParMayEditAllMeth) = cgChgParMayEditAllMeth )
+      mayEditValue := true
+    else
+      if ( (wMayEdit AND cgChgParMayEditOnlyCurMeth) = cgChgParMayEditOnlyCurMeth )
+      {
+        if ( not isMultiMethod(pwParCode) )
+        {
+          // запрещено редактирование параметров единых для всех методов учета
+          mayEditValue := false;
+        }
+        else
+        {
+          if ( pcNastrOsNRec = cNastrOsNRec )
+            mayEditValue := true;
+          else
+            mayEditValue := (not pCheckOper.OperProvUcht(cMoveOsNRec,pcNastrOsNRec));
+        }
+      }
+
+    if ( mayEditValue AND
+         ( (wMayEdit AND cgChgParMayEditOnlyCurOS) = cgChgParMayEditOnlyCurOS ) )
+    {
+      // запрещено редактирование для всех ИК, можно только для текущей
+      if ( cKatOsNRec = comp(0) )
+        mayEditValue := false
+      else
+        mayEditValue := true;
+    }
+  }
+}
+
+//******************************************************************************
+create view loPresPar
+var
+  cMoveOsRec  : comp;
+  cKatOsRec   : comp;
+  cCurRec     : comp;
+  wRecType    : word;
+  wRecParCode : word;
+  wKau        : word;
+from
+  OsChgPar
+where
+((
+   cMoveOsRec  == OsChgPar.cMoveOs  and
+   cKatOsRec   == OsChgPar.cKatOs   and
+   wRecType    == OsChgPar.wType    and
+   wRecParCode == OsChgPar.ParCode  and
+   ( cCurRec != OsChgPar.NRec )
+));
+// ---------------------------------------------------------------------------
+// Проверка - есть ли заданный в текущей записи параметр еще в другой записи
+// по этой операции.
+// ---------------------------------------------------------------------------
+function isPresentPar : boolean;
+{
+  loPresPar.cCurRec     := OsChgParNew.NRec;
+  loPresPar.cMoveOsRec  := OsChgParNew.cMoveOs;
+  loPresPar.cKatOsRec   := OsChgParNew.cKatOs;
+  loPresPar.wRecType    := OsChgParNew.wType;
+  loPresPar.wRecParCode := OsChgParNew.ParCode;
+  loPresPar.wKau        := Word(0);
+
+  case loPresPar.wRecParCode of
+  //---------------------------
+    cgOsChg_StoimPs
+  , cgOsChg_IznosPs
+  , cgOsChg_Stoim
+  , cgOsChg_StoimL
+  , cgOsChg_BaseStoim:
+    {
+      loPresPar.ResetBounds(loPresPar.tnOsChgPar);
+      isPresentPar := (loPresPar.RecordExists OsChgPar
+                                   where (( cMoveOsRec     == OsChgPar.cMoveOs and
+                                            wRecType       == OsChgPar.wType   and
+                                            cKatOsRec      == OsChgPar.cKatOS  and
+                                            wRecParCode    == OsChgPar.ParCode and
+                                 loOsChgPar.cNastrOSNRec   == OsChgPar.cNastrOS
+                                         )) = tsOk);
+      loPresPar.SetBounds(loPresPar.tnOsChgPar);
+    }
+  //---------------------------
+    cgOsChg_KauReff:
+    {
+      loPresPar.ResetBounds(loPresPar.tnOsChgPar);
+      loPresPar.wKau := Word(OsChgParNew.dValue);
+      isPresentPar := (loPresPar.RecordExists OsChgPar
+                                   where (( cMoveOsRec     == OsChgPar.cMoveOs and
+                                            wRecType       == OsChgPar.wType   and
+                                            cKatOsRec      == OsChgPar.cKatOS  and
+                                            wRecParCode    == OsChgPar.ParCode and
+                                            ( loPresPar.wKau = Word(OsChgPar.dValue) AND
+                                              cCurRec <> OsChgPar.NRec )
+                                         )) = tsOk);
+      loPresPar.SetBounds(loPresPar.tnOsChgPar);
+    }
+  //---------------------------
+  else
+    isPresentPar := ( loPresPar.GetFirst OsChgPar = tsOk );
+  end;
+}
+
+//******************************************************************************
+create view loChkVal
+var
+  cMoveOsRec : comp;
+  wParCode   : word;
+  cCurNastr  : comp;
+from
+  OsChgPar,
+  MoveOs,
+  NastrOs
+where
+((
+  cMoveOsRec     == OsChgPar.cMoveOs and
+  cgOsChg_NewVal == OsChgPar.wType   and
+  0              == OsChgPar.cKatOs  and
+  wParCode       == OsChgPar.ParCode and
+  (cCurNastr != OsChgPar.cNastrOs)   and
+  // --------------------------------------------
+  cMoveOsRec     == MoveOs.NRec      and
+  MoveOs.TipDoc  == NastrOs.TiDk     and
+  (cCurNastr != NastrOs.NRec)
+));
+// ---------------------------------------------------------------------------
+// Проверка - задано ли значение параметра для текущей редактируемой записи
+// хотя бы в одном методе учета.
+// ---------------------------------------------------------------------------
+function isSetParValue : boolean;
+var
+  R : boolean;
+  wCurKau: word;
+{
+  R := OsChgParNew.ParCode <> 0 and
+       (
+         OsChgParNew.cValue <> 0 or
+         OsChgParNew.dValue <> 0
+       );
+
+  if ( not R )
+  {
+    if ( isMultiMethod(OsChgParNew.ParCode) )
+    {
+      loChkVal.cMoveOsRec := cMoveOsNRec;
+      loChkVal.wParCode   := OsChgParNew.ParCode;
+      loChkVal.cCurNastr  := OsChgParNew.cNastrOs;
+
+      wCurKau := 0;
+
+      if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+        wCurKau := Word(OsChgParNew.dValue);
+
+      loChkVal._loop OsChgPar
+      {
+        if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+        {
+          if ( wCurKau = Word(loChkVal.OsChgPar.dValue) )
+            if ( loChkVal.OsChgPar.cValue <> 0 )
+              R := true;
+        }
+        else
+          if ( (loChkVal.OsChgPar.cValue <> 0) or (loChkVal.OsChgPar.dValue <> 0) )
+            R := true;
+
+        if R
+          Break
+      }
+    }
+  }
+
+  isSetParValue := R;
+}
+
+//******************************************************************************
+create view loSameVal
+var
+  cMoveOsRec  : comp;
+  cKatOsRec   : comp;
+  wRecType    : word;
+  wRecParCode : word;
+  cRecValue   : comp;
+  dRecValue   : double;
+  cCurRec     : comp;
+from
+  OsChgPar
+where
+((
+   cMoveOsRec  == OsChgPar.cMoveOs  and
+   cKatOsRec   == OsChgPar.cKatOs   and
+   wRecType    == OsChgPar.wType    and
+   wRecParCode == OsChgPar.ParCode  and
+   (
+     cRecValue = OsChgPar.cValue and
+     dRecValue = OsChgPar.dValue and
+     cCurRec  != OsChgPar.NRec
+   )
+));
+// ---------------------------------------------------------------------------
+// Проверка - задано ли такое же значение в другом методе учета по текущему
+// параметру в текущей операции.
+// ---------------------------------------------------------------------------
+function isSameParValue : boolean;
+{
+  loSameVal.cCurRec     := OsChgParNew.NRec;
+  loSameVal.cMoveOsRec  := OsChgParNew.cMoveOs;
+  loSameVal.cKatOsRec   := OsChgParNew.cKatOs;
+  loSameVal.wRecType    := OsChgParNew.wType;
+  loSameVal.wRecParCode := OsChgParNew.ParCode;
+  loSameVal.cRecValue   := OsChgParNew.cValue;
+  loSameVal.dRecValue   := OsChgParNew.dValue;
+  isSameParValue := ( loSameVal.GetFirst OsChgPar = tsOk );
+}
+
+// ---------------------------------------------------------------------------
+// Добавление данных из текущего метода учета в другие
+// ---------------------------------------------------------------------------
+procedure InsertOtherMeth;
+{
+  // if (OS_ChangeParmOnlyOneMU)
+  //  Exit;
+
+  if ( (OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+       (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+       (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+       (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+       (OsChgParNew.ParCode = cgOsChg_BaseStoim) )
+    Exit;
+
+
+  if isMultiMethod(OsChgParNew.ParCode)
+  {
+    loChkVal.cMoveOsRec := cMoveOsNRec;
+    loChkVal.wParCode   := OsChgParNew.ParCode;
+    loChkVal.cCurNastr  := OsChgParNew.cNastrOs;
+    loChkVal.FixRelations(loChkVal.cMoveOsRec);
+
+    loChkVal._loop NastrOs
+    {
+      loChkVal.OsChgPar.buffer   := OsChgParNew.buffer;
+      loChkVal.OsChgPar.NRec     := 0;
+      loChkVal.OsChgPar.cNastrOs := loChkVal.NastrOs.NRec;
+
+      SetNewValueFromOther(OsChgParNew.nRec, loChkVal.NastrOs.NRec, loChkVal.OsChgPar.cValue, loChkVal.OsChgPar.dValue);
+      loChkVal.Insert current OsChgPar;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Размножение данных из текущего метода учета в другие
+// ---------------------------------------------------------------------------
+procedure UpdateOtherMeth;
+{
+  if (OS_ChangeParmOnlyOneMU)
+    Exit;
+
+  if ( (OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+       (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+       (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+       (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+       (OsChgParNew.ParCode = cgOsChg_BaseStoim) )
+    Exit;
+
+  if isMultiMethod(OsChgParNew.ParCode)
+  {
+    loChkVal.cMoveOsRec := cMoveOsNRec;
+    loChkVal.wParCode   := OsChgParNew.ParCode;
+    loChkVal.cCurNastr  := OsChgParNew.cNastrOs;
+
+    loChkVal._loop OsChgPar
+    {
+      if ( mayHaveSameValue(OsChgParNew.ParCode) and  loChkVal.OsChgPar.cValue = 0  and  loChkVal.OsChgPar.dValue = 0 )
+      {
+        if ( mayEditValue(OsChgParNew.ParCode,OsChgParNew.cNastrOs) )
+        {
+          loChkVal.OsChgPar.cValue := OsChgParNew.cValue;
+          loChkVal.OsChgPar.dValue := OsChgParNew.dValue;
+          loChkVal.Update current OsChgPar;
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Удаление данных из других методов учета по заданному параметру.
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pwParCode - код параметра
+// ---------------------------------------------------------------------------
+procedure DeleteOtherMeth(pwParCode, pwType :word);
+{
+  // if (OS_ChangeParmOnlyOneMU)
+  //  Exit;
+
+  if ( (pwParCode = cgOsChg_StoimPs) OR
+       (pwParCode = cgOsChg_IznosPs) OR
+       (pwParCode = cgOsChg_Stoim)   OR
+       (pwParCode = cgOsChg_StoimL)  OR
+       (pwParCode = cgOsChg_BaseStoim) )
+    Exit;
+
+  if isMultiMethod(pwParCode)
+  {
+    loChkVal.cMoveOsRec := cMoveOsNRec;
+    loChkVal.wParCode   := pwParCode;
+    loChkVal.cCurNastr  := OsChgParNew.cNastrOs;
+
+    if ( pwParCode <> cgOsChg_KauReff )
+      loChkVal.Delete OsChgPar where
+               (( loChkVal.cMoveOsRec == OsChgPar.cMoveOs and
+                  pwType              == OsChgPar.wType   and   //cgOsChg_NewVal
+                  comp(0)             == OsChgPar.cKatOs  and
+                  loChkVal.wParCode   == OsChgPar.ParCode and
+                  (loChkVal.cCurNastr != OsChgPar.cNastrOs) ))
+    else
+      if ( loOsChgPar.w_CurReffKau <> 0 )
+        loChkVal.Delete OsChgPar where
+                 (( loChkVal.cMoveOsRec == OsChgPar.cMoveOs and
+                    pwType              == OsChgPar.wType   and   //cgOsChg_NewVal
+                    comp(0)             == OsChgPar.cKatOs  and
+                    loChkVal.wParCode   == OsChgPar.ParCode and
+                    ( (loOsChgPar.w_CurReffKau = Word(OsChgPar.dValue)) AND
+                      (loChkVal.cCurNastr <> OsChgPar.cNastrOs) )
+                 ))
+  }
+}
+
+//------------------------------------------------------------------------------
+Table Struct MT_MvOS
+(
+  SysOper     : word,
+  cMoveOS     : comp,
+  DatOb       : date
+)
+with index
+(
+  Index0 = cMoveOS,
+  Index1 = DatOb + cMoveOS
+);
+
+//------------------------------------------------------------------------------
+Create view loChgKau
+var
+  wSysOper
+, wTypeChgPar : word;
+  cRecKatOS   : comp;
+  dBeg
+, dEnd        : date;
+Select
+ *
+From
+  MoveOS
+, SpMoveOS
+, Mt_MvOS (Index1)
+, OsChgPar
+where
+((
+    MT_MvOS.cMoveOS == OsChgPar.cMoveOs
+and wTypeChgPar     == OsChgPar.wType
+and cRecKatOS       == OsChgPar.cKatOs
+and cgOsChg_KauReff == OsChgPar.ParCode
+))
+
+Bounds bySpMoveOS  =
+       wSysOper    == SpMoveOS.SysOper         and
+       cRecKatOS   == SpMoveOS.cKatOS          and
+       dBeg       <<= SpMoveOS.DatOb (NoIndex) and
+       dEnd       >>= SpMoveOS.DatOb (NoIndex)
+
+Bounds byMoveOS =
+       SpMoveOS.cMoveOS == MoveOS.NRec
+;
+
+var arrSysOper : array [1..1] of word;
+//
+Function CreateMT_MvOS(pcKatOS: comp; dStartDate, dDate: date): boolean;
+var  i : word;
+  cRecMoveOS : comp;
+{
+  CreateMT_MvOS := False;
+  loChgKau.MTClear(loChgKau.tnMT_MvOS, mfNormal);
+  loChgKau.DeleteIndex(loChgKau.tnMT_MvOS, 0);
+  loChgKau.DeleteIndex(loChgKau.tnMT_MvOS, 1);
+  loChgKau.cRecKatOS := pcKatOS;
+
+  if (dStartDate > dDate) // при откатах
+  {
+    loChgKau.dBeg := dDate;
+    loChgKau.dEnd := dStartDate;
+  }
+  else
+  {
+    loChgKau.dBeg := dStartDate;
+    loChgKau.dEnd := dDate;
+  }
+
+  arrSysOper[1] := cgOs_2_VnuPer;   // Внутреннее перемещение
+  arrSysOper[2] := cgOs_3_IzmStm;   // Изменение стоимости
+  arrSysOper[3] := cgOs_9_ChgPar;   // Изменение параметров в карточке ОС/НМА на некоторый период времени.
+
+  if Not loChgKau.BoundActive(loChgKau.tbbySpMoveOS)
+    loChgKau.PushBounds(loChgKau.tbbySpMoveOS);
+
+  if Not loChgKau.BoundActive(loChgKau.tbbyMoveOS)
+    loChgKau.PushBounds(loChgKau.tbbyMoveOS);
+
+  For ( i := 1; i <= 3; i++ )
+  {
+    loChgKau.wSysOper := arrSysOper[i];
+
+    if (loChgKau.RecordExists SpMoveOS = tsOk)
+      loChgKau._LOOP SpMoveOS
+        if loChgKau.IsValidAll(loChgKau.tnMoveOS)
+        {
+          cRecMoveOS := loChgKau.SpMoveOS.cMoveOS;
+
+          if (loChgKau.RecordExists MT_MvOS
+                                    where ((cRecMoveOS == MT_MvOs.cMoveOS)) <> tsOk)
+          {
+            loChgKau.ClearBuffer(loChgKau.tnMT_MvOS);
+            loChgKau.Mt_MvOS.SysOper := loChgKau.MoveOS.SysOper;
+            loChgKau.Mt_MvOS.cMoveOS := loChgKau.MoveOS.NRec;
+            loChgKau.Mt_MvOS.DatOb   := loChgKau.MoveOS.DatOb;
+            loChgKau.Insert Current MT_MvOs;
+          }
+        }
+  }
+
+  if (loChgKau.RecordsInTable(loChgKau.tnMt_MvOS) > 0)
+    CreateMT_MvOS := True;
+}
+
+//------------------------------------------------------------------------------
+// восстановление значений внешних КАУ
+// на основании операций:
+//  cgOs_2_VnuPer =  2;  // Внутреннее перемещение
+//  cgOs_3_IzmStm
+//  cgOs_9_ChgPar
+//  cgOsChg_OldVal = 1   // предыдущее значение
+//  cgOsChg_NewVal = 2   // новое значение
+//  cgOsChg_KauReff = 16  // Внешние КАУ
+Procedure RestoreKauReffByDate( pwTiDk: word; pcKatOS: comp; dStartDate, dDate: date );
+{
+  if Not CreateMT_MvOS(pcKatOS, dStartDate, dDate)
+    Exit;
+
+  if ( dStartDate >= dDate )
+  { //откат
+    loChgKau.wTypeChgPar := cgOsChg_OldVal;
+    loChgKau.cRecKatOS   := pcKatOS;
+
+    loChgKau._LOOP backward Mt_MvOS ordered by Mt_MvOS.DatOb
+    {
+      if pCheckOper.OperProv(loChgKau.Mt_MvOS.cMoveOS, comp(0))
+        loChgKau._LOOP OsChgPar
+          if ( loChgKau.OsChgPar.cValue = comp(0) )
+            iKauReff.DeleteReff( coKatOS
+                               , pcKatOS
+                               , Word(loChgKau.OsChgPar.dValue) )
+          else
+            iKauReff.SetKauReff( coKatOS
+                               , pcKatOS
+                               , Word(loChgKau.OsChgPar.dValue)
+                               , loChgKau.OsChgPar.cValue );
+    }
+  }
+  else
+  { // накат
+    loChgKau.wTypeChgPar := cgOsChg_NewVal;
+    loChgKau.cRecKatOS   := pcKatOS;
+
+    loChgKau._LOOP Mt_MvOS ordered by Mt_MvOS.DatOb
+    {
+      if pCheckOper.OperProv(loChgKau.MoveOS.NRec, comp(0))
+        loChgKau._LOOP OsChgPar
+          if ( loChgKau.OsChgPar.cValue = comp(0) )
+            iKauReff.DeleteReff( coKatOS
+                               , pcKatOS
+                               , Word(loChgKau.OsChgPar.dValue) )
+          else
+            iKauReff.SetKauReff( coKatOS
+                               , pcKatOS
+                               , Word(loChgKau.OsChgPar.dValue)
+                               , loChgKau.OsChgPar.cValue );
+    }
+  }
+};
+
+//******************************************************************************
+//..Приведение в соответствие на основании данных из карточки
+Create view loRefreshOsChgPar
+var
+  cMoveOsNRec
+, cKatOsNRec
+, cNastrOsNRec : comp;
+
+from
+  OsChgPar
+, KatOS
+, SpKatOS
+, NastrOs
+
+where
+((
+  cMoveOsNRec         == OsChgPar.cMoveOs  and
+  cgOsChg_OldVal      == OsChgPar.wType    and
+  cKatOsNRec          == OsChgPar.cKatOs   and
+  ( (cNastrOsNRec = OsChgPar.cNastrOs) OR
+    (comp(0) = OsChgPar.cNastrOs ) )       and
+  cKatOsNRec          == KatOS.NRec        and
+  KatOs.NRec          == SpKatOS.cKatOS    and
+  cNastrOsNRec        == NastrOS.NRec
+));
+
+//-----------------------------------------------------------------------------
+Function RefreshChgParForSpMoveOS(pcMoveOS, pcKatOS, pcNastrOS: comp; var pMsgKind : longint) : boolean;
+var
+  boMakeUpdateOsChrPar : boolean;
+  cRecKauValue : comp;
+{
+  loRefreshOsChgPar.cMoveOsNRec  := pcMoveOS;
+  loRefreshOsChgPar.cKatOsNRec   := pcKatOs;
+  loRefreshOsChgPar.cNastrOsNRec := pcNastrOS;
+  pMsgKind := 0;
+  RefreshChgParForSpMoveOS := False;
+
+  if (loRefreshOsChgPar.RecordExists OsChgPar = tsOk)
+  {
+    if (loRefreshOsChgPar.GetFirst KatOS <> tsOk)
+      Exit;
+
+    loRefreshOsChgPar._LOOP OsChgPar
+    {
+      boMakeUpdateOsChrPar := False;
+
+      case loRefreshOsChgPar.OsChgPar.ParCode of
+      //----------------------------------------
+        cgOsChg_Podr :
+          if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.KatOs.cPodr)
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.KatOs.cPodr;
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 1;
+          }
+      //---------------
+        cgOsChg_Mol :
+          if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.KatOs.cMol)
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.KatOs.cMol;
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 2;
+          }
+      //---------------
+        cgOsChg_OKOF :
+          if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.KatOs.cOKOF)
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.KatOs.cOKOF;
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 4;
+          }
+      //---------------
+        cgOsChg_PrSb :
+          if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.KatOs.cPrSb)
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.KatOs.cPrSb;
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 8;
+          }
+      //---------------
+        cgOsChg_CO :
+          if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.KatOs.cCO)
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.KatOs.cCO;
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 16;
+          }
+      //---------------
+        cgOsChg_Sposob :
+          if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.KatOs.cSposob)
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.KatOs.cSposob;
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 32;
+          }
+      //---------------
+        cgOsChg_Grup :
+          if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.KatOs.cGrup)
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.KatOs.cGrup;
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 64;
+          }
+      //---------------
+        cgOsChg_Isp :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.SpKatOs.cIsp)
+            {
+              loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.SpKatOs.cIsp;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 128;
+            }
+      //---------------
+        cgOsChg_HozOper :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.SpKatOs.cHozOper)
+            {
+              loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.SpKatOs.cHozOper;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 256;
+            }
+      //---------------
+        cgOsChg_Metod :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.SpKatOs.cMetod)
+            {
+              loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.SpKatOs.cMetod;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 512;
+            }
+      //---------------
+        cgOsChg_SrokIsp :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.SpKatOs.SrokIsp)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.SpKatOs.SrokIsp;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 1024;
+            }
+      //---------------
+        cgOsChg_PoprKoef :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.SpKatOs.PoprKoef)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.SpKatOs.PoprKoef;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 2048;
+            }
+      //---------------
+        cgOsChg_GrAm :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.SpKatOs.cGrAm)
+            {
+              loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.SpKatOs.cGrAm;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 4096;
+            }
+      //---------------
+        cgOsChg_Norma :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.cValue <> loRefreshOsChgPar.SpKatOs.cNorma)
+            {
+              loRefreshOsChgPar.OsChgPar.cValue := loRefreshOsChgPar.SpKatOs.cNorma;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 8192;
+            }
+      //---------------
+        cgOsChg_StoimPs :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.SpKatOs.StoimPs)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.SpKatOs.StoimPs;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 16386;
+            }
+      //---------------
+        cgOsChg_IznosPs :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.SpKatOs.IznosPs)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.SpKatOs.IznosPs;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 32768;
+            }
+      //---------------
+        cgOsChg_Stoim :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.SpKatOs.Stoim)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.SpKatOs.Stoim;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 65536;
+            }
+      //---------------
+        cgOsChg_KauReff:
+        {
+          if (Word(loRefreshOsChgPar.OsChgPar.dValue) <> 0)
+          {
+            cRecKauValue := iKauReff.GetKauReff(coKatOS,
+                                                loRefreshOsChgPar.KatOs.NRec,
+                                                Word(loRefreshOsChgPar.OsChgPar.dValue));
+
+            if (loRefreshOsChgPar.OsChgPar.cValue <> cRecKauValue)
+            {
+              loRefreshOsChgPar.OsChgPar.cValue := cRecKauValue;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 131072;
+            }
+          }
+        }
+      //---------------
+        cgOsChg_DateK :
+          if (LongInt(loRefreshOsChgPar.OsChgPar.cValue) <> LongInt(loRefreshOsChgPar.KatOs.DateK))
+          {
+            loRefreshOsChgPar.OsChgPar.cValue := LongInt(loRefreshOsChgPar.KatOs.DateK);
+            boMakeUpdateOsChrPar := True;
+            pMsgKind := pMsgKind OR 262144;
+          }
+      //---------------
+        cgOsChg_BaseStoim :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.SpKatOs.DbReserv)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.SpKatOs.DbReserv;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 524288;
+            }
+      //---------------
+        cgOsChg_StoimL :
+          if loRefreshOsChgPar.IsValidAll(loRefreshOsChgPar.tnSpKatOs)
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.SpKatOs.StoimL)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.SpKatOs.StoimL;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 1048576;
+            }
+      //---------------
+        cgOsChg_Kol :
+            if (loRefreshOsChgPar.OsChgPar.dValue <> loRefreshOsChgPar.KatOs.Kol)
+            {
+              loRefreshOsChgPar.OsChgPar.dValue := loRefreshOsChgPar.KatOs.Kol;
+              boMakeUpdateOsChrPar := True;
+              pMsgKind := pMsgKind OR 2097152;
+            }
+      end;
+
+      if boMakeUpdateOsChrPar
+        if (loRefreshOsChgPar.Update Current OsChgPar = tsOk) {};
+    }
+  }
+
+  if (pMsgKind > 0)
+    RefreshChgParForSpMoveOS := True;
+}
+
+//******************************************************************************
+//Проверка предыдущих значений параметров по всем позициям спецификации документа
+//------------------------------------------------------------------------------
+Create view loChkPrevValues
+var
+  cMoveOsNRec
+, cNastrOsNRec : comp;
+
+from
+  OsChgPar
+, KatOS
+, SpKatOS
+, NastrOs
+, SpMoveOS
+, MoveOS
+
+where
+((
+  cMoveOsNRec         == MoveOs.NRec       and
+  cMoveOsNRec         == OsChgPar.cMoveOs  and
+  cgOsChg_NewVal      == OsChgPar.wType    and
+  cMoveOsNRec         == SpMoveOS.cMoveOS  and
+  cNastrOsNRec        == SpMoveOS.cNastrOS and
+  SpMoveOS.cKatOs     == KatOS.NRec        and
+  KatOs.NRec          == SpKatOS.cKatOS    and
+  cNastrOsNRec        == SpKatOS.cNastrOS  and
+  cNastrOsNRec        == NastrOS.NRec
+));
+
+//------------------------------------------------------------------------------
+//  Проверка различия "предыдущих" значений изменяемых параметров в операции ОС/НМА
+Function ChkPrevValuesInMoveOS(pcMoveOS, pcNastrOS: comp; pwMode: word) : word;
+var
+  strParValue1
+, strParValue2 : string;
+
+  vbKatOs   : type$KatOs;
+  vbSpKatOs : type$SpKatOs;
+  wParCode  : word;
+
+  MrkParCodeInMoveOS
+, MrkNotChkParCode
+, i, indexNo: longint;
+{
+  ChkPrevValuesInMoveOS := cmYes;
+
+  loChkPrevValues.cMoveOsNRec  := pcMoveOS;
+  loChkPrevValues.cNastrOsNRec := pcNastrOS;
+
+  if (loChkPrevValues.GetFirst OsChgPar <> tsOK)
+    Exit;
+
+  MrkParCodeInMoveOS := InitMarker('ParCodeInMoveOS', 4, 10, 10, True);
+  MrkNotChkParCode   := InitMarker('NotChkParCodeInMoveOS', 4, 10, 10, True);
+  ClearMarker(MrkParCodeInMoveOS);
+  ClearMarker(MrkNotChkParCode);
+
+  loChkPrevValues._LOOP OsChgPar
+    if Not SearchMarker(MrkParCodeInMoveOS, loChkPrevValues.OsChgPar.ParCode, indexNo)
+      InsertMarker(MrkParCodeInMoveOS, loChkPrevValues.OsChgPar.ParCode);
+
+  indexNo := GetMarkerCount(MrkParCodeInMoveOS);
+
+  For (i := 0; i < indexNo; i++)
+  {
+    if GetMarker(MrkParCodeInMoveOS, i, wParCode)
+      if (loChkPrevValues.GetFirst SpMoveOS = tsOk)
+      {
+        vbKatOs   := type$KatOS(loChkPrevValues.KatOS.Buffer);
+        vbSpKatOs := type$SpKatOS(loChkPrevValues.SpKatOs.Buffer);
+        strParValue1 := GetValueFromKatOS(wParCode, vbKatOs, vbSpKatOs);
+
+        While (loChkPrevValues.GetNext SpMoveOS = tsOk) Do
+        {
+          vbKatOs   := type$KatOS(loChkPrevValues.KatOS.Buffer);
+          vbSpKatOs := type$SpKatOS(loChkPrevValues.SpKatOs.Buffer);
+          strParValue2 := GetValueFromKatOS(wParCode, vbKatOs, vbSpKatOs);
+
+          if (strParValue1 <> strParValue2)
+          {
+            InsertMarker(MrkNotChkParCode, wParCode);
+            Break
+          }
+        }
+      }
+  }
+
+  indexNo := GetMarkerCount(MrkNotChkParCode);
+
+  if (indexNo > 0)
+  {
+    strParValue1 := ''
+
+    if (indexNo = 1)
+      strParValue1 := 'параметра '
+    else
+      strParValue1 := 'параметров:'#13
+
+    For (i := 0; i < indexNo; i := i + 1)
+    {
+      if GetMarker(MrkNotChkParCode, i, wParCode)
+        strParValue1 := strParValue1 + '"' + GetNameParCode(wParCode) + '",'#13;
+    }
+
+    strParValue1 := SubStr(strParValue1, 1, Length(strParValue1) - 2);
+    if (loChkPrevValues.GetFirst MoveOS = tsOk) {};
+
+    if ((pwMode AND 1) = 1)
+    {
+      ChkPrevValuesInMoveOS := Message('В операции № ' + loChkPrevValues.MoveOS.NoDoc + ' '
+                                     + DateToStr(loChkPrevValues.MoveOS.DatOb, 'DD/MM/YYYY')
+                                     + ' обнаружены карточки,'#13
+                                     + 'у которых различные предыдущие значения для '
+                                     + strParValue1
+                                     + ''#13'Продолжить ?', YesNo + mfSwapButtons + Confirmation)
+    }
+    else
+      if ((pwMode AND 2) = 2)
+      {
+        strParValue1 := Replace(strParValue1, Chr(13), '');
+        if (loChkPrevValues.GetFirst NastrOS = tsOk) {};
+        ChkPrevValuesInMoveOS := RunInterface( 'DlgMessage'
+                                             , 'В операции № ' + loChkPrevValues.MoveOS.NoDoc + ' '
+                                             + ' от ' + DateToStr(loChkPrevValues.MoveOS.DatOb, 'DD/MM/YYYY')
+                                             + ' для метода учета "' + loChkPrevValues.NastrOS.Name + '"'
+                                             + ' обнаружены карточки, у которых различные предыдущие значения для '
+                                             + strParValue1
+                                             + ''#13'Продолжить ?'
+                                             , 'Подтверждение');
+
+      }
+  }
+
+  DoneMarker(MrkParCodeInMoveOS, '');
+  DoneMarker(MrkNotChkParCode, '');
+}
+
+//------------------------------------------------------------------------------
+Procedure RunPickNewValue;
+{
+  var tcOldVal : comp;
+  tcOldVal := OsChgParNew.cValue;
+
+  if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+  {
+    var wKauTemp : word;
+
+    // должны сналача выбрать КАУ
+    if Not IsValid(tnKatKau)
+    {
+      wKauTemp := 0;
+
+      if (RunInterface('GetKauTable', cgiPick, cgKatKau_BuhDisabled, wKauTemp, comp(0)) = cmDefault )
+      {
+        var cCurNRec, cMoveOsRec, cKatOsRec : comp;
+
+        cCurNRec    := OsChgParNew.NRec;
+        cMoveOsRec  := OsChgParNew.cMoveOs;
+        cKatOsRec   := OsChgParNew.cKatOs;
+
+        if ( RecordExists OsChgPar
+                          where (( cMoveOsRec      == OsChgPar.cMoveOs and
+                                   cgOsChg_NewVal  == OsChgPar.wType   and
+                                   cKatOsRec       == OsChgPar.cKatOS  and
+                                   cgOsChg_KauReff == OsChgPar.ParCode and
+                                   ( wKauTemp      = Word(OsChgPar.dValue) AND
+                                     cCurNRec      <> OsChgPar.NRec )
+                                )) = tsOk)
+        {
+          Message('Выбранный параметр уже есть в операции.', Information + CancelButton);
+          RereadRecord;
+          Stop;
+          Exit;
+        }
+      }
+    }
+    else
+    {
+      if ( Word(OsChgParNew.dValue) <> 0 )
+        wKauTemp := Word(OsChgParNew.dValue)
+      else
+        wKauTemp := Word(OsChgParOld.dValue);
+    }
+
+    if ( wKauTemp = 0 )
+    {
+      Stop;
+      Exit
+    }
+    else
+      if ( Word(OsChgParNew.dValue) <> wKauTemp )
+        set OsChgParNew.dValue := wKauTemp;
+
+    w_CurReffKau := wKauTemp;
+  }
+
+  if ( PickParValue(MoveOs.TipDoc, OsChgParNew.ParCode, OsChgParNew.cValue) )
+  {
+    if ( not mayHaveSameValue(OsChgParNew.ParCode) )
+    {
+      if ( isSameParValue() )
+      {
+        Message('Данное значение уже задано для другого метода учета.',Information);
+        set OsChgParNew.cValue := tcOldVal;
+      }
+    }
+
+    if ( OsChgParNew.cValue <> tcOldVal )
+      set OsChgParNew.cValue := OsChgParNew.cValue;
+  }
+};
+
+
+
+// ---------------------------------------------------------------------------
+// Установка параметра редактируемости значения поля.
+// В полях выбираемых из справочников изменение текста запрещено, а в
+// числовых полях разрешен ручной ввод.
+// ---------------------------------------------------------------------------
+Procedure SetValueProtection;
+{
+  case wCurrentParCode of
+  //-------------------------
+    cgOSChg_None :
+    {
+      SetFieldOption(#fsParNewValue, ofProtected);
+
+      if (_CurrentBrChgPar <> _brChgPar_AllKatOS)
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci18Esc, hcKeepCurrent);
+      else
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci1Esc, hcKeepCurrent);
+    }
+  //-------------------------
+    cgOsChg_SrokIsp
+  , cgOsChg_Kol
+  , cgOsChg_PoprKoef:
+    {
+      ClearFieldOption(#fsParNewValue, ofProtected);
+
+      if (_CurrentBrChgPar <> _brChgPar_AllKatOS)
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci178Esc, hcKeepCurrent);
+      else
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci1Esc, hcKeepCurrent);
+    }
+  //-------------------------
+    cgOsChg_StoimPs
+  , cgOsChg_IznosPs
+  , cgOsChg_Stoim
+  , cgOsChg_StoimL
+  , cgOsChg_BaseStoim:
+    {
+      if Not boIsIndividualStoim
+        ClearFieldOption(#fsParNewValue, ofProtected)
+      else
+        if ( cKatOsNRec = comp(0) )
+          SetFieldOption(#fsParNewValue, ofProtected)
+        else
+          ClearFieldOption(#fsParNewValue,ofProtected);
+
+      if (_CurrentBrChgPar <> _brChgPar_AllKatOS)
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci178Esc, hcKeepCurrent);
+      else
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci1Esc, hcKeepCurrent);
+    }
+  //-------------------------
+    cgOsChg_KauReff:
+    {
+      SetFieldOption(#fsParNewValue, ofProtected);
+      SetFieldOption(#fsParOldValue, ofProtected);
+
+      if (_CurrentBrChgPar <> _brChgPar_AllKatOS)
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci1378Esc, hcKeepCurrent);
+      else
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci13Esc, hcKeepCurrent);
+
+      if (_CurrentBrChgPar = _brChgPar_KatOS)
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParOldValue, sci1378Esc, hcKeepCurrent);
+    }
+  //-------------------------
+  else
+    {
+      SetFieldOption(#fsParNewValue, ofProtected);
+
+      if (_CurrentBrChgPar <> _brChgPar_AllKatOS)
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci1378Esc, hcKeepCurrent);
+      else
+        SetHelpAndStatusContext(_CurrentBrChgPar, #fsParNewValue, sci13Esc, hcKeepCurrent);
+    }
+  end;
+}
+// ---------------------------------------------------------------------------
+// Запрет редактирования параметра.
+// Если нельзя редактировать значение параметра, то запись в принципе
+// редактировать нельзя.
+// ---------------------------------------------------------------------------
+procedure SetRecordProtection;
+{
+  ProtectRecord(#OsChgParNew, Not mayEditValue(OsChgParNew.ParCode,cNastrOsNRec));
+
+  if (_CurrentBrChgPar <> _brChgPar_AllKatOS)
+  {
+    DisableCommand(cmAttrib);
+
+    if ((wMayEdit AND cgChgParMayEditOnlyCurOS) <> cgChgParMayEditOnlyCurOS)
+      if ( isMultiMethod(OsChgParNew.ParCode) )
+        EnableCommand(cmAttrib);
+  }
+}
+
+//------------------------------------------------------------------------------
+Procedure Insert_Current_OsChgParNew;
+{
+  if (Insert Current OsChgParNew = tsOk)
+  {
+    InsertOtherMeth;
+
+    wPrevParCode  := OsChgParNew.ParCode;
+
+    if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+      w_CurReffKau := Word(OsChgParNew.dValue);
+    else
+      w_CurReffKau := Word(0);
+  }
+
+  bClrOtherMeth := false;
+}
+
+//------------------------------------------------------------------------------
+Procedure Update_Current_OsChgParNew;
+{
+  if (Update Current OsChgParNew = tsOk)
+  {
+    if ( bClrOtherMeth )
+    {
+      // В случае если был изменен тип параметра надо удалить значения по
+      // старому параметру в других методах учета и создать новые.
+      DeleteOtherMeth(wPrevParCode, cgOsChg_NewVal);
+      InsertOtherMeth;
+      //если тип предыдущего параметра
+      //то нужно удалить сохраненное старое значение OSChgParOld
+      if ( ((wPrevParCode = cgOsChg_StoimPs) OR
+            (wPrevParCode = cgOsChg_IznosPs) OR
+            (wPrevParCode = cgOsChg_Stoim)   OR
+            (wPrevParCode = cgOsChg_StoimL)  OR
+            (wPrevParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+        DelOsChgParOldValues(cKatOsNRec, cNastrOsNRec, wPrevParCode);
+    }
+    else
+    {
+      UpdateOtherMeth;
+    }
+
+    wPrevParCode  := OsChgParNew.ParCode;
+
+    if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+      w_CurReffKau := Word(OsChgParNew.dValue);
+    else
+      w_CurReffKau := Word(0);
+  }
+
+  bClrOtherMeth := false;
+}
+
+// ---------------------------------------------------------------------------
+// Перерисовка окна редактирования значений параметров.
+// ---------------------------------------------------------------------------
+procedure RescanChgPar;
+{
+  RereadRecord(#OsChgParOld);
+  RescanPanel(#OsChgParNew);
+  wCurrentParCode := OsChgParNew.ParCode;
+  SetValueProtection;
+  SetRecordProtection;
+}
+
+// ---------------------------------------------------------------------------
+// Сделал отдельный Rescan, т.к. если делать Reread при перемещении между
+// записями MoveOs в окне редактирования операций тогда когда видна эта
+// встроенная панель, то, при определенных обстоятельствах (в OsChgParNew нет
+// валидной записи и операция проведена то ли по текущему методу, то ли по
+// одному из), происходит закрытие текущего окна (т.е. окна редактирования),
+// а если после этого перемещаться еще дальше в основном окне по записям
+// MoveOs, то в аналогичных условиях произойдет и закрытие основного окна.
+// Эксперименты показали, что если делать ClearAllEvents(), то окно
+// схлопываться не будет, но такой вариант не подходит, т.к. нарушается
+// очередь событий и, в некоторых случаях, невозможно корректно запустить
+// окно редактирования операции из списка операций по карточке.
+// Кроме ClearAllEvents была попытка использовать последовательный вызов:
+//   SetFormat(scEmpty); // пустой скрин того же расположения, что и brChgPar
+//   SetFormat(brChgPar);
+// в случаях когда запись не валидна, а когда валидна -- делать Reread.
+// Эта комбинация отрабатывала аналогично Reread при перемещениях между
+// операциями, но в других ситуациях не проверял (возможно это будет не
+// всегда корректно перерисовывать).
+procedure RereadChgPar;
+{
+  RereadRecord(#OsChgParOld);
+  RereadRecord(#OsChgParNew);
+  wCurrentParCode := OsChgParNew.ParCode;
+  SetValueProtection;
+  SetRecordProtection;
+
+  if IsValid(tnMoveOS)
+  {
+    if (w_SysOper <> MoveOs.SysOper)
+    {
+      Init_ParamNameList;
+      w_SysOper := MoveOs.SysOper;
+
+      if ( (w_SysOper = cgOs_2_VnuPer) OR
+           (w_SysOper = cgOs_3_IzmStm) OR
+           (w_SysOper = cgOs_9_ChgPar) )
+      {
+        if Not BoundActive(tbByKatKau)
+          AddBounds(tbByKatKau)
+      }
+      else
+        if BoundActive(tbByKatKau)
+          SubBounds(tbByKatKau)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+//   Установка разрешения на редактирование данных.
+// В случае запрета - задается строка сообщения (psReason) о причине
+// запрета, которая будет дополнять сообщения пользователю.
+// ---------------------------------------------------------------------------
+//   Необходимо устанавливать при каждом переключении между операциями и
+// переключении методов учета в интерфейсе редактирования.
+// Например запрет редактирования при проведенности операции или при
+// нахождении операции в закрытом отчетном периоде (при соответствующей
+// настройке).
+// ---------------------------------------------------------------------------
+procedure SetMayEdit(pwMayEdit : word; psReason : string);
+{
+  wMayEdit := pwMayEdit;
+  sReason  := psReason;
+  SetRecordProtection;
+}
+
+//------------------------------------------------------------------------------
+Procedure Init_ParamNameList;
+{
+  var ParNameList  : array[0..1] of string;
+  var ParValueList : array[0..1] of word;
+  var boIsOsChg_KauReff : boolean;
+  var iNextElement: word;
+
+  boIsOsChg_KauReff := False;
+  ParNameList[cgOSChg_None]     := '<не задано>';
+  ParNameList[cgOsChg_Podr]     := 'Подразделение';
+  ParNameList[cgOsChg_Mol]      := 'МОЛ';
+  ParNameList[cgOsChg_Isp]      := 'Признак использования';
+  ParNameList[cgOsChg_HozOper]  := 'Операция начисления амортизации';
+  ParNameList[cgOsChg_Metod]    := 'Алгоритм начисления амортизации';
+  ParNameList[cgOsChg_SrokIsp]  := 'Срок полезного использования';
+  ParNameList[cgOsChg_PoprKoef] := 'Поправочный коэффициент';
+  ParNameList[cgOsChg_GrAm]     := 'Амортизационная группа';
+  ParNameList[cgOsChg_OKOF]     := 'Группировка ОКОФ';
+  ParNameList[cgOsChg_PrSb]     := 'Признак собственности';
+  ParNameList[cgOsChg_CO]       := 'Центр ответственности';
+  ParNameList[cgOsChg_Sposob]   := 'Тип объекта';
+  ParNameList[cgOsChg_Grup]     := 'Группа ОС';
+
+  ParValueList[cgOSChg_None]     := cgOSChg_None;
+  ParValueList[cgOsChg_Podr]     := cgOsChg_Podr;
+  ParValueList[cgOsChg_Mol]      := cgOsChg_Mol;
+  ParValueList[cgOsChg_Isp]      := cgOsChg_Isp;
+  ParValueList[cgOsChg_HozOper]  := cgOsChg_HozOper;
+  ParValueList[cgOsChg_Metod]    := cgOsChg_Metod;
+  ParValueList[cgOsChg_SrokIsp]  := cgOsChg_SrokIsp;
+  ParValueList[cgOsChg_PoprKoef] := cgOsChg_PoprKoef;
+  ParValueList[cgOsChg_GrAm]     := cgOsChg_GrAm;
+  ParValueList[cgOsChg_OKOF]     := cgOsChg_OKOF;
+  ParValueList[cgOsChg_PrSb]     := cgOsChg_PrSb;
+  ParValueList[cgOsChg_CO]       := cgOsChg_CO;
+  ParValueList[cgOsChg_Sposob]   := cgOsChg_Sposob;
+  ParValueList[cgOsChg_Grup]     := cgOsChg_Grup;
+  iNextElement := 14;
+
+  case MoveOs.SysOper of
+  //--------------------
+    cgOs_3_IzmStm
+  , cgOs_6_Pereoz
+  , cgOs_9_ChgPar
+  , cgOs_51_Amort
+  , cgOs_101_OsRazn
+  , cgOs_201_OsRazn
+  , cgOs_102_OsRazn
+  , cgOs_202_OsRazn  :
+    {
+
+      ParNameList[14]  := 'Стоимость при поступлении';
+      ParValueList[14] := cgOsChg_StoimPs;
+      ParNameList[15]  := sNameFieldIznosPs; //'Износ при поступлении';
+      ParValueList[15] := cgOsChg_IznosPs;
+      ParNameList[16]  := 'Внешние КАУ';
+      ParValueList[16] := cgOsChg_KauReff;
+      ParNameList[17]  := 'Дата ввода в эксплуатацию';
+      ParValueList[17] := cgOsChg_DateK;
+      boIsOsChg_KauReff := True;
+      iNextElement := 18;
+
+      case MoveOs.SysOper of
+      //--------------------
+        cgOs_51_Amort
+      , cgOs_101_OsRazn
+      , cgOs_201_OsRazn
+      , cgOs_102_OsRazn
+      , cgOs_202_OsRazn  :
+        {
+          ParNameList[18]  := 'Норма амортизации';
+          ParValueList[18] := cgOsChg_Norma;
+          ParNameList[19]  := 'Стоимость';
+          ParValueList[19] := cgOsChg_Stoim;
+          iNextElement := 20;
+        }
+      else
+        if (wCountry=ccUkr) OR (wCountry=ccKaz)
+        {
+          ParNameList[18]  := 'Налоговая группа';
+          ParValueList[18] := cgOsChg_NalogGR;
+          iNextElement := 19;
+        }
+      end
+
+      ParNameList[iNextElement]  := 'Стоимость базовая/остаточная на 31.12.2001';
+      ParValueList[iNextElement] := cgOsChg_BaseStoim;
+      iNextElement++;
+      ParNameList[iNextElement]  := 'Ликвидационная стоимость';
+      ParValueList[iNextElement] := cgOsChg_StoimL;
+      iNextElement++;
+
+      if (MoveOs.SysOper = cgOs_9_ChgPar)     // Изменение параметров в карточке ОС/НМА
+      {
+         ParNameList [iNextElement]      := 'Количество';
+         ParValueList[iNextElement]      := cgOsChg_Kol;
+         iNextElement++;
+      }
+
+    }
+  //--------------------
+    cgOs_2_VnuPer:
+    {
+      ParNameList[14]  := 'Внешние КАУ';
+      ParValueList[14] := cgOsChg_KauReff;
+      ParNameList[15]  := 'Дата ввода в эксплуатацию';
+      ParValueList[15] := cgOsChg_DateK;
+      boIsOsChg_KauReff := True;
+      if ((wCountry=ccUkr) OR (wCountry=ccKaz))
+      {
+        ParNameList[16]  := 'Налоговая группа';
+        ParValueList[16] := cgOsChg_NalogGR;
+      }
+    }
+  //--------------------
+    cgOs_7_IzmGrV : // изменение группы (вида)
+    {
+      if ((wCountry=ccUkr) OR (wCountry=ccKaz))
+      {
+        ParNameList[14]  := 'Налоговая группа';
+        ParValueList[14] := cgOsChg_NalogGR;
+      }
+    }
+  end;   // case
+
+  SetEnumList(brChgPar, #OsChgParNew.ParCode, ParNameList, ParValueList);
+  SetEnumList(brChgPar_KatOS, #OsChgParNew.ParCode, ParNameList, ParValueList);
+
+  if boIsOsChg_KauReff
+     loOsChgPar.PushConditionForLeave(tcByOsChgParOld, loOsChgPar.tnOsChgParOld);
+};
+
+//------------------------------------------------------------------------------
+Function GetNameParCode(pwParCode: word) : string;
+{
+  GetNameParCode := '';
+
+  case pwParCode of
+  //---------------
+    cgOSChg_None:    GetNameParCode := '<не задано>';
+  //---------------
+    cgOsChg_Podr:    GetNameParCode := 'Подразделение';
+  //---------------
+    cgOsChg_Mol:     GetNameParCode := 'МОЛ';
+  //---------------
+    cgOsChg_Isp:     GetNameParCode := 'Признак использования';
+  //---------------
+    cgOsChg_HozOper: GetNameParCode := 'Операция начисления амортизации';
+  //---------------
+    cgOsChg_Metod:   GetNameParCode := 'Алгоритм начисления амортизации';
+  //---------------
+    cgOsChg_SrokIsp: GetNameParCode := 'Срок полезного использования';
+  //---------------
+    cgOsChg_PoprKoef:GetNameParCode := 'Поправочный коэффициент';
+  //---------------
+    cgOsChg_GrAm:    GetNameParCode := 'Амортизационная группа';
+  //---------------
+    cgOsChg_Norma:   GetNameParCode := 'Норма амортизации';
+  //---------------
+    cgOsChg_OKOF:    GetNameParCode := 'Группировка ОКОФ';
+  //---------------
+    cgOsChg_PrSb:    GetNameParCode := 'Признак собственности';
+  //---------------
+    cgOsChg_CO:      GetNameParCode := 'Центр ответственности';
+  //---------------
+    cgOsChg_Sposob:  GetNameParCode := 'Тип объекта';
+  //---------------
+    cgOsChg_Grup:    GetNameParCode := 'Группа ОС';
+  //---------------
+    cgOsChg_StoimPs: GetNameParCode := 'Стоимость при поступлении';
+  //---------------
+    cgOsChg_IznosPs: GetNameParCode := sNameFieldIznosPs; //'Износ при поступлении';
+  //---------------
+    cgOsChg_Stoim:   GetNameParCode := 'Стоимость';
+  //---------------
+    cgOsChg_KauReff: GetNameParCode := 'Внешние КАУ';
+  //---------------
+    cgOsChg_DateK:   GetNameParCode := 'Дата ввода в эксплуатацию';
+  //---------------
+    cgOsChg_BaseStoim: GetNameParCode := 'Стоимость базовая/остаточная на 31.12.2001';
+  //---------------
+    cgOsChg_StoimL:  GetNameParCode := 'Ликвидационная стоимость';
+  //---------------
+    cgOsChg_Kol:     GetNameParCode := 'Коичество';
+  //---------------
+  end;
+}
+
+
+//******************************************************************************
+TableEvent Table SpMoveOS;
+
+cmPositionChanged:
+{
+  cKatOsNRec := SpMoveOS.cKatOs;
+
+  if Not IsValid(tnOsChgParNew)
+  {
+    ClearBuffer(#OsChgParNew);
+    OsChgParNew.NRec     := 0;
+    OsChgParNew.wType    := cgOsChg_NewVal;
+    OsChgParNew.cMoveOs  := cMoveOsNRec;
+    OsChgParNew.cNastrOs := cNastrOsNRec;
+    OsChgParNew.cKatOs   := cKatOsNRec;
+    OsChgParNew.ParCode  := wCurrentParCode;
+  }
+
+  bClrOtherMeth := false;
+  w_CurReffKau := 0;
+
+  if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+    w_CurReffKau := Word(OsChgParNew.dValue);
+
+  if ( (((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+         (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+         (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+         (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+         (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+    AND (cKatOsNRec <> comp(0)) )
+  {
+    set cKatOsNRec_New := KatOs.NRec;
+
+    if ( IsValid(tnOsChgParNew) )
+      if ( Not IsValid(tnOsChgParOld) )
+      {
+        if ( GetFirst FastFirstRow SpKatOS = tsOk )
+          SaveSpKatOsValues_ParCode(SpKatOs.Buffer, cgOsChg_OldVal, wCurrentParCode);
+
+        RereadRecord(tnOsChgParOld);
+        ReScanPanel(tnOsChgParNew);
+      }
+  }
+
+  SetValueProtection;
+  SetRecordProtection;
+}
+
+cmPick:
+{
+  case CurField of
+  //--------------
+    #fsParNewValue:
+     {
+       RunPickNewValue;
+
+       if IsValid(tnOsChgParNew)
+         UpDate_Current_OsChgParNew
+       else
+         Insert_Current_OsChgParNew
+
+       RereadRecord;
+     }
+  end
+}
+end;     // TableEvent
+
+//******************************************************************************
+WindowEvent  wiEditChgPar_AllKatOS;
+
+cmInit:
+{
+  _SaveKatOsNRec       := cKatOsNRec;
+  _SaveCurrentBrChgPar := _CurrentBrChgPar;
+  _CurrentBrChgPar     := brChgPar_AllKatOS;
+
+  if BoundActive(tbbyOsChgParNew_KatOS)
+    PopBounds(tbbyOsChgParNew_KatOS);
+
+  if BoundActive(tbbyOsChgParNew)
+    PopBounds(tbbyOsChgParNew);
+
+  ReSetBounds(tnOsChgParOld);
+  PushBounds(tbBySpMoveOS);
+  PushBounds(tbByKatOS);
+  PushBounds(tbBySpKatOS);
+  PushBounds(tbByOsChgParOld_AllKatOS);
+  PushBounds(tbbyOsChgParNew_AllKatOS);
+
+  if (GetFirst SpMoveOS = tsOk)
+    cKatOsNRec := SpMoveOS.cKatOs;
+
+  SetValueProtection;
+  SetRecordProtection;
+}
+
+cmDone:
+{
+  _CurrentBrChgPar := _SaveCurrentBrChgPar;
+  cKatOsNRec       := _SaveKatOsNRec;
+  PopBounds(tbBySpMoveOS);
+  PopBounds(tbByKatOS);
+  PopBounds(tbBySpKatOS);
+  PopBounds(tbByOsChgParOld_AllKatOS);
+  PopBounds(tbbyOsChgParNew_AllKatOS);
+  SetBounds(tnOsChgParOld);
+
+  if (_CurrentBrChgPar = _brChgPar_KatOS)
+  {
+    PushBounds(tbbyOsChgParNew_KatOS);
+    SetFormat(_brChgPar_KatOS)
+  }
+
+  if (_CurrentBrChgPar = _brChgPar)
+  {
+    PushBounds(tbbyOsChgParNew);
+    SetFormat(_brChgPar)
+  }
+}
+end;   //  WindowEvent
+
+//******************************************************************************
+TableEvent Table OsChgParNew;
+
+cmSetDefault:
+{
+  if ( (wMayEdit AND cgChgParMayEditAllMeth) <> cgChgParMayEditAllMeth )
+    RereadRecord
+  else
+  {
+    ClearBuffer(#OsChgParNew);
+
+    wPrevParCode := OsChgParNew.ParCode;
+    w_CurReffKau := 0;
+    SelectField(#OsChgParNew.ParCode);
+  }
+}
+
+cmCheckField:
+{
+  case CurField of
+    #OsChgParNew.ParCode:
+      {
+        case OsChgParNew.ParCode of
+        //-------------------------
+          cgOsChg_StoimPs
+        , cgOsChg_IznosPs
+        , cgOsChg_Stoim
+        , cgOsChg_StoimL
+        , cgOsChg_BaseStoim:
+            if Not ( (MoveOs.SysOper = cgOs_3_IzmStm)    OR
+                     (MoveOs.SysOper = cgOs_6_Pereoz)    OR
+                     (MoveOs.SysOper = cgOs_9_ChgPar)    OR
+                     (MoveOs.SysOper = cgOs_51_Amort)    OR
+                     (MoveOs.SysOper = cgOs_101_OsRazn)  OR
+                     (MoveOs.SysOper = cgOs_201_OsRazn)  OR
+                     (MoveOs.SysOper = cgOs_102_OsRazn)  OR
+                     (MoveOs.SysOper = cgOs_202_OsRazn)
+                   )
+            {
+              RereadRecord;
+              Message('Выбор данного параметра не допустимо для операции'#13
+                    + '"'+ iOSStr.GetSysOperName(MoveOS.TipDoc, MoveOs.SysOper, 0, 0, 0) +'"!', Information);
+            }
+        //-------------------------
+          cgOsChg_KauReff:
+            if ( (MoveOs.SysOper <> cgOs_2_VnuPer) AND
+                 (MoveOs.SysOper <> cgOs_3_IzmStm) AND
+                 (MoveOs.SysOper <> cgOs_9_ChgPar) )
+            {
+              RereadRecord;
+              Message('Выбор данного параметра не допустимо для операции'#13
+                    + '"'+ iOSStr.GetSysOperName(MoveOS.TipDoc, MoveOs.SysOper, 0, 0, 0) +'"!', Information);
+            }
+        end;
+
+        if ( Word(OldFieldValue) <> OsChgParNew.ParCode )
+        {
+          if ( (((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+                 (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+                 (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+                 (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+                 (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim)
+            AND (cKatOsNRec <> comp(0)) )
+          {
+            set OsChgParNew.cKatOS := cKatOsNRec;
+            set cKatOsNRec_New := cKatOsNRec;
+          }
+          else
+            set OsChgParNew.cKatOS := comp(0);
+
+          if ( isPresentPar() )
+          {
+            Message('Выбранный параметр уже есть в операции.', Information + CancelButton);
+            RereadRecord;
+          }
+          else
+          {
+            var bCanContinue : boolean;
+            bCanContinue := true;
+
+            if (MoveOs.TipDoc = 16)
+            {
+              if ((OsChgParNew.ParCode = cgOsChg_Sposob) or
+                  (OsChgParNew.ParCode = cgOsChg_Grup))
+              {
+                set OsChgParNew.ParCode := word(OldFieldValue);
+                bCanContinue := false;
+                Message('Выбранный параметр применим только к Основным средствам.', Information + CancelButton);
+              }
+            }
+
+            if ( (((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+                   (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+                   (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+                   (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+                   (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim)
+                AND (cKatOsNRec = comp(0)) )
+            {
+              RereadRecord(tnOsChgParNew);
+              bCanContinue := false;
+              Message( 'Выбранный параметр применим только для конкретной записи из спецификации операции.'
+                     , Information + CancelButton);
+            };
+
+            if (bCanContinue)
+            {
+              wCurrentParCode := OsChgParNew.ParCode;
+              SetValueProtection;
+
+              if ( isMultiMethod(OsChgParNew.ParCode) )
+                OsChgParNew.cNastrOs := cNastrOsNRec;
+              else
+                OsChgParNew.cNastrOs := 0;
+
+              bClrOtherMeth := true;
+              set OsChgParNew.cValue := 0;
+              set OsChgParNew.dValue := 0;
+
+              if UpDateTable() {};
+
+              SelectField(#fsParNewValue);
+            }
+          }
+        }
+
+        if ( (((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+               (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+               (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+               (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+               (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim)
+         AND (Not IsValid(tnOsChgParOld)) AND (cKatOsNRec <> comp(0)) )
+        {
+          if ( GetFirst FastFirstRow SpKatOS_Old = tsOK )
+            SaveSpKatOsValues_ParCode(SpKatOs_Old.Buffer, cgOsChg_OldVal, OsChgParNew.ParCode);
+
+          RereadRecord(tnOsChgParOld);
+          ReScanPanel(tnOsChgParNew);
+        }
+      }
+  end;
+}
+
+cmCheckRecord:
+{
+  if ( OsChgParNew.ParCode = 0 )
+  {
+    Message('Не задан тип параметра.'#13+
+            'Определите значение поля или удалите запись.', Warning + CancelButton);
+    SelectField(#OsChgParNew.ParCode);
+    RereadRecord;
+  }
+}
+
+cmInsertRecord:
+{
+  Insert_Current_OsChgParNew;
+}
+
+cmUpdateRecord:
+{
+  Update_Current_OsChgParNew
+}
+
+cmDeleteRecord:
+{
+  if ( (wMayEdit AND cgChgParMayEditAllMeth) <> cgChgParMayEditAllMeth )
+  {
+    Message('Удаление параметра запрещено.' +
+            if(sReason = '', '', ''#13''+sReason ),
+            Information + CancelButton);
+    RereadRecord;
+  }
+  else
+    if ( Message('Удалить текущую запись?', Confirmation + YesNo + mfSwapButtons) = cmYes )
+    {
+      if ( bClrOtherMeth )
+      {
+        // В случае, если перед удалением был изменен тип параметра, надо
+        // удалить значения по старому параметру в других методах учета.
+        DeleteOtherMeth(wPrevParCode, cgOsChg_NewVal);
+        DeleteOtherMeth(wPrevParCode, cgOsChg_OldVal);
+
+        if ( ((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+              (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+              (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+              (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+              (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+          DelOsChgParOldValues(cKatOsNRec, cNastrOsNRec, wPrevParCode);
+      }
+      else
+      {
+        DeleteOtherMeth(OsChgParNew.ParCode, cgOsChg_NewVal);
+        DeleteOtherMeth(OsChgParNew.ParCode, cgOsChg_OldVal);
+
+        if ( ((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+              (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+              (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+              (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+              (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+          DelOsChgParOldValues(cKatOsNRec, cNastrOsNRec, OsChgParNew.ParCode);
+      }
+
+      if ( Delete current OsChgParNew = tsOk ) {};
+    }
+}
+
+cmPositionChanged:
+{
+  if (_CurrentBrChgPar <> _brChgPar_AllKatOS)
+  {
+    wPrevParCode  := OsChgParNew.ParCode;
+    bClrOtherMeth := false;
+    w_CurReffKau := 0;
+
+    if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+      w_CurReffKau  := Word(OsChgParNew.dValue);
+
+    if ( (((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+           (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+           (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+           (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+           (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+      AND (cKatOsNRec <> comp(0)) )
+    {
+      set cKatOsNRec_New := cKatOsNRec;
+
+      if ( Not IsValid(tnOsChgParOld) )
+      {
+        if ( GetFirst FastFirstRow SpKatOS_Old = tsOK )
+          SaveSpKatOsValues_ParCode(SpKatOs_Old.Buffer, cgOsChg_OldVal, OsChgParNew.ParCode);
+
+        RereadRecord(tnOsChgParOld);
+        ReScanPanel(tnOsChgParNew);
+      }
+    }
+
+    wCurrentParCode := OsChgParNew.ParCode;
+    SetValueProtection;
+    SetRecordProtection;
+  }
+}
+end;  // TableEvent
+
+
+//******************************************************************************
+WindowEvent wiChgPar; // окна
+
+cmPick:
+{
+  case CurField of
+  //--------------
+    #OsChgParNew.ParCode:
+      {
+        if ( wMayEdit <> cgChgParMayEditAllMeth )
+        {
+          Message('Изменение типа параметра запрещено.' +  if(sReason = '', '', ''#13''+sReason ),  Information + CancelButton);
+          RereadRecord(tnOsChgParNew);
+          Stop;    Exit;
+        }
+        else
+          if ( isSetParValue() )
+          {
+            if ( Message('Для параметра уже задано новое значение.'#13 + 'Вы хотите заменить параметр и удалить выбранные значения?',
+                         Confirmation + YesNo) != cmYes )
+              RereadRecord(tnOsChgParNew)
+            else
+              set OsChgParNew.ParCode := OsChgParNew.ParCode
+          }
+      }
+  //--------------
+    #fsParNewValue:
+        RunPickNewValue;
+  //--------------
+    #fsParOldValue:
+      {
+        if ( OsChgParNew.ParCode = cgOsChg_KauReff )
+        {
+          if Not IsValid(tnKatKau)
+          { // должны выбрать КАУ
+            var wKauTemp : word;
+            wKauTemp := 0;
+
+            if ( RunInterface('GetKauTable', cgiPick, cgKatKau_BuhDisabled, wKauTemp, comp(0)) = cmDefault )
+              if ( Word(OsChgParNew.dValue) <> wKauTemp )
+                set OsChgParNew.dValue := wKauTemp;
+          }
+        }
+      }
+  end;
+}
+
+cmIEHist:
+{
+  if ( UpdateTable() )
+    OnChangeNastrOs();
+}
+
+cmHotKeys :
+{
+  if ((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+      (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+      (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+      (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+      (OsChgParNew.ParCode = cgOsChg_BaseStoim))
+   PutHotCommand(RunMenu('mnuChgParEx'))
+  else
+   PutHotCommand(RunMenu('mnuChgPar'));
+}
+
+cmInsert:
+{
+  if ( (wMayEdit AND cgChgParMayEditAllMeth) <> cgChgParMayEditAllMeth )
+  {
+    Message('Добавление параметра запрещено.' +   if(sReason = '', '', ''#13''+sReason ), Information + CancelButton);
+    RereadRecord;
+  }
+}
+
+cmAttrib:
+{
+  if ((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+      (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+      (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+      (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+      (OsChgParNew.ParCode = cgOsChg_BaseStoim))
+  {
+    wCurrentParCode := OsChgParNew.ParCode;
+    RunWindowModal(wiEditChgPar_AllKatOS);
+    RereadRecord;
+  }
+}
+end;   // WindowEvent
+
+//******************************************************************************
+//******************************************************************************
+//******************************************************************************
+HandleEvent      // Интерфейса
+
+cmOnVipLoad:
+{
+  cKatOsNRec_New := comp(0);
+  _brChgPar_KatOS := brChgPar_KatOS;
+  _brChgPar       := brChgPar;
+  _CurrentBrChgPar := _brChgPar;
+  _brChgPar_AllKatOS := brChgPar_AllKatOS;
+  boIsIndividualStoim := True;
+  PushBounds(tbbyOsChgParNew);
+
+  case MoveOs.SysOper of
+  //--------------------
+    cgOs_1_Post   : SetHelpAndStatusContext(brChgPar,-1,-1,hcWMoveOsPs);
+  //--------------------
+    cgOs_2_VnuPer : SetHelpAndStatusContext(brChgPar,-1,-1,hcWMoveOsPr);
+  //--------------------
+    cgOs_3_IzmStm : SetHelpAndStatusContext(brChgPar,-1,-1,hcWMoveOsIz);
+  //--------------------
+    cgOs_4_Vybyt  : SetHelpAndStatusContext(brChgPar,-1,-1,hcWMoveOsVb);
+  //--------------------
+    cgOs_6_Pereoz : SetHelpAndStatusContext(brChgPar,-1,-1,hcWMoveOsIz);
+  //--------------------
+    cgOs_7_IzmGrV : SetHelpAndStatusContext(brChgPar,-1,-1,hcWMoveOsGrVid);
+  //--------------------
+    cgOs_9_ChgPar : SetHelpAndStatusContext(brChgPar,-1,-1,hcWMoveOsIzmParam);
+  //--------------------
+    cgOs_51_Amort
+  , cgOs_101_OsRazn
+  , cgOs_201_OsRazn
+  , cgOs_102_OsRazn
+  , cgOs_202_OsRazn :
+    {
+      SetHelpAndStatusContext(brChgPar,-1,-1,'');
+      boIsIndividualStoim := False;
+    }
+  //--------------------
+  end;
+
+  #include Fld_Amort.vpp  // наименования колонок/полей и строк подсказки в зависимости от страны
+
+  wCountry := wGetTune('Country');
+  if (OS_ChangeParmOnlyOneMU)
+    Exit;
+  OS_ChangeParmOnlyOneMU := boGetTune('OS.ChangeParmOnlyOneMU');     // 102.118905
+
+}
+
+cmOnVipUnload:
+{
+}
+
+cmExprFieldChanged:
+{
+  case CurField of
+    #fsParNewValue:
+      {
+        case OsChgParNew.ParCode of
+        //-------------------------
+          cgOsChg_SrokIsp  :
+            {
+              var sValue : string; sValue := UpCase(Trim(ExprFieldValue()));
+              if ( Pos('МЕС',sValue) != 0 )
+              {
+                sValue := Replace(sValue,'МЕСЯЦЕВ','');
+                sValue := Replace(sValue,'МЕСЯЦА','');
+                sValue := Replace(sValue,'МЕСЯЦ','');
+                sValue := Replace(sValue,'МЕС','');
+                sValue := Trim(sValue);
+                set OsChgParNew.dValue := if(wGetTune('OS.SrokIspEdIzm')=0,double(sValue),double(sValue)/12);
+              }
+              else if ( Pos('ЛЕТ',sValue) != 0 or Pos('ГОД',sValue) != 0 )
+              {
+                sValue := Replace(sValue,'ГОДА','');
+                sValue := Replace(sValue,'ГОД','');
+                sValue := Replace(sValue,'ЛЕТ','');
+                sValue := Trim(sValue);
+                set OsChgParNew.dValue := if(wGetTune('OS.SrokIspEdIzm')=0,double(sValue)*12,double(sValue));
+              }
+              else
+              {
+                set OsChgParNew.dValue := Double(sValue);
+              }
+            }
+        //-------------------------
+          cgOsChg_StoimPs
+        , cgOsChg_IznosPs
+        , cgOsChg_Stoim
+        , cgOsChg_StoimL
+        , cgOsChg_BaseStoim
+        , cgOsChg_PoprKoef
+        , cgOsChg_Kol
+        :
+            {
+              set OsChgParNew.dValue := Double(Trim(ExprFieldValue()));
+            }
+        //-------------------------
+        end;
+      }
+  end;
+
+  if (_CurrentBrChgPar = _brChgPar_AllKatOS)
+  {
+    if IsValid(tnOsChgParNew)
+      UpDate_Current_OsChgParNew
+    else
+      Insert_Current_OsChgParNew
+
+    RereadRecord(tnSpMoveOS);
+  }
+}
+
+cmDelOnProtect:
+{
+  case CurField of
+  //--------------
+    #fsParOldValue:
+       RereadRecord;
+  //--------------
+    #fsParNewValue:
+      {
+        if ( not mayEditValue(OsChgParNew.ParCode, cNastrOsNRec) )
+        {
+          Message('Изменение значения параметра запрещено.' +   if(sReason = '', '', ''#13''+sReason ),
+                  Information + CancelButton);
+          RereadRecord
+        }
+        else
+        {
+          if ( ((OsChgParNew.ParCode = cgOsChg_StoimPs) OR
+                (OsChgParNew.ParCode = cgOsChg_IznosPs) OR
+                (OsChgParNew.ParCode = cgOsChg_Stoim)   OR
+                (OsChgParNew.ParCode = cgOsChg_StoimL)  OR
+                (OsChgParNew.ParCode = cgOsChg_BaseStoim)) AND boIsIndividualStoim )
+            RereadRecord
+          else
+          {
+            set OsChgParNew.cValue := 0;
+            set OsChgParNew.dValue := 0;
+          }
+        }
+      }
+  //--------------
+  end;
+}
+
+end;
+End.
+
+mnuChgPar Menu
+{
+- 'Смена метода ~у~чета', cmIEHist, 'Смена метода учета', hcOSChanNastrOs, 'Alt+H', kbAltH, sci1Esc;
+}
+
+mnuChgParEx Menu
+{
+- 'Смена метода ~у~чета', cmIEHist, 'Смена метода учета', hcOSChanNastrOs, 'Alt+H', kbAltH, sci1Esc;
+---------------;
+- 'Значения параметра для всех ИК операции', cmAttrib, 'Редактирование значений параметра для всех ИК операции', hcOSChanNastrOs, 'Ctrl+Enter', kbCtrlEnter, sci1Esc;
+}

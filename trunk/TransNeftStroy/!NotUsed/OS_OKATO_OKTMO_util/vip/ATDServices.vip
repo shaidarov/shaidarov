@@ -1,0 +1,374 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 8.10
+// Сервисы по работе с каталогами АТД
+//------------------------------------------------------------------------------
+
+#include ATDServices.vih
+!#include ExtSoot.vih
+
+#doc
+Объектный интерфейс сервисов работы с каталогами АТД
+#end
+Interface IATDServices 'Объектный интерфейс сервисов работы с каталогами АТД' EscClose, Cyan;
+
+  table struct tmpReplTbl
+  (
+    cIn     : comp,
+    cOut    : comp
+  )
+  with index
+  (
+    indx00  = cIn,
+    indx01  = cOut
+  );
+
+  table struct tmpReplTblSelect
+  (
+    cIn     : comp,
+    cOut    : comp
+  )
+  with index
+  (
+    indx00  = cIn,
+    indx01  = cOut
+  );
+
+  const
+    // coATDGNI       = 2202;
+    coOKATOSysCode = 2201;
+    coOKTMOSysCode = 2203;
+    spl            = ' '; //  chr(9); // ???
+    SaveMode       = 2; // 1 - во временной таблице, 2 - в каталоге соответствий
+
+    lc_KatImpAttr_GalKAU = 2;  // соответствия для КАУ (только по NRec)
+  end;
+
+  var
+    LastError : string;
+!    pExtSoot  : vExtSoot;
+
+    _sAbbr     : string;
+    _cFpKatImp : comp;
+    _wKauSrcC  : word;
+    _cKauSrc   : comp;
+
+    _wKauDstC  : word;    // постоянное значение
+
+    _wKauDst   : word;    // var
+    _cKauDst   : comp;    // var
+    _isImp     : boolean; // var
+
+  Create View
+  var
+    glo_cOKATO : comp;
+  As Select
+   *
+  From
+    Sterr SterrOKATO
+  , Sterr SterrOKTMO
+  , Sterr SterrTmp
+
+  , Sterr SterrOKATObr
+  , Sterr SterrOKTMObr
+  , tmpReplTbl
+  , tmpReplTblSelect
+
+  , FpKatImp
+  , FpImpRel
+  , FpEntFld
+  , FpSPAttr
+  where
+  ((
+        glo_cOKATO            == SterrOKATObr.NRec
+    and SterrOKATObr.NRec     == tmpReplTblSelect.cIn
+    and tmpReplTblSelect.cOut == SterrOKTMObr.NRec
+  ))
+  ;
+
+
+  window wiGetOKTMObyOKATO 'Выбор ОКТМО для неуникального кода ОКАТО' (,hcNoContext,sci1EnEsc), doAccept, EscClose;
+    Show At ( , , , 16);
+
+    screen scGetOKTMObyOKATO;
+      Show At ( , , , 3);
+      table SterrOKATObr;
+      fields
+        SterrOKATObr.Sgni_Code  (,,) : Protect;
+        SterrOKATObr.SName      (,,) : Protect;
+    <<
+      'Код ОКАТО'           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+      'Наименование ОКАТО'  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    >>
+
+    end; // screen
+
+    browse brGetOKTMObyOKATO;
+      Show At ( , 4, , 15);
+      table tmpReplTblSelect;
+      fields
+        SterrOKTMObr.Sgni_Code  #3'Код ОКТМО' (,,)          : [35], Protect;
+        SterrOKTMObr.SName      #3'Наименование ОКТМО' (,,) : [90], Protect;
+    end; // browse
+  end; // window
+
+  function insertImpRel : boolean;
+  {
+    Case SaveMode of
+    1:{
+        ClearBuffer(#tmpReplTbl);
+        tmpReplTbl.cIn  := tmpReplTblSelect.cIn;
+        tmpReplTbl.cOut := tmpReplTblSelect.cOut;
+        insert current tmpReplTbl;
+      }
+    2:{
+        if getfirst FpImpRel where (( _cFpKatImp            == FpImpRel.cMain and
+                                      _wKauSrcC             == FpImpRel.ImpKodAn and
+                                      tmpReplTblSelect.cIn  == FpImpRel.cImpMean)) = tsOk
+        {
+          FpImpRel.KodAn      := _wKauDstC;
+          FpImpRel.cMean      := tmpReplTblSelect.cOut;
+          FpImpRel.sMean      := '';
+          update current FpImpRel;
+          // pExtSoot.LoadingLastInMem(_cFpKatImp);
+        }
+      }
+    end;
+    result := true;
+  }
+
+  #doc
+  Получение Nrec ОКТМО по NRec ОКАТО
+  // pcOKATO: comp; Nrec ОКАТО на для поиска ОКТМО
+  #end
+  Function GetOKTMOnRecbyOKATOnRec(pcOKATO: comp) : comp;
+  {
+    result := 0;
+    LastError := '';
+
+    Case SaveMode of
+    1: {
+          if getfirst tmpReplTbl where (( pcOKATO == tmpReplTbl.cIn )) = tsOk
+          {
+            // уже есть в таблице замен
+            result := tmpReplTbl.cOut ;
+          }
+       }
+
+    2: {
+        _cKauSrc := pcOKATO;
+        /*
+        if pExtSoot.CheckImpRel(    _cFpKatImp   ,   //
+                                    _wKauSrcC     ,  //
+                                    _cKauSrc     ,   //
+                                    _wKauDst     ,   //
+                                    _cKauDst     ,   //
+                                    _isImp           //
+                               )
+
+         */
+         if getfirst FpImpRel where (( _cFpKatImp            == FpImpRel.cMain and
+                                       _wKauSrcC             == FpImpRel.ImpKodAn and
+                                       _cKauSrc              == FpImpRel.cImpMean )) = tsOk
+         {
+           // result := _cKauDst;
+           result := FpImpRel.cMean;
+         }
+         else
+         {
+           /*
+           pExtSoot.InsertImpRel(
+                                   _cFpKatImp   ,   // каталог
+                                   _wKauSrcC    ,   // Код КАУ источника
+                                   _cKauSrc     ,   // Значение аналитики в источнике
+                                   '' );
+           pExtSoot.SaveFromMemEx;
+           */
+
+           ClearBuffer (tnFpImpRel);
+           FpImpRel.cMain    := _cFpKatImp;
+           FpImpRel.ImpKodAn := _wKauSrcC;
+           FpImpRel.cImpMean := _cKauSrc;
+           FpImpRel.KodAn    := _wKauDstC;
+           insert current FpImpRel;
+         }
+       }
+    end;
+
+    if result = 0
+    {
+      // соответствие не найдено
+      // найдем соответствие и пополним таблицу замен
+      if getfirst SterrOKATO where (( pcOKATO == SterrOKATO.NRec )) = tsOk
+      {
+        if getfirst SterrTMP where (( SterrOKATO.cRec == SterrTMP.NRec )) = tsOk
+        {
+          if SterrTMP.SysCode = coOKATOSysCode
+          {
+            var sOKATO : string;
+            sOKATO := SterrOKATO.SGNI_CODE;
+
+            if length(sOKATO) > 0
+            {
+
+              if getfirst SterrTMP where (( coOKTMOSysCode == SterrTMP.SysCode )) = tsOk
+              {
+                var sOKTMO : string;
+                var sCount  : longint;
+                sOKTMO := '';
+                sCount  := 0;
+
+                _loop SterrOKTMO where ((     SterrTMP.NRec    == SterrOKTMO.cRec
+                                          and sOKATO           == SterrOKTMO.sCode
+                                       ))
+                {
+                  sCount++;
+                  ClearBuffer(#tmpReplTblSelect);
+                  tmpReplTblSelect.cIn  := pcOKATO;
+                  tmpReplTblSelect.cOut := SterrOKTMO.NRec;
+                  insert current tmpReplTblSelect;
+                }
+
+                case sCount of
+                0 : LastError := 'Не найден соответствующий элемент справочника ОКТМО.' + spl + SterrOKATO.SGNI_CODE;
+                1 :
+                    {
+                      insertImpRel;
+                      result := tmpReplTblSelect.cOut;
+                      LastError := '';
+                    }
+                else
+                    {
+                      glo_cOKATO := pcOKATO;
+
+                      if getfirst SterrOKATObr = tsOk
+                      {};
+
+                      if RunWindowModal(wiGetOKTMObyOKATO) = cmDefault
+                      {
+                        insertImpRel;
+                        result := tmpReplTblSelect.cOut;
+                        LastError := '';
+                      }
+                      else
+                      {
+                        LastError := 'Не выбран конкретный ОКТМО для неуникального элемента справочника ОКАТО.' + spl + SterrOKATO.SGNI_CODE;
+                      }
+                    }
+
+                end;
+                delete all tmpReplTblSelect;
+
+              }
+              else
+                LastError := 'Не найден корневой элемент справочника АТД для ОКТМО. Возможно, справочник ОКТМО не импортирован в Базу данных' + spl + SterrOKATO.SGNI_CODE;
+            }
+            else
+              LastError := 'У переданного элемента справочника ОКАТО не задан код ОКАТО. Найти элемент справочника ОКТМО будет не возможно.' + spl + SterrOKATO.SGNI_CODE + ' ' + SterrOKATO.SName;
+          }
+          else
+            LastError := 'Поданный на вход элемент справочника не принадлежит к ветке ОКАТО' + spl + SterrOKATO.SGNI_CODE;
+        }
+        else
+          LastError := 'Не найден корневой элемент справочника АТД для переданного на вход элемента справочника. Возможно, выбран некорректный элемент' + spl + SterrOKATO.SGNI_CODE;
+      }
+      else
+        LastError := 'Не найден переданный на вход элемент справочника АТД. Возможно, выбранный элемент справочника АТД был удален' + spl + pcOKATO;
+
+    }
+  }
+
+  #doc
+  Получение Nrec вышестоящего элемента
+  // pcOKATO: comp; Nrec ОКАТО на для поиска вышестоящего элемента
+  #end
+  Function GetParentnRecbyNrec(pcOKATO: comp) : comp;
+  {
+    result := 0;
+
+    if getfirst SterrOKATO where (( pcOKATO == SterrOKATO.NRec )) = tsOk
+    {
+      if getfirst SterrTMP where (( SterrOKATO.cParent == SterrTMP.NRec )) = tsOk
+      {
+        result := SterrTMP.NRec;
+      }
+      else
+        LastError := 'Не найден вышестоящий элемент справочника АТД для переданного на вход элемента справочника. Возможно, выбран некорректный элемент' + spl + SterrOKATO.SGNI_CODE;
+    }
+    else
+      LastError := 'Не найден переданный на вход элемент справочника АТД. Возможно, выбранный элемент справочника АТД был удален' + spl + pcOKATO;
+
+  }
+
+  #doc
+  Получение последней ошибки, которая привела к невозможности получить соответствие
+  #end
+  Function GetLastError() : string;
+  {
+    result := LastError;
+  }
+
+  //******************************************************************************
+  HandleEvent // Interface
+    cmOnVipLoad:
+    {
+      LastError := '';
+
+      Case SaveMode of
+      1:{
+        }
+
+      2:{
+          _sAbbr   := 'ОКАТО-ОКТМО';
+          _wKauSrcC := 72;
+          _wKauDstC := 72;
+
+          if getfirst FpKatImp where (( _sAbbr ==  FpKatImp.Code )) <> tsok
+          {
+            ClearBuffer(#FpKatImp);
+            FpKatImp.Attr      := lc_KatImpAttr_GalKAU; // = 2;  // соответствия для КАУ (только по NRec)
+            FpKatImp.Code      := _sAbbr;
+            FpKatImp.LevelCode := '';
+            FpKatImp.Name      := 'ОКАТО-ОКТМО';
+            FpKatImp.cNode     := 0;
+            insert current FpKatImp;
+
+            ClearBuffer(#FpEntFld);
+            FpEntFld.wEntity   := 22;
+            FpEntFld.cEntity   := FpKatImp.NRec;
+            FpEntFld.Attr      := 0;
+            FpEntFld.FName     := 'wKDt';
+            FpEntFld.fType     := 4;
+            FpEntFld.wValue    := 72;
+            insert current FpEntFld;
+
+            ClearBuffer(#FpEntFld);
+            FpEntFld.wEntity   := 22;
+            FpEntFld.cEntity   := FpKatImp.NRec;
+            FpEntFld.Attr      := 0;
+            FpEntFld.FName     := 'wKSc';
+            FpEntFld.fType     := 4;
+            FpEntFld.wValue    := 72;
+            insert current FpEntFld;
+
+            ClearBuffer(#FpSPAttr);
+            FpSPAttr.cRec      := FpKatImp.NRec;
+            FpSPAttr.Attr      := 1;
+            FpSPAttr.wCode     := 12;
+            FpSPAttr.KodGrKau  := 72;
+            insert current FpSPAttr;
+          }
+          _cFpKatImp := FpKatImp.NRec;
+        }
+      end;
+    }
+
+    cmOnVipUnLoad:
+    {
+      // pExtSoot.DelAllMemImpRel;
+      // pExtSoot.KillID;
+      // pExtSoot.LoadAndCheckInMem(_cFpKatImp);
+    }
+  end;
+
+End.

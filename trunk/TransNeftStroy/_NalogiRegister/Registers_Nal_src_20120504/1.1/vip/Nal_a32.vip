@@ -1,0 +1,678 @@
+VipInterface UserRep_NalA_32   Licensed(Free);
+//------------------------------------------------------------------------------
+//                                                      (c) Корпорация ГАЛАКТИКА
+//------------------------------------------------------------------------------
+// Галактика 8.1 - ФРО
+// Начисление процентов по кредитам (для ПГК)
+//----------------------------------------------------------------------------
+#include NalFunc.vih
+!#include ShowKau.vpp
+#include BuhRep.vpp
+#include PickBuh.vih           // Обьектный интерфес работы с таблицей PickBuh
+!#include KatOrg.vih
+#include PSManager.vih
+!#include xlReport.vih          // Формирование Excel-отчетов
+!#include xlDlg.Vih             // Стандартные диалоги формирования Excel-отчетов
+!#include xlSetup.Vih
+#include GetKau.vih            // Обьектный интерфес выбора КАУ
+!#include ExtAttr.Vih
+!#include NalogReg.vih    // Бизнес-логика
+!#include NalogRegDoc.vih
+!#include TXOPick.vih     // Выбор ТХО для SoprHoz
+!#include  FpExCO.Vih
+Interface UserRep_NalA_32 'Ведомость убытков от реализации амортизируемого имущества';
+ Show at(0,0,55, 8);
+
+var
+  RepParams : TVipReportParams;
+  MyPlansNo, cReport, lastProv : comp;
+  BegObDate, EndObDate   : date;
+  DayInYear : word;
+
+  NeedShowPlat: boolean;
+  iNalFunc: NalFunc;
+
+  pTiDk,
+  pMode,
+  RaspCur       : word;
+
+!#include NalogReg.var          // Бизнес-логика
+
+#include GetKau.var
+#include PickBuh.var          // Переменная типа "Интерфеса работы с таблицей PickBuh"
+!#include PSManager.var
+!#include ExtAttr.var
+!  Calc4Saldo : boolean;
+#include xlSetUp.Inc
+Const
+  coVidAttr = 'Статья БДС';
+  MultiStr           = 'множественный выбор';
+  cOb_Deb   = 1; //обороты по дебету
+  cOb_Kred  = 2; //обороты по кредиту
+  cSal_Deb  = 3; //сальдо
+
+  cgRep_Deb = 1;  //
+  cgRep_Kred = 2;
+
+   //поля для Excel
+  fldMain_Date     = 'MainTable_DateOb';    //дата проводки или сальдо
+  fldMain_SaldoIn  = 'MainTable_SaldoIn';    //Сальдо входящее
+  fldMain_OborotDb = 'MainTable_OborotDb';  //Обороты по дебету
+  fldMain_OborotKr = 'MainTable_OborotKr';  //Обороты по кредиту
+  fldMain_Ostatok  = 'MainTable_Ostatok';   //Остаток
+  fldMain_KolDay   = 'MainTable_KolDay';    //срок действия остатка
+  fldMain_SumProc  = 'MainTable_SumProc';   //сумма начисленных на остаток процентов
+end;
+#declare MultiString(count)
+  MultiStr + ' (' + string(#count) + ')'
+#end
+#declare MultiKauShow(mKau, wKau, cKau, BackMask)
+  if (RepParams.#mKau = 0, '',
+    if ((RepParams.BackMode and #BackMask) > 0, 'Все, кроме: ', '')+
+    if (RepParams.#mKau = 1, if (GetAnyKAU(cgAkNoDef, #wKau, RepParams.#cKau),
+      GivenAnName(1), ''),
+      MultiStr + ' (' + string(RepParams.#mKau) + ')'))
+#end
+
+Create View
+as select
+/*  iNalogReg.PosByNRec(NalRegDc.NRec)                                (FieldName = iNRec)
+ ,if (isValid(tnSoprHoz), rTXOPick.GetHozOperName(cPlansSch, SoprHoz.BufferP), '')
+                                             (FieldName = HozOpName)
+ ,if ((NalRegDc.RasprMode = nrRasprByMonth) or (NalRegDc.RasprMode = nrRasprByMnDt) or
+      (NalRegDc.RasprMode = nrRasprByKvart) or (NalRegDc.RasprMode = nrRasprByKvDt) or
+      (NalRegDc.RasprMode = nrRasprByYear), integer(NalRegDc.Kol),
+    if (NalRegDc.RasprMode = nrRasprByDay, Months_Between(NalRegDc.DopDat2,
+      if (pTiDk = cgDoc_1058, NalRegDc.DatEnd, NalRegDc.DopDat1)) + 1,
+        if (NalRegDc.RasprMode = nrRasprByPerc, NalRegDc.RasprVal, 0)))
+                                             (FieldName = Srok)
+//---------------------------------
+ ,if (NalRegDc.RasprMode = nrRasprByMonth, 'мес',
+    if (NalRegDc.RasprMode = nrRasprByMnDt, 'мес!',
+      if (NalRegDc.RasprMode = nrRasprByYear, 'год',
+        if (NalRegDc.RasprMode = nrRasprByPerc, 'дн.',
+          if (NalRegDc.RasprMode = nrRasprByKvart, 'кв.',
+            if (NalRegDc.RasprMode = nrRasprByKvDt, 'кв!',
+              if (NalRegDc.RasprMode = nrRasprByDay, 'мес.',
+              '?')))))))
+                                             (FieldName = SrokEd)          */
+ #MultiKauShow(mKauOs1,RepParams.wKauOs1,cKauOs1,0001h) (FieldName = DlgKauD1)
+from
+  Synonym KatKlass KatKlProch    (ReadOnly),
+  Synonym PlansSch PlansSchSaldo (ReadOnly),
+  Synonym NalRegDc NalRegDcSaldo (ReadOnly),
+  Synonym StepDoc  StepDocDO     (ReadOnly),
+  Synonym BaseDoc  BaseDocDO     (ReadOnly),
+  NalRegDc                       (ReadOnly),
+  NalRegSp,
+  NalRegTt                       (ReadOnly),
+  KatOs                          (ReadOnly),
+  OSAlg                          (ReadOnly),
+  OsSpAlg                        (ReadOnly),
+  KatKlass                       (ReadOnly),
+  Refin                          (ReadOnly),
+  KatOrg                         (ReadOnly),
+  SaldMoun                       (ReadOnly),
+  AttrVal,
+  ExClassVal,
+  SpMoveOS,
+  SpStep,
+  StepDoc,
+  BaseDoc,
+  SoprHoz
+
+where
+((
+     pTiDk              == NalRegDc.TiDk      and
+  NalRegDc.NRec      == NalRegSp.cNalRegDc and
+  NalRegDc.cVid      == KatKlass.NRec      and
+
+  pTiDk              == SoprHoz.TipDoc     and
+  NalRegSp.NRec      == SoprHoz.cSoprDoc   and
+
+  NalRegDc.cRegTmpl  == NalRegTt.NRec      and
+  NalRegDc.cAlgoritm == OSAlg.NRec         and
+  NalRegDc.cSoprDoc  == SpMoveOs.NRec      and
+  SpMoveOs.cKatOs    == KatOs.NRec         and
+  cgKau_FpCO         == PickBuh.KodTable   and
+  KatOS.cCO         /== PickBuh.PickRec    and
+
+  // Shaf
+  SpStep.cStepDoc    == StepDoc.NRec       and
+  StepDoc.cBaseDoc   == BaseDoc.NRec       and
+  // ДО для высветки
+  NalRegDc.cDopNR2   == StepDocDO.NRec     and
+  StepDocDO.cBaseDoc == BaseDocDO.NRec     //and
+!  // Копирование Внешних атрибутов и Внешней классификации
+!  coNalRegDc         == AttrVal.wTable     and
+!  SavedRecord.NRec   == AttrVal.cRec       and
+!  coNalRegDc         == ExClassVal.wTable  and
+!  SavedRecord.NRec   == ExClassVal.cRec    and
+  // Для отчета "Акт Инвентаризации Расходов Будущих периодов ИНВ-11"
+//  coGetTune('MYORG') == KatOrg.NRec
+
+//    and  BaseFin.cAppDogovor == AppDogovor.nRec
+))
+// Ограничение списка по диапазону дат
+Bounds ForInterval as RepParams.BegDate  <<= NalRegDc.DatDoc (NoIndex) and
+                      RepParams.EndDate  >>= NalRegDc.DatDoc (NoIndex)
+
+;
+parameters
+   RepParams;
+Form frmNalRegDoc('NalRegDc.OUT', 'NalRegDocTNF') With NoVisual;
+#Declare DelOnKau(num)
+{
+  RepParams.mKauOs#num := 0;
+  set RepParams.cKauOs#num := SetDefKau;
+  if (RepParams.wKauOs#num <> 0)
+    iPickBuh.DeleteItem(RepParams.wKauOs#num);
+}
+#end
+!-------------------------------------------------------------------------------
+! Отображение аналитики
+! wKau - код
+! сKau - значение
+!-------------------------------------------------------------------------------
+function MyShowKau(wKau: word; cKau: comp): string;
+{
+  Result :=if(GetAnyKAU(cgAkNoDef, wKau, cKau),GivenAnName(1), '');
+}
+!-------------------------------------------------------------------------------
+! Проверка организации и договора, попадает ли запись под параметры отчета
+!-------------------------------------------------------------------------------
+function MatchFilter(cOrg, cDogovor: comp): boolean;
+{
+  Result := false;
+
+  if (RepParams.mKauOs1 > 0) and (not iPickBuh.FoundInPickByRec(RepParams.wKauOs1, cOrg))
+    Exit;
+
+  if (RepParams.mKauOs2 > 0) and (not iPickBuh.FoundInPickByRec(RepParams.wKauOs2, cDogovor))
+    Exit;
+  Result := true;
+}
+
+//------------------------------------------------------------------------------
+// Вспомогательные функции
+Function GetFstDayOfMonth(pDate : date) : date;
+{
+  GetFstDayOfMonth := date(1, Month(pDate), Year(pDate));
+}
+
+Function GetLstDayOfMonth(pDate : date) : date;
+{
+  GetLstDayOfMonth := Sub_Day(Add_Months(date(1, Month(pDate), Year(pDate)), 1), 1);
+}
+/*
+
+Procedure PrintOper;
+{
+  frmNalRegDoc.Write(NalRegDc.NRec);
+  frmNalRegDoc.Write(NalRegDc.DesGr);
+  frmNalRegDoc.Write(NalRegDc.Descr);
+  frmNalRegDoc.Write(NalRegDc.NoDoc);
+  frmNalRegDoc.Write(NalRegDc.DatDoc);
+  frmNalRegDoc.Write(NalRegDc.RsSyn <> 0);
+
+  case (pTiDk) of
+    cgDoc_1050:
+    {
+      frmNalRegDoc.SkipFormat(1);
+      frmNalRegDoc.Write(KatOS.InNum);
+      frmNalRegDoc.Write(KatOS.NameOS);
+    }
+    cgDoc_1051, cgDoc_1052:
+    {
+      frmNalRegDoc.Write(BaseDoc.dDoc);
+      frmNalRegDoc.Write(BaseDoc.NoDoc);
+      frmNalRegDoc.SkipFormat(1);
+    }
+  else
+    frmNalRegDoc.SkipFormat(3);
+  end;
+
+  frmNalRegDoc.Write(NalRegDc.DatEnd);
+  frmNalRegDoc.Write(Srok);
+  frmNalRegDoc.Write(SrokEd);
+  frmNalRegDoc.Write(KatKlass.NRec);
+  frmNalRegDoc.Write(KatKlass.Name);
+
+  if (pTiDk = cgDoc_1051)
+    frmNalRegDoc.Write(Refin.Proc);
+  else
+    frmNalRegDoc.SkipFormat(1);
+
+  frmNalRegDoc.Write(NalRegDc.SumRs1);
+  frmNalRegDoc.Write(NalRegDc.SumRs2);
+  frmNalRegDoc.Write(NalRegDc.SumRs3);
+  frmNalRegDoc.Write(NalRegDc.SumRs4);
+  frmNalRegDoc.Write(NalRegDc.SumRs5);
+  frmNalRegDoc.Write(NalRegDc.SumPr);
+}
+
+//------------------------------------------------------------------------------
+Procedure PrintDoc;
+{
+//  dFrom := GetFstDayOfMonth(Cur_Date);
+//  dTo   := GetLstDayOfMonth(Cur_Date);
+
+//  if (not GetInterval(dFrom, dTo))
+ //   Exit;
+
+  frmNalRegDoc.SetGroup('Форма реестра по умолчанию');
+
+  case (pTiDk) of
+    cgDoc_1050:
+      frmNalRegDoc.SetGroup('Форма реестра для амортизируемого имущества');
+    cgDoc_1051, cgDoc_1052:
+      frmNalRegDoc.SetGroup('Форма реестра для уступок долга');
+    cgDoc_1054:
+      frmNalRegDoc.SetGroup('Форма реестра для расходов на добровольное страхование работников');
+    cgDoc_1055:
+      frmNalRegDoc.SetGroup('Форма реестра для резервов по сомнительным долгам');
+  end;
+
+  frmNalRegDoc.Write(iNalogReg.GetRegTypeName(pTiDk, Word(0)));
+  frmNalRegDoc.Write(RepParams.BegDate );
+  frmNalRegDoc.Write(RepParams.EndDate );
+
+  if (frmNalRegDoc.Error) // Отмена в списке линкованных форм
+  {
+    frmNalRegDoc.AbortForm;
+    Message('Процесс прерван пользователем.', Warning);
+    Exit;
+  }
+
+  var Stopped, Written : Boolean;
+
+  Stopped := False;
+  Written := False;
+
+  StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, ''#3'Формирование реестра ...'#13#3, 1);
+
+  PushPos(#NalRegDc);
+  AddBounds(tbForInterval);
+
+  _LOOP NalRegDc
+  {
+    if GetFirst KatOs = tsOk
+    {
+      if (RepParams.mKauOs1 > 0) and  (not iPickBuh.FoundInPickByRec(RepParams.wKauOs1, KatOs.cCO))
+        continue;
+    }
+    else
+      continue;
+
+    PrintOper;
+
+    Written := True;
+
+    if (not NextVisual)
+    {
+      Stopped := True;
+      Break;
+    }
+  }
+
+  if (Written)
+    frmNalRegDoc.PutEvent(feBreak);
+
+  SubBounds(tbForInterval);
+  PopPos(#NalRegDc);
+  StopVisual('', 0);
+
+  if (Stopped)
+    Message('Процесс прерван пользователем.', Warning);
+
+  if (Stopped or (frmNalRegDoc.Error))
+    frmNalRegDoc.AbortForm;
+  else
+    frmNalRegDoc.ShowFile('Реестр налоговых регистров');
+}    */
+!-------------------------------------------------------------------------------------------------------------
+!Величина убытка в связи с реализацией амортизируемого имущества, руб.
+!Отражается сумма убытка полученная от реализации амортизируемого имущества по данным записей:
+! Дт997.41 <Убытки от реализации ОС> и Дт997.42 <Убытки от реализации НМА>.
+!-------------------------------------------------------------------------------------------------------------
+function GetSum(KatOsNrec: tNRec; dFrom, dTo: date; Schet, SubSch: string): double;
+{
+  Result := 0;
+  _loop SALDMOUN where ((Schet     ==  SALDMOUN.SCHETO    //Условие на сальдо для суммы оплаты на начало периода
+                      and dFrom     ==  SALDMOUN.DATESAL
+                      and SubSch      ==  SALDMOUN.SUBOSSCH
+                      and KatOsNrec ==  SALDMOUN.KAUOS[2] (noindex)  ))
+  {
+    Result += if(SALDMOUN.VIOB = 1, SALDMOUN.SUMS, -SALDMOUN.SUMS);
+
+  }
+
+  _loop oborot where ((Schet     ==  Oborot.SCHETO  //Условие на оборот для суммы оплаты за период
+                   and SubSch       ==  Oborot.SUBOSSCH
+                   and dFrom      <<= Oborot.DATOB
+                   and dTo        >>= Oborot.DATOB
+                   and KatOsNrec  ==  Oborot.KAUOS[2] (noindex)  ))
+  {
+    Result += Oborot.SumOb;
+  }
+
+  _loop oborot where ((Schet     ==  Oborot.SCHETK  //Условие на оборот для суммы оплаты за период
+                   and SubSch       ==  Oborot.SUBSCHK
+                   and dFrom      <<= Oborot.DATOB
+                   and dTo        >>= Oborot.DATOB
+                   and KatOsNrec  ==  Oborot.KAUKS[2] (noindex)  ))
+  {
+    Result -= Oborot.SumOb;
+  }
+}
+!-------------------------------------------------------------------------------------------------------------
+!<Количество месяцев признания убытка>
+!-------------------------------------------------------------------------------------------------------------
+function GetKolMes: word;
+{
+  Result := 0;
+  _loop NalRegSp
+    Result ++;
+}
+/*
+!-------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------
+function GetBackColor(FieldNum: integer): integer;
+{
+  GetBackColor := 0;
+  case FieldNum of
+    #RepParams.BegDate    : GetBackColor := if (longint(RepParams.BegDate) = 0, ColorNeed, 0);
+    #RepParams.EndDate    : GetBackColor := if (longint(RepParams.EndDate) = 0, ColorNeed, 0);
+!    #DlgSchetD  : GetBackColor := if (RepParams.mSchetO = 0, ColorNeed, 0);
+  end; // case
+}
+
+!-------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------
+Screen scRepBuh_AnDebts ('',,sci13EnEsc)
+fields
+  'Фильтр на данные' : Skip, Centered,{Font = {Bold = true; Color = ColorSysWhite; BackColor = ColorMark}};
+  RepParams.BegDate  : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; Color = if (RepParams.BegDate  > RepParams.EndDate, ColorError, 0);
+                                     BackColor = GetBackColor(#RepParams.BegDate )}};
+  RepParams.EndDate  : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; BackColor = GetBackColor(#RepParams.EndDate)}};
+  DlgKauD1  ('',hcBKatalFSaldKAU) : Protect, QuickChoice, PickButton,{Font = {Bold = true; BackColor = GetBackColor(#DlgKauD1)}};
+  buttons
+    cmValue2,,,'Очистить все поля',hcBankKnopkaOchistit,sci1Esc;
+    cmValue1,Default,,'Обработка данных',hcAllBOk,sci1Esc;
+    cmCancel,,,'Отмена',hcAllBCancel,sci1Esc;
+<<
+.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Период расчета  `  &с .@@@@@@@@@@ `по`.@@@@@@@@@@
+
+`Центр ответственности`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ <.  Очистить  .> <.Сформировать.> <.   Отмена   .>
+>>
+end;   */
+function PrintReport;
+var
+  OrgName
+, INN     :string;
+  Npp
+ ,CurIndex
+ ,NumCol
+ ,KolMes : word;
+  itogo4
+ ,itogo7
+ ,FullObSum: double;
+{
+  NumCol := 7;
+  iNalFunc.GetOrgInfo(OrgName, INN);
+  xlCreateExcel('',true);
+  xlCreateMatrix(5000,17);
+
+  xlSetColumnWidth(4,1,1,1,1);
+  xlSetColumnWidth(12,1,2,1,2);
+  xlSetColumnWidth(35,1,3,1,3);
+  xlSetColumnWidth(15,1,4,1,4);
+  xlSetColumnWidth(12,1,5,1,6);
+  xlSetColumnWidth(15,1,5,1,7);
+  CurIndex:=1;
+
+  if ( GetFirst FPCO = tsOk ) {};       // фильтр филиалы
+
+//  RunInterface(getOrgNP,OrgName,INN);
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'А 3.2');
+  CurIndex ++;
+
+  xlMergeCells(CurIndex,1,CurIndex,7);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,7);
+  xlSTWriteToMatrix(CurIndex,1,'Наименование организации налогоплательщика: '+OrgName);
+  CurIndex:=CurIndex+1;
+
+  xlMergeCells(CurIndex,1,CurIndex,7);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,7);
+  xlSTWriteToMatrix(CurIndex,1,'ИНН налогоплательщика: '+INN);
+  CurIndex:=CurIndex+2;
+
+
+  //Фильтр филиалы   <<<----
+
+  xlMergeCells(CurIndex,1,CurIndex,7);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,7);
+  xlSTWriteToMatrix(CurIndex,1,'Дата составления: ' + dateToStr(Cur_Date,'DD Mon YYYY г.'));
+  CurIndex:=CurIndex+2;
+
+  xlMergeCells(CurIndex,1,CurIndex,7);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,7);
+  xlSetFontSize(12,1,1,2,1);
+  xlSTWriteToMatrix(CurIndex,1,'Регистр № А 3.2 Ведомость убытков от реализации амортизируемого имущества');
+  CurIndex:=CurIndex+1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,17);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,17);
+  xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+  xlSTWriteToMatrix(CurIndex,2,'Инвентарный номер');
+  xlSTWriteToMatrix(CurIndex,3,'Наименование реализуемого объекта');
+  xlSTWriteToMatrix(CurIndex,4,'Величина убытка в связи с реализацией амортизируемого имущества, руб.');
+  xlSTWriteToMatrix(CurIndex,5,'Дата начала списания убытка');
+  xlSTWriteToMatrix(CurIndex,6,'Количество месяцев признания убытков');
+  xlSTWriteToMatrix(CurIndex,7,'Сумма убытков, учитываемая ежемесячно, руб');
+  CurIndex:=CurIndex+1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'1');
+  xlSTWriteToMatrix(CurIndex,2,'2');
+  xlSTWriteToMatrix(CurIndex,3,'3');
+  xlSTWriteToMatrix(CurIndex,4,'4');
+  xlSTWriteToMatrix(CurIndex,5,'5');
+  xlSTWriteToMatrix(CurIndex,6,'6');
+  xlSTWriteToMatrix(CurIndex,7,'7');
+  CurIndex:=CurIndex+1;
+
+  itogo4:=0;
+  itogo7:=0;
+  Npp := 1;
+  _Loop NALREGDC
+    _Loop SpMoveOs
+      _Loop KatOs
+      {
+        xlAlignCellsEx(3,2,CurIndex, 1, CurIndex, 2);
+        xlAlignCellsEx(3,2,CurIndex, 5, CurIndex, 6); //1,2,5,6 ровняем по центру
+        xlAlignCellsEx(2,2,CurIndex, 3, CurIndex, 3); //3 по левому краю
+        xlAlignCellsEx(4,2,CurIndex, 4, CurIndex, 4); //и суммы 4,7  по правому краю
+        xlAlignCellsEx(4,2,CurIndex, 7, CurIndex, 7); //
+        xlSetNumberFormat ( '@', CurIndex, 6, CurIndex, 6 );
+
+        Npp++;
+        xlSTWriteToMatrix(CurIndex, 1, Npp);  //<№ п/п>
+        xlSTWriteToMatrix(CurIndex, 2, '''' + KatOs.InNum); //<Инвентарный номер>
+        xlSTWriteToMatrix(CurIndex, 3, KatOs.NameOs); //<Наименование реализуемого объекта>
+        FullObSum:=0;
+
+        if (KatOs.Tidk = 15)  //ЕСЛИ  ОС, то смотрим по счету 997.41
+          FullObSum := GetSum(KatOs.Nrec, RepParams.BegDate, KatOs.DatV, 'N997', '41');
+        if (KatOs.Tidk = 16)  //ЕСЛИ  НМА, то смотрим по счету 997.42
+          FullObSum := GetSum(KatOs.Nrec, RepParams.BegDate, KatOs.DatV, 'N997', '42');
+
+        iNalFunc.WriteSum(CurIndex, 4, FullObSum);
+        iNalFunc.WriteDate(CurIndex, 5, KatOs.DatV);         //<Дата начала списания убытка>
+        xlSTWriteToMatrix(CurIndex, 6, GetKolMes);          // <Количество месяцев признания убытка>
+        iNalFunc.WriteSum(CurIndex, 7, FullObSum / KolMes);  //<Сумма убытков, учитываемая ежемесячно, руб.>
+
+        itogo4 += FullObSum;
+        itogo7 += FullObSum / KolMes;
+
+        Npp ++;
+        CurIndex ++;
+      }
+  xlSetFontStyle(1,CurIndex,1,CurIndex,7);
+  xlMergeCells(CurIndex,1,CurIndex,2);
+  xlSTWriteToMatrix(CurIndex,1,'ВСЕГО:');
+  iNalFunc.WriteSum(CurIndex,4,itogo4);
+  iNalFunc.WriteSum(CurIndex,7,itogo7);
+
+  xlWrapText(3,1,CurIndex,7);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,8,1,CurIndex,7);
+
+  CurIndex:=CurIndex+2;
+  xlMergeCells(CurIndex,1,CurIndex,7);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,7);
+  xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+  xlMergeCells(CurIndex,1,CurIndex,7);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,6);
+  CurIndex:=CurIndex+1;
+  xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+  CurIndex:=CurIndex+1;
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+
+}
+
+!-----------------------------------------------------------------
+HandleEvent // interface
+  cmInit:
+  {
+  /*  if (not iPSManager.GetTunePlansSch(MyPlansNo))
+    {
+      Message('Ошибка инициализации отчета!', Error);
+      Abort;
+      Exit;
+    }  */
+    if iNalFunc.RunTune(RepParams.BegDate, RepParams.EndDate)
+    {
+     RepParams.wKauOs1 := cgKau_FpCO;
+     pTiDk := cgDoc_1050;
+     PrintReport;
+    }
+  }
+ /*
+  cmPick:
+  {
+    case CurField of
+      #DlgKauD1:
+      {
+        if (QuickChoiceName <> '')
+          QuickChoiceName := 'qcKau_Needed';
+        if (RepParams.wKauOs1 = 0)
+          exit;
+//        RepParams.mKauOs1 := iPickCo.RunViewCO(cgiPick, 0, RepParams.cKauOs1);
+        RepParams.mKauOs1 := iGetKau.GetCodeKau(cgiPickMult or if (RepParams.mKauOs1>0, cgiNotClear, 0), RepParams.wKauOs1, RepParams.cKauOs1);
+      }
+    end;
+    RereadRecord;
+  }
+  cmDelOnProtect :
+  {
+    case (CurField) of
+      #DlgKauD1     : #DelOnKau(1)
+    end;
+    RereadRecord;
+  }
+
+  cmValue1:
+  {
+    //PrintDoc;
+    PrintReport;
+  }     */
+ end; // HandleEvent interface
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalA_32 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalA_32;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+var
+  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalA_32', RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'А 3.2 Ведомость убытков от реализации амортизируемого имущества ';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+    2 : GetGroupName := 'A';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

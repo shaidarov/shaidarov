@@ -1,0 +1,699 @@
+/*
+возмажна следующая схема работы
+
+
+=================
+проверка
+================
+select
+      0
+ ,oborot.scheto //schd :string[20]
+ ,oborot.subossch //subd :string[20]
+ ,oborot.schetk //schk :string[20]
+ ,oborot.subschk //subk :string[20]
+ ,oborot.tblos[1] //tblos :array [1..7] of word
+ ,oborot.tblos[2] //tblos :array [1..7] of word
+ ,oborot.tblos[3] //tblos :array [1..7] of word
+ ,oborot.tblos[4] //tblos :array [1..7] of word
+ ,oborot.tblos[5] //tblos :array [1..7] of word
+ ,oborot.tblos[6] //tblos :array [1..7] of word
+ ,2
+ ,oborot.kauos[1] //kauos :array [1..7] of comp
+ ,oborot.kauos[2] //kauos :array [1..7] of comp
+ ,oborot.kauos[3] //kauos :array [1..7] of comp
+ ,oborot.kauos[4] //kauos :array [1..7] of comp
+ ,oborot.kauos[5] //kauos :array [1..7] of comp
+ ,oborot.kauos[6] //kauos :array [1..7] of comp
+ ,oborot.kodspo
+ ,oborot.tblks[1] //tblos :array [1..7] of word
+ ,oborot.tblks[2] //tblos :array [1..7] of word
+ ,oborot.tblks[3] //tblos :array [1..7] of word
+ ,oborot.tblks[4] //tblos :array [1..7] of word
+ ,oborot.tblks[5] //tblos :array [1..7] of word
+ ,oborot.tblks[6] //tblos :array [1..7] of word
+ ,2
+ ,oborot.kauks[1] //kauos :array [1..7] of comp
+ ,oborot.kauks[2] //kauos :array [1..7] of comp
+ ,oborot.kauks[3] //kauos :array [1..7] of comp
+ ,oborot.kauks[4] //kauos :array [1..7] of comp
+ ,oborot.kauks[5] //kauos :array [1..7] of comp
+ ,oborot.kauks[6] //kauos :array [1..7] of comp
+ ,oborot.kodspk
+ ,oborot.sumob
+ ,0
+
+ ,groupmc.name
+ ,saldmoun.sums
+  from oborot , katmc , groupmc , saldmoun
+  where ((
+  'T10' == oborot.schetk
+ and date( 1,10,2008) <<= oborot.datob
+ and date(31,10,2008) >>= oborot.datob
+ and oborot.kauks[3] /== katmc.nrec
+ and katmc.cgroupmc /== groupmc.nrec
+ and 'T10' /== saldmoun.scheto
+ and '99' /== saldmoun.subossch
+ and date(1,10,2008) /== saldmoun.DATESAL
+ and katmc.cgroupmc /== saldmoun.kauos[3] (noindex)
+   )) ;
+
+select hozoper.* to dbf c:\1\hozoper ;
+select hozobor.* to dbf c:\1\hozobor ;
+select HOZFORM.* to dbf c:\1\hozobor ;
+select gonewper.* to dbf c:\1\gonewper ;
+
+*/
+
+#ifdef ComponentVersion
+#Component "F_TxoApi"
+#end
+
+#include TxoApi.vih
+
+VipInterface Txo_BuhSch_Close10_99 implements ObjTxoIdentPlugin
+#ifdef ATL51
+ licensed (FREE) 
+#endif 
+
+;
+table struct tmp_ObClSch
+( cob :comp 
+ ,schd :string[20]
+ ,subd :string[20]
+ ,schk :string[20]
+ ,subk :string[20]
+ ,tblos :array [1..7] of word
+ ,kauos :array [1..7] of comp
+ ,tblks :array [1..7] of word
+ ,kauks :array [1..7] of comp
+ ,su :double 
+ ,cgroupmc :comp
+ ,pa :word 
+ ,datob : date  
+)
+with index 
+(  tmp_ObClSch01 =pa
+  ,tmp_ObClSch02 =pa + cgroupmc + schd
+  ,tmp_ObClSch03 =pa + kauos[1]+kauos[2]+kauos[3]+kauos[7]
+) ;
+
+table struct tmp_groupmc
+( nrec : comp
+ ,name :string [100]
+ ,kod  :string[20]
+ ,cgroupmc :comp
+) with index
+( tmp_groupmc01 = kod
+ ,tmp_groupmc02 = nrec
+
+) ;
+
+Interface Txo_BuhSch_Close10_99 cacheable;
+var  dtb ,dte : date ;
+var  wschd,wschk , wsch : string ;
+
+create view  vTxoBuhSchCl
+var
+  CurSoprHoz : comp;
+  CurSoprDoc : comp;
+  CurDatOb : date;
+  curTidk :longint  ;
+  MyPlansNo:comp ;
+  wc_groupmc , w_katmc : comp ;
+  tp_deist : word ; //для сохранения пометки записей отобранных для проводок 
+                    //0 - нет, 1 - старт,2 - продолжение, 3 - последняя
+  chet :longint ;  
+  wkod_groupmc : string ;  
+  wc_saldonm :comp ;              
+as select oborot.nrec 
+from
+  tmp_ObClSch ,tmp_ObClSch tmp_ObClSch1 
+  ,tmp_ObClSch tmp_ObClSch2
+  ,tmp_ObClSch tmp_ObClSchS
+  , oborot , saldonm
+  , katmc  //, groupmc 
+  , tmp_groupmc
+  , tmp_groupmc tmp_groupmc1
+where
+((
+  CurSoprDoc == BOOKPRZK.Nrec   
+ and wc_saldonm == saldonm.nrec
+ and 2 == tmp_ObClSchS.pa
+ and saldonm.kauos[1] == tmp_ObClSchS.kauos[1]
+ and saldonm.kauos[2] == tmp_ObClSchS.kauos[2]
+ and saldonm.kauos[3] == tmp_ObClSchS.kauos[3]
+ and saldonm.kodspo == tmp_ObClSchS.kauos[7]
+ and MyPlansNo == planssch.nrec
+ and wschk == oborot.schetk
+ and dtb <<= oborot.datob
+ and dte >>= oborot.datob
+ and 0 == tmp_ObClSch.pa 
+ and 1 == tmp_ObClSch1.pa 
+ AND wc_groupmc == tmp_ObClSch1.CGROUPMC
+// and wschk ==  oborot.scheto(noindex)
+ and w_katmc == katmc.nrec
+ and wc_groupmc == tmp_groupmc.nrec
+ and 2 == tmp_ObClSch2.pa
+ and wc_groupmc == tmp_ObClSch2.CGROUPMC
+ and wkod_groupmc == tmp_groupmc1.kod
+))
+bounds bymain = 0 == tmp_ObClSch.pa and wc_groupmc == tmp_ObClSch.cgroupmc
+bounds bysch = 0 == tmp_ObClSch.pa and wc_groupmc == tmp_ObClSch.cgroupmc and wschd == tmp_ObClSch.schd      
+;
+Const
+  idVipInfo        = '&VIP[Obj:"BuhSchClose"]';
+  idVipTag         = 'BuhSchClose';
+end;
+//**************************Наименование интерфейса
+function GetInfo : string;
+{
+  GetInfo := 'Закрытие счета 10/99(Транспортные чего то там)';
+}
+//**************************выбор параметров
+function ParamGen : string;
+{  var s : String;
+   s:='' ;
+   s :='['+'СЧЕТ:'+chr(34)+wsch+chr(34)+']';
+   case tp_deist of
+   1: s:=s+'[ЭТАП:"НАЧ"]';
+   2: s:=s+'[ЭТАП:"СЛЕД"]';
+   3: s:=s+'[ЭТАП:"КОН"]';
+   end ;
+    ParamGen := s;
+}
+//**************************Разбор параметров при обработке в ТХО
+procedure ParamParser(hTxo : longint);
+var 
+!   s : String;
+    i : Longint;
+{  for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   { 
+     case TxoParamName(hTxo,i) of
+     'СЧЕТ'      : wsch :=TxoParamValue(hTxo,i)
+     'ЭТАП' :
+     { case TxoParamValue(hTxo,i) of
+       'НАЧ' : tp_deist:=1;
+       'СЛЕД': tp_deist:=2;
+       'КОН' : tp_deist:=3;
+       end ;
+     }
+     end ;
+   }
+   Rereadrecord ;
+
+} //procedure ParamParser(hTxo : longint);
+
+//**************************Окно Фейса
+Window winParam 'Параметры идентификатора' (,,sci13Esc) EscClose, DoAccept;
+Show at (10,1,90,28);
+Screen scInfo 'Информация';
+table oborot;
+Fields
+ wsch : noprotect ;
+ tp_deist ('служит для пометки записей,чтобы предотвратить дальнейшее формирование') : [list 0 'Общий','Начало','Продолжение','Конец'],protect ;
+   buttons
+        cmOk, default,, '',,;
+        cmCancel,,, '',,;
+<<
+ Значение фильтра по счету (!обязателен)
+ .@@@@@@@@@   
+ Тип работы  .@@@@@@@@@@@@@@@@@@@@@
+ Задайте в первой проводке "Начало" c 0 суммой
+         в последней       "Конец"  с 0 суммой
+ между ними сделайте шиблон дебет затр.счетов кредит 10/99
+ Режимы 0 - аналитика по затратным счетам
+        1 - по 10 счету          
+   <.~П~родолжить.>                             <.Отмена.>
+>>
+End;
+
+HandleEvent
+  cmIdle:
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  cmInit :
+    {
+      SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+      RescanPanel(#oborot) ;
+      MyPlansNo:=0 ;
+   
+    }
+  cmOk :
+  { MyPlansNo:=1
+    closewindow(winParam) ;
+  }
+End;
+End;
+
+//**************************Мастер параметров
+function ParamMaster : string;
+{  ParamMaster := '';
+   if( RunWindowModal(winParam)=cmDefault ) or MyPlansNo=1
+   {  //PackFields;
+      ParamMaster := ParamGen;
+   }
+}
+#declare dopflt
+//  and katmc.cgroupmc =88664617663856810
+#end
+//**************************
+Procedure Add_Tmp(wpa :word ) ;
+{
+case wpa of
+0 :
+{
+    insert tmp_ObClSch
+    select 
+      0
+ ,oborot.scheto //schd :string[20]
+ ,oborot.subossch //subd :string[20]
+ ,oborot.schetk //schk :string[20]
+ ,oborot.subschk //subk :string[20]
+ ,oborot.tblos[1] //tblos :array [1..7] of word
+ ,oborot.tblos[2] //tblos :array [1..7] of word
+ ,oborot.tblos[3] //tblos :array [1..7] of word
+ ,oborot.tblos[4] //tblos :array [1..7] of word
+ ,oborot.tblos[5] //tblos :array [1..7] of word
+ ,oborot.tblos[6] //tblos :array [1..7] of word
+ ,2
+ ,oborot.kauos[1] //kauos :array [1..7] of comp
+ ,oborot.kauos[2] //kauos :array [1..7] of comp
+ ,oborot.kauos[3] //kauos :array [1..7] of comp
+ ,oborot.kauos[4] //kauos :array [1..7] of comp
+ ,oborot.kauos[5] //kauos :array [1..7] of comp
+ ,oborot.kauos[6] //kauos :array [1..7] of comp
+ ,oborot.kodspo
+ ,oborot.tblks[1] //tblos :array [1..7] of word
+ ,oborot.tblks[2] //tblos :array [1..7] of word
+ ,oborot.tblks[3] //tblos :array [1..7] of word
+ ,oborot.tblks[4] //tblos :array [1..7] of word
+ ,oborot.tblks[5] //tblos :array [1..7] of word
+ ,oborot.tblks[6] //tblos :array [1..7] of word
+ ,2
+ ,oborot.kauks[1] //kauos :array [1..7] of comp
+ ,oborot.kauks[2] //kauos :array [1..7] of comp
+ ,oborot.kauks[3] //kauos :array [1..7] of comp
+ ,oborot.kauks[4] //kauos :array [1..7] of comp
+ ,oborot.kauks[5] //kauos :array [1..7] of comp
+ ,oborot.kauks[6] //kauos :array [1..7] of comp
+ ,oborot.kodspk
+ ,oborot.sumob 
+ ,if(oborot.subschk='99',oborot.kauks[3],katmc.cgroupmc)  
+ ,wpa    
+ ,oborot.datob
+    from oborot
+  where ((   
+  wschk == oborot.schetk
+ and dtb <<= oborot.datob
+ and dte >>= oborot.datob
+ and oborot.kauks[3] == katmc.nrec
+// and wschk ==  oborot.scheto(noindex)
+  
+  ))
+#dopflt  
+  ;
+ }
+1: 
+{
+    insert tmp_ObClSch
+    select 
+      0
+ ,oborot.scheto //schd :string[20]
+ ,oborot.subossch //subd :string[20]
+ ,oborot.schetk //schk :string[20]
+ ,oborot.subschk //subk :string[20]
+ ,oborot.tblos[1] //tblos :array [1..7] of word
+ ,oborot.tblos[2] //tblos :array [1..7] of word
+ ,oborot.tblos[3] //tblos :array [1..7] of word
+ ,oborot.tblos[4] //tblos :array [1..7] of word
+ ,oborot.tblos[5] //tblos :array [1..7] of word
+ ,oborot.tblos[6] //tblos :array [1..7] of word
+ ,2
+ ,oborot.kauos[1] //kauos :array [1..7] of comp
+ ,oborot.kauos[2] //kauos :array [1..7] of comp
+ ,oborot.kauos[3] //kauos :array [1..7] of comp
+ ,oborot.kauos[4] //kauos :array [1..7] of comp
+ ,oborot.kauos[5] //kauos :array [1..7] of comp
+ ,oborot.kauos[6] //kauos :array [1..7] of comp
+ ,oborot.kodspo
+ ,oborot.tblks[1] //tblos :array [1..7] of word
+ ,oborot.tblks[2] //tblos :array [1..7] of word
+ ,oborot.tblks[3] //tblos :array [1..7] of word
+ ,oborot.tblks[4] //tblos :array [1..7] of word
+ ,oborot.tblks[5] //tblos :array [1..7] of word
+ ,oborot.tblks[6] //tblos :array [1..7] of word
+ ,2
+ ,oborot.kauks[1] //kauos :array [1..7] of comp
+ ,oborot.kauks[2] //kauos :array [1..7] of comp
+ ,oborot.kauks[3] //kauos :array [1..7] of comp
+ ,oborot.kauks[4] //kauos :array [1..7] of comp
+ ,oborot.kauks[5] //kauos :array [1..7] of comp
+ ,oborot.kauks[6] //kauos :array [1..7] of comp
+ ,oborot.kodspk
+ ,oborot.sumob 
+ ,if(oborot.subossch='99',oborot.kauos[3],katmc.cgroupmc)  
+ ,wpa    
+ ,oborot.datob
+    from oborot , katmc
+  where ((   
+  wschd == oborot.scheto
+ and dtb <<= oborot.datob
+ and dte >>= oborot.datob
+ and oborot.kauos[3] == katmc.nrec
+// and wschk ==  oborot.scheto(noindex)
+  
+  ))
+#dopflt  
+  ;
+  
+} 
+end   ;   
+}
+Procedure Add_TmpS(wpa:word ) ;
+{
+    insert tmp_ObClSch
+    select 
+      0
+ ,saldmoun.scheto //schd :string[20]
+ ,saldmoun.subossch //subd :string[20]
+ ,'' //schk :string[20]
+ ,'' //subk :string[20]
+ ,saldmoun.tblos[1] //tblos :array [1..7] of word
+ ,saldmoun.tblos[2] //tblos :array [1..7] of word
+ ,saldmoun.tblos[3] //tblos :array [1..7] of word
+ ,saldmoun.tblos[4] //tblos :array [1..7] of word
+ ,saldmoun.tblos[5] //tblos :array [1..7] of word
+ ,saldmoun.tblos[6] //tblos :array [1..7] of word
+ ,2
+ ,saldmoun.kauos[1] //kauos :array [1..7] of comp
+ ,saldmoun.kauos[2] //kauos :array [1..7] of comp
+ ,saldmoun.kauos[3] //kauos :array [1..7] of comp
+ ,saldmoun.kauos[4] //kauos :array [1..7] of comp
+ ,saldmoun.kauos[5] //kauos :array [1..7] of comp
+ ,saldmoun.kauos[6] //kauos :array [1..7] of comp
+ ,saldmoun.kodspo
+ ,0 //tblos :array [1..7] of word
+ ,0 //tblos :array [1..7] of word
+ ,0 //tblos :array [1..7] of word
+ ,0 //tblos :array [1..7] of word
+ ,0 //tblos :array [1..7] of word
+ ,0 //tblos :array [1..7] of word
+ ,2
+ ,0 //kauos :array [1..7] of comp
+ ,0 //kauos :array [1..7] of comp
+ ,0 //kauos :array [1..7] of comp
+ ,0 //kauos :array [1..7] of comp
+ ,0 //kauos :array [1..7] of comp
+ ,0 //kauos :array [1..7] of comp
+ ,0
+ ,saldmoun.sums
+ ,if(saldmoun.subossch='99',saldmoun.kauos[3],katmc.cgroupmc)  
+ ,wpa    
+ ,dtb
+    from saldmoun , katmc
+  where ((   
+  wschd == saldmoun.scheto
+ and dtb == saldmoun.DATESAL
+ and saldmoun.kauos[3] == katmc.nrec
+  ))
+#dopflt  
+   ;   
+}
+
+function chk_sub(wsub:string ) :boolean ;
+{  case wsub of
+   '99' :  chk_sub:=false   ;
+//,'14','15','08','09'   
+   else chk_sub:=true   ;
+   end ;
+}
+//********** пробуем найти ближайшую подходящую вышестоящую группу на 10/99
+// вообще нужно длину кода нормализовать на 2 и искать последовательно уменьшая
+Function GetGroupMcNrec(wwc_groupmc :comp;Htxo:longint ) : comp ;
+var ww:comp ;
+    ww_len :integer ;
+{ GetGroupMcNrec:=wwc_groupmc ;
+  ww:= wc_groupmc ;
+   set wc_groupmc :=wwc_groupmc ;
+  if getfirst tmp_groupmc=0
+  { if tmp_groupmc.cgroupmc>0
+    { wc_groupmc:=ww ;
+      GetGroupMcNrec:=tmp_groupmc.nrec ;
+      exit ;
+    } 
+    TxoDebugMsg(hTxo, 'Txo_BuhSchCl','==== GetGroupMcNrec wwc_groupmc='+string(wwc_groupmc))
+    if getfirst tmp_ObClSch2<>0 
+    { wkod_groupmc:=tmp_groupmc.kod
+      ww_len:=length(wkod_groupmc) mod 2
+      if ww_len<>0
+      { wkod_groupmc:=substr(tmp_groupmc.kod,1,length(tmp_groupmc.kod)-1)
+      }
+    
+      ww_len:=length(wkod_groupmc)
+      do {
+        TxoDebugMsg(hTxo, 'Txo_BuhSchCl','wkod_groupmc='+wkod_groupmc+', '+tmp_groupmc.name)
+        ww_len:=ww_len-2 ;
+        if ww_len<=0 then break ;
+        wkod_groupmc:=substr(wkod_groupmc,1,ww_len)
+        if getfirst tmp_groupmc1=0
+        { set wc_groupmc :=tmp_groupmc1.nrec ;
+          if getfirst tmp_ObClSch2=0
+          { GetGroupMcNrec:=tmp_groupmc1.nrec ;
+            update current tmp_groupmc set tmp_groupmc.cgroupmc:=tmp_groupmc1.nrec ;
+            break ;
+          }
+        }
+      } while wkod_groupmc<>''
+    } // if getfirst tmp_ObClSch2<>0 
+  }  //if getfirst groupmc=0
+  wc_groupmc:=ww ;
+} //Function GetGroupMcNrec(wwc_groupmc :comp ) : comp ;
+//============================
+//**************************ОСНОВНАЯ ПРОЦЕДУРА ОБРАБОТКИ ТХО
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+var
+   bufcloSch: TTxoInfoCloSch ;
+   k :word ;
+   wsu,wsud :double ;
+   wkl_deb :word ;
+{
+  TxoAllowRecallStoreCycles(hTxo);
+
+  set CurSoprDoc := buf.cSoprDoc;
+  set CurSoprHoz := buf.cSoprHoz;
+  set CurDatOb := buf.DatOb;
+  set CurTidk := buf.TidkGal;
+  set MyPlansNo:= buf.cplanssch ;
+  ParamParser(hTxo);
+  if getfirst planssch=0
+  { wschk:=planssch.kod+'10'
+    wschd:=planssch.kod+wsch
+  }
+  else
+  { message('!Нет плана счетов почему то')
+    exit ;
+  }
+
+  if not TxoGetInfoCloSch(htxo,bufcloSch)
+  { TxoDebugMsg(hTxo, 'Txo_BuhSchCl', ' Error '+string(CurTidk) )
+  
+  }
+
+  set wc_groupmc := bufcloSch.cKau_3 ;
+  set wc_saldonm := bufcloSch.csaldonm
+  if getfirst saldonm=0 
+  {   set wc_groupmc := saldonm.kauos[3] ;
+
+  }
+
+
+  if getfirst tmp_groupmc=0 {}
+  dtb := date(1,month(CurDatOb),year(CurDatOb))
+  dte := date(last_day(dtb),month(CurDatOb),year(CurDatOb))
+  resetbounds(#tmp_ObClSch)
+  if tp_deist=2 and (getfirst tmp_ObClSch<>0) then tp_deist:=4 ; // продолжение 2
+  TxoDebugMsg(hTxo, 'Txo_BuhSchCl','wsch='+string(wsch)+', wc_groupmc='+string(wc_groupmc)+', '+tmp_groupmc.name+', '+string(tp_deist) )
+  TxoDebugMsg(hTxo, 'Txo_BuhSchCl','Период с '+datetostr(dtb,'DD/MM/YYYY по ')+datetostr(dte,'DD/MM/YYYY') )
+  case tp_deist of
+  3: {
+    delete all tmp_ObClSch ;
+    exit ;
+  }
+  0,1,4:
+  { wkl_deb:=0 ;
+/*  
+    if message('Учитывать движение внутри 10 счета?',YesNo)=cmYes
+      wkl_deb :=1 ;
+*/      
+    delete all tmp_ObClSch ;
+  // наполним для ускорения
+    delete all tmp_groupmc ;
+    insert into tmp_groupmc
+    select 
+      groupmc.nrec
+     ,groupmc.name
+     ,groupmc.kod
+     ,0
+    from groupmc ;  
+  //наполним для ускорения
+    chet:=0 ;
+  TxoDebugMsg(hTxo, 'Txo_BuhSchCl',' формируем временную таблицу ' )
+ // message('1')
+ // message('2')
+   chet:=chet+1 ;
+   inextvisual('Идет заполнение временной таблицы  ')
+   Add_Tmp(0) ;  
+   rereadrecord(#tmp_ObClSch)
+   TxoDebugMsg(hTxo, 'Txo_BuhSchCl',' отобрали записей '+string(recordsintable(#tmp_ObClSch)) )
+   wschd:=planssch.kod+'10'
+   wschk:=planssch.kod+'60'
+   Add_Tmp(1) ;
+   Add_TmpS(1) ;
+   rereadrecord(#tmp_ObClSch)
+   //message('21')
+   // запомним нужно ли менять группу на 1 уровень  , если найдено то не нужно
+   update  tmp_ObClSch where (( 1 == pa and '99'== tmp_ObClSch.subd(noindex) )) set tmp_ObClSch.pa:=2,tmp_ObClSch.cgroupmc:=tmp_ObClSch.kauos[3]  ;
+   //message('22')
+   // кредит 10
+   _loop fullcache tmp_ObClSch where ((0 == tmp_ObClSch.pa)) ordered by index tmp_ObClSch01
+   { if tmp_ObClSch.schk=tmp_ObClSch.schd then tmp_ObClSch.su:=0 ; // не будем учитывать перебросы со счета на счет
+     if not chk_sub(tmp_ObClSch.subk) then 
+     { tmp_ObClSch.su:=0  ;  }
+     w_katmc:=0
+     FOR(K:=1;K<=6;k:=k+1 )
+     { if tmp_ObClSch.tblks[k]=4
+       { w_katmc:= tmp_ObClSch.kauks[k]
+   //      break ;
+       } 
+     }
+     if w_katmc>0 
+     { if  getfirst katmc where (( w_katmc == katmc.nrec )) <>0 
+       then tmp_ObClSch.su:=0  
+       else tmp_ObClSch.cgroupmc:=GetGroupMcNrec(katmc.cgroupmc, hTxo) ;
+     }  
+     update current tmp_ObClSch  ;
+     TxoDebugMsg(hTxo, 'Txo_BuhSCl',tmp_ObClSch.schd
+      +'/'+tmp_ObClSch.subd
+      +'/'+tmp_ObClSch.schk
+      +'/'+tmp_ObClSch.subk
+      +'/'+string(tmp_ObClSch.cgroupmc)
+      +'/'+string(tmp_ObClSch.su)
+      +'/'+string(katmc.cgroupmc)+'/'+string(wc_groupmc) )
+   }
+   // дебет 10
+   _loop fullcache tmp_ObClSch where (( 1 == tmp_ObClSch.pa))  ordered by index tmp_ObClSch01
+   { // попробуем убрать обороты
+     // =======
+     if wkl_deb=0
+      if tmp_ObClSch.schk=tmp_ObClSch.schd then tmp_ObClSch.su:=0 ; // не будем учитывать перебросы со счета на счет
+     if not chk_sub(tmp_ObClSch.subd) then 
+     { tmp_ObClSch.su:=0  ;  }
+     w_katmc:=0 ;
+     FOR(K:=1;K<=6;k:=k+1 )
+     { if tmp_ObClSch.tblos[k]=4
+       { w_katmc:= tmp_ObClSch.kauos[k]
+   //      break ;
+       } 
+     }
+     if w_katmc<>0 
+     { if  getfirst katmc where (( w_katmc == katmc.nrec )) <>0 
+       then tmp_ObClSch.su:=0  ;
+       else tmp_ObClSch.cgroupmc:=GetGroupMcNrec(katmc.cgroupmc, htxo) ;
+     }  
+     update current tmp_ObClSch  ;
+      
+     TxoDebugMsg(hTxo, 'Txo_BuhSCl',tmp_ObClSch.schd
+      +'/'+tmp_ObClSch.subd
+      +'/'+tmp_ObClSch.schk
+      +'/'+tmp_ObClSch.subk
+      +'/'+string(tmp_ObClSch.cgroupmc)
+      +'/'+string(tmp_ObClSch.su)
+      +'/'+string(katmc.cgroupmc)+'/'+string(wc_groupmc) )
+     
+   }
+   delete all tmp_ObClSch where tmp_ObClSch.su=0 ;
+
+   wschk:=planssch.kod+'10'
+   wschd:=planssch.kod+wsch
+//  message('3')
+  /*
+   _loop tmp_ObClSch
+   { //if tmp_ObClSch.cgroupmc = 88664617663856810 // Давальческое сырье
+     TxoDebugMsg(hTxo, 'Txo_BuhSCl',tmp_ObClSch.schd+'/'+tmp_ObClSch.subd+'/'+string(tmp_ObClSch.cgroupmc)+'/'+string(tmp_ObClSch.su) )
+   }
+  */ 
+//  message('4')
+   
+   if tp_deist=1 then exit ;
+  } //0,1,4:
+  end ; //case tp_deist of
+//=========================
+  chet:=chet+1 ;
+  inextvisual('Идет обработка счета '+wschd +' '+string(chet)+'/'+string(recordsintable(#saldonm)*5) )
+  TxoDebugMsg(hTxo, 'Txo_BuhSCl','2');
+  if wsch<>'' Pushbounds(tbbySch)
+  else        Pushbounds(tbbyMain)
+  TxoDebugMsg(hTxo, 'Txo_BuhSchCl',' осталось записей '+string(recordsintable(#tmp_ObClSch))+', '+recordsintable(#saldonm) )
+  set wc_groupmc := bufcloSch.cKau_3 ;
+  if getfirst saldonm=0 
+  {   set wc_groupmc := saldonm.kauos[3] ;
+
+  }
+
+  TxoDebugMsg(hTxo, 'Txo_BuhSchCl',' идет формирование '+string(wc_groupmc)+'/'+wschd +'/'+string(saldonm.kauos[3])+',' +string(wc_saldonm))
+  WSU:=0
+  if getfirst tmp_groupmc=0 {}
+  TxoDebugMsg(hTxo, 'Txo_BuhSchCl',' идет формирование '+string(wc_groupmc)+'/'+wschd +'/'+string(saldonm.kauos[3])+','+tmp_groupmc.name)
+
+  if getfirst tmp_ObClSch<>0
+  { TxoDebugMsg(hTxo, 'Txo_BuhSchCl',' не нашли подходящих записей ' )
+    exit
+  }
+
+  // собираем обороты по дебету 10
+  wsud :=if(saldonm.VIOB=1,1,-1)*saldonm.sums
+  /*
+  _loop tmp_ObClSchS 
+  { wsud :=wsud+tmp_ObClSchS.su
+  }
+  */
+  _LOOP tmp_ObClSch1
+  { WSU:=WSU+tmp_ObClSch1.SU
+  }
+  _Loop tmp_ObClSch 
+  { 
+
+    TxoBodyAddKau(hTxo, wFlKau_Auto, bufcloSch.wKau_1, bufcloSch.cKau_1)           
+    TxoBodyAddKau(hTxo, wFlKau_Auto, bufcloSch.wKau_2, bufcloSch.cKau_2)           
+    TxoBodyAddKau(hTxo, wFlKau_Auto, bufcloSch.wKau_3, bufcloSch.cKau_3)           
+    TxoBodyAddKau(hTxo, wFlKau_Auto, bufcloSch.wKau_4, bufcloSch.cKau_4)           
+    TxoBodyAddKau(hTxo, wFlKau_Auto, bufcloSch.wKau_5, bufcloSch.cKau_5)           
+    TxoBodyAddKau(hTxo, wFlKau_Auto, bufcloSch.wKau_6, bufcloSch.cKau_6)           
+    TxoBodyAddKau(hTxo, wFlKau_Auto, 2, bufcloSch.cPodr)           
+    FOR(K:=1;K<=7;k:=k+1 )
+    {  TxoBodyAddKau(hTxo, wFlKau_Mode0, tmp_ObClSch.tblos[k], tmp_ObClSch.kauos[k])     
+       TxoBodyAddKau(hTxo, wFlKau_Mode1, tmp_ObClSch.tblks[k], tmp_ObClSch.kauks[k])           
+ 
+    }
+    TxoBodyAddSchet(hTxo, wFlKau_Mode0, tmp_ObClSch.schd, tmp_ObClSch.subd);  
+    TxoBodyAddSchet(hTxo, wFlKau_Mode1, tmp_ObClSch.schk, tmp_ObClSch.subk);  
+ //===============        
+    TxoBodySetSum(hTxo,wsud*tmp_ObClSch.su/WSU,0,0);
+    TxoDebugMsg(hTxo, 'Txo_BuhSchCl',    ' сумма '+string(tmp_ObClSch.su,14,2)+','+string(wsu,14,2)+', '+string(tmp_ObClSch.cGroupMC) )
+    TxoBodyInsert(hTxo);
+  }  //_Loop SpSchf
+} //procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+
+HandleEvent
+cmCheckField : 
+{
+  SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  RescanPanel(#oborot) ;
+
+}
+cmIdle:
+{ SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  RescanPanel(#oborot) ;
+}
+end ;
+end. //Конец основной процедуры
+

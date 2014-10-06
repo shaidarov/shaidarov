@@ -1,0 +1,573 @@
+#include PickBuh.vih
+Interface getNastrOSNrec AlwaysReturn;
+create view
+var
+  NastrOSNrec
+        :comp;
+
+from NastrOS
+where ((
+                   'Бухгалтерский учет'==NASTROS.Name
+             and 16==NastrOS.TiDK
+           ));
+
+parameters
+  NastrOSNrec;
+
+  HandleEvent
+    cmInit:{
+      if (GetFirst  NastrOS = tsok){
+        NastrOSNrec:=NastrOS.Nrec;
+      } else {
+        NastrOSNrec:=0;
+      }
+      abort;
+    }
+  end;
+end.
+
+Interface getOrgNP AlwaysReturn;
+create view
+var
+  OrgName
+, INN
+        :string;
+
+from KatOrg
+where ((
+             coGetTune('MYORG')==KatOrg.Nrec
+           ));
+
+parameters
+  OrgName,INN;
+
+  HandleEvent
+    cmInit:{
+      if (GetFirst  KatOrg = tsok){
+        OrgName:=KatOrg.Name;
+        INN:=KatOrg.Unn;
+      } else {
+        OrgName:='';
+        INN:='';
+      }
+      abort;
+    }
+  end;
+end.
+//============================================================================================================
+//----------------------------------------------- CreateOtchet -----------------------------------------------
+//============================================================================================================
+Interface CreateOtchet;
+var
+NastrOSNrec
+, nRecCO         :comp; //Фильтр по филиалам
+
+
+CurIndex
+, Npp
+         :integer;
+
+  DFrom
+, DTo
+         :date;
+
+  Sum1
+, Sum2
+         :double;
+
+  OrgName
+, INN
+, NameCO
+ :string; //Фильтр по филиалам
+
+
+       i:byte;
+
+ min_summa,
+ summ_opl,
+ FullObSum : double;
+ itogo10,
+ itogo11,
+ itogo12,
+ itogo13,
+ itogo14,
+ itogo15 : double;
+
+#include 2.4.X_Oborot997.var
+create view
+  from
+   KatOs
+  ,FPCO        // фильтр филиалы
+  ,Vidnorma
+  ,KAUREFF
+  ,dogovor
+  ,synonym KAUREFF VipPr
+  ,synonym SpKau SpKauVidPr
+ // , NastrOs
+  , SpKatOs
+  ,synonym KAUREFF Schet
+  ,synonym KAUREFF VidStrah
+  ,synonym SpKau SpKauShet
+  ,synonym SpKau SpKauVidStrah
+ // ,synonym SALDMOUN SALDMOUNK
+//  ,KatPodr KatPodrStr
+  ,SALDMOUN
+  ,oborot
+  ,katPodr
+  ,ArcIznos
+          //---------
+  ,StoimStruct
+  ,AttrNam AttrNamSch
+  ,AttrVal AttrValSch
+  ,SpKau SpKauSch
+
+ // ,AttrNam AttrNamVid
+ // ,AttrVal AttrValVid
+  ,SpKau SpKauVid
+#include 2.4.X_Oborot997_From.vpp
+  ,AttrNam AttrNamVid          (ReadOnly)
+  ,AttrVal AttrValVid          (ReadOnly)
+//  ,AttrNam AttrNamPodr         (ReadOnly)
+//  ,AttrVal AttrValPodr         (ReadOnly)
+    where ((
+       cgKau_FpCO == PickBuh.KodTable and
+       16                   ==  KatOs.TIDK // фильтр на НМА
+       and  PickBuh.PickRec ==  KatOS.cCO  (NoIndex)       // фильтр филиалы
+       and  PickBuh.PickRec ==  FPCO.nRec           // фильтр филиалы
+
+      // and  dFrom       <<= KatOs.OTCHPER
+      // and  dTo         >>= KatOs.OTCHPER
+
+       and KatOs.CVID/==VIDNORMA.nrec and (SubStr(VIDNORMA.Kod,1,4)='1103') //Личное страхование
+       and '3000'==KAUREFF.COTABLE //Внешнее КАУ договора к каталогу ОС
+       and KatOs.Nrec==KAUREFF.cRec
+       and '14'==KAUREFF.WKAU
+       and KAUREFF.CKAU==DOGOVOR.Nrec
+       and KatOs.CPODR==KatPodr.Nrec //Подразделение учета
+       and '3000'==VipPr.COTABLE //Внешнее КАУ виды продукции, работ, услуг
+       and KatOs.Nrec==VipPr.cRec
+       and '20009'==VipPr.WKAU
+       and VipPr.CKAU==SpKauVidPr.Nrec
+       and '3000'==VidStrah.COTABLE //Внешнее КАУ виды страхования
+       and KatOs.Nrec/==VidStrah.cRec
+       and '20025'==VidStrah.WKAU
+       and VidStrah.CKAU/==SpKauVidStrah.Nrec and (SpKauVidStrah.CODE='001'       // Фильтр по виду страхования
+                                              or SpKauVidStrah.CODE='001001'
+                                              or SpKauVidStrah.CODE='001002'
+                                              or SpKauVidStrah.CODE='013'
+                                              or SpKauVidStrah.CODE='013001'
+                                              or SpKauVidStrah.CODE='013002')
+       and NastrOSNrec== SpKatOs.CNASTROS
+       and KatOs.Nrec== SpKatOs.CKATOS
+       and '3000'==Schet.COTABLE //Внешнее КАУ счет БУ для начисления амортизации
+       and KatOs.Nrec==Schet.cRec
+       and '20077'==Schet.WKAU
+       and Schet.CKAU==SpKauShet.Nrec
+       //-----------
+       and 'N997'     == SALDMOUN.SCHETO    //Условие на сальдо для суммы оплаты на начало периода
+       and dFrom      == SALDMOUN.DATESAL
+       and '33'       == SALDMOUN.SUBOSSCH
+       and KatOs.Nrec == SALDMOUN.KAUOS[2] (noindex)
+    //   and word(1)    == SALDMOUN.VIOB    (noindex)
+       //-----------
+//       and 'N997'     == SALDMOUNK.SCHETO    //Условие на сальдо для суммы оплаты на начало периода
+//       and dFrom      == SALDMOUNK.DATESAL
+//       and '33'       == SALDMOUNK.SUBOSSCH
+//       and KatOs.Nrec == SALDMOUNK.KAUOS[2] (noindex)
+//       and word(2)    == SALDMOUNK.VIOB    (noindex)
+       //-----------
+       and 'N997'==oborot.SCHETO  //Условие на оборот для суммы оплаты за период
+       and '33'==oborot.SUBOSSCH
+       and KatOs.Nrec==oborot.KAUOS[2] (noindex)
+       and  dFrom<<=oborot.DATOB
+       and  dTo>>=oborot.DATOB
+       and KatOS.Nrec==ArcIznos.cKatOS
+       and NastrOSNrec==ArcIznos.cNastrOS
+
+//------------------------------------------
+
+
+#include 2.4.X_Oborot997_Where.vpp
+//------------------------------------------
+      and KatOS.nrec==StoimStruct.cDoc
+      and word(16)==StoimStruct.wType
+//------------------------------------------
+      and 'СчетЗатрат'==AttrNamSch.name
+      and coStoimStruct==AttrNamSch.wtable
+      and AttrNamSch.nrec==AttrValSch.cattrnam
+      and StoimStruct.nrec==AttrValSch.cRec(noindex)
+      and coStoimStruct==attrvalSch.wtable(noindex)
+      and AttrValSch.vComp==SpKauSch.nrec
+
+      and 'Виды продукции, работ, услуг'==AttrNamVid.name
+      and coStoimStruct==AttrNamVid.wtable
+      and AttrNamVid.nrec==AttrValVid.cattrnam
+      and StoimStruct.nrec==AttrValVid.cRec(noindex)
+      and coStoimStruct==attrvalVid.wtable(noindex)
+      and AttrValVid.vComp==SpKauVid.nrec
+//------------------------------------------
+      and KatOS.Nrec   ==  TabStoimStruct.cTabKatOS
+    ))
+                           and dFrom<=ArcIznos.DATA
+                           and dTo>=ArcIznos.DATA;
+;
+
+parameters
+  DFrom,DTo, NameCO, VidDecl, DataProv;       // фильтр филиалы  + NameCO
+
+function GetMonthName (NoMonth : word) : string;
+{
+  if (NoMonth=1) GetMonthName:='Январь';
+  if (NoMonth=2) GetMonthName:='Февраль';
+  if (NoMonth=3) GetMonthName:='Март';
+  if (NoMonth=4) GetMonthName:='Апрель';
+  if (NoMonth=5) GetMonthName:='Май';
+  if (NoMonth=6) GetMonthName:='Июнь';
+  if (NoMonth=7) GetMonthName:='Июль';
+  if (NoMonth=8) GetMonthName:='Август';
+  if (NoMonth=9) GetMonthName:='Сентябрь';
+  if (NoMonth=10) GetMonthName:='Октябрь';
+  if (NoMonth=11) GetMonthName:='Ноябрь';
+  if (NoMonth=12) GetMonthName:='Декабрь';
+}
+#include 2.4.X_Oborot997.vpp
+  HandleEvent
+    cmInit:{
+      xlCreateExcel('',true);
+      xlCreateMatrix(5000,19);
+
+
+      //xlSetColumnWidth(25,1,1,1,1);
+      //xlSetFontStyle(1,1,1,1,1);
+      //xlAlignCellsEx(3,2,1,1,1,1);
+      //xlMergeCells(CurIndex,2,CurIndex,3);
+      //xlSTWriteToMatrix(1,1,'Оплаченность отгрузок за период с '+dBeg+' по '+dEnd);
+
+      xlSetColumnWidth(4,1,1,1,1);
+      xlSetColumnWidth(12,1,2,1,19);
+      CurIndex:=1;
+
+      writeDateTime(CurIndex);
+      CurIndex:=CurIndex+1;
+
+      RunInterface(getOrgNP,OrgName,INN);
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'Наименование организации налогоплательщика: '+OrgName);
+      CurIndex:=CurIndex+1;
+
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'ИНН налогоплательщика: '+INN);
+      CurIndex:=CurIndex+2;
+
+       //Фильтр филиалы   ---->>>>
+      xlMergeCells(CurIndex,1,CurIndex,14);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,14);
+      xlSTWriteToMatrix(CurIndex,1,'По филиалу: '+NameCO);
+      CurIndex:=CurIndex+2;
+      //Фильтр филиалы   <<<----
+
+      xlMergeCells(CurIndex,1,CurIndex,11);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+      xlSTWriteToMatrix(CurIndex,1,'Дата составления "__" ___________200_г.');
+      CurIndex:=CurIndex+2;
+
+      xlMergeCells(CurIndex,1,CurIndex,19);
+      xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,19);
+      xlSetFontSize(12,1,1,2,1);
+      xlSTWriteToMatrix(CurIndex,1,'Регистр №Р 2.4.3. Расчет суммы расходов на страхование, нормируемых от фонда оплаты труда');
+      CurIndex:=CurIndex+1;
+
+      xlMergeCells(CurIndex,1,CurIndex,19);
+      xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,19);
+      xlSetFontSize(12,1,1,1,1);
+      xlSTWriteToMatrix(CurIndex,1,'за период с '+dateToStr(dFrom,'DD.MM.YYYY')+' по '+dateToStr(dTo,'DD.MM.YYYY'));
+      CurIndex:=CurIndex+1;
+
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,19);
+      xlSetFontStyle(1,CurIndex,1,CurIndex,19);
+      xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+      xlSTWriteToMatrix(CurIndex,2,'Номер объекта');
+      xlSTWriteToMatrix(CurIndex,3,'Наименование объекта по справочнику "Объекты расходов будущих периодов"');
+      xlSTWriteToMatrix(CurIndex,4,'Вид страхования');
+      xlSTWriteToMatrix(CurIndex,5,'Номер договора');
+      xlSTWriteToMatrix(CurIndex,6,'Дата договора');
+      xlSTWriteToMatrix(CurIndex,7,'Дата вступления в силу договора');
+      xlSTWriteToMatrix(CurIndex,8,'Дата окончания срока действия договора страхования');
+      xlSTWriteToMatrix(CurIndex,9,'Месяц отчетного (налогового) периода');
+      xlSTWriteToMatrix(CurIndex,10,'Дебет счета НУ для признания расходов');
+      xlSTWriteToMatrix(CurIndex,11,'КАУ "Виды продукции, работ, услуг", "Подразделения"');
+    //  xlSTWriteToMatrix(CurIndex,12,'Процент распределения');
+      xlSTWriteToMatrix(CurIndex,12,'Сумма оплаты нарастающим итогом на начало периода');
+      xlSTWriteToMatrix(CurIndex,13,'Начисление части страховой премии нарастающим итогом на начало периода');
+      xlSTWriteToMatrix(CurIndex,14,'Сумма оплаты за период');
+      xlSTWriteToMatrix(CurIndex,15,'Начисление части страховой премии за период');
+      xlSTWriteToMatrix(CurIndex,16,'Минимальная сумма из оплаченной нарастающим итогом и начисленной нарастающим итогом на конец периода');
+      xlSTWriteToMatrix(CurIndex,17,'Минимальная сумма из оплаченной нарастающим итогом и начисленной нарастающим итогом, приходящаяся на период');
+      xlSTWriteToMatrix(CurIndex,18,'Ранее рассчитанная минимальная сумма из оплаченной нарастающим итогом и начисленной нарастающим итогом, приходящаяся на период');
+      xlSTWriteToMatrix(CurIndex,19,'Сумма уточнения минимальной суммы из оплаченной нарастающим итогом и начисленной нарастающим итогом, приходящейся на период');
+      CurIndex:=CurIndex+1;
+
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,19);
+      xlSTWriteToMatrix(CurIndex,1,'1');
+      xlSTWriteToMatrix(CurIndex,2,'2');
+      xlSTWriteToMatrix(CurIndex,3,'3');
+      xlSTWriteToMatrix(CurIndex,4,'4');
+      xlSTWriteToMatrix(CurIndex,5,'5');
+      xlSTWriteToMatrix(CurIndex,6,'6');
+      xlSTWriteToMatrix(CurIndex,7,'7');
+      xlSTWriteToMatrix(CurIndex,8,'8');
+      xlSTWriteToMatrix(CurIndex,9,'9');
+      xlSTWriteToMatrix(CurIndex,10,'10');
+      xlSTWriteToMatrix(CurIndex,11,'11');
+      xlSTWriteToMatrix(CurIndex,12,'12');
+      xlSTWriteToMatrix(CurIndex,13,'13');
+      xlSTWriteToMatrix(CurIndex,14,'14');
+      xlSTWriteToMatrix(CurIndex,15,'15');
+      xlSTWriteToMatrix(CurIndex,16,'16');
+      xlSTWriteToMatrix(CurIndex,17,'17');
+      xlSTWriteToMatrix(CurIndex,18,'18');
+      xlSTWriteToMatrix(CurIndex,19,'19');
+    //  xlSTWriteToMatrix(CurIndex,18,'18');
+      CurIndex:=CurIndex+1;
+
+      Sum1:=0;
+      Sum2:=0;
+
+      Npp:=1;
+
+RunInterface(GetNastrOSNrec,NastrOSNrec);
+_loop PickBuh
+_loop KatOS
+{
+  SetVisualHeader('Обработка карточки № '+ KatOS.InNum);
+  i:=i+1;
+
+  GetSaldo997_33;
+  GetSaldo997_34;
+  GetOborot997_33;
+  GetOborot97_01;
+
+  if Saldo997_33 <> 0 or Oborot997_33 <> 0
+  {
+  if (Saldo997_33 = Saldo997_34) and Oborot997_33 = 0
+    Continue;
+//-----------------------------
+  GetUtochSum;
+//-----------------------------
+  If not(isvalidall(tnsaldmoun)) then
+  begin
+    if not(isvalidall(tnOborot)) then
+    begin
+      min_summa:=0;
+      summ_opl:=0;
+    end
+    else
+    begin
+      if (Saldo997_34 + Oborot97_01 >= 0)
+      {
+        if Oborot997_33 <= Saldo997_34 + Oborot97_01 then
+          min_summa:=Oborot997_33
+        else
+          min_summa:=Saldo997_34 + Oborot97_01;
+      }
+      else
+      {
+        if Oborot997_33 >= Saldo997_34 + Oborot97_01 then
+          min_summa:=Oborot997_33
+        else
+          min_summa:=Saldo997_34 + Oborot97_01;
+      }
+        summ_opl:=min_summa;
+    end
+  end
+  else
+  begin
+    if not(isvalidall(tnOborot)) then
+    {
+      if (Saldo997_34 + Oborot97_01 >= 0)
+      {
+        if Saldo997_33 <= (Saldo997_34 + Oborot97_01) then
+          min_summa := Saldo997_33
+        else
+          min_summa := (Saldo997_34 + Oborot97_01);
+      }
+      else
+      {
+        if Saldo997_33 >= (Saldo997_34 + Oborot97_01) then
+          min_summa := Saldo997_33
+        else
+          min_summa := (Saldo997_34 + Oborot97_01);
+      }
+    }
+    else
+    {
+      if (Saldo997_34 + Oborot97_01 >= 0)
+      {
+        if (Saldo997_33 + Oborot997_33)<=(Saldo997_34 + Oborot97_01) then
+          min_summa := Saldo997_33 + Oborot997_33
+        else
+          min_summa := Saldo997_34 + Oborot97_01;
+      }
+      else
+       if (Saldo997_33 + Oborot997_33) >= (Saldo997_34 + Oborot97_01) then
+          min_summa := Saldo997_33 + Oborot997_33
+        else
+          min_summa := Saldo997_34 + Oborot97_01;
+    }
+    if (Saldo997_34 + Oborot97_01 >= 0)
+    {
+      if Saldo997_33 <= Saldo997_34 then
+        summ_opl := min_summa - Saldo997_33
+      else
+        summ_opl := min_summa - Saldo997_34;
+    }
+    else
+    {
+      if Saldo997_33 >= Saldo997_34 then
+        summ_opl := min_summa - Saldo997_33
+      else
+        summ_opl := min_summa - Saldo997_34;
+    }
+   end
+
+//----
+//  delete all from TabStoimStruct;
+//  FillTabStoim;
+//----
+
+  itogo10:= Saldo997_33+itogo10;
+  itogo11:= Saldo997_34+itogo11;
+
+  if isvalidall(tnOborot)
+    itogo12:= Oborot997_33 + itogo12;
+
+  itogo13:= Oborot97_01+itogo13;
+  itogo14:= min_summa+itogo14;
+  itogo15:= summ_opl+itogo15;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,1);
+
+  xlSetNumberFormat ( '@', CurIndex, 11, CurIndex, 19 );
+  xlSTWriteToMatrix(CurIndex,1,i);
+  xlSetNumberFormat ( '@', CurIndex, 2, CurIndex, 2 );
+  xlSTWriteToMatrix(CurIndex,2,KatOs.InNum);
+  xlSTWriteToMatrix(CurIndex,3,KatOs.NameOs);
+  if (isValid(#SpKauVidStrah))
+    xlSTWriteToMatrix(CurIndex,4,SpKauVidStrah.Name);
+
+  if (isValid(#Dogovor))
+  {
+    xlSTWriteToMatrix(CurIndex,5,DOGOVOR.NODOC);
+    xlSTWriteToMatrix(CurIndex,6,DateToStr(Dogovor.DDoc,'DD.MM.YYYY'));
+    xlSTWriteToMatrix(CurIndex,7,DateToStr(DOGOVOR.DBEG,'DD.MM.YYYY'));
+    xlSTWriteToMatrix(CurIndex,8,DateToStr(DOGOVOR.DEND,'DD.MM.YYYY'));
+  }
+  xlSTWriteToMatrix(CurIndex,9,DateToStr(dTo ,'MM YYYY'));
+  //if GetFirst TabStoimStruct != tsOk
+  //{
+  //if (isValid(#SpKauShet))
+  //  xlSTWriteToMatrix(CurIndex,10,GetNalogShet(SubStr(SpKauShet.Name,1,2), SubStr(SpKauShet.Name,3,2)));
+  //if (isValid(#SpKauVidPr))
+  //  xlSTWriteToMatrix(CurIndex,11,SpKauVidPr.NAME)+KatPodr.NAME);
+  //else
+  //  xlSTWriteToMatrix(CurIndex,11,KatPodr.NAME);
+  //}
+  xlSetNumberFormat ( '# ##0,00', CurIndex, 12, CurIndex, 17 );
+
+//  if (isValid(#SALDMOUN))
+  // xlSTWriteToMatrix(CurIndex,13,SALDMOUN.SUMS);
+  //xlSTWriteToMatrix(CurIndex,14,ARCIZNOS.SUMIZN);
+  xlSTWriteToMatrix(CurIndex,12, Saldo997_33);
+  xlSTWriteToMatrix(CurIndex,13, Saldo997_34);
+
+  if (isValid(#oborot))
+    xlSTWriteToMatrix(CurIndex,14, Oborot997_33);
+
+  xlSTWriteToMatrix(CurIndex,15, Oborot97_01);
+  xlSTWriteToMatrix(CurIndex,16, min_summa);
+  xlSTWriteToMatrix(CurIndex,17, summ_opl);
+  if VidDecl <> 0
+  {
+    xlSTWriteToMatrix(CurIndex,18,SumUtoch997_34);
+    xlSTWriteToMatrix(CurIndex,19,summ_opl - SumUtoch997_34);
+  }
+  CurIndex:=CurIndex+1;
+  Npp:=Npp+1;
+
+//  _loop TabStoimStruct
+//  {
+//    if TabStoimStruct.SumNachVh <> 0 or TabStoimStruct.Percent <> 0
+//    {
+//      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+//      xlAlignCellsEx(4,2,CurIndex,7,CurIndex,7);
+//      xlAlignCellsEx(4,2,CurIndex,11,CurIndex,11);
+//
+//      xlSTWriteToMatrix(CurIndex,10,TabStoimStruct.Schet);
+//      if(TabStoimStruct.Vid <>'')
+//        xlSTWriteToMatrix(CurIndex,11,TabStoimStruct.Vid);//+' / '+TabStoimStruct.Podrazd);
+//   //   else
+//   //     xlSTWriteToMatrix(CurIndex,11,TabStoimStruct.Podrazd);
+//      xlSetNumberFormat ( '# ##0,00', CurIndex, 12, CurIndex, 12 );
+//      if TabStoimStruct.Percent <> 0
+//        xlSTWriteToMatrix(CurIndex,12,TabStoimStruct.Percent);
+//      xlSetNumberFormat ( '# ##0,00', CurIndex, 13, CurIndex, 18 );
+//    //  if (isValid(#SALDMOUN))
+//      xlSTWriteToMatrix(CurIndex,13,OsSumOplVh*TabStoimStruct.SumNachVh/OsSumNachVh);
+//      if TabStoimStruct.SumNachVh <> 0
+//        xlSTWriteToMatrix(CurIndex,14,TabStoimStruct.SumNachVh);
+//   //   if (isValid(#oborot))
+//      if TabStoimStruct.Percent <> 0
+//      {
+//        xlSTWriteToMatrix(CurIndex,15,FullObSum*TabStoimStruct.Percent/double(100));
+//        xlSTWriteToMatrix(CurIndex,16,(ARCIZNOS.SIZNM+sumMove)*TabStoimStruct.Percent/double(100));
+//        xlSTWriteToMatrix(CurIndex,17,min_summa*TabStoimStruct.Percent/double(100));
+//        xlSTWriteToMatrix(CurIndex,18,summ_opl*TabStoimStruct.Percent/double(100));
+//      }
+//      CurIndex:=CurIndex+1;
+//    }
+//  }
+  }
+}
+      xlSetFontStyle(1,CurIndex,1,CurIndex,19);
+      xlMergeCells(CurIndex,1,CurIndex,2);
+      xlSTWriteToMatrix(CurIndex,1,'ВСЕГО:');
+      xlSetNumberFormat ( '# ##0,00', CurIndex, 12, CurIndex, 19);
+      xlSTWriteToMatrix(CurIndex,12,itogo10);
+      xlSTWriteToMatrix(CurIndex,13,itogo11);
+      xlSTWriteToMatrix(CurIndex,14,itogo12);
+      xlSTWriteToMatrix(CurIndex,15,itogo13);
+      xlSTWriteToMatrix(CurIndex,16,itogo14);
+      xlSTWriteToMatrix(CurIndex,17,itogo15);
+
+      if VidDecl <> 0
+      {
+        xlSTWriteToMatrix(CurIndex,18,VsegoUtoch997_34);
+        xlSTWriteToMatrix(CurIndex,19,itogo15-VsegoUtoch997_34);
+      }
+
+      xlWrapText(3,1,CurIndex,19);
+      xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,8,1,CurIndex,19);
+
+      CurIndex:=CurIndex+2;
+      xlMergeCells(CurIndex,1,CurIndex,19);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,19);
+      xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+      xlMergeCells(CurIndex,1,CurIndex,19);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,19);
+      CurIndex:=CurIndex+1;
+      xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+      CurIndex:=CurIndex+1;
+
+      xlWriteMatrixToExcel(1,1);
+      xlFreeMatrix;
+      xlKillExcel;
+
+      abort;
+    }
+  end;
+end.

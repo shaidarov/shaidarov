@@ -1,0 +1,87 @@
+/*
+#component "L_MC"
+
+Interface UpDateGroupMC 'UpDateGroupMC' EscClose DoAccept;
+
+create view
+var
+as select * from
+  KatMC
+, KatMBP
+, synonym GroupMC GroupMC_new
+, synonym GroupMC GroupMC_old
+;
+
+HandleEvent
+
+cmInit:{
+  _Loop GroupMC_new {
+    _Loop GroupMC_old where (('old_'+GroupMC_new.Name == GroupMC_old.Name )) {
+
+            _Loop KatMC where (( GroupMC_old.nRec == KatMC.cGroupMC)) {
+
+                       _Loop KatMBP where (( KatMC.nRec == KatMBP.cMC )) {
+                          KatMBP.cGroupMC := GroupMC_new.nRec;
+                          KatMBP.KodGr    := GroupMC_new.Kod;
+                          UpDate current KatMBP;
+                         }
+
+               KatMC.cGroupMC := GroupMC_new.nRec;
+               KatMC.kGroupMC := GroupMC_new.Kod;
+               UpDate current KatMC;
+              }
+
+      GroupMC_old.Name := 'dell_' + SubStr(GroupMC_old.Name, 1, 77);
+      UpDate current GroupMC_old;
+      }
+    }
+}
+
+end;
+
+end.
+
+.Form 'UpDateGroupMC'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_MC::UpDateGroupMC');
+end.
+
+.endform
+
+*/
+
+#component "L_MC"
+
+Interface DellGroupMC_dell 'DellGroupMC_dell' EscClose DoAccept;
+
+create view
+var
+as select * from
+  synonym GroupMC GroupMC_new
+, synonym GroupMC GroupMC_old
+;
+
+HandleEvent
+
+cmInit:{
+  _Loop GroupMC_old where ( 'dell_old' = SubStr(GroupMC_old.Name, 1, 8) ) {
+      if (getfirst GroupMC_new where (( GroupMC_old.nRec == GroupMC_new.OWNER )) <> tsOK) {
+        delete current GroupMC_old;
+        }
+  }
+}
+
+end;
+
+end.
+
+.Form 'DellGroupMC_dell'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_MC::DellGroupMC_dell');
+end.
+
+.endform

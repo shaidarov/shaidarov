@@ -1,0 +1,228 @@
+/*
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                     (c) 1994,2000 корпорация ГАЛАКТИКА                    ║
+║ Проект        : ГАЛАКТИКА                                                 ║
+║ Система       :                                                           ║
+║ Версия        :                                                           ║
+║ Назначение    : Установка атрибутов счета в проводку по банку в платежке  ║
+║ Ответственный : Киррилов Э.П.                                             ║
+║ Параметры     : есть                                                      ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+                                            Реестр типовых хозяйственных операций и
+                                      формируемых проводок по счетам бухгалтерского учета
+
+  Хозяйственный документ : Собственное платежное поручение
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                             test                                                               │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│Регистр учета: Типовой план счетов ТНФ (рабочий)                                                                                │
+├────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────┬───┬────────┤
+│ No │ Корреспонденция                                                                                              │Вх.│ Процент│
+├────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────┼───┼────────┤
+│   1│ ДЕБЕТ : <режим 1>.<режим 1>                                                                                  │ + │100.0000│
+│    │ КАУ 1 : <режим 1 - Расчетные счета>                                                                          │   │        │
+│    │ КАУ 2 : <режим 1 - Движение денежных средств>                                                                │   │        │
+│    │ Подразделение: <явно - ООО "">                                                     │   │        │
+│    ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤   │        │
+│    │ КРЕДИТ: <режим 0>.<режим 0>                                                                                  │   │        │
+│    │ КАУ 1 : <режим 0 - Расчетные счета>                                                                          │   │        │
+│    │ КАУ 2 : <режим 0 - Движение денежных средств>                                                                │   │        │
+│    │ Подразделение: <явно - ООО "">                                                     │   │        │
+│    ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤   │        │
+│    │ Дата проводки: <авто - дата>                                                                                 │   │        │
+│    │ Содержание проводки:                                                                                         │   │        │
+│    │ Алгоритм в НДЕ     : &Sum                                                                                    │   │        │
+│    │ Алгоритм в валюте <по настройке>:                                                                            │   │        │
+│    │ Алгоритм количество:                                                                                         │   │        │
+│    │ Вычисление формул  : Вычислять все формулы по списку                                                         │   │        │
+│    │ Фильтр для циклической обработки:                                                                            │   │        │
+│    │ Циклическая обработка: <Счет/субсчет> <Движение денежных средств> <Расчетные счета> <Подразделения>          │   │        │
+│    │ Результат: положительная, при смене знака изменить корреспонденцию счетов                                    │   │        │
+│    │ Сумму в проводке: не конвертировать                                                                          │   │        │
+│    │ Внешняя классификация:                                                                                       │   │        │
+├────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────┴───┴────────┤
+│ Алгоритмы для расчета сумм                                                                                                     │
+├────┬───────────────────┬──────────────────────────────────────────────────────┬────────────────────────────────────────────────┤
+│ No │       Ключ        │    Описание алгоритма для расчета сумм проводки      │             Примечание к алгоритму             │
+├────┼───────────────────┼──────────────────────────────────────────────────────┼────────────────────────────────────────────────┤
+│   1│&1                 │&Vip_[Obj:"RASSCHETSET"]                              │                                                │
+└────┴───────────────────┴──────────────────────────────────────────────────────┴────────────────────────────────────────────────┘
+
+
+
+*/
+#ifdef ComponentVersion
+#Component "F_TxoApi"
+#end
+
+#include TxoApi.vih
+
+VipInterface Txo_RasSchetSet implements ObjTxoIdentPlugin
+#ifdef ATL51
+ licensed (FREE) 
+#endif 
+
+;
+
+Interface Txo_RasSchetSet cacheable;
+
+create view  vTxo_RasSchetSet
+var
+  CurSoprHoz : comp;
+  CurSoprDoc : comp;
+  CurDatOb : date;
+  curTidk :longint  ;
+  wcplanssch:comp ;
+  wcbank :comp ;
+  wdirect:word ;
+  wrazdel:word ; // 2 для рублей
+as select plpor.nrec 
+from
+  plpor , katbank , cashbank,spcash
+where
+((
+  CurSoprDoc==plpor.nrec 
+and wcbank == katbank.nrec  
+and wrazdel == cashbank.razdel
+and wcbank  == cashbank.cpodr
+and cashbank.nrec == spcash.CCASHBANK
+and wcplanssch == spcash.CPLANSSCH
+));
+Const
+  idVipInfo        = '&VIP[Obj:"RasSchetSet"]';
+  idVipTag         = 'RasSchetSet';
+end;
+//**************************Наименование интерфейса
+function GetInfo : string;
+{
+  GetInfo := 'Проставляем аттрибуты 51 счета по банку в платежке ';
+}
+//**************************выбор параметров
+function ParamGen : string;
+{  var s : String;
+   s:='' ;
+   s :='['+'НАПР:'+if(wdirect=0,'ПЛАТ','ПОЛ')+']';
+   
+   ParamGen := s;
+}
+//**************************Окно Фейса
+Window winParam 'Параметры идентификатора' EscClose, DoAccept;
+Show at (10,1,90,28);
+Screen scInfo 'Информация';
+table plpor;
+//Fields
+//  wdirect : [list 0 'Плательщик','Получатель'],protect ;
+// Направление  .@@@@@@@@@@@@@@@@@@@@@@@@@
+<<
+ Установка атрибутов счета в проводку по банку в платежке
+ Режим для плательшика 0, получателя 1 
+>>
+End;
+
+HandleEvent
+  cmCheckField :
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  cmIdle:
+    SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+  cmInit :
+    {
+       SetWindowTitle(winParam, 'Параметры'+idVipInfo+ParamGen);
+    }
+  cmPick:
+    {
+    }
+End;
+End;
+
+//**************************Мастер параметров
+function ParamMaster : string;
+{  ParamMaster := '';
+   if( RunWindowModal(winParam)=cmDefault )
+   {  //PackFields;
+      ParamMaster := ParamGen;
+   }
+}
+//**************************Разбор параметров при обработке в ТХО
+procedure ParamParser(hTxo : longint);
+var 
+!   s : String;
+    i : Longint;
+{  wdirect :=0 ;
+   for(i:=1; i<=TxoParamCount(hTxo); i:=i+1)
+   { 
+//    case TxoParamName(hTxo,i) of
+//     'НАПР': set wdirect :=if(TxoParamValue(hTxo,i)='ПОЛ',1,0) ;
+//      end ;
+   }
+   Rereadrecord ;
+
+} //procedure ParamParser(hTxo : longint);
+
+
+
+
+//**************************ОСНОВНАЯ ПРОЦЕДУРА ОБРАБОТКИ ТХО
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+var i :word ;
+   wstr:string ;
+{
+  set CurSoprDoc := buf.cSoprDoc;
+  set CurSoprHoz := buf.cSoprHoz;
+  set CurDatOb := buf.DatOb;
+  set CurTidk := buf.TidkGal;
+  set wcplanssch:= buf.cplanssch ;
+  ParamParser(hTxo);
+  wrazdel:=2 ;
+  TxoAllowRecallStoreCycles(hTxo);
+  TxoDebugMsg(hTxo, 'TXO_RASSCH--','wdirect= '+string(wdirect));
+  if CurTidk>10
+  { wstr:='Не тот тип документа '+string(CurTidk)
+    TxoDebugMsg(hTxo, 'TXO_RASSCH--',wstr)    
+    message(wstr)
+    exit ; 
+  }
+  TxoDebugMsg(hTxo, 'TXO_RASSCH--','1 ');
+  if getfirst plpor<>0
+  { wstr:=('Не нашли документ '+string(CurTidk))
+    TxoDebugMsg(hTxo, 'TXO_RASSCH--',wstr)    
+    message(wstr)
+
+    exit ;
+  }
+  TxoDebugMsg(hTxo, 'TXO_RASSCH--','2');
+  TxoBodyClear(hTxo);
+  for(wdirect:=0;wdirect<=1;wdirect:=wdirect+1)
+  { wcbank:=if(wdirect=0,plpor.cbankplat,plpor.cbankpol)
+    if wcbank=0 then continue ;
+    if getfirst katbank<>0
+    { wstr:=('Не нашли расчетный счет в платежке '+string(CurTidk)+',')
+      TxoDebugMsg(hTxo, 'TXO_RASSCH--',wstr)    
+      message(wstr)
+      exit ;
+    }
+    TxoDebugMsg(hTxo, 'TXO_RASSCH--','3');
+    if getfirst cashbank<>0
+    { wstr:=('Не нашли счет в настройке '+string(CurTidk)+', '+katbank.schet1)
+      TxoDebugMsg(hTxo, 'TXO_RASSCH--',wstr)    
+      message(wstr)
+      exit ;
+    }
+    TxoDebugMsg(hTxo, 'TXO_RASSCH--','4');
+    if getfirst spcash<>0
+    { wstr:=('Не задан бух.счет в настройке '+string(CurTidk)+', '+katbank.schet1)
+      TxoDebugMsg(hTxo, 'TXO_RASSCH--',wstr)    
+      message(wstr)
+      exit ;
+    }
+    TxoDebugMsg(hTxo, 'TXO_RASSCH--','5');
+    for(i:=1;i<=6 ;i:=i+1)
+    { 
+      TxoBodyAddKau (hTxo, wFlKau_Mode0+wdirect, spcash.tblos[i] , spcash.kauos[i] );
+    }  
+    TxoBodyAddSchet(htxo,wFlKau_Mode0+wdirect,spcash.scheto,spcash.subossch) ;
+  }  
+  TxoBodySetSum(hTxo,1,0,0);
+  TxoBodyInsert(hTxo);
+}
+end. //Конец основной процедуры
+

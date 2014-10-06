@@ -1,0 +1,393 @@
+//ED
+#define _NoMyFun_Zar_Debug_
+#include MyFun_Zar.Vih
+//ED
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+#end
+
+
+Interface MyFun_Zar ;
+table struct tmp_gni
+(  crec :comp 
+  ,kod_gni :string[20] 
+  ,kpp : string[20]
+  ,okato : string[20]
+  ,okato_c:comp
+  ,orgname:string[200]
+  ,orginn :string[20]
+  ,OrgTelef :string[50]
+  ,cOrg :comp
+  ,cOrg_nal :comp
+  ,PodrName :string[120]
+  ,PodrName_Org:string[120]
+)
+with index
+( tmp_gni01 = crec
+) ;
+var Reestr_Okato_Podr :word
+
+create view vMyZar_Func
+var
+ wcex :comp ;
+ wcex1 :comp ;
+ wokato :string ;
+ wkpp:string;
+ worgname:string ;
+ worginn :string ;
+ wOrgTelef:string ;
+ wc_Nal_Org:comp ; //GNIATD.CORG3
+ wc_Org :comp ;
+ w_PodrName :string;
+ w_PodrName_Org:string;
+ w_tp_sbor  :word; // 0 - старая схема, 1 новая
+ wc_sterr   :comp;
+ w_okato_c  :comp;
+ logfilenm:string;
+as select katpodr.name 
+from
+ katpodr
+  , KatKod     KppAtd       //     КПП
+  , KatKod     GNIAtd       //     ГНИ
+  , PODRINFO KPPINFO
+  , tmp_gni
+  , addressn
+  , sterr
+  , katorg katorg_nal
+  , kaureff , spkau
+  , KatKod kpp_direct 
+  , KatKod     GNIAtd_D       //     ГНИ
+where
+(( wcex == katpodr.nrec
+and katpodr.corg == katorg.nrec
+and word(cgKatKod_Kpp)  == KppAtd.wType
+and wcex1 == Filial.cpodr
+and 1 == FILIAL.WORGPODR(noindex)
+and wcex == tmp_gni.crec
+and Filial.nrec == KppAtd.cOrg2
+and KppAtd.cOrg1 == GNIAtd.nRec
+and KppAtd.CORG3 == KPPINFO.NREC
+and wc_Nal_Org == katorg_nal.nrec
+// === внешние кау
+and 1 == kaureff.wkau
+and wc_Nal_Org ==kaureff.CKAU
+and cospkau == kaureff.COTABLE
+and kaureff.crec == spkau.nrec
+and katpodr.ckpp == kpp_direct.nrec
+and kpp_direct.cOrg1 == GNIAtd_D.nRec
+and katpodr.cuser == Addressn.nrec
+and wc_sterr == StErr.Nrec
+//and addressn.csterr == sterr.nrec
+)) ;
+
+//'FILIAL.WIFILIAL.SCFILIAL.ORGPODR_NAME'
+//'FILIALSEE.TRTMPHTRFIL.GNIATD.NAME'
+Function InitMyFun :boolean ;
+{ resetbounds(#tmp_gni)
+  delete all tmp_gni ;
+  setbounds(#tmp_gni)
+  InitMyFun:=true ;
+  w_tp_sbor:=0 ;
+}
+
+Procedure Set_tp_sbor(ww_tp_sbor:word) ;
+{ w_tp_sbor:=ww_tp_sbor;
+}
+
+
+
+//==============================
+// Получить окато из адресса
+//==============================
+Procedure GetOkatoFromAddr;
+{ 
+#IFDEF _MyFun_Zar_Debug_
+  logstrtofile(logfilenm,'GetOkatoFromAddr wokato='+string(wokato)+'/'+string(w_okato_c))
+#ENDIF  
+  if wokato<>'' then exit;
+  wc_sterr:=0; 
+  w_okato_c:=0
+#IFDEF _MyFun_Zar_Debug_
+  logstrtofile(logfilenm,'GetOkatoFromAddr wokato='+string(wokato)+'/'+string(w_okato_c)
+    +'/'+string(katpodr.cuser)+'/'+string(KATPODR.CMNFSTRC)+'/'+katpodr.lastuser)
+#ENDIF  
+  
+  if katpodr.cuser=0 and KATPODR.CMNFSTRC=0  then exit;
+  // если явно указано
+  if KATPODR.CMNFSTRC>0
+  { wc_sterr:=KATPODR.CMNFSTRC
+  }
+  else
+  { if katpodr.cuser>0 and (trim(katpodr.lastuser)='2' or trim(katpodr.lastuser)='1' or katpodr.corg>0)
+    { if getfirst fastfirstrow addressn=0
+      { if Reestr_Okato_Podr=1
+          wc_sterr:=addressn.CSTERR
+        else
+          wc_sterr:=if(addressn.cstreet>0,addressn.cstreet,addressn.CSTERR)
+      }
+    }  
+  }    
+#IFDEF _MyFun_Zar_Debug_
+  logstrtofile(logfilenm,' ссылка на окато ='+string(wc_sterr)) ;
+#ENDIF  
+  if wc_sterr>0
+   if getfirst fastfirstrow sterr=0
+   {  wokato:=STERR.CATDATA
+      w_okato_c:= wc_sterr; 
+   }
+} //Procedure GetOkatoFromAddr;
+
+//==============================
+//
+//==============================
+Function GetcodeGniByPodr(wwcex:comp ) :string ;
+var w : string ;
+  k :word ;
+  wnrec:comp ;
+  wkl:boolean ;
+{ 
+  set wcex:= wwcex ;
+  GetcodeGniByPodr:='' ;
+  if getfirst tmp_gni=0
+  { GetcodeGniByPodr:=tmp_gni.kod_gni ;
+  }
+  w:='' ; k:=0 ;
+#IFDEF _MyFun_Zar_Debug_
+  logstrtofile(logfilenm,'GetcodeGniByPodr begin w_tp_sbor='+string(w_tp_sbor))
+#ENDIF  
+  worgname:='' ; worginn:='' ;wOrgTelef:=''
+  wc_Nal_Org:=0;
+  wc_org:=0
+  wkl:=false ;
+  w_PodrName:=''
+  wokato:=''
+  wkpp  :=''
+  wcex1:=0
+  // сначала найдем напрямую
+  if getfirst  fastfirstrow katpodr=0 
+  { if getfirst  fastfirstrow kpp_direct=0
+    { wkpp:=trim(kpp_direct.kod)
+      if getfirst fastfirstrow GNIATD_D=0
+      { w:=GNIATD_D.KOD
+        wc_Nal_Org:=GNIATD_D.CORG3
+      }
+#IFDEF _MyFun_Zar_Debug_
+      logstrtofile(logfilenm,'Direct КПП='+wkpp)
+#ENDIF      
+    }  
+    GetOkatoFromAddr; 
+  } //if getfirst  fastfirstrow katpodr=0 
+ if w_tp_sbor=0
+ { do {
+   if getfirst  fastfirstrow katpodr<>0 then break ;
+   w_PodrName:=katpodr.name
+#IFDEF _MyFun_Zar_Debug_
+   logstrtofile(logfilenm,' подр.'+katpodr.name) ;
+#ENDIF   
+   set wcex1:=wcex ;
+   GetOkatoFromAddr; 
+   if getfirst  fastfirstrow filial=0
+   { if wokato=''
+     {  wokato:=FILIAL.ABBR  
+     }
+     if getfirst  fastfirstrow KppAtd=0
+     { if wkpp=''
+         wkpp:=trim(KppAtd.kod)
+       if wc_Nal_Org=0  
+       if getfirst fastfirstrow GNIATD=0
+       { w:=GNIATD.KOD
+         wc_Nal_Org:=GNIATD.CORG3
+#IFDEF _MyFun_Zar_Debug_
+         logstrtofile(logfilenm,' нашли налоговую '+w) ;
+#ENDIF         
+       }
+     }    
+     if w<>''  and wokato<>'' then
+     { 
+#IFDEF _MyFun_Zar_Debug_
+       logstrtofile(logfilenm,' вышли ') ;
+#ENDIF       
+       wkl:=true ;
+       break ;
+     }
+   } //if getfirst filial=0 
+   k:=k+1 ;
+   if k>10000 then break ;
+   wnrec:= katpodr.cpodr ;
+   set wcex:=wnrec ;
+   if wnrec=0 then break ;
+
+  } while true ;
+  if wkl //w<>'' or filial.abbr<>'' //and isvalid(#KPPINFO)
+  { //wokato:=KPPINFO.SERNOM ;
+#IFDEF _MyFun_Zar_Debug_
+   logstrtofile(logfilenm,'wokato:=FILIAL.ABBR  '+wokato) ;    
+#ENDIF   
+    if katpodr.corg>0
+    { if getfirst  fastfirstrow katorg=0
+      { worgname:=katorg.name ;
+        worginn :=katorg.unn  ;
+        wOrgTelef:=katorg.tel ;
+        wc_Org  :=katorg.nrec;
+      }
+    }
+  }  
+
+    if wokato='' and isvalid(#KPPINFO)
+    wokato:=KPPINFO.SERNOM ;
+  } //if w_tp_sbor=0
+#IFDEF _MyFun_Zar_Debug_
+   logstrtofile(logfilenm,'Поиск организации для первого уровня  ') ;    
+#ENDIF   
+    do { // лезем выше за организацией 20080314 
+     wnrec:= katpodr.cpodr ;
+#IFDEF _MyFun_Zar_Debug_
+     logstrtofile(logfilenm,' подр.'+katpodr.name) ;
+#ENDIF     
+     if true then
+     { if w_tp_sbor=1
+       { if wokato=''
+         { //wokato:=sTXOGetExtAttr('KATPODR','_ОКАТО',katpodr.nrec) 
+           if wokato=''
+           { GetOkatoFromAddr;
+           } 
+           if wokato=''
+              wokato:=trim(sTXOGetExtAttr('KATPODR','_ОКАТО',katpodr.nrec)) 
+           w_PodrName:=katpodr.name
+         }  
+         if wkpp=''
+         if getfirst  fastfirstrow kpp_direct=0
+         { wkpp:=trim(kpp_direct.kod)
+           if getfirst fastfirstrow GNIATD_D=0
+           { w:=GNIATD_D.KOD
+             wc_Nal_Org:=GNIATD_D.CORG3
+           }
+         }
+       }
+      if wc_Nal_Org=0
+      { wc_Nal_Org:=coTXOGetExtAttr('KATPODR','_Налоговая инспекция',katpodr.nrec) 
+        if wc_Nal_Org>0
+        { if getfirst katorg_nal=0
+          { w:=substr(katorg_nal.unn,1,4)
+          }
+        }  
+      }
+      if wokato='' or wkpp=''
+      if getfirst  fastfirstrow filial=0
+      { if wokato=''
+        {  wokato:=FILIAL.ABBR  
+        }
+        if wkpp=''
+        if getfirst  fastfirstrow KppAtd=0
+        { wkpp:=trim(KppAtd.kod)
+        }  
+      } 
+      if katpodr.corg>0
+      { if getfirst fastfirstrow katorg=0
+        { worgname:=katorg.name ;
+          worginn :=katorg.unn  ;
+          wOrgTelef:=katorg.tel ;
+          wc_Org:=katorg.nrec
+          w_PodrName_Org:=katpodr.name
+          if w_tp_sbor=1
+          { if wkpp=''
+              wkpp:=katorg.kodplatnds
+          }
+#IFDEF _MyFun_Zar_Debug_
+          logstrtofile(logfilenm,' орг.'+katorg.name) ;
+#ENDIF          
+          break
+        } //if getfirst fastfirstrow katorg=0
+      }
+     } 
+     if wnrec=0
+     {  break ;
+     } 
+     set wcex:=wnrec ;
+    } while true ;
+  if w_okato_c=0
+  { if getfirst StErr where (( wokato  == sterr.SGNI_CODE ))=0
+      w_okato_c:=StErr.Nrec
+  }
+  
+  insert into tmp_gni set tmp_gni.crec:=wwcex,tmp_gni.kod_gni:=w
+    ,tmp_gni.kpp:=wkpp //KppAtd.kod
+    ,tmp_gni.okato:=wokato
+    ,tmp_gni.orgname := worgname
+    ,tmp_gni.orginn := worginn
+    ,tmp_gni.OrgTelef:=wOrgTelef
+    ,tmp_gni.cOrg_Nal:=wc_Nal_Org
+    ,tmp_gni.cOrg:=wc_Org
+    ,tmp_gni.PodrName:=w_PodrName
+    ,tmp_gni.PodrName_Org:=w_PodrName_Org
+    ,tmp_gni.okato_c:=w_okato_c
+     ;
+#IFDEF _MyFun_Zar_Debug_
+   logstrtofile(logfilenm,'GetcodeGniByPodr '+string(wwcex)+','
+     +'код_ГНИ ='+tmp_gni.kod_gni+',КПП '+tmp_gni.kpp+',орг.'+substr(tmp_gni.orgname,1,40)+',окато '+tmp_gni.okato   
+   )
+#ENDIF
+
+  GetcodeGniByPodr:=w ; 
+}
+Function GetKPP :string ;
+{ GetKPP:=tmp_gni.kpp ;
+}
+Function GetOKATO :string ;
+{ GetOkato:=tmp_gni.okato ;
+}
+Function GetOKATONrec :comp ;
+{ GetOkatoNrec:=tmp_gni.okato_c ;
+}
+Function GetOrgName:string ;
+{ GetOrgName:=tmp_gni.OrgName ;
+}
+Function GetOrgInn :string ;
+{ GetOrgInn:=tmp_gni.OrgInn ;
+}
+Function GetOrgTelef :string ;
+{ GetOrgTelef:=tmp_gni.OrgTelef ;
+}
+Function GetNalOrgNrec :comp ;
+{ GetNalOrgNrec:=tmp_gni.cOrg_Nal ;
+}
+Function GetNalSPKAUNrec(wkodgr:word) :comp ;
+{ GetNalSPKAUNrec:=0;
+  wc_Nal_Org :=GetNalOrgNrec ;
+  _loop fullcache kaureff
+  { if getfirst fastfirstrow spkau =0
+    { if spkau.kodgrkau=wkodgr
+      { GetNalSPKAUNrec:=spkau.nrec
+        break;
+      }
+    }  
+  }   
+} //Function GetNalSPKAUNrec(wkodgr:word) :comp ;
+Function GetOrgNrec :comp ;
+{ GetOrgNrec:=tmp_gni.cOrg ;
+}
+Function GetOKATOPodrName :string ;
+{ GetOKATOPodrName:=tmp_gni.PodrName
+}
+Function GetOrgPodrName :string ;
+{ GetOrgPodrName:=tmp_gni.PodrName_Org
+}
+HandleEvent
+cmOnVipload:
+{ logfilenm:=GetStringParameter('Files','OutputFilesDirectory',0)+
+      '\!2ndfl.txt'
+  if fileexist(logfilenm) deletefile(logfilenm)
+  Reestr_Okato_Podr:=1 //
+ 
+  resetbounds(#tmp_gni)
+  delete all tmp_gni ;
+  setbounds(#tmp_gni)
+  InitServTxo(0)
+  
+}
+cmOnVipUnload:
+{ DoneServTxo;
+
+}
+end;
+end.

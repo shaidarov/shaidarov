@@ -1,0 +1,94 @@
+#doc
+ Экспорт / Импорт ТХО из dbf-таблиц с указанием Папки для загрузки / выгрузки
+#end
+
+alter interface GetHozOper;
+
+var
+  sDir        : string;
+  alter_iMark : LongInt;
+
+create view
+;
+
+Table Struct tsHozOper = HozOper;
+Table Struct tsHozObor = HozObor;
+Table Struct tsHozForm = HozForm;
+
+create view tHozOper as select * from tsHozOper;
+create view tHozObor as select * from tsHozObor;
+create view tHozForm as select * from tsHozForm;
+
+HandleEvent
+
+cmHotKeys: {
+      if ( curtable = #hozoper ) {
+        var alter_MenuStr: string;
+        alter_MenuStr := #AddComp('F_TXO') + 'GHozOper_HotKeys_Header1' +';Separator;' + #AddComp('F_TXO') +'mnuGetHozOper_ExpImpDbf';// Стандартная менюшка + мои пункты
+        PutHotCommand(RunDynMenu(alter_MenuStr));
+      }
+}
+
+cmValue31: {       // Экспорт ТХО в dbf
+ sDir := GetDirName('Выберите Папку для экспорта');
+ if (trim(sDir) = '')
+ { Exit; }
+
+ if ( GetMarkerCount(Marker) = 0 ) {
+   message('Выберите хотя бы одну запись ТХО', OkButton);
+   Exit;
+   }
+
+SetAllBounds;
+PushPos(#HozOper);
+
+  _loop HozOper
+    {
+      if (SearchMarker(Marker,HozOper.nRec,alter_iMark)) {
+          tHozOper.ClearBuffer(tHozOper.tntsHozOper);
+          tHozOper.tsHozOper.buffer := type$tsHozOper(HozOper.buffer);
+          tHozOper.insert current tsHozOper;
+
+          _loop HozObor where (( HozOper.nRec == HozObor.cHozOper )) {
+            tHozObor.ClearBuffer(tHozObor.tntsHozObor);
+            tHozObor.tsHozObor.buffer := type$tsHozObor(HozObor.buffer);
+            tHozObor.insert current tsHozObor;
+          }
+
+          _loop HozForm where (( HozOper.nRec == HozForm.cnRec )) {
+            tHozForm.ClearBuffer(tHozForm.tntsHozForm);
+            tHozForm.tsHozForm.buffer := type$tsHozForm(HozForm.buffer);
+            tHozForm.insert current tsHozForm;
+          }
+
+      }
+    }
+
+  PopPos(#HozOper);
+  SetTuneBounds;
+
+  tHozOper.PutTableToDBF(tHozOper.tntsHozOper,sDir+'\9002_HozOper.dbf',ptfFullTable);
+  tHozObor.PutTableToDBF(tHozObor.tntsHozObor,sDir+'\9003_HozObor.dbf',ptfFullTable);
+  tHozForm.PutTableToDBF(tHozForm.tntsHozForm,sDir+'\9010_HozForm.dbf',ptfFullTable);
+}
+
+/*
+cmValue32: {       // Импорт ТХО из dbf
+ sDir := GetDirName('Выберите Папку для Импорта');
+ if (trim(sDir) = '')
+ { Exit; }
+
+! import HozOper from dbf sDir + 'HozOper.dbf';
+! import HozObor from dbf sDir + 'HozObor.dbf';
+! import HozForm from dbf sDir + 'HozFrom.dbf';
+}
+*/
+end;
+
+end.
+
+mnuGetHozOper_ExpImpDbf Menu  // Мои допы
+{
+- 'Экспорт ТХО в dbf'  , cmValue31,,,,, sci1Esc;
+!- 'Импорт ТХО из dbf'  , cmValue32,,,,, sci1Esc;
+}

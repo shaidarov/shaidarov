@@ -1,0 +1,466 @@
+#include getkau.vih
+
+#include CU_MyFunc.vih
+
+Interface Transp_Fleet 'Выгрузка из CyberFleet' EscClose ;
+
+table struct transp_fleet
+(   sortname : string,
+    Transp_nrec       : Comp   , //Nrec ТС
+    Transp_nomer :string(50),
+    Transp_garnom :string(50),
+    Transp_innum :string(50),
+    Total_Fuel :double,
+    Total_KM :double,
+    Total_FuelKM :double
+)
+with index
+(  index1 = sortname
+  ,index2 = Transp_nrec
+) ;
+
+var igetkau : getkau;
+#include excel_var.vpp
+
+create view
+var
+ tp_report :word ;
+//для фильтров
+  filtr_type :word ;
+  filtr_podr:string ;
+  wdbeg, wdend : date;
+  Marker_podr, IndexNoOt : longint ;
+as select *
+from transp_fleet,
+transp,
+katpodr,
+morale,
+autodoc autodoc1,
+waydoc waydoc1,
+marka,
+tiptex,
+markomp,
+autodoc autodoc2,
+waydoc waydoc2,
+katorg,
+marcomp,
+pick
+where ((
+transp.cpodr == katpodr.nrec
+and transp.klassif5 == morale.nrec
+and transp.nrec == autodoc1.cvehicle
+and waydoc1.nrec == autodoc1.cwaydoc (noindex)
+and 0 == waydoc1.whatis
+and 'СВР' == waydoc1.code
+and transp.nrec == autodoc2.cvehicle
+and waydoc2.nrec == autodoc2.cwaydoc (noindex)
+and 0 == waydoc2.whatis
+and 'ОДБ' == waydoc2.code
+and transp.cmarka = marka.nrec
+and transp.ctiptex == tiptex.nrec
+and transp.cmarakk == markomp.nrec
+and transp.izgnrec == katorg.nrec
+and transp.cnomdvig == marcomp.nrec
+));
+
+#include excel_fun.vpp
+#include marker_my.vpp
+
+//==================================
+// сохранение параметров
+//==================================
+Procedure SaveParam ;
+{ SaveMyDsk(filtr_podr,'Avto_fleet_filtr')
+} //Procedure SaveParam ;
+//==================================
+// чтение параметров
+//==================================
+Procedure ReadParam ;
+var wwkl :boolean ;
+{ if Not ReadMyDsk(filtr_podr,'Avto_fleet_filtr',wwkl) filtr_type:=0 ;
+} //Procedure ReadParam ;
+
+Procedure calcTranspFleet();
+{
+  XLRUNMACRO('CalcCyberFleetFuel')
+}
+//==================================
+// печать
+//==================================
+Function PrintDoc : boolean ;
+var werr:word ;
+    wstr,wpodr:string ; 
+    wnpp :longint ;
+    wkol :double;
+{ PrintDoc:=false ;
+  nmtemplate:='Avto_Fleet.xls';
+  if getfirst transp<>0
+  { message('не нашли подходящих транспортных средств')
+    exit ;
+  }
+  werr:=ExcelInit(nmtemplate,true,'Fleet');
+  if werr>0
+  { message('Ошибка инициализации Excel по шаблону '+nmtemplate) ;
+    exit ;
+  }
+  
+  //вывод данных
+  HeaderStrCount :=2 ;
+  wnpp:=0;
+  wkol:=0;
+  wexrow:=1;
+  wexcol:=1;
+  MyPutExcel(DateToStr(wdbeg,'DD.MM.YYYY'),8,0,-1,-1);//1     //№ п/п
+  MyPutExcel(DateToStr(wdend, 'DD.MM.YYYY'),8,0,-1,-1);//1     //№ п/п
+  wexcol:=4;
+  MyPutExcel('gis01-tns.tns.transneft.ru',8,0,-1,-1);//1     //№ п/п
+  MyPutExcel('BN',8,0,-1,-1);//1     //№ п/п
+  MyPutExcel('sa',8,0,-1,-1);//1     //№ п/п
+  MyPutExcel('sql',8,0,-1,-1);//1     //№ п/п
+  wexrow:=HeaderStrCount+1 ;
+//  MyXlCreaMatrix(10000,100)
+  wexrow:=wexrow-1;
+  _loop transp_fleet ordered by index Index1
+  {  if not nextvisual then exit;
+     mylogwrite(false,' '+transp_fleet.transp_nomer)
+     wexrow:=wexrow+1;wexcol:=1 ;
+     wnpp:=wnpp+1;
+     MyPutExcelNumber(wnpp,0,8,0,-1,-1);//1     //№ п/п
+     MyPutExcel(transp_fleet.transp_nomer,8,0,-1,-1);//гос номер
+     MyPutExcel(transp_fleet.transp_garnom,8,0,-1,-1);//гос номер
+     MyPutExcel(transp_fleet.transp_innum,8,0,-1,-1);//гос номер
+     MyPutExcelNumber(transp_fleet.total_fuel,0,8,0,-1,-1);
+     MyPutExcelNumber(transp_fleet.total_km,0,8,0,-1,-1);
+     MyPutExcelNumber(transp_fleet.total_fuelkm,0,8,0,-1,-1);
+  } //_loop My_WorkGsm where (( 1 == My_WorkGsm.pa))  ordered by index Index4
+  wexrow:=wexrow+1 ;
+  CalcTranspFleet();
+
+//  MyxlWriteMatrix(wexrow);
+//  xlFreeMatrix;
+  matrixkl:=False;
+  // вывод итогов
+
+  PrintDoc:=true ;
+
+} //Function PrintDoc : boolean ;
+
+//==================================
+Function getTranspFleet(garnom : string; dbeg :date; dend :date; fuel :double; km:double; fuelkm:double):boolean;
+var
+    wtotal_fuel, wtotal_km, wtotal_fuelkm:double;
+    FleetCN, FleetCmd :longint;
+    adVarChar :integer;
+    adDouble :integer;
+    adInteger :integer;
+    adDate :integer;
+    adParamInput :integer;
+    adParamOutput :integer;
+    prmObjectGarNum :longint;
+    prmSensNum  :longint;
+    prmStartDateTime  :longint;
+    prmEndDateTime  :longint;
+    prmRefuelingThreshold :longint;
+    prmDischargeThreshold :longint;
+    prmTotalConsumption :longint;
+    prmTotalRunInKm :longint;
+    prmPer100kmConsumption :longint;
+    FleetPrms, FleetPrm7, FleetPrm8, FleetPrm9 :longint;
+    adConnectUnspecified :integer;
+{
+  getTranspFleet:=false;
+  adVarChar := 200;
+  adDouble := 5;
+  adInteger := 3;
+  adDate := 7;
+  adParamInput := 1;
+  adParamOutput := 2;
+  adConnectUnspecified := 16;
+  FleetCN := OleCreate('ADODB.Connection');
+  if not OleCall1(FleetCN, ocPut, 'ConnectionString',
+    'Provider=SQLOLEDB.1;Integrated Security=SSPI;Initial Catalog=BN;Data Source=IOWXPSMNP\SQLEXPRESS;Uid=sa;Pwd=Password1')
+    {
+      message('Ошибка установки строки подключения к БД CyberFleet')
+      exit ;
+    }
+  if not OleCall4(FleetCN, ocFunc, 'Open', 'Provider=SQLOLEDB.1;Integrated Security=SSPI;Initial Catalog=BN;Data Source=IOWXPSMNP\SQLEXPRESS',
+                                            'sa', 'Password1', adConnectUnspecified)
+    {
+      message('Ошибка подключения к БД CyberFleet')
+      exit ;
+    }
+  FleetCmd := OleCreate('ADODB.Command');
+  if not OleCall1(FleetCmd, ocPut, 'ActiveConnection', FleetCN)
+    {
+      message('Ошибка инициализации команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocPut, 'CommandText', '[BN].[dbo].[FLEET_TripListInfo]')
+    {
+      message('Ошибка установки команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@ObjectGarNum', adVarChar, adParamInput, 20, transp.garnom, prmObjectGarNum)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmObjectGarNum)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@SensNum', adInteger, adParamInput, 10, 10, prmSensNum)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmSensNum)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@StartDateTime', adDate, adParamInput, 20, '2014.03.01', prmStartDateTime)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmStartDateTime)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@EndDateTime', adDate, adParamInput, 20, '2014.03.31', prmEndDateTime)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmEndDateTime)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@RefuelingThreshold', adDouble, adParamInput, 30, 10.00, prmRefuelingThreshold)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmRefuelingThreshold)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@DischargeThreshold', adDouble, adParamInput, 30, 20.00, prmDischargeThreshold)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmDischargeThreshold)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@TotalConsumption', adDouble, adParamOutput, 30, 0.00, prmTotalConsumption)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmTotalConsumption)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@TotalRunInKm', adDouble, adParamOutput, 30, 0.00, prmTotalRunInKm)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmTotalRunInKm)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall6(FleetCmd, ocFunc, 'CreateParameter', '@Per100kmConsumption', adDouble, adParamInput, 30, 0.00, prmPer100kmConsumption)
+    {
+      message('Ошибка создания параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocFunc, 'Append', prmPer100kmConsumption)
+    {
+      message('Ошибка добавления параметра команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall0(FleetCmd, ocFunc, 'Execute')
+    {
+      message('Ошибка выполнения команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetCmd, ocGet, 'Parameters', FleetPrms)
+    {
+      message('Ошибка получения результатов команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall2(FleetPrms, ocGet, 'Item', 7, FleetPrm7)
+    {
+      message('Ошибка получения расхода команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetPrm7, ocGet, 'Value', fuel)
+    {
+      message('Ошибка получения значения расхода команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall2(FleetPrms, ocGet, 'Item', 8, FleetPrm8)
+    {
+      message('Ошибка получения пробега команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetPrm8, ocGet, 'Value', km)
+    {
+      message('Ошибка получения значения пробега команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall2(FleetPrms, ocGet, 'Item', 9, FleetPrm9)
+    {
+      message('Ошибка получения расход-км команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall1(FleetPrm9, ocGet, 'Value', fuelkm)
+    {
+      message('Ошибка получения значения расход-км команды в БД CyberFleet')
+      exit ;
+    }
+  if not OleCall0(FleetCN, ocFunc, 'Close')
+    {
+      message('Ошибка отключения от БД CyberFleet')
+      exit ;
+    }
+
+  getTranspFleet:=true;
+}
+
+// отбор данных
+//==================================
+//▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+Function getTransp:boolean;
+var
+    wtotal_fuel, wtotal_km, wtotal_fuelkm:double;
+{ getTransp:=false
+  _loop transp
+  {
+    if (filtr_type and 1)>0
+    {  if not SearchMarker(Marker_podr,transp.cpodr,IndexNoOt) then continue;
+    }
+    if not nextvisual then exit ;
+//    GetTranspFleet(transp.garnom, wdbeg, wdend, wtotal_fuel, wtotal_km, wtotal_fuelkm)
+    insert into  transp_fleet set
+            transp_fleet.sortname := transp.nomer,
+            transp_fleet.Transp_Nomer := transp.nomer,
+            transp_fleet.Transp_garNom := transp.garnom,
+            transp_fleet.Transp_innum := transp.innum,
+            transp_fleet.Transp_nrec := transp.nrec, //Nrec ТС
+            transp_fleet.total_fuel := wtotal_fuel,
+            transp_fleet.total_km := wtotal_km,
+            transp_fleet.total_fuelkm := wtotal_fuelkm;
+       MyLogWrite(false,'   транспорт= '+transp_fleet.transp_nomer );
+  } //
+  getTransp:=true;
+} //SborPostav
+
+Function FormDoc : boolean ;
+{ FormDoc:=false ;
+  SaveParam ;
+  GetTransp;
+  FormDoc:=PrintDoc ;
+  MyXlEnd ;
+} //Function FormDoc : boolean ;
+//==================================
+// экранная форма задания параметров
+//==================================
+screen scrmain ;
+table transp ;
+fields
+ tp_report : [list 1 'Данные из CyberFlett'] , protect ;
+ logfilekl : noprotect ;
+  wdbeg : noprotect;
+  wdend : noprotect;
+  filtr_type :noprotect ;
+  filtr_podr ('Подразделение') : protect , pickbutton ;
+buttons
+  cmOk, Default;
+  cmCancel;
+<<
+  `Тип отчета`   .@@@@@@@@@@@@@@@@@@@@@@@@@@ [.] отладка`
+  `Дата начала`      .@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Дата окончания`   .@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Фильтры`
+  [.] По подразделению`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ <. Отчет .>  <. Отмена .>
+>>
+end;
+Procedure MakeFiltr;
+var
+  MrkCount : LongInt ;
+  Item     : Comp ;
+{ //===============
+  MrkCount := GetMarkerCount(Marker_podr) ;
+  filtr_podr:='не задано'
+  if MrkCount=1
+  { if (GetMarker(Marker_podr, 0, Item))
+     if getfirst katpodr where ((Item == katpodr.nrec ))=0
+     { filtr_podr:=katpodr.name ;
+     }
+  }
+  else
+  if MrkCount>1
+  { filtr_podr:='выбрано '+string(MrkCount)+' записей'
+  }
+  //===============
+  rescanpanel(#transp)
+}
+//==================================
+// обработчик событий
+//==================================
+HandleEvent
+cmInit :
+{ ReadParam ;
+  Marker_podr:=InitMarker('Marker_podr', 8, 200, 10) ;
+  MakeFiltr
+}
+cmDone:
+{
+  DoneMarker(Marker_podr,'Marker_podr')
+}
+cmPick:
+{ var wnrec:comp ;
+  wnrec:=0 ;
+  var MarkerKauName:string ;
+  var Marker:string ;
+  case curfield of
+  #filtr_podr:
+  {  MarkerKauName := iGetKau.GetMarkerName(2 );
+     MarkCopyMyToCat(Marker_podr,MarkerKauName)
+     iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,2,wnrec);
+     MarkCopyCatToMy(Marker_podr,MarkerKauName)
+  }
+  end ;
+  MakeFiltr
+}
+cmOk :
+{ SaveParam ;
+  StartNewVisual( vtNumericVisual, vfTimer+vfBreak, 'Сбор данных', 1);
+  if fileexist(logfilenm) deletefile(logfilenm)
+  InitServTxo(0)
+  FormDoc ;
+  DoneServTxo
+  XLKillExcel ;
+  StopVisual('',0)
+  if fileexist(logfilenm)
+  {  ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+      logfilenm+' Протокол формирования');
+  }
+  CloseInterface(cmDone)
+} //cmOk:
+end ;
+end.

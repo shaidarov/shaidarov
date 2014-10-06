@@ -1,0 +1,1025 @@
+#include NalFunc.vih
+#include PickBuh.vih           // Обьектный интерфес работы с таблицей PickBuh
+#include PSManager.vih
+#include GetKau.vih            // Обьектный интерфес выбора КАУ
+
+Interface UserRep_NalVdr_11 'Расчет суммовых разниц за период' ;
+show at(,,65,8);
+#include PickBuh.var    // Переменная типа "Интерфеса работы с таблицей PickBuh"
+#include PSManager.var
+#include GetKau.var     // Переменная типа "Интерфеса выбора КАУ"
+
+Type TOborotRec = record as table Oborot;
+
+
+table Struct TabOborot
+(
+  KODVALUT: tNrec,
+  _DatOB:date,
+  _NrecOborot:comp,
+  _NrecDoc:comp,
+  _TypeDoc:word,
+  _TypeZadol:word
+)
+with index
+(
+  TabOborot0=_NrecOborot,
+  TabOborot1=_NrecDoc+_TypeDoc,
+  TabOborot2=_DatOB
+);
+
+table Struct TabSoprDoc
+(
+  _cTabOborot:comp,
+  _cKatSopr:comp,
+  _cPlPor:comp,
+  _Sum:double,
+  _SumVal:double
+)
+with index
+(
+  TabSoprDoc0=_cTabOborot,
+  TabSoprDoc1=_cTabOborot+_cKatSopr+_cPlPor
+);
+
+table Struct TabPlPor
+(
+  _cTabOborot:comp,
+  _cPlPor:comp,
+  _cKatSopr:comp,
+  _Sum:double,
+  _SumVal:double
+)
+with index
+(
+  TabPlPor0=_cTabOborot,
+  TabPlPor1=_cTabOborot + _cKatSopr + _cPlPor
+);
+const
+  MultiStr           = 'множественный выбор';
+end;
+#declare MultiString(count)
+  MultiStr + ' (' + string(#count) + ')'
+#end
+#declare MultiKauShow(mKau, wKau, cKau)
+  if (#mKau = 0, '',
+    if (#mKau = 1, if (GetAnyKAU(cgAkNoDef, #wKau, #cKau),
+      GivenAnName(1), ''),
+      MultiStr + ' (' + string(#mKau) + ')'))
+#end
+create view vdr11
+var
+  dFrom
+ ,dTo: date;
+  iNalFunc: NalFunc;
+  sp1, sp2 : tNrec;
+  MyPlansNo: tNrec;
+  Filter_CO: tNRec;
+  mFilter_CO: word;
+  Filter_Sch: string;
+  mFilter_Sch: word;
+  Filter_Sub: string;
+  mFilter_Sub: word;
+
+  Marker     : longint;
+
+as select
+  if(mFilter_Sch= 0, '',
+     if(mFilter_Sch = 1, if(Filter_Sch = '', 'Счет не определен',
+       #GetDbSch(SchetO.Schet) + ' ' + SchetO.Name),
+       #MultiString(mFilter_Sch)))                                       (FieldName = DlgSchetD)
+
+  ,if(mFilter_Sub = 0, '',
+     if(mFilter_Sub = 1,
+       if((Filter_Sub = ''), 'Субсчет не определен',
+         if(mFilter_Sub > 1,
+           if(isValid(tnSchetSubO),SchetSubO.Code+' '+SchetSubO.Name,''),
+             SchetSubO.SubSch+' '+if(isValid(tnSchetSubO),SchetSubO.Name,''))),
+     #MultiString(mFilter_Sub)))                                         (FieldName = DlgSubSchD)
+  ,#MultiKauShow(mFilter_CO, cgKau_FpCO, Filter_CO)                      (FieldName = DlgCO)
+
+from
+  BuhSchet SchetO       (ReadOnly)
+ ,BuhSchet SchetSubO    (ReadOnly)
+ ,KatSopr, PlPor,SpSopr
+ ,Oborot, KatDoc
+ ,TabSoprDoc,  PlPor PlPorKS, Oborot OborotKS, KatDoc KatDocKS, Dogovor DogovorKS, KatOrg KatOrgKS
+ ,TabPlPor, KatSopr KatSoprPL, Oborot OborotPL, KatDoc KatDocPL, Dogovor DogovorPL, KatOrg KatOrgPL,StepDoc,BaseDoc
+
+ ,KatSopr KatSopr_F
+ ,PlPor PlPor_F
+ ,SpSopr SpSopr_F
+ ,SpSopHoz SpSopHozKS_F
+ ,SoprHoz SoprHozKS_F
+ ,PlPor PlPorKS_F
+
+ ,Oborot OborotKS_F
+ ,SpSopr SpSoprPL_F
+ ,SpSopHoz SpSopHozPL_F
+ ,SoprHoz SoprHozPL_F
+ ,KatSopr KatSoprPL_F
+ ,Oborot OborotPL_F
+ ,TabOborot
+ ,TabOborot TabOborot1
+ ,CursVal
+ ,PickBuh
+ ,KlVal
+where
+((
+   // Диалог настройки
+       Filter_Sch == SchetO.Schet
+  and  cgDefSub   == SchetO.SubSch
+  and  Filter_Sch == SchetSubO.Schet
+  and  Filter_Sub  == SchetSubO.SubSch
+
+  //вывод отчета
+  and TabOborot._NrecOborot==Oborot.Nrec
+  and Oborot.TidkGal==KatDoc.TidkGal
+
+  and TabOborot._NrecOborot==TabSoprDoc._cTabOborot
+  and TabSoprDoc._cKatSopr==KatSopr.Nrec
+  and TabSoprDoc._cPlPor==PlPorKS.Nrec
+  and PlPorKS.Nrec==OborotKS.cSoprDoc
+  and PlPorKS.Tidk==OborotKS.Tidk
+  and OborotKS.TidkGal==KatDocKS.TidkGal
+  and KatSopr.cDogovor==DogovorKS.Nrec
+  and DogovorKS.cOrg==KatOrgKS.nrec
+
+  and TabOborot._NrecOborot==TabPlPor._cTabOborot
+  and TabPlPor._cPlPor==PlPor.Nrec
+  and TabPlPor._cKatSopr==KatSoprPL.Nrec
+  and KatSoprPL.Nrec==OborotPL.cSoprDoc
+  and KatSoprPL.VidSopr==OborotPL.Tidk
+  and OborotPL.TidkGal==KatDocPL.TidkGal
+  and PlPor.cStepDoc==StepDoc.Nrec
+  and StepDoc.cBaseDoc==BaseDoc.Nrec
+  and BaseDoc.cDogovor==DogovorPL.Nrec
+  and DogovorPL.cOrg==KatOrgPL.nrec
+
+  //Отбор данных
+  and Oborot.cSoprDoc==KatSopr_F.Nrec
+  and Oborot.cSoprDoc==PlPor_F.Nrec
+
+  and KatSopr_F.Nrec       == SpSopr_F.cSopr
+  and SpSopr_F.nrec        == SpSopHozKS_F.cSpSopr
+  and SpSopHozKS_F.cSoprHoz== SoprHozKS_F.nrec
+  and SoprHozKS_F.cSoprDoc == PlPorKS_F.Nrec
+  and PlPorKS_F.Nrec       == OborotKS_F.cSoprDoc
+  and PlPorKS_F.Tidk       == OborotKS_F.Tidk
+
+  and oborot.csoprhoz     == SoprHozPL_F.nrec
+  and SoprHozPL_F.nrec    == SpSopHozPL_F.cSoprHoz
+  and SpSopHozPL_F.cSpSopr== SpSoprPL_F.nrec
+  and SpSoprPL_F.cSopr    == KatSoprPL_F.Nrec
+  and KatSoprPL_F.Nrec    == OborotPL_F.cSoprDoc
+  and KatSoprPL_F.VidSopr == OborotPL_F.Tidk
+))
+
+;
+function getKurs(cValut: comp; dateVal: date): double;
+{
+  if (GetFirst CursVal where ((cValut == CursVal.KodValut and DateVal == CursVal.DatVal)) = tsOk)
+    Result := CURSVAL.SUMRUBL;
+  else
+    Result := 0;
+}
+function Minim (a:double; b:double) : double;
+{
+  if (a<b) Minim:=a;
+  else Minim:=b;
+}
+procedure PrintReport;
+var
+  CurIndex
+         :integer;
+
+
+  Sum8
+, Sum9
+, Sum13
+, Sum14
+, Sum15
+, Sum16
+
+, Stb15
+, Stb16
+
+, SumTmp13
+, KursVal
+         :double;
+
+  OrgName
+, INN
+         :string;
+{
+  //numCol := 14;
+
+  iNalFunc.GetOrgInfo(OrgName, INN);
+  xlCreateExcel('report.xls',true);
+  xlCreateMatrix(5000,16);
+
+
+  //xlSetColumnWidth(25,1,1,1,1);
+  //xlSetFontStyle(1,1,1,1,1);
+  //xlAlignCellsEx(3,2,1,1,1,1);
+  //xlMergeCells(CurIndex,2,CurIndex,3);
+  //xlSTWriteToMatrix(1,1,'Оплаченность отгрузок за период с '+dBeg+' по '+dEnd);
+
+
+  xlSetColumnWidth(15,1,1,1,1);
+  xlSetColumnWidth(10,1,2,1,16);
+
+  CurIndex:=1;
+
+
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'Наименование организации налогоплательщика: '+OrgName);
+  CurIndex:=CurIndex+1;
+
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'ИНН налогоплательщика: '+INN);
+  CurIndex:=CurIndex+2;
+
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'Дата составления "__" ___________200_г.');
+  CurIndex:=CurIndex+2;
+
+
+  xlMergeCells(CurIndex,1,CurIndex,16);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,16);
+  //xlSetFontSize(12,1,1,2,1);
+  xlSTWriteToMatrix(CurIndex,1,'Регистр №ВДР 1.1. Рассчет суммовых разниц за период с '+dateToStr(dFrom,'DD/MM/YYYY')+' по '+dateToStr(dTo,'DD/MM/YYYY'));
+  CurIndex:=CurIndex+1;
+
+  xlMergeCells(CurIndex,1,CurIndex,16);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,16);
+  //xlSetFontSize(12,1,1,1,1);
+  xlSTWriteToMatrix(CurIndex,1,'');
+  CurIndex:=CurIndex+1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,16);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,16);
+  xlSTWriteToMatrix(CurIndex,1,'Контрагент');
+  xlSTWriteToMatrix(CurIndex,2,'Номер договора');
+  xlSTWriteToMatrix(CurIndex,3,'Дата договора');
+  xlSTWriteToMatrix(CurIndex,4,'Наименование документа, на основании которого возникла задолженность');
+  xlSTWriteToMatrix(CurIndex,5,'Номер документа, на основании которого возникла задолженность');
+  xlSTWriteToMatrix(CurIndex,6,'Дата образования задолженности');
+  xlSTWriteToMatrix(CurIndex,7,'Вид задолженности (дебиторская/ кредиторская)');
+  xlSTWriteToMatrix(CurIndex,8,'Сумма операции,  у.е.');
+  xlSTWriteToMatrix(CurIndex,9,'Сумма операции, руб.');
+  xlSTWriteToMatrix(CurIndex,10,'счет / субсчет');
+  xlSTWriteToMatrix(CurIndex,11,'Дата исполнения обязательств (погашения задолженности)');
+  xlSTWriteToMatrix(CurIndex,12,'Номер документа, подтверждающего исполнение обяхзательства  (погашение задолженности)');
+  xlSTWriteToMatrix(CurIndex,13,'Сумма операции,  у.е.');
+  xlSTWriteToMatrix(CurIndex,14,'Сумма операции, руб.');
+  xlSTWriteToMatrix(CurIndex,15,'Суммовая разница в составе доходов');
+  xlSTWriteToMatrix(CurIndex,16,'Суммовая разница в составе расходов');
+  CurIndex:=CurIndex+1;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,16);
+  xlSTWriteToMatrix(CurIndex,1,'1');
+  xlSTWriteToMatrix(CurIndex,2,'2');
+  xlSTWriteToMatrix(CurIndex,3,'3');
+  xlSTWriteToMatrix(CurIndex,4,'4');
+  xlSTWriteToMatrix(CurIndex,5,'5');
+  xlSTWriteToMatrix(CurIndex,6,'6');
+  xlSTWriteToMatrix(CurIndex,7,'7');
+  xlSTWriteToMatrix(CurIndex,8,'8');
+  xlSTWriteToMatrix(CurIndex,9,'9');
+  xlSTWriteToMatrix(CurIndex,10,'10');
+  xlSTWriteToMatrix(CurIndex,11,'11');
+  xlSTWriteToMatrix(CurIndex,12,'12');
+  xlSTWriteToMatrix(CurIndex,13,'13');
+  xlSTWriteToMatrix(CurIndex,14,'14');
+  xlSTWriteToMatrix(CurIndex,15,'15');
+  xlSTWriteToMatrix(CurIndex,16,'16');
+  CurIndex:=CurIndex+1;
+
+  Sum8:=0;
+  Sum9:=0;
+  Sum13:=0;
+  Sum14:=0;
+  Sum15:=0;
+  Sum16:=0;
+
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Формирование отчета', 0);
+  _loop TabOborot
+  {
+    _loop TabSoprDoc
+    {
+      //message('sopr');
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,16);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,1);
+      xlAlignCellsEx(4,2,CurIndex,8,CurIndex,9);
+      xlAlignCellsEx(4,2,CurIndex,13,CurIndex,16);
+
+      xlSTWriteToMatrix(CurIndex, 1, KatOrgKS.Name);
+      xlSTWriteToMatrix(CurIndex, 2, DogovorKS.NoDoc);
+
+      iNalFunc.WriteDate(CurIndex, 3, DogovorKS.DDoc);
+
+      xlSTWriteToMatrix(CurIndex,4,KatDocKS.Name);
+      xlSetNumberFormat ( '@', CurIndex, 5, CurIndex, 5 );
+      xlSTWriteToMatrix(CurIndex,5,PlPorKS.NoDok);
+
+      iNalFunc.WriteDate(CurIndex, 6, OborotKS.DatOB);
+      xlSTWriteToMatrix(CurIndex,7, if (TabOborot._TypeZadol=2, 'кредиторская', 'дебеторская'));
+
+      iNalFunc.WriteSum(CurIndex,8, TabSoprDoc._SumVal);
+      Sum8 += TabSoprDoc._SumVal;
+      iNalFunc.WriteSum(CurIndex,9, TabSoprDoc._Sum);
+      Sum9 += TabSoprDoc._Sum;
+
+      if (TabOborot._TypeZadol=1) xlSTWriteToMatrix(CurIndex, 10, OBOROT.DBSCHETO+' / '+OBOROT.SUBOSSCH);
+      if (TabOborot._TypeZadol=2) xlSTWriteToMatrix(CurIndex, 10, OBOROT.KRSCHETK+' / '+OBOROT.SUBSCHK);
+
+      iNalFunc.WriteDate(CurIndex, 11, Oborot.DatOB);
+
+      xlSTWriteToMatrix(CurIndex,12, KatDoc.Name + ' ' + KatSopr.NSopr);
+      KursVal := GetKurs(if(Oborot.KODVALUT=0,Oborot.CONVVAL,Oborot.KODVALUT), Oborot.DatOB);
+
+      SumTmp13 := if(KursVal != 0, OBOROT.SUMOB / KursVal, 0);
+      iNalFunc.WriteSum(CurIndex,13,SumTmp13);
+      Sum13 += SumTmp13;
+      //iNalFunc.WriteSum(CurIndex, 13, OBOROT.SUMVALUT);
+      //Sum13 += OBOROT.SUMVALUT;
+      iNalFunc.WriteSum(CurIndex, 14, OBOROT.SUMOB);
+      Sum14 += OBOROT.SUMOB;
+      Stb15:=0;
+      Stb16:=0;
+
+      if (TabOborot._TypeZadol=1)
+      {
+        Stb15 := minim(TabSoprDoc._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabSoprDoc._Sum/TabSoprDoc._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        Stb15 := if(Stb15 > 0, 0, -Stb15);
+      }
+      if (TabOborot._TypeZadol=2)
+      {
+        Stb15 := minim(TabSoprDoc._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabSoprDoc._Sum/TabSoprDoc._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        if (Stb15<0) Stb15:=0;
+      }
+      iNalFunc.WriteSum(CurIndex, 15, Stb15);
+      Sum15 += Stb15;
+
+      if (TabOborot._TypeZadol=1)
+      {
+        Stb16 := minim(TabSoprDoc._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabSoprDoc._Sum/TabSoprDoc._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        if (Stb16<0) Stb16:=0;
+      }
+      if (TabOborot._TypeZadol=2)
+      {
+        Stb16 := minim(TabSoprDoc._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabSoprDoc._Sum/TabSoprDoc._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        Stb16 := if(Stb16 > 0, 0, -Stb16);
+      }
+      iNalFunc.WriteSum(CurIndex, 16, Stb16);
+      Sum16 += Stb16;
+      CurIndex:=CurIndex+1;
+    }
+
+    _loop TabPlPor
+    {
+      //message('PP');
+      xlAlignCellsEx(3,2,CurIndex,1,CurIndex,16);
+      xlAlignCellsEx(2,2,CurIndex,1,CurIndex,1);
+      xlAlignCellsEx(4,2,CurIndex,8,CurIndex,9);
+      xlAlignCellsEx(4,2,CurIndex,13,CurIndex,16);
+
+      xlSTWriteToMatrix(CurIndex, 1, KatOrgPL.Name);
+      xlSTWriteToMatrix(CurIndex, 2, DogovorPL.NoDoc);
+      iNalFunc.WriteDate(CurIndex, 3, DogovorPL.DDoc);
+      xlSTWriteToMatrix(CurIndex, 4, KatDocPL.Name);
+      xlSetNumberFormat ( '@', CurIndex, 5, CurIndex, 5 );
+      xlSTWriteToMatrix(CurIndex,5,KatSoprPL.NSopr);
+      iNalFunc.WriteDate(CurIndex, 6, OborotPL.DatOB);
+      xlSTWriteToMatrix(CurIndex, 7, if (TabOborot._TypeZadol = 1, 'кредиторская', 'дебеторская'));
+      iNalFunc.WriteSum(CurIndex,8,TabPlPor._SumVal);
+      Sum8 += TabPlPor._SumVal;
+      iNalFunc.WriteSum(CurIndex,9,TabPlPor._Sum);
+      Sum9 += TabPlPor._Sum;
+
+      if (TabOborot._TypeZadol=1) xlSTWriteToMatrix(CurIndex,10,OBOROT.DBSCHETO+' / '+OBOROT.SUBOSSCH);
+      if (TabOborot._TypeZadol=2) xlSTWriteToMatrix(CurIndex,10,OBOROT.KRSCHETK+' / '+OBOROT.SUBSCHK);
+
+      iNalFunc.WriteDate(CurIndex, 11, Oborot.DatOB);
+      xlSTWriteToMatrix(CurIndex,12,KatDoc.Name+' '+PlPor.NoDok);
+
+      KursVal := GetKurs(if(Oborot.KODVALUT=0,Oborot.CONVVAL,Oborot.KODVALUT), Oborot.DatOB);
+      SumTmp13 := if(KursVal != 0, OBOROT.SUMOB / KursVal, 0)
+      iNalFunc.WriteSum(CurIndex, 13, SumTmp13);
+      Sum13 += SumTmp13;
+      iNalFunc.WriteSum(CurIndex,14,OBOROT.SUMOB);
+      Sum14 += OBOROT.SUMOB;
+      Stb15:=0;
+      Stb16:=0;
+
+      if (TabOborot._TypeZadol=2)
+      {
+        Stb15 := minim(TabPlPor._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabPlPor._Sum/TabPlPor._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        Stb15 := if(Stb15 > 0, 0, -Stb15);
+      }
+      if (TabOborot._TypeZadol=1)
+      {
+        Stb15 := minim(TabPlPor._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabPlPor._Sum/TabPlPor._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        if (Stb15<0) Stb15:=0;
+      }
+      iNalFunc.WriteSum(CurIndex,15,Stb15);
+      Sum15 += Stb15;
+
+      if (TabOborot._TypeZadol=2)
+      {
+        Stb16 := minim(TabPlPor._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabPlPor._Sum/TabPlPor._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        if (Stb16<0) Stb16:=0;
+      }
+      if (TabOborot._TypeZadol=1)
+      {
+        Stb16 := minim(TabPlPor._SumVal,if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT)) * (TabPlPor._Sum/TabPlPor._SumVal - OBOROT.SUMOB/if(OBOROT.SUMVALUT=0,OBOROT.CONVSUM,OBOROT.SUMVALUT));
+        Stb16 := if(Stb16 > 0, 0, -Stb16);
+      }
+      iNalFunc.WriteSum(CurIndex, 16, Stb16);
+      Sum16 += Stb16;
+      CurIndex ++;
+    }
+  }
+
+
+  xlSetFontStyle(1,CurIndex,1,CurIndex,16);
+  xlMergeCells(CurIndex,1,CurIndex,2);
+  xlSTWriteToMatrix(CurIndex,1,'ВСЕГО:');
+  iNalFunc.WriteSum(CurIndex,8,Sum8);
+  iNalFunc.WriteSum(CurIndex,9,Sum9);
+  iNalFunc.WriteSum(CurIndex,13,Sum13);
+  iNalFunc.WriteSum(CurIndex,14,Sum14);
+
+  xlWrapText(3,1,CurIndex,16);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,8,1,CurIndex,16);
+  xlSetFontSize(8,3,8,CurIndex,16);
+
+  CurIndex:=CurIndex+2;
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  xlSTWriteToMatrix(CurIndex,1,'Составил_________________________/_______________________');
+
+  xlMergeCells(CurIndex,1,CurIndex,11);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex,11);
+  CurIndex:=CurIndex+1;
+  xlSTWriteToMatrix(CurIndex,1,'                     (должность,подпись)              Фамилия, И.О.  ');
+  CurIndex:=CurIndex+1;
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  delete all from TabOborot;
+  delete all from TabSoprDoc;
+  StopVisual('',0);
+
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function CheckTypeDoc (TypeGal:word) : word;
+{
+  case TypeGal of
+    101, 111, 206,201,211, 110: Result:=1;
+    1,2,7,8,9,10,11,17,18,31,32: Result:=2;
+    else Result:=0;
+  end;
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function DocInTab (NrecDoc:comp; TypeDoc:word) : boolean;
+{
+  DocInTab := (RecordExists TabOborot1 where ((NrecDoc==TabOborot1._NrecDoc and TypeDoc==TabOborot1._TypeDoc)) = tsok );
+
+}
+!-------------------------------------------------------------------------------
+!обработка оборота
+!-------------------------------------------------------------------------------
+procedure ProcessOborotRecord(OborotRec: TOborotRec; _ViOb: byte);
+var
+  isSoprDoc, isPlatDoc: boolean;
+  doctype: word;
+{
+  if not iNalFunc.CheckOborotCO(if(_ViOb = 1, OborotRec.KodSpo, OborotRec.KodSpK))
+    exit;
+  if not   (OBOROTRec.KODVALUT = 0064000000000004h         //обрабатываем только уе
+         or OBOROTRec.KODVALUT = 0064000000000006h
+         or OBOROTRec.KODVALUT = 0064000000000007h
+         or OBOROTRec.KODVALUT = 0064000000000005h
+         or OBOROTRec.KODVALUT = 0064000000000009h
+         or OBOROTRec.KODVALUT = 006400000000000Ah
+         or OBOROTRec.CONVVAL  = 0064000000000004h
+         or OBOROTRec.CONVVAL  = 0064000000000006h
+         or OBOROTRec.CONVVAL  = 0064000000000007h
+         or OBOROTRec.CONVVAL  = 0064000000000005h
+         or OBOROTRec.CONVVAL  = 0064000000000009h
+         or OBOROTRec.CONVVAL  = 006400000000000Ah)
+  exit;
+  doctype := CheckTypeDoc(Oborot.TidkGal);
+  isSoprDoc := (doctype = 1);
+  isPlatDoc := (doctype = 2);
+
+  ClearBuffer(#TabOborot);
+  TabOborot.KODVALUT  := if(OborotRec.KODVALUT=0,OborotRec.CONVVAL,OborotRec.KODVALUT);
+  TabOborot._DatOB   := OborotRec.datOb;
+  TabOborot._NrecOborot := OborotRec.Nrec;
+  TabOborot._NrecDoc    := OborotRec.cSoprDoc;
+  TabOborot._TypeZadol := _ViOb;
+  TabOborot._TypeDoc := doctype;
+
+  insert current TabOborot;
+}
+!-------------------------------------------------------------------------------
+!Выгрузка оборотов
+!-------------------------------------------------------------------------------
+function UnloadOborot(BegDate, EndDate: date): boolean;
+var
+  isSubSchetSelected: boolean;
+{
+  Result := false;
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Выгрузка оборотов', 0);
+  _try
+  {
+    ResetBounds(#Oborot);
+    if iPickBuh.GetCountItem(cgPick_Schet) = 0
+    {
+      _Loop Oborot  where ((  //BegDate      <<= Oborot.DatOb
+                          //and
+                              EndDate      >>= Oborot.DatOb
+                          and (0 <> OBOROT.SumValut
+                            or 0 <> OBOROT.CONVSUM)
+                          ))
+      {
+        NextVisual;
+        ProcessOborotRecord(TOborotRec(Oborot.Buffer), vsOborKred);
+      }
+    }
+    else
+    {
+      // дебет
+      _Loop PickBuh where (( cgPick_Schet == PickBuh.KodTable ))
+      {
+        SetVisualHeader('Выгрузка оборотов'#13'Обрабатывается дебет счета: ' + #GetDbSch(PickBuh.Schet) + ''#13'Просмотрено записей:');
+        isSubSchetSelected := iPickBuh.FoundSubForSchet(PickBuh.Schet);
+
+        _Loop Oborot where (( PickBuh.Schet == Oborot.SchetO
+                          //and BegDate      <<= Oborot.DatOb
+                          and EndDate      >>= Oborot.DatOb
+                          and (0 <> OBOROT.SumValut
+                            or 0 <> OBOROT.CONVSUM)
+                          ))
+        {
+          NextVisual;
+          if isSubSchetSelected
+            if not iPickBuh.FoundSubSch(Oborot.SchetO, Oborot.SubOsSch)
+              Continue;
+
+          ProcessOborotRecord(TOborotRec(Oborot.Buffer), 1);
+        }
+      }
+
+      // кредит можно обрабатывать только после дебета,
+      // т.к. нужно знать была ли соответствующая корреспонденция по дебету
+      _Loop PickBuh where (( cgPick_Schet == PickBuh.KodTable ))
+      {
+        SetVisualHeader('Выгрузка оборотов'#13'Обрабатывается кредит счета: ' + #GetDbSch(PickBuh.Schet) + ''#13'Просмотрено записей:');
+        isSubSchetSelected := iPickBuh.FoundSubForSchet(PickBuh.Schet);
+
+        _Loop Oborot where (( PickBuh.Schet == Oborot.SchetK
+                          //and BegDate      <<= Oborot.DatOb
+                          and EndDate      >>= Oborot.DatOb
+                          and (0 <> OBOROT.SumValut
+                            or 0 <> OBOROT.CONVSUM)
+                          ))
+        {
+          NextVisual;
+          if isSubSchetSelected
+            if not iPickBuh.FoundSubSch(Oborot.SchetK, Oborot.SubSchK)
+              Continue;
+
+          ProcessOborotRecord(TOborotRec(Oborot.Buffer), 2);
+        }
+      }
+    }
+  }
+
+  _except
+    on ExUserBreak:
+    {
+      Message('Формирование отчета прервано!');
+      exit;
+    }
+
+  _finally
+  {
+    SetBounds(#Oborot);
+    StopVisual('', 0);
+    //fplog('-- конец выгрузки oborot');
+  }
+
+  Result := true;
+}
+procedure AddTabSoprDoc(OborotNrec, KatSoprNrec, PlPorKSNrec: comp;
+                      SpSopHozKSSumma, SpSopHozKSSumVal: double);
+
+{
+  if (GetFirst TabSoprDoc where ((OborotNrec == TabSoprDoc._cTabOborot
+                              and KatSoprNrec==TabSoprDoc._cKatSopr
+                              and PlPorKSNrec==TabSoprDoc._cPlPor)) = tsok)
+  {
+    TabSoprDoc._Sum += SpSopHozKSSumma;
+    TabSoprDoc._SumVal += SpSopHozKSSumVal;
+    update current TabSoprDoc;
+  }
+  else
+  {
+    ClearBuffer(#TabSoprDoc);
+    TabSoprDoc._cTabOborot := OborotNrec;
+    TabSoprDoc._cKatSopr   := KatSoprNrec;
+    TabSoprDoc._cPlPor     := PlPorKSNrec;
+    TabSoprDoc._Sum        := SpSopHozKSSumma;
+    TabSoprDoc._SumVal     := SpSopHozKSSumVal;
+    insert current TabSoprDoc;
+  }
+}
+procedure AddTabPlPor(OborotNrec, PlPorNrec, KatSoprPLNrec: comp; SpSopHozPLSumma, SpSopHozPLSumVal: double);
+{
+  if (GetFirst TabPlPor where ((OborotNrec == TabPlPor._cTabOborot
+                          and PlPorNrec==TabPlPor._cPlPor
+                          and KatSoprPLNrec==TabPlPor._cKatSopr))= tsok)
+  {
+    TabPlPor._Sum:=TabPlPor._Sum+SpSopHozPLSumma;
+    TabPlPor._SumVal:=TabPlPor._SumVal+SpSopHozPLSumVal;
+    update current TabPlPor;
+  }
+  else
+  {
+    ClearBuffer(#TabPlPor);
+    TabPlPor._cTabOborot := OborotNrec;
+    TabPlPor._cPlPor     := PlPorNrec;
+    TabPlPor._cKatSopr   := KatSoprPLNrec;
+    TabPlPor._Sum        := SpSopHozPLSumma;
+    TabPlPor._SumVal     := SpSopHozPLSumVal;
+    insert current TabPlPor;
+  }
+}
+
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function SumInVal (NrecVal:comp; DVal:date; Summ:double) : double;
+{
+  if (GetFirst KlVal where ((NrecVal==KlVal.Nrec and KlVal.Nrec /== CursVal.KodValut and DVal==CursVal.DatVal)) = tsok )
+     SumInVal:=Summ/CursVal.SumRubl;
+  else
+    SumInVal:=0;
+
+  if (NrecVal = 0)
+    SumInVal := Summ;
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function CreateDocs(BegDate, EndDate: date):boolean;
+var curSum : double;
+{
+  Result := false;
+  ResetBounds(#TabOborot);
+  _loop TabOborot
+  {
+    if (TabOborot._TypeDoc = 1) and (BegDate <=  TabOborot._DatOB)
+    {
+      if(GetFirst KatSopr_F  = tsOk)
+      {
+        _loop SpSopr_F
+          _loop SpSopHozKS_F
+            _loop SoprHozKS_F
+            {
+              if (GetFirst OborotKS_F = tsOk){}
+              if (TabOborot._DatOB > OborotKS_F.DatOB and DocInTab(PlPorKS_F.Nrec, 2))
+              {
+                CurSum := if(KatSopr_F.VhodNal = 1, SpSopr_F.Price * SpSopr_F.Kol,
+                                                    SpSopr_F.Price * SpSopr_F.Kol + SpSopr_F.SUMNDS);
+                AddTabSoprDoc(TabOborot._NrecOborot, KatSopr_F.Nrec, PlPorKS_F.Nrec, CurSum,
+                               SumInVal(TabOborot.KODVALUT, OborotKS_F.DatOB, CurSum));
+              }
+            }
+      }
+    }
+
+    if (TabOborot._TypeDoc = 2) and (BegDate <=  TabOborot._DatOB)
+    {
+      if(GetFirst PlPor_F = tsOk)
+        _loop SoprHozPL_F
+          _loop SpSopHozPL_F
+            _loop SpSoprPL_F
+            {
+              if (GetFirst OborotPL_F = tsOk){}
+
+              if (TabOborot._DatOB > OborotPL_F.DatOB and DocInTab(KatSoprPL_F.Nrec,1))
+              {
+                CurSum:= if(KatSoprPL_F.VhodNal=1, SpSoprPL_F.Price * SpSoprPL_F.Kol,
+                                                   SpSoprPL_F.Price * SpSoprPL_F.Kol + SpSoprPL_F.SUMNDS);
+                AddTabPlPor(TabOborot._NrecOborot, PlPor_F.Nrec, KatSoprPL_F.Nrec, CurSum,
+                            SumInVal(TabOborot.KODVALUT, OborotPL_F.DatOB, CurSum));
+              }
+            }
+    }
+  }
+  SetBounds(#TabOborot);
+  Result := true;
+}
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+procedure FillData;
+{
+  delete all from TabOborot;
+  delete all from TabSoprDoc;
+  delete all from TabPlPor;
+
+  UnloadOborot(dFrom, dTo);
+  CreateDocs(dFrom, dTo);
+}
+procedure Run;
+{
+//  MtClear(#TabVeksl, mfNormal);
+  FillData;
+  PrintReport;
+}
+//------------------------------------------------------------------------------
+procedure RestoreSchetMarker;
+var
+  MarkerName: string;
+{
+  MarkerName := 'gt' + string(cgPick_Schet) + 'buhschet';
+  Marker := InitMarker('', 8, 200, 100, false);
+
+  _loop PickBuh where ((cgPick_Schet == PickBuh.KodTable ))
+    InsertMarker(Marker, PickBuh.PickRec);
+
+  _loop PickBuh where ((cgPick_SubSch == PickBuh.KodTable ))
+    InsertMarker(Marker, PickBuh.PickRec);
+
+  DoneMarker(Marker, MarkerName);
+}
+!-------------------------------------------------------------------------------
+! проверить маркер выбранных счетов/субсчетов
+! если записи нет в PickBuh'е, то удалим из маркера
+!-------------------------------------------------------------------------------
+procedure ValidateMarkerSchet;
+var
+  MarkerName: string;
+  NewMarker, i: longint;
+  cRec: comp;
+{
+  MarkerName := 'gt' + string(cgPick_Schet) + 'buhschet';
+  Marker := InitMarker(MarkerName,8,200,100,false);
+  NewMarker := InitMarker('',8,200,100,false);
+  for (i:=0; i<=GetMarkerCount(Marker); i:=i+1)
+    if (GetMarker(Marker, i, cRec))
+      if (iPickBuh.FoundInPickByRec(cgPick_Schet, cRec)) or
+         (iPickBuh.FoundInPickByRec(cgPick_SubSch, cRec))
+        InsertMarker(NewMarker, cRec);
+  DoneMarker(Marker,'');
+  DoneMarker(NewMarker,MarkerName);
+} // procedure ValidateMarkerSchet
+!-------------------------------------------------------------------------------
+procedure SetDefSchD(SetSch,SetSub : boolean);
+{
+  if (SetSch) {
+    iPickBuh.DeleteItem(cgPick_Schet);
+    ValidateMarkerSchet;
+  }
+  if (SetSub) {
+    iPickBuh.DeleteItem(cgPick_SubSch);
+    ValidateMarkerSchet;
+  }
+  if (iPickBuh.FoundFirstSub(Filter_Sch, Filter_Sub)) {}
+  else {
+    Filter_Sch := iPickBuh.FoundInPick_GetSchet(cgPick_Schet);
+    Filter_Sub := cgDefSch;
+  }
+  mFilter_Sch := iPickBuh.GetCountItem(cgPick_Schet);
+  mFilter_Sub := iPickBuh.GetCountItem(cgPick_SubSch);
+} // SetDefSchD
+!-------------------------------------------------------------------------------------------------------------
+!
+!-------------------------------------------------------------------------------------------------------------
+function GetBackColor(FieldNum: integer): integer;
+{
+  Result := 0;
+  case FieldNum of
+    #dFrom  : Result := if (longint(dFrom ) = 0, ColorNeed, 0);
+    #dTo    : Result := if (longint(dTo) = 0, ColorNeed, 0);
+  end; // case
+}
+//window wTune doAccept ;
+//show at(,,65,5);
+!-------------------------------------------------------------------------------
+screen scTune 'Расчет суммовых разниц за период'('',,sci13EnEsc)
+fields
+  dFrom      : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; Color = if (dFrom > dTo, ColorError, 0); BackColor = GetBackColor(#dFrom)}};
+  dTo        : ['DD/MM/YYYY'], NoProtect,{Font = {Bold = true; BackColor = GetBackColor(#dTo)}};
+  DlgSchetD  : Protect, QuickChoice, PickButton,{Font = {Bold = if(mFilter_Sch = 1, true, false)}};
+  DlgSubSchD : Protect, QuickChoice, PickButton,{Font = {Bold = if(mFilter_Sub = 1, true, false)}};
+  DlgCO      : Protect, PickButton;
+buttons
+  cmValue1,Default,,'Обработка данных',hcAllBOk,sci1Esc;
+  cmCancel,,,'Отмена',hcAllBCancel,sci1Esc;
+<<
+`За период`        &с  .@@@@@@@@@@ `по`.@@@@@@@@@@
+
+`Cчет                 `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Субсчет              `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Центр ответственности`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+          <.Сформировать.> <.   Отмена   .>
+>>
+end;
+//HandleEvent
+//cmInit:
+//{
+//  dFrom := date(1, 01, year(cur_date));
+//  dTo := cur_date;
+//}
+
+//end;
+
+//end; //window
+
+HandleEvent
+cmInit:
+{
+  if (not iPSManager.GetTunePlansSch(MyPlansNo))
+  {
+    abort;
+    Exit;
+  }
+    delete all PickBuh;
+  dFrom:=date(1,month(cur_date),year(cur_date));
+  dTo:=date(Last_Day(cur_date),month(cur_date),year(cur_date));
+
+}
+cmValue1:
+{
+   if(mFilter_Sch = 0)
+     Message('Выберите, пожалуйста, счет',Information);
+   else
+     Run;
+}
+cmPick:
+{
+  case CurField of
+    #DlgCO:
+    {
+      mFilter_CO := iGetKau.GetCodeKau(cgiPickMult or if (mFilter_CO>0, cgiNotClear, 0), cgKau_FpCO, Filter_CO);
+      iNalFunc.CreatePodrFilter;
+    }
+    #DlgSchetD:
+    {
+      RestoreSchetMarker;
+
+      if (QuickChoiceName <> '')
+        QuickChoiceName := 'qcBuh_SchetAndSub';
+
+      if (RunInterface('F_BuhSchet::GetBuhSchet', (cgiPickMult or if((mFilter_Sch+ mFilter_Sub) > 1, cgiNotClear, 0)),
+                                       MyPlansNo, Filter_Sch, Filter_Sub) = cmCancel)
+        Exit;
+
+
+      SetDefSchD(false,false);
+    }
+
+    // субсчет
+    #DlgSubSchD :
+    {
+      if(mFilter_Sch = 0)
+      {
+        Message('Перед выбором субсчета выберите, пожалуйста, счет',Information);
+        Exit;
+      }
+      RestoreSchetMarker;
+
+      if (QuickChoiceName <> '') QuickChoiceName := 'qcBuh_SubSchet';
+     if (RunInterface('F_BuhSchet::GetBuhSchet', (cgiPickMult or if((mFilter_Sch+ mFilter_Sub) > 1, cgiNotClear, 0)),
+                                       MyPlansNo, Filter_Sch, Filter_Sub) = cmCancel)
+        Exit;
+
+      SetDefSchD(false,false);
+    }
+
+  end;
+  RereadRecord;
+}
+cmOpenSearch:
+  PutCommand(cmPick);
+cmDelOnProtect :
+{
+  case (CurField) of
+    #DlgSchetD    :
+      SetDefSchD(true,true);
+    #DlgSubSchD   :
+      SetDefSchD(false,true);
+    #DlgCO:
+    {
+      mFilter_Co := 0;
+      set Filter_Co  := SetDefKau;
+      iPickBuh.DeleteItem(cgKau_FpCO);
+      iNalFunc.ClearPodrFilter
+    }
+  end;
+  RereadRecord;
+}
+end;
+
+
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalVdr_11 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalVdr_11  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalVdr_11');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'ВДР 1.1 Рассчет суммовых разниц';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+    2 : GetGroupName := 'ВДР';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

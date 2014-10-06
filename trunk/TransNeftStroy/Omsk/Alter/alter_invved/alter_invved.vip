@@ -1,0 +1,147 @@
+#component "F_MBP"
+
+alter interface InvMBPOpis;
+
+var
+bal_i,bal:word;
+
+create view
+as select
+  *
+from
+  attrnam,
+  attrval
+where ((
+             word(2001)       == AttrNam.wTable								
+        and  'Признак счета'  == AttrNam.Name								
+        and  word(2001)       == AttrVal.wTable								
+        and  mbpin.nrec       == AttrVal.cRec								
+        and  AttrNam.Nrec     == AttrVal.cAttrNam								
+        and  attrval.vcomp    == spkau.nrec
+      ))
+
+;
+
+
+
+Function ReloadRecords_alter: Boolean;
+{
+  Delete All I_MBPOut;
+  InitGrMCFilter(fltGrp);
+
+  ReloadRecords_alter := True;
+  Stopped := False;
+  StartNewVisual(vtIndicatorVisual, vfTimer + vfBreak + vfConfirm, 'Выгрузка данных для отчета', RecordsInTable(#MBPIn));
+
+  if (GetFirstPick)
+    do
+      _loop MBPIn
+      {
+        if (not NextVisual)
+        {
+          Stopped := True;
+          Break;
+        }
+
+        if (not isInMatched)
+          Continue;
+
+        // Вставить запись в выгрузку данных для отчета
+
+  if bal_i<>0
+  {
+  bal:=0;
+
+  if mbpin.inekspl = word(0)
+   {
+    bal:=3;
+   }
+
+  if getfirst attrnam = tsok
+   {
+  if getfirst attrval = tsok
+   {
+  if getfirst spkau = tsok
+   {
+   if spkau.code = '001'
+    {
+      bal:=1;
+    }
+    else
+       {
+        bal:=2;
+       }
+   }
+   }
+   }
+
+   if bal=0
+    {
+      if Months_Between(mbpin.DATEEKSP,mbpin.DATEEND) <= 12
+       {
+        bal:=2;
+       }
+       else
+        {
+         bal:=1;
+        }
+    }
+   }
+
+
+     if bal=bal_i or bal_i=0
+      {
+        InsertRepRecord;
+      }
+
+      }
+    while (GetNextPick);
+
+  StopVisual('', 0);
+
+  if (Stopped)
+  ReloadRecords_alter := False;
+}
+
+
+HandleEvent
+
+cmInit:
+  {
+
+   if RunDialog('Get_par_sfo',bal_i) <> cmCancel
+    {}
+
+    Abort;
+
+    if (not ReloadRecords_alter)
+    {
+      Message('Процесс прерван пользователем', Warning + okButton);
+      Exit;
+    }
+
+    ShowReport;
+
+  }
+
+end;
+
+end.
+
+
+Get_par_sfo dialog
+fields
+  bal_i : word;
+Buttons
+  cmOk,Default,, 'Подтверждение ввода',,scGalDial ;
+
+<< 'Ввод параметров'
+
+  `В ведомость выводить:      `
+  (.) Всю СФО                 `
+  (.) 10.09                   `
+  (.) 013                     `
+  (.) 10.08                   `
+
+       <. Продолжить .>
+>>

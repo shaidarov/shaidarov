@@ -1,0 +1,215 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2005 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Управление транспортом                                    ║
+ ║ Версия        : 7.12                                                      ║
+ ║ Назначение    : Сигнатуры сервисных функций для комплектующих             ║
+ ║ Ответственный : Жилко Дмитрий Витальевич (HATTER)                         ║
+ ║ Параметры     : есть                                                      ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+#ifndef _ComponService_
+#define _ComponService_
+
+ObjInterface objComponService;
+
+// обновление номера комплектующей
+Function UpdateNomComp (acCompon: comp; asNomComp: string): boolean;
+
+// обновление номера шины
+Function UpdateNomShin (acShinaF: comp; asNomShin: string): boolean;
+
+// обновление заводского номера комплектующей
+Function UpdateZavNum (acCompon: comp; asZavNum: string): boolean;
+
+// обновление марки в истории и головной записи
+Function UpdateMarCompAtCompon (acCompon: comp; acMarComp: comp): boolean;
+
+// установка комплектующей на ТС
+// awCurShinState - номер состояние, которое устанавливается (закрепляется)
+// acCompon - ссылка на комплектующую
+// acTransp - ccылка на транспортное средство, на которое устанавливаем(закрепляем)
+// adTypeMove - дата операции движения
+// awTypeUpd  - обновление данных в ТС и определяет помечать новые записи движения
+Function PlaceComponToCarrier (acCompon: comp; acTransp: comp; adTypeMove : date; awTypeUpd: word): comp;
+
+// установка шины на ТС
+// awCurShinState - номер состояние, которое устанавливается (закрепляется)
+// acShinaF - ссылка на шапку картотеки
+// acTransp - ccылка на транспортное средство, на которое устанавливаем(закрепляем)
+// adTypeMove - дата операции движения
+
+
+Function PlaceShinaFToCarrier (acShinaF: comp; acTransp: comp; awCurShinState: word; adTypeMove : date): comp;
+
+// списание и "в оборот" шины
+// awCurShinState - номер состояние
+// acShinaF - ссылка на запись шины
+// adTypeMove - дата совершения операции движения
+// awBeg_dia - дельта для формирования архивной записи движения
+
+Function PlaceShinaFToCarrier_Err (acShinaF: comp; acTransp: comp; awCurShinState: word; adTypeMove : date): comp;
+
+// списание и "в оборот" шины
+// awCurShinState - номер состояние
+// acShinaF - ссылка на запись шины
+// adTypeMove - дата совершения операции движения
+// awBeg_dia - дельта для формирования архивной записи движения
+
+Function RetirementShinaFToCarrier (acShinaF: comp; awCurShinState: word; adTypeMove: date; awBeg_dia:word): comp;
+
+// списание и "в оборот" комплектующей
+// awCurComponState - номер состояние
+// acCompon - ссылка на запись комплектующей
+// adTypeMove - дата совершения опреации движения
+// awBeg_dia - дельта для формирования архивной записи движения
+Function RetirementComponToCarrier (acCompon: comp; awCurComponState: word; adTypeMove: date; awBeg_dia:word): comp;
+
+// удаление записи движения комплектующей
+// Пареметры:
+// acCompon - ссылка на запись движения комплектующей
+// awTypeUpd - тип обновлять (да/нет) поля ТС
+// Результат: ссылка на последнюю запись движения
+Function DeleteComponToCarrier (acCompon: comp; awTypeUpd: word): comp;
+
+// расчет общего количества дней для текущей даты
+Function CalcDniTotal (pwTipComp: word; acCompon: comp) : double;
+
+// расчет общего количества дней на дату движения комплектующей
+Function CalcDniTotalPrevRecord (pwTipComp: word; acCompon: comp) : double;
+
+// привязка ТС предпосленей записи к последней записи
+// wType - номер состояния
+Function SetwType(pwTipComp: word; wType : word) : word;
+
+// поиск следующего номера (автонумерация) шины (комплектующей)
+// Пареметры:
+//   pwTipComp - тип комплектующая/шина (coCompon/coShinaF)
+//   pwTable - номер таблицы (coKatMC, ...)
+//   pcTable - ссылка на запись таблицы (KatMC,...)
+// Результат: номер комплектующей/шины
+Function AvtoNum(pwTipComp: word; pwTable: word; pcTable: comp) : string;
+
+// определение nRec последней записи движения для шины
+Function GetLastShinaFMove (acShinaF: comp): comp;
+
+// поиск комплектующей (шины) в ПЛ (в таблице ShinPut)
+Function FindComponShinPut (pwTipComp: word; acCompon: comp): boolean;
+
+// поиск шины (комплектующей) по номеру
+// Пареметры:
+//   pwTipComp - тип комплектующая/шина (coCompon/coShinaF)
+//   pwWhatIs  - тип транспорта (авто/ЖД/прочие)
+//   pcMarka   - ссылка на марку комплектующей/шины
+//   psNomer   - номер комплектующей/шины
+// Результат: ссылка на комплектующую/шину
+Function FindNum(pwTipComp: word; pwWhatIs: word; pcMarka: comp; psNomer: string) : comp;
+
+// обновление единицы измерения (cXarComp4)
+Function UpdateKatEd (acCompon: comp; acKatEd: comp): boolean;
+
+// обновление подразделения для шины (замена в записи движения и в шапке)
+// Пареметры:
+//   acShinaF - ссылка на шину
+//   acPodr   - ссылка на подразделения
+// Результат:
+Function UpdateShinaFPodr (acShinaF: comp; acPodr: comp): boolean;
+
+// обновление подразделения для комплектующей (замена в записи движения и в шапке)
+// Пареметры:
+//   acShinaF - ссылка на шину
+//   acPodr   - ссылка на подразделения
+// Результат:
+Function UpdateComponPodr (acCompon: comp; acPodr: comp): boolean;
+
+// количество распределенных комплектующих данной марки
+// Пареметры:
+//   awTipComp - тип комплектующая/шина (coCompon/coShinaF)
+//   acSoprDop - ссылка на накладную
+// Результат:
+Function CalcCompSoprDop(awTipComp: word; acSoprDop : comp ): longint;
+
+// обновление значения поля количество для комплектующей (замена в записи движения и в шапке)
+// Пареметры:
+//   acShinaF - ссылка на шину
+//   adKol    - новое значение поля количество
+// Результат:
+Function UpdateComponKol(acCompon: comp; adKol: double): boolean;
+
+// определение даты закрепления пред последней записи движения для комплектующей
+Function GetDatZakPrevLastComponMove (acCompon: comp): date;
+
+// изменение даты закрепления комплектующей
+// для последней записи движения и шапки карточки
+// acCompon - ссылка на запись комплектующей
+// adNewDate - дата совершения операции движения
+// Результат:
+//  0 - ошибка
+//  1 - успешное обновление даты движения
+Function UpdateComponDatZak(acCompon:comp; adNewDate: date) : word;
+
+// вызов окна ввода даты движения
+// Пареметры:
+// awTipComp - тип комплектующая/шина (coCompon/coShinaF)
+// acCompon - ссылка на запись комплектующей
+// adNewDate - дата совершения операции движения
+// awUpdDate - обновление даты (0) или добвыление (1) новой записи
+// Результат:
+//  0 - ошибка
+//  1 - успешное завершение
+Function RunWindowDateMove (awTipComp: word; acCompon: comp; var adDate : date; awUpdDate : word) : word;
+
+// функция определения даты для операции движения
+// Пареметры:
+// acCompon - ссылка на запись комплектующей
+// awTipComp - тип комплектующая/шина (coCompon/coShinaF)
+// Результат:
+// устанавливаемая дата
+Function SetDateMove( awTipComp: word; acCompon: comp ) : date;
+
+// создание стандартных атрибутов
+// Пареметры:
+// awTable - тип таблицы, для которой создаются атрибуты
+Function CreateStAttr( awTable: word) : boolean;
+
+// копирование стандартных атрибутов между таблицами
+// Пареметры:
+// awTable1 - тип таблицы-источника
+// acTable1 - ссылка на запись-источник
+// awTable2 - тип таблицы-приемника
+// acTable2 - ссылка на запись-приемника
+Function CopyStAttrValue( awTable1: word; acTable1: comp; awTable2: word; acTable2: comp) : boolean;
+
+// обновление сведений о двигателе в комплектующих
+// Параметры:
+// acCompon - ссылка на комплектующую
+// awTypeEngine - экологический тип двигателя
+// acKlass - ссылка на классификатор типа двигателя
+Function UpdateCompEngine( acCompon: comp; awTypeEngine: word; acKlass: comp) : boolean;
+
+// обновление сведений о двигателе в ТС
+// Параметры:
+// acTransp - ссылка на ТС
+// awTypeEngine - экологический тип двигателя
+// acKlass - ссылка на классификатор типа двигателя
+// adForceLS - мощность двигателя в л/с
+// adTimeAkk - объем двигателя
+Function UpdateTranspEngine( acTransp: comp; awTypeEngine: word; acKlass: comp; adForceLS: double; adTimeAkk: double) : boolean;
+
+// обновление сведений о двигателе в ТС по перданной ссылке на комплектующую
+// Параметры:
+// acTransp - ссылка на ТС
+// acCompon - ссылка на комплектующую
+Function UpdateTranspEngineByCompon( acTransp: comp; acCompon: comp) : boolean;
+Function GetKolZnakForce : word;
+
+End; // ObjInterface objComponService
+
+VipInterface ComponService implements objComponService
+#ifdef ATL51
+  licensed (FREE)
+#end
+;
+
+#end

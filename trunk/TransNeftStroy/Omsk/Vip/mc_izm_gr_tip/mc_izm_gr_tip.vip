@@ -1,0 +1,53 @@
+Interface mc_izm_gr_tip 'Изменение группы МЦ' (,,) , DoAccept; // наимнование интерфейса
+
+
+Create view
+ as select *
+ from
+  katmc,
+  groupmc,
+  groupmc groupmc2,
+  typemc
+ ;
+
+HandleEvent
+
+  CmInit:
+   {
+     StartNewVisual(vtRotateVisual, vfTimer,'Подождите...идет анализ данных', 0);
+
+    _loop katmc
+      {
+      NextVisual();
+      SetVisualTitle(katmc.nrec);
+
+      if substr(katmc.barkod,1,4)<> '1008'
+       {
+        if getfirst typemc where ((katmc.ctype == typemc.nrec )) = tsok
+        if getfirst groupmc where ((katmc.cgroupmc == groupmc.nrec)) = tsok
+        if typemc.kod <> groupmc.kod
+         {
+           if getfirst groupmc2 where ((typemc.kod == groupmc2.kod)) = tsok
+            {
+              katmc.cgroupmc:= groupmc2.nrec;
+              katmc.KGROUPMC:= groupmc2.kod
+              update current katmc;
+            }
+         }
+       }
+      }
+    StopVisual('',0);
+
+    message('Процесс завершен!');
+   } // cmOk
+End; // HandleEvent
+End. // interface
+
+.Form 'Синхронизация групп МЦ и типов МЦ'
+.Ard
+.F 'Nul'
+.begin
+        RunInterface ('mc_izm_gr_tip');
+end.
+
+.endform

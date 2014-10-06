@@ -1,0 +1,166 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.80 - модуль "Макросы назначения"
+// макрос для 2.За поставку МТР (Macros API)
+//------------------------------------------------------------------------------
+
+#include PPMacros.vih  
+
+VipInterface PPM_POSTMTR implements ObjPPMacros #Licensed_Free;
+
+#doc
+ макрос для 2.За поставку МТР (Macros API)
+#end
+
+Interface PPM_POSTMTR;
+
+Table Struct PPMDocInfo
+(
+  NumDoc2 : string,
+  NumDoc1 : string,
+  NumDoc  : string,
+  dDoc2   : date,
+  dDoc1   : date,
+  dDoc    : date
+)
+With Index
+(
+  PPMDocInfo01 = dDoc + NumDoc+dDoc1 + NumDoc1+dDoc2 + NumDoc2
+);
+
+Create view MaView
+var
+  curTiDkUser : word;
+  curTiDkGal  : word;
+  curSoprDoc  : comp;
+  PFormat     : word;
+  PList       : word;
+As select *
+From
+  PlPor,
+  SoprHoz,
+  Dogovor,
+  Dogovor APPDogovor,
+  StepDoc,
+  BaseDoc,
+  SCHFACT,
+  katsopr,
+  PPMDocInfo (PPMDocInfo01)
+Where ((
+      CurSoprDoc       == PlPor.Nrec
+  and CurTiDkUser      == SoprHoz.TipDoc
+  and CurSoprDoc       == SoprHoz.cSoprDoc
+  and SoprHoz.CDOGOVOR == Dogovor.Nrec
+  and SoprHoz.CAPPDOGOVOR == APPDogovor.Nrec
+
+  and SoprHoz.cStepDoc == StepDoc.Nrec
+  and StepDoc.cBaseDoc == BaseDoc.Nrec
+
+))
+;
+
+Function GetInfo: string;
+{
+  GetInfo := 'Макрос для формирования назначения "За поставку МТР"';
+}
+
+
+Function ParamMaster: string;
+{
+  // вызов окошка, чтобы помочь пользователю заполнить строку дополнительных параметров идентификатора
+  ParamMaster := '';
+}
+
+Function DocHandle: string;
+{
+  DocHandle := '';
+  var LYear, FrazaOt: string[3];
+  var Data: string;
+//Дог
+  Data := if(PPMDocInfo.dDoc<>date(0,0,0),string(PPMDocInfo.dDoc),'');
+  Data := Replace(Data, '/', '.');
+  DocHandle := if(PPMDocInfo.NumDoc<>'','по дог №'+PPMDocInfo.NumDoc+
+                  if(Data<>'',' от ' + Data+ 'г.',''),'') ;
+//С-ф
+  Data := if(PPMDocInfo.dDoc1<>date(0,0,0),string(PPMDocInfo.dDoc1),'');
+  Data := Replace(Data, '/', '.');
+  DocHandle := DocHandle+if(PPMDocInfo.NumDoc1<>'',' с-ф №'+PPMDocInfo.NumDoc1+
+     if(Data<>'',' от ' + Data+ 'г.','') 
+        ,'') ;
+//Ут.согл
+  Data := if(PPMDocInfo.dDoc2<>date(0,0,0),string(PPMDocInfo.dDoc2),'');
+  Data := Replace(Data, '/', '.');
+  DocHandle := DocHandle+if(PPMDocInfo.NumDoc2<>'',' специф №'+PPMDocInfo.NumDoc2+
+     if(Data<>'',' от ' + Data+ 'г.','') 
+        ,'') ;
+}
+
+Function Culc(TiDkGal, TiDkUser: word; cSoprDoc: comp; PpmServer: ObjPPTemplate; 
+              isSyntaxCheck: boolean; var ErrDescr: string): string;
+{
+  var metka:boolean;
+  Culc        := '';
+  curTiDkGal  := TiDkGal;
+  curSoprDoc  := cSoprDoc;
+  curTiDkUser := TiDkUser;
+  // //////////////////////////
+  if isSyntaxCheck
+    exit; // если проверка синтаксиса, то не надо запускать все расчеты (на выход), иначе -- надо
+  // //////////////////////////
+  delete all PPMDocInfo;
+  _loop SoprHoz
+  {
+    if (GetFirst Dogovor = tsOk)
+    {
+      PPMDocInfo.NumDoc  := Dogovor.NoDoc;//Внутренний номер
+      PPMDocInfo.dDoc    := Dogovor.dDoc;//от(Внутренний номер)-дата заключения договора
+      if (GetFirst APPDogovor = tsOk)
+      {
+        PPMDocInfo.NumDoc2  := APPDogovor.NoDoc;//Внутренний номер
+        PPMDocInfo.dDoc2    := APPDogovor.dDoc;//от(Внутренний номер)-дата заключения договора
+      }
+      insert current PPMDocInfo;
+      break;
+    }
+  }
+  metka:=false;
+  _loop SoprHoz
+  {
+    if (GetFirst StepDoc = tsOk)
+      if (GetFirst BaseDoc = tsOk)
+      {
+        _Loop katsopr
+        where ((StepDoc.nrec==Katsopr.cStepdoc
+        ))
+        {
+          _loop SCHFACT
+          where ((katsopr.CSCHFACT==SCHFACT.nrec))
+          {
+            PPMDocInfo.NumDoc1  := SCHFACT.NUM;//   
+            PPMDocInfo.dDoc1    := SCHFACT.DFACT;   
+            update  current PPMDocInfo;
+            metka:=true;
+            break;
+          }
+          if metka then break;
+        }
+      }
+  }//_loop SoprHoz
+
+  if (GetFirst PPMDocInfo = tsOK)
+    if length(Culc) + length(DocHandle) <= 248
+      Culc := Culc + DocHandle + '; ';
+  Culc := rTrim(Trim(Culc), ';');
+}
+
+HandleEvent // Interface
+
+cmOnVipLoad:
+{
+}
+
+cmOnVipUnload:
+{
+}
+End;
+End.

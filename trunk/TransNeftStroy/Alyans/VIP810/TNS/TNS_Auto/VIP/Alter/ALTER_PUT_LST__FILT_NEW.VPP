@@ -1,0 +1,137 @@
+// РАБОТА С НОВЫМ ФИЛЬТРОМ ПОДРАЗДЕЛЕНИЯ
+
+Procedure MyPodrFlt ;
+{ wcpodr:=cogettune('RARS_TRANSP.cFILTR_PODR') 
+  wusername:=username ;
+   delete all tmp_USERRIGHTS
+ if BoundActive(tbmyPodrier)
+              SubBounds(tbmyPodrier);
+ if BoundActive(tbmyPodr)
+              SubBounds(tbmyPodr);
+ if BoundActive(tbmyPodrzar)
+              SubBounds(tbmyPodrzar);
+ case wgettune('RARS_TRANSP.FILTR_PODR') of
+ 1:
+ { if wcpodr>0
+     AddBounds(tbmyPodr) ;
+ }
+ 2:{
+   if wcpodr>0
+     AddBounds(tbmyPodrier) ;
+ }
+ 3: {
+   var wwusername:string ;
+   wwusername:=USERNAME ;
+   delete all tmp_USERRIGHTS ;
+   insert tmp_USERRIGHTS select USERRIGHTS.crecds,USERRIGHTS.cgroup
+     where (( wwusername == USERRIGHTS.OWNNAME )) ;
+   if getfirst tmp_USERRIGHTS where ((  0 == tmp_USERRIGHTS.cgroup))=0
+   { wcpodr:=tmp_USERRIGHTS.crecds
+   }
+   else
+   if getfirst tmp_USERRIGHTS =0
+   { wcpodr:=tmp_USERRIGHTS.crecds
+   }
+   else wcpodr:=0 ;
+
+   AddBounds(tbmyPodrzar) ;
+ }
+ else wcpodr:=0 ;
+ end ;
+}
+
+/////////////////////////////////////////////////
+// здесь криво отрабатывала кнопка Отмена...
+procedure Filt_New;
+begin
+
+ End_allStat :=Beg_allStat + 1
+ if (MetodTC=0) and (wGetTune('TranspPL.FiltOrder') = word(1))
+ {
+  Filt_NewOrder();
+ }
+ else
+ {
+//??? для прочих видов транспорта - пока по старому
+
+  Last_Nastr;
+
+  View_How_org;
+
+  flag_bol  := FALSE;
+  CodTable := coTransp;
+  PushPos(tnPutlst)
+  ResetBounds(#KnDriver);
+  ResetBounds(#PutLst);
+
+  RunWindowModal(AvtoPut_Lst_Bound)
+  if not Flag_bol //not((RunWindowModal(AvtoPut_Lst_Bound) <> cmCancel) or Flag_bol)
+  {
+    //RU - наверно достаточно вывалиться отсель... зачем ставить прежний фильтр? он и так действует...
+    SetBounds(#PutLst);
+    SetBounds(#KnDriver);
+    PopPos(tnPutlst)
+    ReReadRecord(tnPutlst)
+    //message('Фильтр не установлен')
+    Last_Nastr;
+    EXIT;
+
+   // setBounds(#KnDriver);
+   // setBounds(#PutLst);
+  //  Nal_PutLst;
+    PopPos(tnPutlst)
+    //ReReadRecord(tnPutlst);
+   //exit;
+  }
+  else
+    {
+    PopPos(tnPutlst)
+    }
+  Del_DopFilter;
+
+  setBounds(#Kndriver);
+//---------------------------------------- ExClassifier for Transp
+#ifDef Gal7_1
+    SubBounds(tbOrg_RegLst);
+#end
+   SubBounds(tbCon_TipLst);
+   SubBounds(tbTip_TipLst);
+   SubBounds(tbCon_Dan_drv);
+   Del_Condit;
+ If ExCl <> 0 //поставить
+  {
+   RunWindowModal(wiFiltrVnKlass) ;
+  }
+ Else         //снять, если чего есть
+  {
+   SubBounds(tbbyKlass);
+   SubBounds(tbbyKlass1);
+   SubBounds(tbbyKlass2);
+   SubBounds(tbbyKlass3);
+   SubBounds(tbbyKlass4);
+   SubBounds(tbbyKlass5);
+   SubBounds(tbbyKlass6);
+  }
+//---------------------------------------- ExClassifier for Transp
+//---------------------------------------- ExClassifier for PutLst
+ If PExCl <> 0 //поставить
+  {
+   RunWindowModal(wiPFiltrVnKlass) ;
+  }
+ Else         //снять, если чего есть
+  {
+   SubBounds(tbbyPKlass);
+   SubBounds(tbbyPKlass1);
+   SubBounds(tbbyPKlass2);
+   SubBounds(tbbyPKlass3);
+   SubBounds(tbbyPKlass4);
+   SubBounds(tbbyPKlass5);
+   SubBounds(tbbyPKlass6);
+  }
+//---------------------------------------- ExClassifier for PutLst
+
+//???
+ }; // if (MetodTC=0) and (wGetTune('TranspPL.FiltOrder') = word(1))
+
+  Set_New;
+end;

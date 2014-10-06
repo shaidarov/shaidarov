@@ -1,0 +1,199 @@
+//=============================
+// вызов при расчете ЗП за половину месяца
+// выделяем премию по коду аналитики "Ф_ФМП"
+// Другие фонды Ф_ФЗП Ф_ФСС
+// во внешненм атрибуте "Фонд выплаты" к видам оплат
+//=============================
+#component "F_USERREPORT"
+#DEFINE ZAR_PremVsto_DEBUG
+#DEFINE _PODR_NOCHANGE_
+#define ZAR_CTZ_VIPL_TEST
+
+/*
+ Меняем аналитику в начислениях и архивах налогов на фот
+ на базе otiz\GetParUpdNachisl.VIP (зарплата - отчеты пользователя
+ - Простановка аналитики СТЗ в начисления по выбранному коду
+ содержит общие части
+*/
+#include ExtAttr.Vih
+#include CLSFUNCS.VIH
+#include GetKAU.vih
+#include Contexts.vih // работа с прикладными контекстами
+
+Interface ZAR_AVANS_After;
+table struct tmp_fond_vo
+(  pa:word
+  ,vidopl : word
+  ,vidoplp : word
+  ,name :string[30]
+  ,VHVO3:string[2]
+)
+with index 
+( tmp_fond_vo=pa+vidopl
+);
+table struct tmp_param
+( name :string[30]
+)
+with index 
+( tmp_param01 = name
+);
+table struct tmp_fond_div
+(  
+   name :string[30]
+  ,summa:double
+  ,sumvipl_meg:double
+  ,sumvipl:double
+)
+with index
+( tmp_fond_div = name
+);
+#include ExtAttr.Var
+
+var iGetKau : GetKau;
+var CLSF                     : CurLSFunctions;
+create view vZAR_CTZ
+var
+ wc_lsch:comp;
+ NEEDREP :word;
+ kl_need :boolean ;
+ wkod :word;
+ k,i :word;
+ wyear ,wmesn :word ;
+ wkodplans :string[2] ;
+ myPlansNo:comp ; // PlansSch.nrec - план счетов
+ wnrec1 :comp; 
+ CS:                 IContextSession;
+ wvidopl :word;
+ ckau_30054 :comp; // Статьи затрат
+ ckau_10037 :comp; // Отношение к налогообложению прибыли
+// для разбивки выплат 
+ wvo_fond : word;
+ wpa_fond : word;
+ wc_spkau : comp;
+ type_period:word;
+ su_nach:double;
+ su_nach_meg:double;
+ su_vipl:double;
+ su_vipl_meg:double;
+ wc_uder:comp;
+ wchoice_prvidopl:word;
+as select 
+  lschet.tabn
+from 
+ formarks(FORMARKS12)
+ ,lschet , lschet lschet1 , lschet lschet2
+ ,nachisl,perevodtek ,nenach , uder
+ ,PlansSch
+ ,tmp_fond_vo
+ ,tmp_fond_div
+ ,klvidopl , klvidopl klvidopl1
+ ,klvidud
+ ,spkau,spkau spkau_param 
+ ,otpusk,klotpusk
+ ,uder uder_vipl
+ ,tmp_param
+ ,KLVIDPOS,blisnet 
+ ,shtraf
+ ,APPLDOCS
+where ((
+    0 == formarks.choice
+and 0 == APPLDOCS.WTABLE
+AND formarks.CLSCHET == APPLDOCS.crec
+and wc_lsch == lschet.nrec
+//===================
+and lschet.nrec == nachisl.clsch
+and wyear == nachisl.yearn(noindex)
+and wmesn == nachisl.mesn (noindex)
+//===================
+and lschet.nrec == perevodtek.clsch
+//===================
+and lschet.nrec == nenach.clsch
+and wyear == nenach.yearn
+and wmesn ==  nenach.mesn
+//===================
+and lschet.nrec == shtraf.clsch
+//===================
+
+and lschet.nrec == uder.clsch
+and wyear == uder.yearv(noindex)
+and wmesn == uder.mesv (noindex)
+//===================
+and nachisl.clsch == lschet1.nrec  
+and perevodtek.clsch == lschet2.nrec  
+and myPlansNo == PlansSch.nrec
+//========== для разбивкм выплат
+and wpa_fond ==tmp_fond_vo.pa
+and wvo_fond ==tmp_fond_vo.vidopl
+and wvo_fond == klvidopl.vidopl
+and wvo_fond == klvidud.vidud
+and wc_spkau == spkau.nrec
+and wc_uder  == uder_vipl.nrec
+and 0 == otpusk.choice
+and lschet.nrec    == otpusk.clsch
+and otpusk.kotpus == klotpusk.kotpus
+and 0 == blisnet.choice
+and lschet.nrec    == blisnet.clsch
+and blisnet.vidpos == KLVIDPOS.VIDPOS
+
+and wchoice_prvidopl == prvidopl.choice
+and lschet.nrec == prvidopl.clsch
+and wvidopl == klvidopl1.vidopl
+//
+and coKlVidopl == AttrNam.wTable
+and 'Фонд выплаты' == AttrNam.Name
+and ATTRNAM.ROBJECT == spkau_param.kodgrkau
+
+))
+ ;
+parameters NeedRep ; ////CALCULATIONOPTIONS
+#include Zar_Avans_After.vpp
+//=============================
+HandleEvent
+cmInit :
+{  
+  // Inituder(1); // Инициализация Zar_uder
+
+   StartNewVisual (vtIndicatorVisual,vfTimer,'Обработка расчета аванса',recordsintable(#Formarks))
+   myPlansNo :=coGetTune('FIN.user.CPLANSSCH')
+   if myPlansNo=0 then myPlansNo :=coGetTune('KONSOLID.CPLANSSCH'); // План счетов из Консолидации
+
+   if (GetFirst PlansSch
+       where (( myPlansNo == PlansSch.NRec )) <> tsOk)
+   { message('Установите план счетов!!')
+   }
+   else wkodplans:=PlansSch.kod ;
+   wyear:=year(XAR_DATAN) ; 
+   wmesn:=month(XAR_DATAN) ; 
+   type_period:=coGetTune('UP.TEKBUD');
+
+   InitServTxo(0)
+   delete all tmp_fond_vo;
+  delete all tmp_param;
+  _loop spkau_param
+  { if spkau_param.code<>'Ф_НЕТ' and spkau_param.code<>'Ф_НДФЛ_ДОХ' and spkau_param.code<>'Ф_НДФЛ_НАЛ'
+    { insert into tmp_param set tmp_param.name:=spkau_param.code;
+    }
+    
+  }
+  _loop Formarks
+  { 
+    nextvisual ;
+    wc_lsch:=formarks.CLSCHET;
+    if getfirst fastfirstrow lschet=0 {}
+    if (NeedRep and 4)>0    //CALCULATIONOPTIONS - только если считали удержания
+       Viplata_DIV
+    _loop fullcache appldocs
+    { wc_lsch:=APPLDOCS.cTIPDOC;
+      if getfirst fastfirstrow lschet=0 {}
+      if (NeedRep and 4)>0    //CALCULATIONOPTIONS - только если считали зарплату
+         Viplata_DIV
+    }   
+  } //_loop Formarks
+  DoneServTxo;
+  StopVisual('',0)
+  Closeinterface(cmDone)
+  abort ; exit ;
+
+}
+end ;
+end.

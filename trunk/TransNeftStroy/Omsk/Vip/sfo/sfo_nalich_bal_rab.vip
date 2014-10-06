@@ -1,0 +1,2010 @@
+Get_par dialog
+fields
+  vid : word;
+Buttons
+  cmOk,Default,, 'Подтверждение ввода',,scGalDial ;
+
+<< 'Ввод параметров'
+
+  `Выберите алгоритм расчета бухгалтерского сальдо       `
+  (.) Сальдо на начало отчетного периода + обороты до даты отчета  `
+  (.) Сальдо на начало месяца + обороты до даты отчета  `
+  (.) Сальдо на начало года + обороты до даты отчета    `
+  (.) Все обороты до даты отчета                        `
+
+            <. Продолжить .>
+>>
+
+.LinkForm 'RNAL_Msdq123123123123345wereqwwerwefBP_06' Prototype is 'RNAL_MBP'
+.Group 'Подробные'
+.NameInList 'Отчет о расхождениях остатков спецодежды (ОНГСС)'
+.var
+data_n:date;
+schet:string;
+bFileName : string;
+ndFile: longint;
+OutInDBF:BOOLEAN;
+fVBFileName:string
+fXLTFileName:string
+fActiveXLSName:string
+fXLSFileName:string
+isExcelOk:boolean
+sr_n,vid:word;
+N1,N2,N3,N4,N5,N6,N7,N8,N9,N10,N11,N12,N13,N14,N15,N16,N17,N18:word;
+B1,B2,B3,B4,B5,B6,B7,B8,B9,B10,B11,B12,B13,B14,B15,B16,B17,B18:word;
+FBasName,Fmacros,pr_sch,sch,podr,mol,kodmc,subschet,subsch:String;
+nrec_podr,nrec_mol,nrec_mc,nrec_rab:comp;
+T_temp,T_tempB:LongInt
+x,y,pos_x,xx,sum_ou,sumk_ou,pos,ssum_ou,ssumk_ou,sum_ord,sum_kol:double
+sumkk,sumks,sumdk,sumds,sumk_bu,sum_bu,i,ssumk_bu,ssum_bu:double
+.endvar
+.Create view t1
+as select mbpin.nrec
+from mbpin,
+     katmbp,
+     katpodr,
+     katmol,
+     katmc,
+     attrnam,
+     attrval,
+     perscard,
+     lschet,
+     persons,
+     oborot oborotd,
+     oborot oborotk,
+     oborot oborotzd,
+     oborot oborotzk,
+     saldmoun saldmound,
+     saldmoun saldmounk,
+     saldmoun saldmounzd,
+     saldmoun saldmounzk,
+     mbpin mbpin1,
+     mbpout,
+     attrnam attrnam1,
+     attrval attrval1,
+     spkau,
+     spkau spkau1
+
+where ((
+             NRECIN           == mbpin.nrec
+        and  mbpin.cpodr      == katpodr.nrec
+        and  mbpin.cmol       == katmol.nrec
+        and  mbpin.cmbp       == katmbp.nrec
+        and  katmbp.cmc       == katmc.nrec
+
+        and  mbpin.cpers      == perscard.nrec
+        and  perscard.clschet == lschet.nrec
+        and  lschet.tperson   == persons.nrec
+
+        and  word(2001)       == AttrNam.wTable
+        and  'Признак счета'  == AttrNam.Name
+        and  word(2001)       == AttrVal.wTable
+        and  NRECIN           == AttrVal.cRec
+        and  AttrNam.Nrec     == AttrVal.cAttrNam
+        and  attrval.vcomp    == spkau.nrec
+
+        and  mbpin.cmbpout    == mbpout.nrec
+        and  MBPout.nRec      == PersSFO.cMBPout  (noindex)
+        and  word(1)          == PersSFO.Status
+        and  mbpout.cmbpin    == mbpin1.nrec
+
+        and  word(2001)       == AttrNam1.wTable
+        and  'Признак счета'  == AttrNam1.Name
+        and  word(2001)       == AttrVal1.wTable
+        and  mbpin1.nrec      == AttrVal1.cRec
+        and  AttrNam1.Nrec    == AttrVal1.cAttrNam
+        and  attrval1.vcomp   == spkau1.nrec
+
+
+        and  'T'+sch   == oborotd.SCHETO
+        and  nrec_mc   == oborotd.KAUOS[3]
+        and  dfor     >>= oborotd.datob
+        and  data_n<<= oborotd.datob
+        and  0064000000000002h == oborotd.CPLANSSCH  (noindex)
+        and  subsch    == oborotd.SUBOSSCH           (noindex)
+        and  nrec_podr == oborotd.KODSPO             (noindex)
+        and  nrec_mol  == oborotd.KAUOS[2]           (noindex)
+        and  nrec_rab  == oborotd.KAUOS[5]           (noindex)
+
+
+        and  'T'+sch   == oborotzd.SCHETO
+        and  nrec_mc   == oborotzd.KAUOS[2]
+        and  dfor     >>= oborotzd.datob
+        and  data_n<<= oborotzd.datob
+        and  0064000000000002h == oborotzd.CPLANSSCH  (noindex)
+        and  subsch    == oborotzd.SUBOSSCH           (noindex)
+        and  nrec_podr == oborotzd.KODSPO             (noindex)
+        and  nrec_mol  == oborotzd.KAUOS[1]           (noindex)
+        and  nrec_rab  == oborotzd.KAUOS[3]           (noindex)
+
+
+        and  'T'+sch   == oborotk.SCHETK
+        and  nrec_mc   == oborotk.KAUKS[3]
+        and  dfor     >>= oborotk.datob
+        and  data_n<<= oborotk.datob
+        and  0064000000000002h == oborotk.CPLANSSCH   (noindex)
+        and  subsch    == oborotk.SUBSCHK             (noindex)
+        and  nrec_podr == oborotk.KODSPK              (noindex)
+        and  nrec_mol  == oborotk.KAUKS[2]            (noindex)
+        and  nrec_rab  == oborotk.KAUKS[5]            (noindex)
+
+        and  'T'+sch   == oborotzk.SCHETK
+        and  nrec_mc   == oborotzk.KAUKS[2]
+        and  dfor     >>= oborotzk.datob
+        and  data_n<<= oborotzk.datob
+        and  0064000000000002h == oborotzk.CPLANSSCH   (noindex)
+        and  subsch    == oborotzk.SUBSCHK             (noindex)
+        and  nrec_podr == oborotzk.KODSPK              (noindex)
+        and  nrec_mol  == oborotzk.KAUKS[1]            (noindex)
+        and  nrec_rab  == oborotzk.KAUKS[3]            (noindex)
+
+
+        and  'T'+sch                   == saldmound.SCHETO
+        and  nrec_mc                   == saldmound.KAUOS[3]
+        and  data_n                    == saldmound.datesal
+        and  0064000000000002h         == saldmound.CPLANSSCH (noindex)
+        and  subsch                    == saldmound.SUBOSSCH  (noindex)
+        and  nrec_podr                 == saldmound.KODSPO    (noindex)
+        and  nrec_mol                  == saldmound.KAUOS[2]  (noindex)
+        and  nrec_rab                  == saldmound.KAUOS[5]  (noindex)
+        and  word(1)                   == saldmound.viob      (noindex)
+
+        and  'T'+sch                   == saldmounzd.SCHETO
+        and  nrec_mc                   == saldmounzd.KAUOS[2]
+        and  data_n                    == saldmounzd.datesal
+        and  0064000000000002h         == saldmounzd.CPLANSSCH  (noindex)
+        and  nrec_podr                 == saldmounzd.KODSPO     (noindex)
+        and  nrec_mol                  == saldmounzd.KAUOS[1]   (noindex)
+        and  nrec_rab                  == saldmounzd.KAUOS[3]   (noindex)
+        and  word(1)                   == saldmounzd.viob       (noindex)
+
+
+        and  'T'+sch                   == saldmounk.SCHETO
+        and  nrec_mc                   == saldmounk.KAUOS[3]
+        and  data_n                    == saldmounk.datesal
+        and  0064000000000002h         == saldmounk.CPLANSSCH (noindex)
+        and  subsch                    == saldmounk.SUBOSSCH  (noindex)
+        and  nrec_podr                 == saldmounk.KODSPO    (noindex)
+        and  nrec_mol                  == saldmounk.KAUOS[2]  (noindex)
+        and  nrec_rab                  == saldmounk.KAUOS[5]  (noindex)
+        and  word(2)                   == saldmounk.viob      (noindex)
+
+        and  'T'+sch                   == saldmounzk.SCHETO
+        and  nrec_mc                   == saldmounzk.KAUOS[2]
+        and  data_n                    == saldmounzk.datesal
+        and  0064000000000002h         == saldmounzk.CPLANSSCH  (noindex)
+        and  nrec_podr                 == saldmounzk.KODSPO     (noindex)
+        and  nrec_mol                  == saldmounzk.KAUOS[1]   (noindex)
+        and  nrec_rab                  == saldmounzk.KAUOS[3]   (noindex)
+        and  word(2)                   == saldmounzk.viob       (noindex)
+
+
+      ))
+;
+
+.Create view t2
+as select katpodr.nrec
+from
+     pick,
+     katpodr,
+     katmol,
+     katmc,
+     oborot,
+     oborot oborotd09,
+     oborot oborotk09,
+     oborot oborotd08,
+     oborot oborotk08,
+     oborot oborotd13,
+     oborot oborotk13,
+     oborot oborotd12,
+     oborot oborotk12,
+     katmc katmcd09,
+     katmc katmcd08,
+     katmc katmcd13,
+     katmc katmcd12,
+     katmol katmold09,
+     katmol katmold08,
+     katmol katmold13,
+     katmol katmold12,
+     katmc katmck09,
+     katmc katmck08,
+     katmc katmck13,
+     katmc katmck12,
+     katmol katmolk09,
+     katmol katmolk08,
+     katmol katmolk13,
+     katmol katmolk12,
+     persons personsd09,
+     persons personsd08,
+     persons personsd13,
+     persons personsk09,
+     persons personsk08,
+     persons personsk13
+
+where ((
+             word(11)            ==  Pick.wlist
+        and  pick.crec           ==  katpodr.nrec
+
+        and  'T10'               ==  oborotd09.SCHETO
+        and  '09'                ==  oborotd09.SUBOSSCH
+        and  dfor                >>= oborotd09.datob
+        and  data_n              <<= oborotd09.datob
+        and  0064000000000002h   ==  oborotd09.CPLANSSCH  (noindex)
+        and  katpodr.nrec        ==  oborotd09.KODSPO     (noindex)
+        and  oborotd09.KAUOS[3]  ==  katmcd09.nrec
+        and  oborotd09.KAUOS[2]  ==  katmold09.nrec
+        and  oborotd09.KAUOS[5]  ==  personsd09.nrec
+
+        and  'T10'               ==  oborotk09.SCHETK
+        and  '09'                ==  oborotk09.SUBSCHk
+        and  dfor                >>= oborotk09.datob
+        and  data_n              <<= oborotk09.datob
+        and  0064000000000002h   ==  oborotk09.CPLANSSCH  (noindex)
+        and  katpodr.nrec        ==  oborotk09.KODSPK     (noindex)
+        and  oborotk09.KAUkS[3]  ==  katmck09.nrec
+        and  oborotk09.KAUkS[2]  ==  katmolk09.nrec
+        and  oborotk09.KAUkS[5]  ==  personsk09.nrec
+
+        and  'T10'               ==  oborotd08.SCHETO
+        and  '08'                ==  oborotd08.SUBOSSCH
+        and  dfor                >>= oborotd08.datob
+        and  data_n              <<= oborotd08.datob
+        and  0064000000000002h   ==  oborotd08.CPLANSSCH  (noindex)
+        and  katpodr.nrec        ==  oborotd08.KODSPO     (noindex)
+        and  oborotd08.KAUOS[3]  ==  katmcd08.nrec
+        and  oborotd08.KAUOS[2]  ==  katmold08.nrec
+
+        and  'T10'               ==  oborotk08.SCHETK
+        and  '08'                ==  oborotk08.SUBSCHk
+        and  dfor                >>= oborotk08.datob
+        and  data_n              <<= oborotk08.datob
+        and  0064000000000002h   ==  oborotk08.CPLANSSCH  (noindex)
+        and  katpodr.nrec        ==  oborotk08.KODSPK     (noindex)
+        and  oborotk08.KAUkS[3]  ==  katmck08.nrec
+        and  oborotk08.KAUkS[2]  ==  katmolk08.nrec
+
+        and  'T013'              ==  oborotd13.SCHETO
+        and  dfor                >>= oborotd13.datob
+        and  data_n              <<= oborotd13.datob
+        and  0064000000000002h   ==  oborotd13.CPLANSSCH  (noindex)
+        and  katpodr.nrec        ==  oborotd13.KODSPO     (noindex)
+        and  oborotd13.KAUOS[2]  ==  katmcd13.nrec
+        and  oborotd13.KAUOS[1]  ==  katmold13.nrec
+        and  oborotd13.KAUOS[3]  ==  personsd13.nrec
+
+        and  'T013'              ==  oborotk13.SCHETK
+        and  dfor                >>= oborotk13.datob
+        and  data_n              <<= oborotk13.datob
+        and  0064000000000002h   ==  oborotk13.CPLANSSCH  (noindex)
+        and  katpodr.nrec        ==  oborotk13.KODSPK     (noindex)
+        and  oborotk13.KAUkS[2]  ==  katmck13.nrec
+        and  oborotk13.KAUkS[1]  ==  katmolk13.nrec
+        and  oborotk13.KAUkS[3]  ==  personsk13.nrec
+
+
+      ))
+;
+
+.Create view t3
+as select katpodr.nrec
+from
+     pick,
+     katpodr,
+     katmol,
+     katmc,
+     saldmoun,
+     saldmoun saldmound09,
+     saldmoun saldmounk09,
+     saldmoun saldmound08,
+     saldmoun saldmounk08,
+     saldmoun saldmound13,
+     saldmoun saldmounk13,
+     saldmoun saldmound12,
+     saldmoun saldmounk12,
+     katmc katmcd09,
+     katmc katmcd08,
+     katmc katmcd13,
+     katmc katmcd12,
+     katmol katmold09,
+     katmol katmold08,
+     katmol katmold13,
+     katmol katmold12,
+     katmc katmck09,
+     katmc katmck08,
+     katmc katmck13,
+     katmc katmck12,
+     katmol katmolk09,
+     katmol katmolk08,
+     katmol katmolk13,
+     katmol katmolk12,
+     persons personsd09,
+     persons personsd08,
+     persons personsd13,
+     persons personsk09,
+     persons personsk08,
+     persons personsk13
+
+where ((
+             word(11)            ==  Pick.wlist
+        and  pick.crec           ==  katpodr.nrec
+
+        and  data_n                          == saldmound09.datesal
+        and  'T10'                           == saldmound09.SCHETO
+        and  '09'                            == saldmound09.SUBOSSCH
+        and  katpodr.nrec                    == saldmound09.KODSPO
+        and  0064000000000002h               == saldmound09.CPLANSSCH (noindex)
+        and  word(1)                         == saldmound09.viob      (noindex)
+        and  saldmound09.KAUOS[3]            == katmcd09.nrec
+        and  saldmound09.KAUOS[2]            == katmold09.nrec
+        and  saldmound09.KAUOS[5]            == personsd09.nrec
+
+        and  data_n                          == saldmounk09.datesal
+        and  'T10'                           == saldmounk09.SCHETO
+        and  '09'                            == saldmounk09.SUBOSSCH
+        and  katpodr.nrec                    == saldmounk09.KODSPO
+        and  0064000000000002h               == saldmounk09.CPLANSSCH (noindex)
+        and  word(2)                         == saldmounk09.viob      (noindex)
+        and  saldmounk09.KAUOS[3]            == katmck09.nrec
+        and  saldmounk09.KAUOS[2]            == katmolk09.nrec
+        and  saldmounk09.KAUOS[5]            == personsk09.nrec
+
+        and  data_n                          == saldmound08.datesal
+        and  'T10'                           == saldmound08.SCHETO
+        and  '08'                            == saldmound08.SUBOSSCH
+        and  katpodr.nrec                    == saldmound08.KODSPO
+        and  0064000000000002h               == saldmound08.CPLANSSCH (noindex)
+        and  word(1)                         == saldmound08.viob      (noindex)
+        and  saldmound08.KAUOS[3]            == katmcd08.nrec
+        and  saldmound08.KAUOS[2]            == katmold08.nrec
+        and  saldmound08.KAUOS[5]            == personsd08.nrec
+
+        and  data_n                          == saldmounk08.datesal
+        and  'T10'                           == saldmounk08.SCHETO
+        and  '08'                            == saldmounk08.SUBOSSCH
+        and  katpodr.nrec                    == saldmounk08.KODSPO
+        and  0064000000000002h               == saldmounk08.CPLANSSCH (noindex)
+        and  word(2)                         == saldmounk08.viob      (noindex)
+        and  saldmounk08.KAUOS[3]            == katmck08.nrec
+        and  saldmounk08.KAUOS[2]            == katmolk08.nrec
+        and  saldmounk08.KAUOS[5]            == personsk08.nrec
+
+        and  data_n                          == saldmound13.datesal
+        and  'T013'                          == saldmound13.SCHETO
+        and  ''                              == saldmound13.SUBOSSCH
+        and  katpodr.nrec                    == saldmound13.KODSPO
+        and  0064000000000002h               == saldmound13.CPLANSSCH (noindex)
+        and  word(1)                         == saldmound13.viob      (noindex)
+        and  saldmound13.KAUOS[2]            == katmcd13.nrec
+        and  saldmound13.KAUOS[1]            == katmold13.nrec
+        and  saldmound13.KAUOS[3]            == personsd13.nrec
+
+        and  data_n                          == saldmounk13.datesal
+        and  'T013'                          == saldmounk13.SCHETO
+        and  ''                              == saldmounk13.SUBOSSCH
+        and  katpodr.nrec                    == saldmounk13.KODSPO
+        and  0064000000000002h               == saldmounk13.CPLANSSCH (noindex)
+        and  word(2)                         == saldmounk13.viob      (noindex)
+        and  saldmounk13.KAUOS[2]            == katmck13.nrec
+        and  saldmounk13.KAUOS[1]            == katmolk13.nrec
+        and  saldmounk13.KAUOS[3]            == personsk13.nrec
+
+
+      ))
+;
+
+
+.Create view t4
+  as select katpodr.nrec
+  from sporder,
+       katpodr,
+       sklorder,
+       katmol,
+       katmc
+ where
+  ((
+        word(11)          ==  Pick.wlist
+    and pick.crec         ==  katpodr.nrec
+    and	word(0)           ==  sklorder.SP
+    and katpodr.nrec      ==  sklorder.CPODR
+    and dfor             >>=  sklorder.dord
+    and sklorder.nrec     ==  sporder.csklorder
+    and sporder.ccmol     ==  katmol.nrec
+    and sporder.cmc       ==  katmc.nrec
+  ))
+    and katmc.ctype = 0064000000000009h
+;
+
+.fields
+.endfields
+.begin
+
+   data_n:=date(01,01,2009);
+
+   if RunDialog('Get_par',vid) <> cmCancel
+    {
+      if vid = word(0)
+       {
+        data_n:=dGetTune('DAT_M_OT');
+        if data_n > dfor data_n:=date(01,month(dfor),year(dfor));
+       }
+      if vid = word(1)
+       {
+        data_n:=date(01,month(dfor),year(dfor));
+       }
+      if vid = word(2)
+       {
+        data_n:=date(01,01,year(dfor));
+       }
+      if vid = word(3)
+       {
+        data_n:=date(01,01,2009);
+       }
+    }
+
+
+T_temp := TblInitNew(1,1);
+N1     := TblNewField(T_temp, ftString); //счет
+N14    := TblNewField(T_temp, ftString); //субсчет
+N9     := TblNewField(T_temp, ftComp);   //Нрек подразделения
+N10    := TblNewField(T_temp, ftComp);   //Нрек МОЛ
+N15    := TblNewField(T_temp, ftComp);   //Нрек работника
+N12    := TblNewField(T_temp, ftComp);   //Нрек МЦ
+TblEndKey(T_temp);
+N5     := TblNewField(T_temp, ftString); //Табельный номер
+N6     := TblNewField(T_temp, ftString); //ФИО работника
+N2     := TblNewField(T_temp, ftString); //подразделение
+N3     := TblNewField(T_temp, ftString); //код МОЛ
+N7     := TblNewField(T_temp, ftString); //Номенклатурный номер
+N4     := TblNewField(T_temp, ftString); //ФИО МОЛ
+N8     := TblNewField(T_temp, ftString); //Наименование МЦ
+N13    := TblNewField(T_temp, ftDouble); //Количество
+N16    := TblNewField(T_temp, ftDouble); //Остаточная стоимость
+TblSetDuplicate(T_temp,False);
+TblClearBuffer(T_temp);
+
+T_tempb:= TblInitNew(1,1);
+B1     := TblNewField(T_tempb, ftString); //счет
+B14    := TblNewField(T_tempb, ftString); //субсчет
+B9     := TblNewField(T_tempb, ftComp);   //Нрек подразделения
+B10    := TblNewField(T_tempb, ftComp);   //Нрек МОЛ
+B15    := TblNewField(T_tempb, ftComp);   //Нрек работника
+B12    := TblNewField(T_tempb, ftComp);   //Нрек МЦ
+TblEndKey(T_tempb);
+B5     := TblNewField(T_tempb, ftString);  //Табельный номер
+B6     := TblNewField(T_tempb, ftString);  //ФИО работника
+B2     := TblNewField(T_tempb, ftString); //подразделение
+B3     := TblNewField(T_tempb, ftString); //код МОЛ
+B7     := TblNewField(T_tempb, ftString); //Номенклатурный номер
+B4     := TblNewField(T_tempb, ftString); //ФИО МОЛ
+B8     := TblNewField(T_tempb, ftString); //Наименование МЦ
+B13    := TblNewField(T_tempb, ftDouble); //Количество
+B16    := TblNewField(T_tempb, ftDouble); //Остаточная стоимость
+TblSetDuplicate(T_tempb,False);
+TblClearBuffer(T_tempb);
+
+
+FBasName :=GetStringParameter('Files','TmpFilesDirectory',0)+'sfo_nalich';
+fmacros := GetStringParameter('Files','TmpFilesDirectory',0)+'macros.bas';
+DeleteFile(FBasName);
+xlCreateExcel(FBasName,true);
+xlSetActiveWorkBookByName('sfo_nalich');
+   xlGetSheetsCount(xx);
+   while xx > 1
+    do
+     {
+       xlSetActiveSheet(xx);
+       xlDeleteSheet(xx);
+       xlGetSheetsCount(xx);
+     }
+   xlSetSheetName(1,'Отчет');
+   xlSetActiveSheet(1);
+   pos_x:=1;
+   xlSetCellStringValue(CommonFormHeader, pos_x, 1, pos_x, 1);
+   xlSetFontSize(8, pos_x, 1, pos_x, 14);
+   xlMergeCells( pos_x, 1, pos_x, 14);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('Отчет о расхождениях оперативного и бухгалтерского сальдо спецодежды', pos_x, 1, pos_x, 1);
+   xlSetFontSize(14, pos_x, 1, pos_x, 14);
+   xlMergeCells( pos_x, 1, pos_x, 14);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 14);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 14);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue('на '+dfor, pos_x, 1, pos_x, 1);
+   xlSetFontSize(12, pos_x, 1, pos_x, 14);
+   xlSetFontStyle( 1, pos_x, 1, pos_x,14);
+   xlMergeCells( pos_x, 1, pos_x, 14);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 14);
+   pos_x:=pos_x+2;
+
+   xlSetCellStringValue('Счет                     ', pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Подразделение            ', pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Код МОЛ                  ', pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('ФИО МОЛ                  ', pos_x, 4, pos_x, 4);
+   xlSetCellStringValue('Табельный номер          ', pos_x, 5, pos_x, 5);
+   xlSetCellStringValue('ФИО работника            ', pos_x, 6, pos_x, 6);
+   xlSetCellStringValue('Код МЦ                   ', pos_x, 7, pos_x, 7);
+   xlSetCellStringValue('Наименование МЦ          ', pos_x, 8, pos_x, 8);
+   xlSetCellStringValue('Кол-во по ОУ             ', pos_x, 9, pos_x, 9);
+   xlSetCellStringValue('Сумма по ОУ              ', pos_x,10, pos_x,10);
+   xlSetCellStringValue('Кол-во по БУ             ', pos_x,11, pos_x,11);
+   xlSetCellStringValue('Сумма по БУ              ', pos_x,12, pos_x,12);
+   xlSetCellStringValue('Расхожд. в кол-ве        ', pos_x,13, pos_x,13);
+   xlSetCellStringValue('Расхожд. в сумме         ', pos_x,14, pos_x,14);
+
+   xlSetFontSize(8  , pos_x, 1, pos_x, 14);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 14);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 14);
+
+   xlSetColumnWidth( 5,  pos_x, 1, pos_x, 1);
+   xlSetColumnWidth(15,  pos_x, 2, pos_x, 2);
+   xlSetColumnWidth( 8,  pos_x, 3, pos_x, 3);
+   xlSetColumnWidth(12,  pos_x, 4, pos_x, 4);
+   xlSetColumnWidth(10,  pos_x, 5, pos_x, 5);
+   xlSetColumnWidth(12,  pos_x, 6, pos_x, 6);
+   xlSetColumnWidth( 8,  pos_x, 7, pos_x, 7);
+   xlSetColumnWidth(12,  pos_x, 8, pos_x, 8);
+   xlSetColumnWidth( 8,  pos_x, 9, pos_x, 9);
+   xlSetColumnWidth(10,  pos_x,10, pos_x,10);
+   xlSetColumnWidth( 8,  pos_x,11, pos_x,11);
+   xlSetColumnWidth(10,  pos_x,12, pos_x,12);
+   xlSetColumnWidth( 8,  pos_x,13, pos_x,13);
+   xlSetColumnWidth( 8,  pos_x,14, pos_x,14);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+   xlFrameCells(15,2,7,0,pos_x,10, pos_x,10);
+   xlFrameCells(15,2,7,0,pos_x,11, pos_x,11);
+   xlFrameCells(15,2,7,0,pos_x,12, pos_x,12);
+   xlFrameCells(15,2,7,0,pos_x,13, pos_x,13);
+   xlFrameCells(15,2,7,0,pos_x,14, pos_x,14);
+
+   xlWrapText(pos_x, 1, pos_x, 14);
+   pos_x:=pos_x+1;
+   pos:=pos_x;
+
+end.
+.{CheckEnter CIRFILT
+.}
+.{CheckEnter CIRCOM
+.[H
+.]H
+.{CheckEnter CIRGRP
+.}
+.{CheckEnter CIROPER
+.begin
+schet:='';
+subschet:='';
+sr_n:=0;
+
+if t1.getfirst mbpin = tsok
+ {
+
+   if t1.mbpin.INEKSPL = 0
+     {
+
+       schet    := '10';
+       subschet := '08';
+
+        if t1.getfirst mbpout = tsok
+        if t1.getfirst perssfo = tsok
+         {
+        if t1.getfirst mbpin1 = tsok
+         {
+
+          if (t1.mbpin1.DATEEKSP<>date(0,0,0) and t1.mbpin1.DATEEND<>date(0,0,0))
+           {
+            sr_n:=Months_Between(t1.mbpin1.DATEEKSP,t1.mbpin1.DATEEND);
+           }
+          else
+             {
+             sr_n:=0;
+             }
+
+
+          if sr_n <= 12
+           {
+             schet    := '013';
+             subschet := '';
+
+           }
+            else
+           {
+             schet    := '10';
+             subschet := '08';
+           }
+
+           if t1.getfirst attrnam1 = tsok
+            {
+           if t1.getfirst attrval1 = tsok
+            {
+           if t1.getfirst spkau1 = tsok
+            {
+
+            if t1.spkau1.code = '001'
+             {
+             schet    := '10';
+             subschet := '08';
+             }
+             else
+                {
+                 schet    := '013';
+                 subschet := '';
+                }
+            }
+            }
+            }
+
+          }
+          }
+
+            if t1.getfirst attrnam = tsok
+             {
+            if t1.getfirst attrval = tsok
+             {
+            if t1.getfirst spkau = tsok
+             {
+             if t1.spkau.code = '002'
+              {
+               schet    := '013';
+               subschet := '';
+              }
+             }
+             }
+             }
+
+     }
+     else
+        {
+
+
+           if (t1.mbpin.DATEEKSP<>date(0,0,0) and t1.mbpin.DATEEND<>date(0,0,0))
+            {
+             sr_n:=Months_Between(t1.mbpin.DATEEKSP,t1.mbpin.DATEEND);
+            }
+           else
+              {
+              sr_n:=0;
+              }
+
+
+         if sr_n <= 12
+          {
+             schet    := '013';
+             subschet := '';
+          }
+          else
+             {
+              schet    := '10';
+              subschet := '09';
+             }
+         if t1.getfirst attrnam = tsok
+          {
+         if t1.getfirst attrval = tsok
+          {
+         if t1.getfirst spkau = tsok
+          {
+          if t1.spkau.code = '001'
+           {
+              schet    := '10';
+              subschet := '09';
+           }
+           else
+              {
+               schet    := '013';
+               subschet := '';
+              }
+          }
+          }
+          }
+
+         }
+  }
+
+if schet = '' {schet:='Не определен счет';}
+
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1, schet);
+
+  TblSfString (T_temp, N14, subschet);
+
+  if t1.getfirst katpodr = tsok
+   {
+     TblSfString (T_temp, N2, t1.katpodr.kod);
+     TblSfComp (T_temp, N9, t1.katpodr.nrec);
+   }
+  if t1.getfirst katmol = tsok
+   {
+    TblSfString (T_temp, N3, t1.katmol.kod);
+    TblSfString (T_temp, N4, t1.katmol.name);
+    TblSfComp (T_temp, N10, t1.katmol.nrec);
+   }
+
+  if t1.getfirst katmbp = tsok
+  {
+    TblSfString (T_temp, N7, t1.katmbp.nnumber);
+    TblSfString (T_temp, N8, t1.katmbp.name);
+   if t1.getfirst katmc = tsok
+    {
+     TblSfComp (T_temp, N12, t1.katmc.nrec);
+    }
+  }
+
+  if t1.getfirst perscard = tsok
+  if t1.getfirst lschet = tsok
+  if t1.getfirst persons = tsok
+  {
+    TblSfString (T_temp, N5, t1.persons.STRTABN);
+    TblSfString (T_temp, N6, t1.persons.FIO);
+    TblSfComp   (T_temp, N15, t1.persons.nrec);
+  }
+  else
+   {
+    TblSfString (T_temp, N5, '');
+    TblSfString (T_temp, N6, '');
+    TblSfComp   (T_temp, N15, 0);
+   }
+    if  TblGetEqual(T_temp)
+   {
+
+
+    TblSfDouble (T_temp, N13,TblGfDouble(T_temp,N13)+Kol);
+    TblSfDouble (T_temp, N16,TblGfDouble(T_temp,N16)+Stoim-Sumizn);
+    TblUpDateCurrent(T_temp);
+   }
+    else
+     {
+
+      TblSfDouble (T_temp, N13,Kol   );
+      TblSfDouble (T_temp, N16,Stoim-Sumizn);
+      TblInsertCurrent(T_temp);
+     }
+
+end.
+.}
+.{CheckEnter CIRITOG
+.}
+.}
+.begin
+StartNewVisual(vtRotateVisual, vfTimer, 'Анализ оперативных данных',0);
+
+
+
+t4._loop pick
+{
+   t4._loop katpodr
+    {
+   t4._loop sklorder
+    {
+
+   t4._loop sporder
+    {
+
+   NextVisual();
+   SetVisualTitle(t4.katmc.barkod+'-'+t4.sporder.nrec);
+
+  sum_ord:=0;
+  sum_kol:=0;
+
+
+  if t4.sporder.VIDORDER = 0
+   {
+    sum_kol:=t4.sporder.kol
+
+   if sum_kol=0
+    {
+    sum_ord:= t4.sporder.RSRPRICE;
+    }
+    else
+     {
+      sum_ord:=t4.sporder.kol*t4.sporder.RSRPRICE;
+      }
+
+   }
+   else
+    {
+     sum_kol:=(-1)*t4.sporder.kol
+    if abs(sum_kol)=0
+     {
+     sum_ord:=(-1)*t4.sporder.RSRPRICE;
+     }
+     else
+      {
+       sum_ord:=(-1)*t4.sporder.kol*t4.sporder.RSRPRICE;
+      }
+    }
+
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1, '10');
+
+  TblSfString (T_temp, N14, '08');
+
+  TblSfString (T_temp, N2, t4.katpodr.kod);
+  TblSfComp   (T_temp, N9, t4.katpodr.nrec);
+
+  if t4.getfirst katmol = tsok
+  {
+  TblSfString (T_temp, N3, t4.katmol.kod);
+  TblSfString (T_temp, N4, t4.katmol.name);
+  TblSfComp   (T_temp, N10,t4.katmol.nrec);
+  }
+
+  TblSfComp   (T_temp, N15,  0);
+
+  if t4.getfirst katmc = tsok
+  {
+  TblSfString (T_temp, N7 , t4.katmc.barkod);
+  TblSfString (T_temp, N8 , t4.katmc.name);
+  TblSfComp   (T_temp, N12, t4.katmc.nrec);
+  }
+
+    if  TblGetEqual(T_temp)
+   {
+    TblSfDouble (T_temp, N13,TblGfDouble(T_temp,N13)+sum_Kol);
+    TblSfDouble (T_temp, N16,TblGfDouble(T_temp,N16)+sum_ord);
+    TblUpDateCurrent(T_temp);
+   }
+    else
+     {
+      TblSfString (T_temp, N5 , '');
+      TblSfString (T_temp, N6 , '');
+      TblSfDouble (T_temp, N13,sum_Kol );
+      TblSfDouble (T_temp, N16,sum_ord );
+      TblInsertCurrent(T_temp);
+     }
+  }
+  }
+  }
+}
+
+
+end.
+.{while (x<=(TblRecords(T_temp)-1))
+.begin
+if (TblGetIndex(T_temp,x))
+ {
+  NextVisual();
+  SetVisualTitle('Идет анализ '+TblGfString(T_temp,N7)+' '+x);
+
+  sumkk:=0;
+  sumks:=0;
+  sumdk:=0;
+  sumds:=0;
+  sumk_ou:=0;
+  sum_ou :=0;
+  sumk_bu:=0;
+  sum_bu :=0;
+  sch       :='';
+  subsch    :='';
+  nrec_podr :=0;
+  nrec_mol  :=0;
+  nrec_mc   :=0;
+  nrec_rab  :=0;
+
+
+  sumk_ou   := TblGfDouble(T_temp,N13);
+  sum_ou    := TblGfDouble(T_temp,N16);
+  sch       := TblGfString(T_temp,N1);
+  subsch    := TblGfString(T_temp,N14);
+  nrec_podr := TblGfComp(T_temp,N9);
+  nrec_mol  := TblGfComp(T_temp,N10);
+  nrec_mc   := TblGfComp(T_temp,N12);
+  nrec_rab  := TblGfComp(T_temp,N15);
+
+
+   if sch = '10'
+    {
+    if data_n<>date(01,01,2009)
+     {
+
+      t1._loop saldmound
+       {
+
+        sumdk:=sumdk+t1.saldmound.kol;
+        sumds:=sumds+t1.saldmound.sums;
+       }
+      t1._loop saldmounk
+       {
+
+        sumkk:=sumkk+t1.saldmounk.kol;
+        sumks:=sumks+t1.saldmounk.sums;
+       }
+
+
+     }
+      t1._loop oborotd
+       {
+
+
+        sumdk:=sumdk+t1.oborotd.kol;
+        sumds:=sumds+t1.oborotd.sumob;
+       }
+      t1._loop oborotk
+       {
+
+
+        sumkk:=sumkk+t1.oborotk.kol;
+        sumks:=sumks+t1.oborotk.sumob;
+       }
+
+
+    }
+     else
+        {
+
+        if data_n<>date(01,01,2009)
+         {
+
+          t1._loop saldmounzd
+           {
+            sumdk:=sumdk+t1.saldmounzd.kol;
+            sumds:=sumds+t1.saldmounzd.sums;
+           }
+          t1._loop saldmounzk
+           {
+            sumkk:=sumkk+t1.saldmounzk.kol;
+            sumks:=sumks+t1.saldmounzk.sums;
+           }
+         }
+
+          t1._loop oborotzd
+           {
+            sumdk:=sumdk+t1.oborotzd.kol;
+            sumds:=sumds+t1.oborotzd.sumob;
+           }
+          t1._loop oborotzk
+           {
+            sumkk:=sumkk+t1.oborotzk.kol;
+            sumks:=sumks+t1.oborotzk.sumob;
+           }
+        }
+
+
+
+        sumk_bu:=sumdk-sumkk;
+        sum_bu :=sumds-sumks;
+
+
+ if  (round(sumk_ou-sumk_bu,2)<>0 or round(sum_ou-sum_bu,2)<>0)
+
+  {
+
+  if (TblGfString(T_temp,N14)='08')
+  {
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N1)+TblGfString(T_temp,N14),  pos_x, 1, pos_x, 1);
+  }
+  else
+  {
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N1)+TblGfString(T_temp,N14),  pos_x, 1, pos_x, 1);
+  }
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N2),    pos_x, 2, pos_x, 2);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N3),    pos_x, 3, pos_x, 3);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N4),    pos_x, 4, pos_x, 4);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N5),    pos_x, 5, pos_x, 5);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N6),    pos_x, 6, pos_x, 6);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N7),    pos_x, 7, pos_x, 7);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N8),    pos_x, 8, pos_x, 8);
+  xlSetCellStringValue(TblGfDouble(T_temp,N13), pos_x, 9, pos_x, 9);
+  xlSetCellStringValue(TblGfDouble(T_temp,N16), pos_x,10, pos_x,10);
+  xlSetCellStringValue(round(sumk_bu,2), pos_x,11, pos_x,11);
+  xlSetCellStringValue(round(sum_bu,2), pos_x,12, pos_x,12);
+  xlSetCellStringValue(round(sumk_ou-sumk_bu,2), pos_x,13, pos_x,13);
+  xlSetCellStringValue(round(sum_ou-sum_bu,2), pos_x,14, pos_x,14);
+  xlWrapText(pos_x, 1, pos_x, 14);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  8);
+  xlAlignCellsEx( 4, 2, pos_x, 9, pos_x, 14);
+  xlSetFontSize(8, pos_x, 1, pos_x, 14);
+
+  xlFrameCells(8,2,7,0,pos_x, 1, pos_x, 14);
+  xlFrameCells(3,2,7,0,pos_x, 1, pos_x, 1);
+  xlFrameCells(3,2,7,0,pos_x, 2, pos_x, 2);
+  xlFrameCells(3,2,7,0,pos_x, 3, pos_x, 3);
+  xlFrameCells(3,2,7,0,pos_x, 4, pos_x, 4);
+  xlFrameCells(3,2,7,0,pos_x, 5, pos_x, 5);
+  xlFrameCells(3,2,7,0,pos_x, 6, pos_x, 6);
+  xlFrameCells(3,2,7,0,pos_x, 7, pos_x, 7);
+  xlFrameCells(3,2,7,0,pos_x, 8, pos_x, 8);
+  xlFrameCells(3,2,7,0,pos_x, 9, pos_x, 9);
+  xlFrameCells(3,2,7,0,pos_x,10, pos_x,10);
+  xlFrameCells(3,2,7,0,pos_x,11, pos_x,11);
+  xlFrameCells(3,2,7,0,pos_x,12, pos_x,12);
+  xlFrameCells(3,2,7,0,pos_x,13, pos_x,13);
+  xlFrameCells(3,2,7,0,pos_x,14, pos_x,14);
+
+  pos_x:=pos_x+1;
+
+  }
+
+  ssumk_ou := ssumk_ou + sumk_ou ;
+  ssum_ou  := ssum_ou  + sum_ou  ;
+  ssumk_bu := ssumk_bu + sumk_bu ;
+  ssum_bu  := ssum_bu  + sum_bu  ;
+
+  x:=x+1;
+ }
+end.
+.}
+.begin
+stopvisual('Выгрузка закончена...',0);
+StartNewVisual(vtRotateVisual, vfTimer, 'Проверка бухгалтерских данных',0);
+
+if data_n<>date(01,01,2009)
+{
+t3._loop pick
+{
+!--------09-----------------
+  t3._loop saldmound09
+  {
+  NextVisual();
+  SetVisualTitle(t3.saldmound09.datesal+'-'+t3.saldmound09.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t3.saldmound09.DBSCHETO);
+  TblSfString (T_temp, N14, t3.saldmound09.SUBOSSCH);
+  TblSfComp   (T_temp, N9,  t3.saldmound09.KODSPO);
+  TblSfComp   (T_temp, N10, t3.saldmound09.KAUOS[2]);
+  TblSfComp   (T_temp, N15, t3.saldmound09.KAUOS[5]);
+  TblSfComp   (T_temp, N12, t3.saldmound09.KAUOS[3]);
+
+
+
+ if  TblGetEqual(T_temp)
+  {}
+  else
+   {
+     TblClearBuffer(T_tempb);
+
+     TblSfString (T_tempb, B1, t3.saldmound09.DBSCHETO);
+     TblSfString (T_tempb, B14,t3.saldmound09.SUBOSSCH);
+     TblSfString (T_tempb, B2, t3.katpodr.kod);
+     TblSfComp   (T_tempb, B9, t3.katpodr.nrec);
+
+  if t3.getfirst katmold09 = tsok
+   {
+    TblSfString (T_tempb, B3,  t3.katmold09.kod);
+    TblSfString (T_tempb, B4,  t3.katmold09.name);
+    TblSfComp   (T_tempb, B10, t3.katmold09.nrec);
+   }
+
+  if t3.getfirst katmcd09 = tsok
+  {
+    TblSfString (T_tempb, B7,  t3.katmcd09.barkod);
+    TblSfString (T_tempb, B8,  t3.katmcd09.name);
+    TblSfComp   (T_tempb, B12, t3.katmcd09.nrec);
+  }
+
+  if t3.getfirst personsd09 = tsok
+  {
+    TblSfString (T_tempb, B5 , t3.personsd09.STRTABN);
+    TblSfString (T_tempb, B6 , t3.personsd09.FIO);
+    TblSfComp   (T_tempb, B15, t3.personsd09.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)+t3.saldmound09.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)+t3.saldmound09.sums);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+
+      TblSfDouble (T_tempb, B13,t3.saldmound09.Kol);
+      TblSfDouble (T_tempb, B16,t3.saldmound09.sums);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+
+  t3._loop saldmounk09
+  {
+  NextVisual();
+  SetVisualTitle(t3.saldmounk09.datesal+'-'+t3.saldmounk09.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t3.saldmounk09.DBSCHETO);
+  TblSfString (T_temp, N14, t3.saldmounk09.SUBOSSCH);
+  TblSfComp   (T_temp, N9,  t3.saldmounk09.KODSPO);
+  TblSfComp   (T_temp, N10, t3.saldmounk09.KAUOS[2]);
+  TblSfComp   (T_temp, N15, t3.saldmounk09.KAUOS[5]);
+  TblSfComp   (T_temp, N12, t3.saldmounk09.KAUOS[3]);
+
+ if  TblGetEqual(T_temp)
+  {}
+  else
+   {
+     TblClearBuffer(T_tempb);
+
+     TblSfString (T_tempb, B1, t3.saldmounk09.DBSCHETO);
+     TblSfString (T_tempb, B14,t3.saldmounk09.SUBOSSCH);
+     TblSfString (T_tempb, B2, t3.katpodr.kod);
+     TblSfComp   (T_tempb, B9, t3.katpodr.nrec);
+
+  if t3.getfirst katmolk09 = tsok
+   {
+    TblSfString (T_tempb, B3, t3.katmolk09.kod);
+    TblSfString (T_tempb, B4, t3.katmolk09.name);
+    TblSfComp   (T_tempb, B10, t3.katmolk09.nrec);
+   }
+
+  if t3.getfirst katmck09 = tsok
+  {
+    TblSfString (T_tempb, B7, t3.katmck09.barkod);
+    TblSfString (T_tempb, B8, t3.katmck09.name);
+    TblSfComp (T_tempb, B12, t3.katmck09.nrec);
+  }
+
+  if t3.getfirst personsk09 = tsok
+  {
+    TblSfString (T_tempb, B5 , t3.personsk09.STRTABN);
+    TblSfString (T_tempb, B6 , t3.personsk09.FIO);
+    TblSfComp   (T_tempb, B15, t3.personsk09.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)-t3.saldmounk09.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)-t3.saldmounk09.sums);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,(-1)*t3.saldmounk09.Kol);
+      TblSfDouble (T_tempb, B16,(-1)*t3.saldmounk09.sums);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+
+
+!--------08-----------------
+  t3._loop saldmound08
+  {
+  NextVisual();
+  SetVisualTitle(t3.saldmound08.datesal+'-'+t3.saldmound08.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t3.saldmound08.DBSCHETO);
+  TblSfString (T_temp, N14, t3.saldmound08.SUBOSSCH);
+  TblSfComp   (T_temp, N9,  t3.saldmound08.KODSPO);
+  TblSfComp   (T_temp, N10, t3.saldmound08.KAUOS[2]);
+  TblSfComp   (T_temp, N15, t3.saldmound08.KAUOS[5]);
+  TblSfComp   (T_temp, N12, t3.saldmound08.KAUOS[3]);
+
+ if  TblGetEqual(T_temp)
+  {}
+  else
+   {
+     TblClearBuffer(T_tempb);
+
+     TblSfString (T_tempb, B1, t3.saldmound08.DBSCHETO);
+     TblSfString (T_tempb, B14,t3.saldmound08.SUBOSSCH);
+     TblSfString (T_tempb, B2, t3.katpodr.kod);
+     TblSfComp   (T_tempb, B9, t3.katpodr.nrec);
+
+  if t3.getfirst katmold08 = tsok
+   {
+    TblSfString (T_tempb, B3, t3.katmold08.kod);
+    TblSfString (T_tempb, B4, t3.katmold08.name);
+    TblSfComp   (T_tempb, B10, t3.katmold08.nrec);
+   }
+
+  if t3.getfirst katmcd08 = tsok
+  {
+    TblSfString (T_tempb, B7, t3.katmcd08.barkod);
+    TblSfString (T_tempb, B8, t3.katmcd08.name);
+    TblSfComp (T_tempb, B12, t3.katmcd08.nrec);
+  }
+
+  if t3.getfirst personsd08 = tsok
+  {
+    TblSfString (T_tempb, B5 , t3.personsd08.STRTABN);
+    TblSfString (T_tempb, B6 , t3.personsd08.FIO);
+    TblSfComp   (T_tempb, B15, t3.personsd08.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)+t3.saldmound08.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)+t3.saldmound08.sums);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,t3.saldmound08.Kol);
+      TblSfDouble (T_tempb, B16,t3.saldmound08.sums);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+
+  t3._loop saldmounk08
+  {
+  NextVisual();
+  SetVisualTitle(t3.saldmounk08.datesal+'-'+t3.saldmounk08.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t3.saldmounk08.DBSCHETO);
+  TblSfString (T_temp, N14, t3.saldmounk08.SUBOSSCH);
+  TblSfComp   (T_temp, N9,  t3.saldmounk08.KODSPO);
+  TblSfComp   (T_temp, N10, t3.saldmounk08.KAUOS[2]);
+  TblSfComp   (T_temp, N15, t3.saldmounk08.KAUOS[5]);
+  TblSfComp   (T_temp, N12, t3.saldmounk08.KAUOS[3]);
+
+ if  TblGetEqual(T_temp)
+  {}
+  else
+   {
+     TblClearBuffer(T_tempb);
+
+     TblSfString (T_tempb, B1, t3.saldmounk08.DBSCHETO);
+     TblSfString (T_tempb, B14,t3.saldmounk08.SUBOSSCH);
+     TblSfString (T_tempb, B2, t3.katpodr.kod);
+     TblSfComp   (T_tempb, B9, t3.katpodr.nrec);
+
+  if t3.getfirst katmolk08 = tsok
+   {
+    TblSfString (T_tempb, B3, t3.katmolk08.kod);
+    TblSfString (T_tempb, B4, t3.katmolk08.name);
+    TblSfComp   (T_tempb, B10, t3.katmolk08.nrec);
+   }
+
+  if t3.getfirst katmck08 = tsok
+  {
+    TblSfString (T_tempb, B7, t3.katmck08.barkod);
+    TblSfString (T_tempb, B8, t3.katmck08.name);
+    TblSfComp (T_tempb, B12, t3.katmck08.nrec);
+  }
+
+  if t3.getfirst personsk08 = tsok
+  {
+    TblSfString (T_tempb, B5 , t3.personsk08.STRTABN);
+    TblSfString (T_tempb, B6 , t3.personsk08.FIO);
+    TblSfComp   (T_tempb, B15, t3.personsk08.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)-t3.saldmounk08.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)-t3.saldmounk08.sums);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,(-1)*t3.saldmounk08.Kol);
+      TblSfDouble (T_tempb, B16,(-1)*t3.saldmounk08.sums);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+
+!--------13-----------------
+  t3._loop saldmound13
+  {
+  NextVisual();
+  SetVisualTitle(t3.saldmound13.datesal+'-'+t3.saldmound13.nrec);
+
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t3.saldmound13.DBSCHETO);
+  TblSfString (T_temp, N14, '');
+  TblSfComp   (T_temp, N9,  t3.saldmound13.KODSPO);
+  TblSfComp   (T_temp, N10, t3.saldmound13.KAUOS[1]);
+  TblSfComp   (T_temp, N15, t3.saldmound13.KAUOS[3]);
+  TblSfComp   (T_temp, N12, t3.saldmound13.KAUOS[2]);
+
+ if  TblGetEqual(T_temp)
+  {}
+  else
+   {
+     TblClearBuffer(T_tempb);
+
+     TblSfString (T_tempb, B1, t3.saldmound13.DBSCHETO);
+     TblSfString (T_tempb, B14,t3.saldmound13.SUBOSSCH);
+     TblSfString (T_tempb, B2, t3.katpodr.kod);
+     TblSfComp   (T_tempb, B9, t3.katpodr.nrec);
+
+  if t3.getfirst katmold13 = tsok
+   {
+    TblSfString (T_tempb, B3, t3.katmold13.kod);
+    TblSfString (T_tempb, B4, t3.katmold13.name);
+    TblSfComp   (T_tempb, B10, t3.katmold13.nrec);
+   }
+
+  if t3.getfirst katmcd13 = tsok
+  {
+    TblSfString (T_tempb, B7, t3.katmcd13.barkod);
+    TblSfString (T_tempb, B8, t3.katmcd13.name);
+    TblSfComp (T_tempb, B12, t3.katmcd13.nrec);
+  }
+
+  if t3.getfirst personsd13 = tsok
+  {
+    TblSfString (T_tempb, B5 , t3.personsd13.STRTABN);
+    TblSfString (T_tempb, B6 , t3.personsd13.FIO);
+    TblSfComp   (T_tempb, B15, t3.personsd13.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)+t3.saldmound13.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)+t3.saldmound13.sums);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,t3.saldmound13.Kol);
+      TblSfDouble (T_tempb, B16,t3.saldmound13.sums);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+
+  t3._loop saldmounk13
+  {
+  NextVisual();
+  SetVisualTitle(t3.saldmounk13.datesal+'-'+t3.saldmounk13.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t3.saldmounk13.DBSCHETO);
+  TblSfString (T_temp, N14, '');
+  TblSfComp   (T_temp, N9,  t3.saldmounk13.KODSPO);
+  TblSfComp   (T_temp, N10, t3.saldmounk13.KAUOS[1]);
+  TblSfComp   (T_temp, N15, t3.saldmounk13.KAUOS[3]);
+  TblSfComp   (T_temp, N12, t3.saldmounk13.KAUOS[2]);
+
+ if  TblGetEqual(T_temp)
+  {}
+  else
+   {
+     TblClearBuffer(T_tempb);
+
+     TblSfString (T_tempb, B1, t3.saldmounk13.DBSCHETO);
+     TblSfString (T_tempb, B14,t3.saldmounk13.SUBOSSCH);
+     TblSfString (T_tempb, B2, t3.katpodr.kod);
+     TblSfComp   (T_tempb, B9, t3.katpodr.nrec);
+
+  if t3.getfirst katmolk13 = tsok
+   {
+    TblSfString (T_tempb, B3, t3.katmolk13.kod);
+    TblSfString (T_tempb, B4, t3.katmolk13.name);
+    TblSfComp   (T_tempb, B10, t3.katmolk13.nrec);
+   }
+
+  if t3.getfirst katmck13 = tsok
+  {
+    TblSfString (T_tempb, B7, t3.katmck13.barkod);
+    TblSfString (T_tempb, B8, t3.katmck13.name);
+    TblSfComp (T_tempb, B12, t3.katmck13.nrec);
+  }
+
+  if t3.getfirst personsk13 = tsok
+  {
+    TblSfString (T_tempb, B5 , t3.personsk13.STRTABN);
+    TblSfString (T_tempb, B6 , t3.personsk13.FIO);
+    TblSfComp   (T_tempb, B15, t3.personsk13.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)-t3.saldmounk13.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)-t3.saldmounk13.sums);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,(-1)*t3.saldmounk13.Kol);
+      TblSfDouble (T_tempb, B16,(-1)*t3.saldmounk13.sums);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+
+!--------------------------------
+}
+}
+
+t2._loop pick
+{
+!--------09-----------------
+  t2._loop oborotd09
+  {
+  NextVisual();
+  SetVisualTitle(t2.oborotd09.datob+'-'+t2.oborotd09.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t2.oborotd09.DBSCHETO);
+  TblSfString (T_temp, N14, t2.oborotd09.SUBOSSCH);
+  TblSfComp   (T_temp, N9,  t2.oborotd09.KODSPO);
+  TblSfComp   (T_temp, N10, t2.oborotd09.KAUOS[2]);
+  TblSfComp   (T_temp, N15, t2.oborotd09.KAUOS[5]);
+  TblSfComp   (T_temp, N12, t2.oborotd09.KAUOS[3]);
+
+ if  TblGetEqual(T_temp)
+  {}
+  else
+   {
+     TblClearBuffer(T_tempb);
+
+     TblSfString (T_tempb, B1, t2.oborotd09.DBSCHETO);
+     TblSfString (T_tempb, B14,t2.oborotd09.SUBOSSCH);
+     TblSfString (T_tempb, B2, t2.katpodr.kod);
+     TblSfComp   (T_tempb, B9, t2.katpodr.nrec);
+
+  if t2.getfirst katmold09 = tsok
+   {
+    TblSfString (T_tempb, B3, t2.katmold09.kod);
+    TblSfString (T_tempb, B4, t2.katmold09.name);
+    TblSfComp   (T_tempb, B10, t2.katmold09.nrec);
+   }
+
+  if t2.getfirst katmcd09 = tsok
+  {
+    TblSfString (T_tempb, B7, t2.katmcd09.barkod);
+    TblSfString (T_tempb, B8, t2.katmcd09.name);
+    TblSfComp (T_tempb, B12, t2.katmcd09.nrec);
+  }
+
+  if t2.getfirst personsd09 = tsok
+  {
+    TblSfString (T_tempb, B5 , t2.personsd09.STRTABN);
+    TblSfString (T_tempb, B6 , t2.personsd09.FIO);
+    TblSfComp   (T_tempb, B15, t2.personsd09.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)+t2.oborotd09.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)+t2.oborotd09.sumob);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,t2.oborotd09.Kol);
+      TblSfDouble (T_tempb, B16,t2.oborotd09.sumob);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+!--------------------------------
+  t2._loop oborotk09
+  {
+
+  NextVisual();
+  SetVisualTitle(t2.oborotk09.datob+'-'+t2.oborotk09.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1,  t2.oborotk09.KRSCHETK);
+  TblSfString (T_temp, N14, t2.oborotk09.SUBSCHK);
+  TblSfComp   (T_temp, N9,  t2.oborotk09.KODSPK);
+  TblSfComp   (T_temp, N10, t2.oborotk09.KAUKS[2]);
+  TblSfComp   (T_temp, N15, t2.oborotk09.KAUKS[5]);
+  TblSfComp   (T_temp, N12, t2.oborotk09.KAUKS[3]);
+
+
+if  TblGetEqual(T_temp)
+   {
+   }
+ else
+  {
+
+  TblClearBuffer(T_tempb);
+
+  TblSfString (T_tempb, B1, t2.oborotk09.KRSCHETK);
+  TblSfString (T_tempb, B14, t2.oborotk09.SUBSCHK);
+
+     TblSfString (T_tempb, B2, t2.katpodr.kod);
+     TblSfComp (T_tempb, B9, t2.katpodr.nrec);
+
+  if t2.getfirst katmolk09 = tsok
+   {
+    TblSfString (T_tempb, B3, t2.katmolk09.kod);
+    TblSfString (T_tempb, B4, t2.katmolk09.name);
+    TblSfComp (T_tempb, B10, t2.katmolk09.nrec);
+   }
+
+  if t2.getfirst katmck09 = tsok
+  {
+    TblSfString (T_tempb, B7, t2.katmck09.barkod);
+    TblSfString (T_tempb, B8, t2.katmck09.name);
+    TblSfComp (T_tempb, B12, t2.katmck09.nrec);
+  }
+
+  if t2.getfirst personsk09 = tsok
+  {
+    TblSfString (T_tempb, B5 , t2.personsk09.STRTABN);
+    TblSfString (T_tempb, B6 , t2.personsk09.FIO);
+    TblSfComp   (T_tempb, B15, t2.personsk09.nrec);
+  }
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)-t2.oborotk09.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)-t2.oborotk09.sumob);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,(-1)*t2.oborotk09.Kol);
+      TblSfDouble (T_tempb, B16,(-1)*t2.oborotk09.sumob);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+!----------08----------------------
+  t2._loop oborotd08
+  {
+  NextVisual();
+  SetVisualTitle(t2.oborotd08.datob+'-'+t2.oborotd08.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1, t2.oborotd08.DBSCHETO);
+  TblSfString (T_temp, N14, t2.oborotd08.SUBOSSCH);
+  TblSfComp   (T_temp, N9,  t2.oborotd08.KODSPO);
+  TblSfComp   (T_temp, N10, t2.oborotd08.KAUOS[2]);
+  TblSfComp   (T_temp, N15, comp(0));
+  TblSfComp   (T_temp, N12, t2.oborotd08.KAUOS[3]);
+
+if  TblGetEqual(T_temp)
+   {
+   }
+ else
+  {
+
+  TblClearBuffer(T_tempb);
+
+  TblSfString (T_tempb, B1, t2.oborotd08.DBSCHETO);
+  TblSfString (T_tempb, B14, t2.oborotd08.SUBOSSCH);
+
+     TblSfString (T_tempb, B2, t2.katpodr.kod);
+     TblSfComp (T_tempb, B9, t2.katpodr.nrec);
+
+  if t2.getfirst katmold08 = tsok
+   {
+    TblSfString (T_tempb, B3, t2.katmold08.kod);
+    TblSfString (T_tempb, B4, t2.katmold08.name);
+    TblSfComp (T_tempb, B10, t2.katmold08.nrec);
+   }
+
+  if t2.getfirst katmcd08 = tsok
+  {
+    TblSfString (T_tempb, B7, t2.katmcd08.barkod);
+    TblSfString (T_tempb, B8, t2.katmcd08.name);
+    TblSfComp (T_tempb, B12, t2.katmcd08.nrec);
+  }
+
+    TblSfComp   (T_tempb, B15, comp(0));
+
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)+t2.oborotd08.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)+t2.oborotd08.sumob);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,t2.oborotd08.Kol);
+      TblSfDouble (T_tempb, B16,t2.oborotd08.sumob);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+!--------------------------------
+  t2._loop oborotk08
+  {
+  NextVisual();
+  SetVisualTitle(t2.oborotk08.datob+'-'+t2.oborotk08.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1, t2.oborotk08.KRSCHETK);
+  TblSfString (T_temp, N14, t2.oborotk08.SUBSCHK);
+  TblSfComp   (T_temp, N9,  t2.oborotk08.KODSPK);
+  TblSfComp   (T_temp, N15, comp(0));
+  TblSfComp   (T_temp, N10, t2.oborotk08.KAUkS[2]);
+  TblSfComp   (T_temp, N12, t2.oborotk08.KAUkS[3]);
+
+if  TblGetEqual(T_temp)
+   {
+   }
+ else
+  {
+
+  TblClearBuffer(T_tempb);
+
+  TblSfString (T_tempb, B1, t2.oborotk08.KRSCHETK);
+  TblSfString (T_tempb, B14, t2.oborotk08.SUBSCHK);
+
+     TblSfString (T_tempb, B2, t2.katpodr.kod);
+     TblSfComp (T_tempb, B9, t2.katpodr.nrec);
+
+  if t2.getfirst katmolk08 = tsok
+   {
+    TblSfString (T_tempb, B3, t2.katmolk08.kod);
+    TblSfString (T_tempb, B4, t2.katmolk08.name);
+    TblSfComp (T_tempb, B10, t2.katmolk08.nrec);
+   }
+
+    TblSfComp   (T_tempb, B15, comp(0));
+
+  if t2.getfirst katmck08 = tsok
+  {
+    TblSfString (T_tempb, B7, t2.katmck08.barkod);
+    TblSfString (T_tempb, B8, t2.katmck08.name);
+    TblSfComp (T_tempb, B12, t2.katmck08.nrec);
+  }
+
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)-t2.oborotk08.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)-t2.oborotk08.sumob);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,(-1)*t2.oborotk08.Kol);
+      TblSfDouble (T_tempb, B16,(-1)*t2.oborotk08.sumob);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+!-------013-------------------------
+
+  t2._loop oborotd13
+  {
+  NextVisual();
+  SetVisualTitle(t2.oborotd13.datob+'-'+t2.oborotd13.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1, t2.oborotd13.DBSCHETO);
+  TblSfString (T_temp, N14, '');
+  TblSfComp   (T_temp, N9,  t2.oborotd13.KODSPO);
+  TblSfComp   (T_temp, N10, t2.oborotd13.KAUOS[1]);
+  TblSfComp   (T_temp, N15, t2.oborotd13.KAUOS[3]);
+  TblSfComp   (T_temp, N12, t2.oborotd13.KAUOS[2]);
+
+
+if  TblGetEqual(T_temp)
+   {
+   }
+ else
+  {
+
+  TblClearBuffer(T_tempb);
+
+  TblSfString (T_tempb, B1, t2.oborotd13.DBSCHETO);
+  TblSfString (T_temp, B14, '');
+
+     TblSfString (T_tempb, B2, t2.katpodr.kod);
+     TblSfComp (T_tempb, B9, t2.katpodr.nrec);
+
+  if t2.getfirst katmold13 = tsok
+   {
+    TblSfString (T_tempb, B3, t2.katmold13.kod);
+    TblSfString (T_tempb, B4, t2.katmold13.name);
+    TblSfComp (T_tempb, B10, t2.katmold13.nrec);
+   }
+
+  if t2.getfirst personsd13 = tsok
+  {
+    TblSfString (T_tempb, B5 , t2.personsd13.STRTABN);
+    TblSfString (T_tempb, B6 , t2.personsd13.FIO);
+    TblSfComp   (T_tempb, B15, t2.personsd13.nrec);
+  }
+
+
+  if t2.getfirst katmcd13 = tsok
+  {
+    TblSfString (T_tempb, B7, t2.katmcd13.barkod);
+    TblSfString (T_tempb, B8, t2.katmcd13.name);
+    TblSfComp (T_tempb, B12, t2.katmcd13.nrec);
+  }
+
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)+t2.oborotd13.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)+t2.oborotd13.sumob);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,t2.oborotd13.Kol);
+      TblSfDouble (T_tempb, B16,t2.oborotd13.sumob);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+!--------------------------------
+  t2._loop oborotk13
+  {
+  NextVisual();
+  SetVisualTitle(t2.oborotk13.datob+'-'+t2.oborotk13.nrec);
+
+  TblClearBuffer(T_temp);
+
+  TblSfString (T_temp, N1, t2.oborotk13.KRSCHETK);
+  TblSfString (T_temp, N14, '');
+  TblSfComp   (T_temp, N9,  t2.oborotk13.KODSPK);
+  TblSfComp   (T_temp, N10, t2.oborotk13.KAUKS[1]);
+  TblSfComp   (T_temp, N15, t2.oborotk13.KAUKS[3]);
+  TblSfComp   (T_temp, N12, t2.oborotk13.KAUKS[2]);
+
+
+if  TblGetEqual(T_temp)
+   {
+   }
+ else
+  {
+
+  TblClearBuffer(T_tempb);
+
+  TblSfString (T_tempb, B1, t2.oborotk13.KRSCHETK);
+  TblSfString (T_temp, B14, '');
+
+
+     TblSfString (T_tempb, B2, t2.katpodr.kod);
+     TblSfComp (T_tempb, B9, t2.katpodr.nrec);
+
+  if t2.getfirst katmolk13 = tsok
+   {
+    TblSfString (T_tempb, B3, t2.katmolk13.kod);
+    TblSfString (T_tempb, B4, t2.katmolk13.name);
+    TblSfComp (T_tempb, B10, t2.katmolk13.nrec);
+   }
+
+  if t2.getfirst katmck13 = tsok
+  {
+    TblSfString (T_tempb, B7, t2.katmck13.barkod);
+    TblSfString (T_tempb, B8, t2.katmck13.name);
+    TblSfComp (T_tempb, B12, t2.katmck13.nrec);
+  }
+
+  if t2.getfirst personsk13 = tsok
+  {
+    TblSfString (T_tempb, B5 , t2.personsk13.STRTABN);
+    TblSfString (T_tempb, B6 , t2.personsk13.FIO);
+    TblSfComp   (T_tempb, B15, t2.personsk13.nrec);
+  }
+
+
+    if  TblGetEqual(T_tempb)
+   {
+    TblSfDouble (T_tempb, B13,TblGfDouble(T_tempb,B13)-t2.oborotk13.Kol);
+    TblSfDouble (T_tempb, B16,TblGfDouble(T_tempb,B16)-t2.oborotk13.sumob);
+    TblUpDateCurrent(T_tempb);
+   }
+    else
+     {
+      TblSfDouble (T_tempb, B13,(-1)*t2.oborotk13.Kol);
+      TblSfDouble (T_tempb, B16,(-1)*t2.oborotk13.sumob);
+      TblInsertCurrent(T_tempb);
+     }
+
+  }
+
+  }
+
+}
+/*
+xlSetCellStringValue('ИТОГО'          , pos_x, 1, pos_x, 1);
+xlSetCellStringValue(ssumk_ou         , pos_x, 9, pos_x, 9);
+xlSetCellStringValue(ssum_ou          , pos_x,10, pos_x,10);
+xlSetCellStringValue(ssumk_bu         , pos_x,11, pos_x,11);
+xlSetCellStringValue(ssum_bu          , pos_x,12, pos_x,12);
+xlSetCellStringValue(ssumk_ou-ssumk_bu, pos_x,13, pos_x,13);
+xlSetCellStringValue(ssum_ou-ssum_bu  , pos_x,14, pos_x,14);
+xlSetFontStyle( 1, pos_x, 1, pos_x,14);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  8);
+xlAlignCellsEx( 4, 2, pos_x, 9, pos_x, 14);
+xlSetFontSize( 8, pos_x, 1, pos_x, 14);
+
+
+pos_x:=pos_x+2;
+ssumk_ou:=0;
+ssum_ou:=0;
+ssumk_bu:=0;
+ssum_bu:=0;
+
+if TblRecords(T_tempb) > 0
+{
+xlSetCellStringValue('Отсутствует в оперативных остатках',  pos_x, 1, pos_x, 1);
+xlSetFontStyle( 1, pos_x, 1, pos_x,12);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  6);
+xlSetFontSize(10, pos_x, 1, pos_x, 12);
+pos_x:=pos_x+1;
+
+   xlSetCellStringValue('Счет                     ', pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Подразделение            ', pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Код МОЛ                  ', pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('ФИО МОЛ                  ', pos_x, 4, pos_x, 4);
+   xlSetCellStringValue('Табельный номер          ', pos_x, 5, pos_x, 5);
+   xlSetCellStringValue('ФИО работника            ', pos_x, 6, pos_x, 6);
+   xlSetCellStringValue('Код МЦ                   ', pos_x, 7, pos_x, 7);
+   xlSetCellStringValue('Наименование МЦ          ', pos_x, 8, pos_x, 8);
+   xlSetCellStringValue('Кол-во по ОУ             ', pos_x, 9, pos_x, 9);
+   xlSetCellStringValue('Сумма по ОУ              ', pos_x,10, pos_x,10);
+   xlSetCellStringValue('Кол-во по БУ             ', pos_x,11, pos_x,11);
+   xlSetCellStringValue('Сумма по БУ              ', pos_x,12, pos_x,12);
+   xlSetCellStringValue('Расхожд. в кол-ве        ', pos_x,13, pos_x,13);
+   xlSetCellStringValue('Расхожд. в сумме         ', pos_x,14, pos_x,14);
+
+   xlSetFontSize(8  , pos_x, 1, pos_x, 14);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 14);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 14);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+   xlFrameCells(15,2,7,0,pos_x, 5, pos_x, 5);
+   xlFrameCells(15,2,7,0,pos_x, 6, pos_x, 6);
+   xlFrameCells(15,2,7,0,pos_x, 7, pos_x, 7);
+   xlFrameCells(15,2,7,0,pos_x, 8, pos_x, 8);
+   xlFrameCells(15,2,7,0,pos_x, 9, pos_x, 9);
+   xlFrameCells(15,2,7,0,pos_x,10, pos_x,10);
+   xlFrameCells(15,2,7,0,pos_x,11, pos_x,11);
+   xlFrameCells(15,2,7,0,pos_x,12, pos_x,12);
+   xlFrameCells(15,2,7,0,pos_x,13, pos_x,13);
+   xlFrameCells(15,2,7,0,pos_x,14, pos_x,14);
+
+   xlWrapText(pos_x, 1, pos_x, 14);
+
+   pos_x:=pos_x+1;
+}
+*/
+stopvisual('Выгрузка закончена...',0);
+StartNewVisual(vtIndicatorVisual, vfTimer, 'Анализ оперативных данных',TblRecords(T_tempb));
+end.
+.{while (y<=(TblRecords(T_tempb)-1))
+.begin
+if (TblGetIndex(T_tempb,y))
+ {
+  NextVisual();
+  SetVisualTitle('Выгрузка данных '+TblGfString(T_tempb,B7)+' '+y);
+
+  if (round(TblGfDouble(T_tempb,B13),2)<>0 or round(TblGfDouble(T_tempb,B16),2)<>0)
+   {
+  if (TblGfString(T_tempb,B14)='08')
+  {
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B1)+TblGfString(T_tempb,B14),  pos_x, 1, pos_x, 1);
+  }
+  else
+  {
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B1)+TblGfString(T_tempb,B14),  pos_x, 1, pos_x, 1);
+  }
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B2),    pos_x, 2, pos_x, 2);
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B3),    pos_x, 3, pos_x, 3);
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B4),    pos_x, 4, pos_x, 4);
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B5),    pos_x, 5, pos_x, 5);
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B6),    pos_x, 6, pos_x, 6);
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B7),    pos_x, 7, pos_x, 7);
+  xlSetCellStringValue(chr(39)+TblGfString(T_tempb,B8),    pos_x, 8, pos_x, 8);
+  xlSetCellStringValue(TblGfDouble(T_tempb,B13), pos_x,11, pos_x,11);
+  xlSetCellStringValue(TblGfDouble(T_tempb,B16), pos_x,12, pos_x,12);
+  xlSetCellStringValue(-TblGfDouble(T_tempb,B13), pos_x,13, pos_x,13);
+  xlSetCellStringValue(-TblGfDouble(T_tempb,B16), pos_x,14, pos_x,14);
+
+  xlWrapText(pos_x, 1, pos_x, 14);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  8);
+  xlAlignCellsEx( 4, 2, pos_x, 9, pos_x, 14);
+  xlSetFontSize(8, pos_x, 1, pos_x, 14);
+
+  xlFrameCells(8,2,7,0,pos_x, 1, pos_x, 14);
+  xlFrameCells(3,2,7,0,pos_x, 1, pos_x, 1);
+  xlFrameCells(3,2,7,0,pos_x, 2, pos_x, 2);
+  xlFrameCells(3,2,7,0,pos_x, 3, pos_x, 3);
+  xlFrameCells(3,2,7,0,pos_x, 4, pos_x, 4);
+  xlFrameCells(3,2,7,0,pos_x, 5, pos_x, 5);
+  xlFrameCells(3,2,7,0,pos_x, 6, pos_x, 6);
+  xlFrameCells(3,2,7,0,pos_x, 7, pos_x, 7);
+  xlFrameCells(3,2,7,0,pos_x, 8, pos_x, 8);
+  xlFrameCells(3,2,7,0,pos_x, 9, pos_x, 9);
+  xlFrameCells(3,2,7,0,pos_x,10, pos_x,10);
+  xlFrameCells(3,2,7,0,pos_x,11, pos_x,11);
+  xlFrameCells(3,2,7,0,pos_x,12, pos_x,12);
+  xlFrameCells(3,2,7,0,pos_x,13, pos_x,13);
+  xlFrameCells(3,2,7,0,pos_x,14, pos_x,14);
+
+
+  ssumk_bu := ssumk_bu + TblGfDouble(T_tempb,B13) ;
+  ssum_bu  := ssum_bu  + TblGfDouble(T_tempb,B16) ;
+  pos_x:=pos_x+1;
+  }
+
+  y:=y+1;
+ }
+end.
+.}
+.begin
+stopvisual('Выгрузка закончена...',0);
+/*
+if TblRecords(T_tempb) > 0
+{
+xlSetCellStringValue('ИТОГО'          , pos_x, 1, pos_x, 1);
+xlSetCellStringValue(ssumk_ou         , pos_x, 9, pos_x, 9);
+xlSetCellStringValue(ssum_ou          , pos_x,10, pos_x,10);
+xlSetCellStringValue(ssumk_bu         , pos_x,11, pos_x,11);
+xlSetCellStringValue(ssum_bu          , pos_x,12, pos_x,12);
+xlSetCellStringValue(ssumk_ou-ssumk_bu, pos_x,13, pos_x,13);
+xlSetCellStringValue(ssum_ou-ssum_bu  , pos_x,14, pos_x,14);
+xlSetFontStyle( 1, pos_x, 1, pos_x,14);
+xlAlignCellsEx( 2, 2, pos_x, 1, pos_x,  8);
+xlAlignCellsEx( 4, 2, pos_x, 9, pos_x, 14);
+xlSetFontSize( 8, pos_x, 1, pos_x, 14);
+}
+TblDeleteTable(T_temp);
+TblDeleteTable(T_tempb);
+pos_x:=pos_x+2;
+xlSetCellStringValue('Исполнитель', pos_x, 1, pos_x, 1);
+DeleteFile(Fmacros);
+if not LogStrToFile(Fmacros, 'Sub macros()') message('Ошибка записи файла макроса '+fmacros);
+LogStrToFile(Fmacros, '    With ActiveSheet.PageSetup                                        ');
+LogStrToFile(Fmacros, '        .PrintTitleRows = "$6:$6"                                     ');
+LogStrToFile(Fmacros, '        .RightFooter = "&""Arial,обычный""&8╤ЄЁрэшЎр &P"              ');
+LogStrToFile(Fmacros, '        .LeftMargin = Application.InchesToPoints(0.2)                 ');
+LogStrToFile(Fmacros, '        .RightMargin = Application.InchesToPoints(0.2)                ');
+LogStrToFile(Fmacros, '        .TopMargin = Application.InchesToPoints(0.4)                  ');
+LogStrToFile(Fmacros, '        .BottomMargin = Application.InchesToPoints(0.4)               ');
+LogStrToFile(Fmacros, '        .HeaderMargin = Application.InchesToPoints(0)                 ');
+LogStrToFile(Fmacros, '        .FooterMargin = Application.InchesToPoints(0.2)               ');
+LogStrToFile(Fmacros, '        .Orientation = xlLandscape                                    ');
+LogStrToFile(Fmacros, '    Columns("H:H").NumberFormat = "#,##0.00"                          ');
+LogStrToFile(Fmacros, '    Columns("J:J").NumberFormat = "#,##0.00"                          ');
+LogStrToFile(Fmacros, '    Columns("L:L").NumberFormat = "#,##0.00"                          ');
+LogStrToFile(Fmacros, '    End With                                                          ');
+LogStrToFile(Fmacros, 'End Sub                                                               ');
+if not xlImportModule(Fmacros) message ('Ошибка загрузки макроса');
+if not xlRunMacro('macros') message('Ошибка запуска макроса');
+DeleteFile(Fmacros);
+*/
+RNAL_MBP.fexit;
+xlKillExcel;
+end.
+.endform

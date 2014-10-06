@@ -1,0 +1,462 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface txo_sfo_tnf implements ObjTxoIdentPlugin;
+
+Interface txo_sfo_tnf;
+var
+  CurSoprHoz,nrec_ob : comp  ;
+  pay,konv,CurTipDoc : word  ;
+  sum_p,sr_ok,kol_p  : double;
+
+create view
+as select
+soprhoz.nrec
+from
+  SoprHoz,
+  mbpin,
+  perssfo,
+  persspec,
+  mbpout,
+  mbpin mbpin1,
+  mbpin mbpin2,
+  perssfo perssfo1,
+  persspec persspec1,
+  perssfo perssfo2,
+  persspec persspec2,
+  mbpout mbpout2,
+  perssfo perssfo3,
+  perssfo perssfo4,
+  persspec persspec3,
+  katmbp,
+  katpodr,
+  katmol,
+  attrnam,
+  attrval,
+  attrnam attrnami,
+  attrval attrvali,
+  attrnam attrnamp,
+  attrval attrvalp,
+  attrnam attrnamm,
+  attrval attrvalm,
+  attrnam attrnamv,
+  attrval attrvalv,
+  attrnam attrnamvb,
+  attrval attrvalvb,
+  attrnam attrnampb,
+  attrval attrvalpb,
+  perscard
+
+
+where (( CurSoprHoz         == SoprHoz.Nrec
+    and  SoprHoz.cSoprDoc   == mbpin.nrec
+    and  mbpin.nrec         == PERSSFO.CCURMBPIN (noindex)
+    and  perssfo.cpersspec  == persspec.nrec
+
+    and  SoprHoz.cSoprDoc   == mbpout.nrec
+    and  mbpout.cmbpin      == mbpin1.nrec
+    and  mbpin1.nrec        == PERSSFO1.CCURMBPIN (noindex)
+    and  perssfo1.cpersspec == persspec1.nrec
+
+
+    and  mbpin.cmbpout      == mbpout2.nrec
+    and  mbpout2.cmbpin     == PERSSFO2.CCURMBPIN (noindex)
+    and  perssfo2.cpersspec == persspec2.nrec
+
+    and  mbpin.nrec         == PERSSFO3.CDOPREC
+    and  perssfo3.cperssfo  == perssfo4.nrec
+    and  perssfo4.cpersspec == persspec3.nrec
+
+    and  PERSSFO4.CCURMBPIN == mbpin2.nrec
+    and  mbpin2.cpodr       == katpodr.nrec
+    and  mbpin2.cmol        == katmol.nrec
+    and  mbpin2.cmbp         == katmbp.nrec
+    and  mbpin2.cpers        == perscard.nrec
+
+    and  mbpin2.csopr           == mbpmove.nrec
+    and  word(2003)             == AttrNamv.wTable
+    and  'Счет отнесения затрат'== AttrNamv.Name
+    and  word(2003)             == AttrValv.wTable
+    and  mbpmove.nrec           == AttrValv.cRec
+    and  AttrNamv.Nrec          == AttrValv.cAttrNam
+
+    and  word(2001)       == AttrNam.wTable
+    and  'Признак счета'  == AttrNam.Name
+    and  word(2001)       == AttrVal.wTable
+    and  mbpin2.nrec           == AttrVal.cRec
+    and  AttrNam.Nrec     == AttrVal.cAttrNam
+    and  attrval.vcomp    == spkau.nrec
+
+    and  word(2001)       == AttrNami.wTable
+    and  'Счет отнесения затрат'  == AttrNami.Name
+    and  word(2001)       == AttrVali.wTable
+    and  mbpin2.nrec           == AttrVali.cRec
+    and  AttrNami.Nrec    == AttrVali.cAttrNam
+
+    and  word(4005)       == AttrNamp.wTable
+    and  'Счет отнесения затрат'  == AttrNamp.Name
+    and  word(4005)       == AttrValp.wTable
+    and  perscard.nrec    == AttrValp.cRec
+    and  AttrNamp.Nrec    == AttrValp.cAttrNam
+
+    and  word(1424)       == AttrNamm.wTable
+    and  'Счет отнесения затрат'  == AttrNamm.Name
+    and  word(1424)       == AttrValm.wTable
+    and  katmol.nrec      == AttrValm.cRec
+    and  AttrNamm.Nrec    == AttrValm.cAttrNam
+
+    and  word(2003)             == AttrNamvb.wTable
+    and  'Объекты строительства' == AttrNamvb.Name
+    and  word(2003)             == AttrValvb.wTable
+    and  mbpmove.nrec           == AttrValvb.cRec
+    and  AttrNamvb.Nrec         == AttrValvb.cAttrNam
+
+    and  word(4005)             == AttrNampb.wTable
+    and  'Объекты строительства' == AttrNampb.Name
+    and  word(4005)             == AttrValpb.wTable
+    and  perscard.nrec          == AttrValpb.cRec
+    and  AttrNampb.Nrec         == AttrValpb.cAttrNam
+
+      ))
+
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Если СФО выдана по норме возвращает 1, иначе 0';
+}
+
+
+Window wParam 'Задайте параметры идентификатора &VIP[Obj:"txo_sfo_tnf"]' (,,) EscClose;
+  Show at (2,12,60,20);
+    Screen scParam (,,);
+
+      Fields
+
+        Konv        : noprotect;
+
+<<
+
+          `          Параметры расчета:                           `
+
+           (.) MBPIN                                              `
+           (.) MBPOUT                                             `
+           (.) MBPMOVE                                            `
+           (.) MBPVOZV                                            `
+
+>>
+
+End;
+
+
+HandleEvent // window
+ cmInit :
+         {
+           konv    := 0;
+         }
+ cmDefault : CloseWindow(wParam);
+End;  // HandleEvent
+End;  // window
+
+function ParamMaster : string;
+{
+   RunWindow(wParam);
+   PackFields;
+   case konv of
+     0  : ParamMaster := '[MBPIN:]';
+     1  : ParamMaster := '[MBPOUT:]';
+     2  : ParamMaster := '[MBPMOVE:]';
+     3  : ParamMaster := '[MBPVOZV24:]';
+     4  : ParamMaster := '[MBPVOZV12:]';
+
+
+   end;
+
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+
+//  TxoAllowRecallStoreCycles(hTxo);
+
+   CurSoprHoz := buf.cSoprHoz;                      // позиционирование на SoprHoz
+   CurTipDoc  := buf.TiDkGal;
+
+     case TxoParamName(hTxo,1) of
+      'MBPIN'       : {pay:=word(1);}
+      'MBPOUT'      : {pay:=word(2);}
+      'MBPMOVE'     : {pay:=word(3);}
+      'MBPVOZV24'   : {pay:=word(4);}
+      'MBPVOZV12'   : {pay:=word(5);}
+
+      end;
+
+      TxoBodyClear(hTxo);
+
+      sum_p:=0; nrec_ob:=0;
+
+      kol_p:=0;
+
+    if (pay=word(1))
+      {
+//       if getfirst soprhoz  = tsok
+//       if getfirst mbpin    = tsok
+//       if getfirst perssfo  = tsok
+//       if getfirst persspec = tsok
+//        {
+          sum_p:=1;
+//        }
+      }
+
+    if (pay=word(2))
+      {
+//       if getfirst soprhoz   = tsok
+//       if getfirst mbpout    = tsok
+//       if getfirst mbpin1    = tsok
+//       if getfirst perssfo1  = tsok
+//       if getfirst persspec1 = tsok
+//        {
+          sum_p:=1;
+//        }
+
+      }
+
+
+    if (pay=word(3))
+      {
+
+//       if getfirst soprhoz   = tsok
+//       if getfirst mbpin     = tsok
+//       if getfirst mbpout2   = tsok
+//       if getfirst perssfo2  = tsok
+//       if getfirst persspec2 = tsok
+//          {
+          sum_p:=1;
+//          }
+      }
+
+if (pay=word(4) or pay=word(5))
+{
+
+ if getfirst soprhoz   = tsok
+ if getfirst mbpin     = tsok
+  {
+
+ if katpodr.nrec = 00D3000000020DE8h
+  {
+     nrec_ob := 006400000000385Ch;
+  }
+ else
+  {
+   if katmbp.cgroupmc<>00D30000000001FDh
+    {
+    if getfirst perssfo = tsok
+     {
+     if getfirst persspec <> tsok
+      {
+      nrec_ob := 006400000000385Ch;
+      }
+    }
+    }
+  }
+
+  if nrec_ob=0
+   {
+   if getfirst attrnami = tsok
+    {
+     if getfirst attrvali = tsok
+      {
+       if attrvali.vcomp = 0064000000000083h
+        {
+         nrec_ob := 006400000000385Bh;
+        }
+       if  (attrvali.vcomp = 0064000000000086h
+         or attrvali.vcomp = 0064000000000085h
+         or attrvali.vcomp = 0064000000000087h
+         or attrvali.vcomp = 0064000000000088h)
+        {
+         nrec_ob := 0064000000003856h;
+        }
+      }
+    }
+   }
+
+  if nrec_ob=0
+   {
+
+   if getfirst mbpmove = tsok
+    {
+
+   if getfirst attrnamv = tsok
+    {
+
+     if getfirst attrvalv = tsok
+      {
+       if attrvalv.vcomp = 0064000000000083h
+        {
+         nrec_ob := 006400000000385Bh;
+        }
+       if  (attrvalv.vcomp = 0064000000000086h
+         or attrvalv.vcomp = 0064000000000085h
+         or attrvalv.vcomp = 0064000000000087h
+         or attrvalv.vcomp = 0064000000000088h)
+        {
+         nrec_ob := 0064000000003856h;
+        }
+      }
+    }
+     }
+   }
+
+
+   if nrec_ob=0
+   {
+   if getfirst attrnamp = tsok
+    {
+     if getfirst attrvalp = tsok
+      {
+       if attrvalp.vcomp = 0064000000000083h
+        {
+         nrec_ob := 006400000000385Bh;
+        }
+       if  (attrvalp.vcomp = 0064000000000086h
+         or attrvalp.vcomp = 0064000000000085h
+         or attrvalp.vcomp = 0064000000000087h
+         or attrvalp.vcomp = 0064000000000088h)
+        {
+         nrec_ob := 0064000000003856h;
+        }
+      }
+    }
+   }
+
+   if nrec_ob=0
+   {
+   if getfirst attrnamm = tsok
+    {
+     if getfirst attrvalm = tsok
+      {
+       if attrvalm.vcomp = 0064000000000083h
+        {
+         nrec_ob := 006400000000385Bh;
+        }
+       if  (attrvalm.vcomp = 0064000000000086h
+         or attrvalm.vcomp = 0064000000000085h
+         or attrvalm.vcomp = 0064000000000087h
+         or attrvalm.vcomp = 0064000000000088h)
+        {
+         nrec_ob := 0064000000003856h;
+        }
+      }
+    }
+   }
+
+
+  if nrec_ob=0
+   {
+
+   if getfirst mbpmove = tsok
+    {
+
+   if getfirst attrnamvb = tsok
+    {
+
+     if getfirst attrvalvb = tsok
+      {
+         nrec_ob := attrvalvb.vcomp;
+      }
+    }
+    }
+   }
+
+
+   if nrec_ob=0
+   {
+   if getfirst attrnampb = tsok
+    {
+     if getfirst attrvalpb = tsok
+      {
+         nrec_ob := attrvalpb.vcomp;
+      }
+    }
+   }
+
+   if (nrec_ob=0)
+    {
+     nrec_ob:=0064000000001681h;
+    }
+
+
+ }
+}
+
+sr_ok:=0;
+
+if getfirst attrnam = tsok
+ {
+if getfirst attrval = tsok
+ {
+
+if getfirst spkau = tsok
+ {
+
+ if spkau.code = '001'
+  {
+   sr_ok := 24;
+  }
+  else
+     {
+   sr_ok := 12;
+     }
+ }
+ }
+ }
+
+if sr_ok=0
+ {
+  sr_ok:=Months_Between(mbpin2.DATEEKSP,mbpin2.DATEEND);
+ }
+
+
+if (pay=word(4))
+ {
+
+  if sr_ok>12
+  {
+  sum_p:=mbpin.SUMMA-mbpin.SUMMAISNP-mbpin.SUMMAISNN;
+  kol_p:=mbpin.koldoc;
+  }
+  else {sum_p:=0;kol_p:=0;}
+  TxoBodyAddKau(hTxo, wflkau_mode5, 40, nrec_ob);
+  TxoBodySetSum(hTxo, sum_p, 0, kol_p);
+  TxoBodyInsert(hTxo);
+ }
+
+if (pay=word(5))
+ {
+
+  if sr_ok<=12
+  {
+  sum_p:=mbpin.SUMMA-mbpin.SUMMAISNP-mbpin.SUMMAISNN;
+  kol_p:=mbpin.koldoc;
+  }
+  else {sum_p:=0;kol_p:=0;}
+  TxoBodyAddKau(hTxo, wflkau_mode5, 40, nrec_ob);
+  TxoBodySetSum(hTxo, sum_p, 0, kol_p);
+  TxoBodyInsert(hTxo);
+
+ }
+
+ if (pay<>word(4) and pay<>word(5))
+  {
+   TxoBodySetSum(hTxo, sum_p, 0, 0);
+   TxoBodyInsert(hTxo);
+  }
+
+}
+
+handleevent
+end;
+
+end.

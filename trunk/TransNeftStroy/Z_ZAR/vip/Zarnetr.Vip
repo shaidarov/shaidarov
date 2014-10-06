@@ -1,0 +1,69 @@
+//'Z_ZAR::ZARNETR.FILTERSSCREEN.ADDITIONALOPTIONS'
+//cmOK
+#component "z_zar"
+
+alter interface ZARNETR
+  ( '')
+;
+  overload
+  end;
+var f_wavto_uch_prem:longint;
+create view KATPODRZARNETR
+var wavto_uch_prem:string;
+;
+Procedure MySetParam ;
+{ // всегда с налогами !
+    if pos('буду',sgettune('UP.TEKBUD'))=0 // вообще то надо wgettune, но всегда 0 ! - спросить в ТП
+    { if (CALCULATIONOPTIONS and 1)>0 
+       and locase(UserName)<>'mureninaav' // персонально разрешаем не ставить галку
+       and locase(UserName)<>'grigoreviv'
+        CALCULATIONOPTIONS:=CALCULATIONOPTIONS or 2
+    } 
+    else
+    { CALCULATIONOPTIONS:=1;
+    }
+    // всегда с учетом совместительства 
+    VIDSOVM:=1 ;
+    VIDRAB :=3 ;
+    rescanpanel(#ZAR_USER) ;
+    
+}
+HandleEvent
+cmCheckField :
+{ //MySetParam
+  Inherited::HandleEvent(cmCheckField) 
+}
+cmInit:
+{ //"Настройки Галактики \ Управление персоналом \ Общие настройки \ Больничные, отпуска, расчеты по среднему 
+  // \ Учет вознаграждений \ Премии учитывать автоматически" надо в "нет" при расчете зп
+  //if bogettune('UP.ZAR.ZU.FLAG6')
+  //{ bosettune('UP.ZAR.ZU.FLAG6',false)
+  //}
+  // добавим поле
+  /*
+  wavto_uch_prem:='Автом.учет премий='+if(bogettune('UP.ZAR.ZU.FLAG6')   ,'Да','Нет')
+  cfsSetCurrentContainer('ZARNETR.FILTERSSCREEN')
+  cfsCreateObject('PanelInputLine','FILTERSSCREEN','wavto_uch_prem',false, f_wavto_uch_prem);
+  //cfsSetProp('wavto_uch_prem', 'FieldName','wavto_uch_prem')
+  cfsSetProp('wavto_uch_prem', 'Visible',true);
+  cfsSetProp('wavto_uch_prem', 'Skip',true);
+  cfsSetProp('wavto_uch_prem', 'Title','Учет вознаграждений \ Премии учитывать автоматически');
+  cfsSetProp('wavto_uch_prem','Size_X',150); 
+  cfsSetProp('wavto_uch_prem','Size_Y',14); 
+  cfsSetProp('wavto_uch_prem','Origin_X', 267); 
+  cfsSetProp('wavto_uch_prem','Origin_Y', 5); 
+  // добавим поле
+  
+  MySetParam ;
+  */
+  Inherited::HandleEvent(cmInit) 
+  PutCommand(cmCheckField)
+
+}
+cmOk :
+{ Inherited::HandleEvent(cmOK) 
+  if ((TabRul = 1) and (PDO.GetPeriod = 1))
+    RunInterface('ZAR_AVANS_After',CALCULATIONOPTIONS);  
+}
+end;
+end.

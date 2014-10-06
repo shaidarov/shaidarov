@@ -1,0 +1,5291 @@
+// ЛОЖЬ
+function MyDouble(w:string):double ;
+{ w:=replace(w,',','.')
+  w:=replace(w,' ','')
+  w:=replace(w,chr(39),'')
+  MyDouble:=double(w) ;
+}
+Function AddNmGroup (w :string) : boolean ;
+{ AddNmGroup:=false
+  if getfirst tmp_nmgroup where (( w == tmp_nmgroup.name ))<>0
+  {  AddNmGroup:=true ;
+     insert into tmp_nmgroup set tmp_nmgroup.name:=w ;
+  }
+}
+// найти должность по инициалам
+Function GetDolgByIn(wwstr:string) :string ;
+var wwstr1:string ;
+    wwstr2:string ;
+    wlen :word ;
+{ GetDolgByIn:='_'
+  wwstr:=trim(wwstr) ;wwstr2:='' ;wwstr1:='' ;
+  logmy('GetDolgByIn '+wwstr) ;
+  if pos('.',wwstr)>0
+  {  wwstr1:=substr(wwstr,1,pos('.',wwstr)-1)
+     wwstr2:=ExtractDelimitedWord(wwstr,2,'.')
+  }
+  else
+  {  wwstr1:=wwstr ;
+  }
+  if wwstr=''
+  { exit ;
+  }
+  if wwstr2=''
+   wwstr2:=substr(ExtractDelimitedWord(wwstr,3,' '),1,1)
+  logmy('GetDolgByIn '+wwstr+'/'+wwstr1+'/'+wwstr2) ;
+  wlen:=length(wwstr2) ;
+  if (getfirst persons where (( 'С' == PERSONS.ISEMPLOYEE
+     and  wwstr1 <<= persons.fio
+     and  wwstr1+chr(251) >>= persons.fio
+     )) and substr(ExtractDelimitedWord(persons.fio,3,' '),1,wlen)=wwstr2 ) =0
+  { GetDolgByIn:=iKatalog_GetValue.GetCatalogsName(persons.cBaseProf) ;
+
+  }
+
+
+}
+
+
+Function OpenLsch :Boolean;  //открытие лицевого счета
+ var Dublicat : Boolean;
+ 	 NRecord : comp;
+ 	 winskl :word ;
+{
+ OpenLsch := True;
+ if getfirst  lschet where  (( persons.nrec == lschet.tperson ))=0 then exit ;
+ ClearBuffer(tnLSchet);
+  // Message('Persons.GalDep='+String(Persons.GalDep),Information);
+// LSchet.Cex      := KatPodrNrec; //persons.GalDep;
+  // LSchet.cPodr    := persons.GalDepHost;
+ LSchet.TPerson  := Persons.NRec;
+
+ Dublicat := false;
+  LSchet.TabN := persons.tabnmb; //заведение основного Л/С
+  LSchet.CEX  := persons.galdep ;
+  logmy(string(persons.tabnmb,10)+' нет в лицевых !') ;
+  winskl:=insert current LSchet ;
+ 	 if (winskl = tsOk) // modifier insert current LSchet = tsOK
+	  {logstrtofile('!kadry.txt',string(persons.tabnmb,10)+' добавлена запись в лицевые !') ;
+	     NRecord := LSchet.NRec;
+!    	 InsertDep;             // Заведение депонентной карточки
+logmy(string(persons.tabnmb,10)+'Лицевой счет на сотрудника завелся!') ;
+      }
+      else
+       {logmy(string(persons.tabnmb,10)+'Лицевой счет на сотрудника не завелся!') ;
+       }
+}
+
+Function CHFLD(const wnmtable:string;const wnmfld:string;
+           const woldval:string):string ;
+{ CHFLD:=woldval;
+  if getfirst  tmp_listsootv where ((
+       wnmtable ==  tmp_listsootv.nmtable
+   and wnmfld   ==  tmp_listsootv.nmfld
+   and woldval  ==  tmp_listsootv.oldval ))=0
+  { if tmp_listsootv.newval<>''
+    { CHFLD:=tmp_listsootv.newval ;
+    }
+  }
+
+
+}
+
+Function ReadDataFromDbf :boolean ;
+{ ReadDataFromDbf:=false ;
+  wHandle:=Dbfopen(nmfile,stOpenRead)
+  if wHandle=0
+  { message('Ошибка открытия '+nmfile) ;
+      exit ;
+  }
+
+  ReadDataFromDbf:=true ;
+}
+#DEFINE _EXCEL_MATRIX_
+Function ReadDataFromExcel :boolean ;
+var row :word ;
+    KolEmptRow,KolEmptCol: word ;
+    wklempt:boolean ;
+    jj:word ;
+    wstr2:string ;
+    wkluch:boolean ;
+    maxjj :longint ;
+    wxlsActiveFile:string;
+#IFDEF _EXCEL_MATRIX_
+    mas_excel : longint ;
+    row_matrix: longint ;
+#ENDIF
+{ delete all tmp_excel ;
+  ReadDataFromExcel:=false ;
+  logfilekl:=true ;
+  logtime('ReadDataFromExcel == Идет загрузка из '+nmfile );
+//грузим с указанной строки +1(здесь должна быть шапка), при обработке шапка пропускается
+//то есть если указана 6 строка, то данные должны юыть с 8
+  maxjj:=100 ;// там где много записей надо задать точно, а еще лучше переделать на матрицу.
+ RestartVisual('идет загрузка',0);
+
+  if not inextvisual('Идет загрузка из '+nmfile) then exit ;
+  xlCreateExcelWithTemplate(nmfile,true)
+  xlOpenWorkBook(nmfile)
+  xlGetActiveWorkBookName(wstr2)
+  logtime(wstr2);
+/*  case wtype of
+  1: row:=0;//wstr:='Склады.xls' ;
+  2: row:=2;//wstr:='Справочник.xls' ;
+  3: row:=3;//wstr:='Банки.xls' ;
+  4: row:=3;//wstr:='Контрагенты.xls' ;
+  5: row:=3;//wstr:='БанковскиеСчета.xls' ;
+  6: row:=3;//wstr:='Контактные данные контрагентов.xls' ;
+  7: row:=2;//wstr:='Договора контрагентов.xls' ;
+  8: row:=3;//wstr:='ОКЕИ.xls'
+  9: row:=0;//wstr:='НоменклатурныеГруппы.xls' ;
+  10:row:=3;// wstr:='Номенклатура.xls' ;
+  11:row:=3;// wstr:='ЕдиницыИзмерения номенклатуры.xls' ;
+  12:row:=3;// wstr:='ОбъектыСтроительства.xls' ;
+  13:row:=3;// wstr:='ОС.xls' ;
+  14:row:=3;// wstr:= osnmfile  ;
+  15:row:=6;// wstr:= СФО'  ;
+  16:row:=3;// wstr:= 'Остатки_МЦ_БухУчет.xls'  ;
+  17:row:=1;// wstr:= 'ПланСчетов_Соотв.xls'  ;
+  18:row:=3;// wstr:= 'Остатки_ПланСчетов_БухУчет.xls'  ;
+  19:row:=3;// wstr:= 'Договора соглашения'  ;
+  20:row:=3;// wstr:= 'Платежки'  ;
+  22:row:=1;//;//NaklPrih.xls
+  23:{row:=0 ;maxjj:=20; }
+  24:{ row:=2;maxjj:=10;}//Склад.xls
+  25,26: { row:=3 ; maxjj:=30 ; } // СФО1
+  27: row:=0 ; //проводки 2
+  28:row:=3;// wstr:='ОбъектыРемонта.xls' ;
+  29:row:=3;// wstr:='СпецификацияДоговора.xls' ;
+  30:row:=3;// wstr:='ДоговораАтрибуты.xls' ;
+  else row:=0 ;
+  end ; */
+  row:=word(convobj.vdata)
+  wkluch:=true
+  KolEmptRow:=0 ; KolEmptCol:=0 ;
+/*
+   Function CreateMatrixEx(Rows, Cols : longint) : LongInt;
+    Function FreeMatrixEx(ID : Longint ) : boolean;
+    Function ClearMatrixEx(ID : Longint ): boolean;
+    Function WriteToMatrixEx(ID, Row, Col : longint; Value : variant) : boolean;
+    Function WriteDateToMatrixEx(ID, Row, Col : longint; Year, Month, Day : word) : boolean;
+    Function ReadFromMatrixEx(ID, Row, Col : longint; var Value : variant) : boolean;
+    Function WriteMatrixToExcelEx(ID : Longint; RowU : longint = 0; ColL : longint = 0) : boolean;
+    Function ReadMatrixFromExcelEx(ID : LongInt; RowU : longint = 0; ColL : longint = 0; RowD : longint = 0; ColR : longint = 0) : boolean;
+*/
+#IFDEF _EXCEL_MATRIX_
+  mas_excel:=XLCreateMatrixEx(1000,maxjj+1)
+  row_matrix:=0 ;
+  XLReadMatrixFromExcelEx(mas_excel,row+1,1,row+1000, maxjj) ;
+#ENDIF
+  do
+  {
+    row:=row+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0
+      if not nextvisual then { wkluch:=false ; break ;}
+#IFDEF _EXCEL_MATRIX_
+    row_matrix:=row_matrix+1 ;
+    if row_matrix>1000
+    { row_matrix:=1 ;
+      XLClearMatrixEx(mas_excel) ;
+      XLReadMatrixFromExcelEx(mas_excel,row,1,row+1000-1, maxjj) ;
+    }
+#ENDIF
+    KolEmptCol:=0 ;
+    clearbuffer(#tmp_excel) ;
+    tmp_excel.numrow:=row ;
+    wklempt:=true ;
+    for(jj:=1;jj<=maxjj;jj:=jj+1 )
+    { wstr2:='' ;
+#IFDEF _EXCEL_MATRIX_
+      XLReadFromMatrixEx(mas_excel,row_matrix,jj,wstr2)
+#ELSE
+      xlGetCellValue(row,jj,wstr2) ;
+#ENDIF
+      wstr2:=trim(replace(wstr2,'  ',' ')) ;
+      if wstr2='' then KolEmptCol:=KolEmptCol+1 ;
+      if KolEmptCol>20 then break ;
+      tmp_excel.dmcell[jj]:=wstr2 ;
+      if getfirst tmp_listsootv where ((
+             'ALL'==tmp_listsootv.nmtable
+         and 'ALL'==tmp_listsootv.nmfld
+         and tmp_excel.dmcell[jj]== tmp_listsootv.oldval
+           ))=0
+       tmp_excel.dmcell[jj]:= tmp_listsootv.newval
+      if wstr2<>'' then { wklempt:=false ; KolEmptRow:=0 ;}
+    } //for(jj:=1;jj<=100;jj:=jj+1 )
+//    if not wklempt or KolEmptRow<10
+    insert current tmp_excel ;
+   logtime(tmp_excel.dmcell[1]+'/'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3] );
+    if not wklempt then KolEmptRow:=0 ;
+    if wklempt
+    { KolEmptRow:=KolEmptRow+1 ;
+      if KolEmptRow>1000 then break ;
+    }
+  } while row<65000
+//  delete tmp_excel where (( row-KolEmptRow <<=tmp_excel.numrow)) ;
+  logtime('Забрали для записи '+string(recordsintable(#tmp_excel)) );
+  logtime('===================================' );
+#IFDEF _EXCEL_MATRIX_
+  XLFreeMatrixEx(mas_excel) ;
+#ENDIF
+  XLGETACTIVEWORKBOOKNAME(wstr2) ;
+  xlCloseWorkBookByName(wstr2) ;
+  xlKillExcel ;
+  ReadDataFromExcel:=wkluch ;
+}
+Procedure ClearGroup ;
+var ii :word ;
+{ group_level:=0 ;
+  for(ii:=1;ii<10;ii:=ii+1)
+  { group_c[ii]:=0 ;
+    group_s[ii]:=0 ;
+  }
+  group_prev:=false ;
+}
+Function Add_Group(wname:string ; wnrec : string):boolean ;
+{ if not group_prev
+  { ClearGroup ; // перестроять если что иерархию
+  }
+  group_level:=group_level+1 ;
+  if  group_level>10 then group_level:=10 ;
+  if  group_level=0 then  group_level:=0 ;
+  group_c[group_level]:=comp(wnrec) ;
+  group_s[group_level]:=wname ;
+  Add_Group:=true ;
+  insert into tmp_nmgroup set tmp_nmgroup.nrec:=wnrec ,tmp_nmgroup.name:=wname ;
+}
+Function Find_Group (wnrec:string ) :string ;
+{ if getfirst tmp_nmgroup where (( wnrec ==tmp_nmgroup.nrec ))=0
+  { Find_Group:=tmp_nmgroup.name ;
+  }
+}
+
+Function Check_Org(wnmgroup:string) : boolean ;
+var wlevel:comp ;
+{ Check_Org:=false ;
+  logtime('Проверка Организаций')
+ wlevel:=if(group_level>0,group_c[group_level],0)  ;
+ if getfirst KatOrgDescr where (( 1 ==KatOrgDescr.code
+     and 0 == KATORGDESCR.CGROUP
+     and 0 == KATORGDESCR.isleaf
+     and wnmgroup == KatOrgDescr.SHORTNAME))=0
+ { wlevel:=KATORGDESCR.nrec ;
+ }
+   if (getfirst KatOrgDescr where (( KatOrg.nrec == KatOrgDescr.cRec and   wlevel == KatOrgDescr.cGroup(noindex)
+    )) <>0 )// описатель иерархии еще не создан
+    {
+       if (insert into KatOrgDescr set
+        KatOrgDescr.cRec     := KatOrg.nRec
+
+      #ifndef GAL8_1
+       ,KatOrgDescr.LastUser := KatOrg.LastUser
+       ,KatOrgDescr.LastDate := KatOrg.LastDate
+       ,KatOrgDescr.LastTime := KatOrg.LastTime
+      #end
+
+       ,KatOrgDescr.Code     := 1
+       ,KatOrgDescr.isLeaf   := 1
+       ,KatOrgDescr.Name     := KatOrg.Name
+       ,KatOrgDescr.cGroup   := wlevel //if(group_level>0,group_c[group_level],0)
+      ) <>0
+     { logstrtofile(logfilenm,'Ошибка создания иерархии для '+katorg.name)
+        exit ;
+     }
+
+      if ( not LL.InsertAllIerdescr(KatOrgDescr.nRec, KatOrgDescr.Name) )
+        {
+       logstrtofile(logfilenm,'Ошибка создания иерархии для '+katorg.name)
+        }
+    } //if getirst KatOrgDescr where (( KatOrg.nrec == KatOrgDescr.cRec ))<>0 // описатель иерархии еще не создан
+    else
+    { _loop fullcache KatOrgDescr where (( KatOrg.nRec == KatOrgDescr.cRec ))
+      { if KatOrgDescr.Name <> KatOrg.Name
+        { update current KatOrgDescr set
+            KatOrgDescr.Name := KatOrg.Name;
+          update KontrIer where ((KatOrgDescr.Nrec == KontrIer.cRecDs))
+           set KontrIer.Name:=KatOrgDescr.Name;
+        }
+      }
+    } //else if getirst KatOrgDescr where (( KatOrg.nrec == KatOrgDescr.cRec ))<>0 // описатель иерархии еще не создан
+  Check_Org:=true ;
+} //Check_Org
+
+//==========================
+Function Check_Obj(obj_tab:word; obj_id:string): comp;
+var wTable: word;
+{
+    Check_Obj:=0
+    if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                             and if(CodeSource<>'',
+                                                                    CodeSource+'.'+obj_id,
+                                                                    obj_id)==spkau_soot.name 
+                                                             and obj_tab==spkau_soot.vdata (noindex))) <> 0
+    { logtime('Отсутствует соответствие для ID объекта ИС '+obj_tab+'/'+obj_id) ;
+      exit;
+    }
+    case obj_tab of
+    1418:
+    {
+      if getfirst katorg where ((comp(spkau_soot.code)==katorg.nrec)) = 0
+      { Check_Obj:=katorg.nrec
+      };
+    };
+    1707:
+    {
+      if getfirst dogovor where ((comp(spkau_soot.code)==dogovor.nrec)) = 0
+      { Check_Obj:=dogovor.nrec
+      };
+    };
+    27001:
+    {
+      if getfirst objrem where ((comp(spkau_soot.code)==objrem.nrec)) = 0
+      { Check_Obj:=objrem.nrec
+      };
+    }
+    1422:
+    {
+      if getfirst katb where ((comp(spkau_soot.code)==katb.nrec)) = 0
+      { Check_Obj:=katb.nrec
+      };
+    }
+    1421:
+    {
+      if getfirst katbank where ((comp(spkau_soot.code)==katbank.nrec)) = 0
+      { Check_Obj:=katbank.nrec
+      };
+    }
+    end;
+    if Check_Obj = 0
+    {
+      logtime('Не удалось установить объект системы для ID из таблицы соответствия'+obj_tab+'/'+obj_id) ;
+      exit;
+    }
+}
+
+Function Imp_Katpodr :boolean ;
+{ //Код	Наименование	Вид склада	№ секции	Тип цен розничной торговли	Подразделение	Комментарий
+  Imp_Katpodr:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника подразделений')
+  ClearGroup ;
+  logtime('Imp_Katpodr ');
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    logtime('1') ;
+    wexrow:=wexrow+1 ;
+    if getfirst katpodr where (( CHFLD('KATPODR','NAME',tmp_excel.dmcell[2])== katpodr.name ))<>0
+    { clearbuffer(#katpodr)
+      katpodr.kod :=CHFLD('KATPODR','KOD',tmp_excel.dmcell[1]) ;
+      katpodr.name:=CHFLD('KATPODR','NAME',tmp_excel.dmcell[2]) ;
+      katpodr.isleaf:=if(tmp_excel.dmcell[3]='',0,1)
+      insert current katpodr ;
+      kl_new:=true ;
+    } else kl_new:=false ;
+    logtime('2') ;
+
+    if tmp_excel.dmcell[3]=''
+    { Add_Group(katpodr.name,string(katpodr.nrec))
+    } else group_prev:=false ;
+    logtime('3 '+string(group_level)) ;
+    if kl_new and group_level>0 and group_level<10
+    {
+      katpodr.cpodr:=if(katpodr.nrec=group_c[group_level],if(group_level>1,group_c[group_level-1],0) ,group_c[group_level])
+    }
+    KATPODR.SKLAD:=if(tmp_excel.dmcell[6]='',0,1)
+    KATPODR.TEL:=tmp_excel.dmcell[6] ;
+    KatPodr.CGRPODR:=iKatalog_GetValue.GetGRPODRNrec(CHFLD('KATPODR','CGRPODR',tmp_excel.dmcell[3]))
+    KatPodr.cFunc :=iKatalog_GetValue.GetDepFuncNrec(CHFLD('KATPODR','CFUNC',tmp_excel.dmcell[5]))
+    KATPODR.FIO:=CHFLD('KATPODR','FIO',tmp_excel.dmcell[7]) ;
+    update current katpodr ;
+    logtime('Загрузили подразделение '+katpodr.name) ;
+  } //_loop tmp_excel
+  Imp_Katpodr:=true  ;
+
+} //Function Imp_Katpodr :boolean ;
+Function Imp_Persons :boolean ;
+var wstr,wser,wnmb :string ;
+{
+//Код	Наименование	Должность	Подразделение	Состояние физлица
+//Код1	Наименование2	Дата регистрации3	Дата рождения4	Документ, удостоверяющий личность5
+//Должность6	ИНН7	Категория плательщика ПФР8	Подразделение9
+//Пол10	Состояние физлица11	ДатаДоговора12
+//20080123
+//н/п-1	Сотрудник-2	Таб ном-3	Дата рожд-4	Пасп данные-5
+//Должность-6	ИНН-7	ПФР-8	Подразделение-9
+//Пол-10	Дата приема-11	Дата увольнения-12
+
+  Imp_Persons:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника сотрудников')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+
+    if getfirst persons where (( 'С' == PERSONS.ISEMPLOYEE
+     and  longint(tmp_excel.dmcell[3]) == persons.tabnmb
+     ))<>0
+
+    { clearbuffer(#persons)
+      PERSONS.ISEMPLOYEE:='С' ;
+      persons.tabnmb :=longint(tmp_excel.dmcell[3]) ;
+      persons.fio    :=tmp_excel.dmcell[2] ;
+      insert current persons ;
+      kl_new:=true ;
+    } else kl_new:=false ;
+    //IENTRYPOINT
+    Persons.DEPARTMENT:=iKatalog_GetValue.GetCatalNrec1(
+      CHFLD('KATPODR','NAME',tmp_excel.dmcell[9]),-11,'') ;
+    Persons.GalDep    :=iKatalog_GetValue.GalDepartmentNrec(Persons.DEPARTMENT);
+    Persons.borndate:=strtodate(tmp_excel.dmcell[4],datemsk)
+    Persons.cBaseProf :=iKatalog_GetValue.GetCatalNrec1(tmp_excel.dmcell[6],-22,'') ;
+//    Persons.JobNature :=iKatalog_GetValue.GetCatalNrec1(tmp_excel.dmcell[11],-12,'') ;
+    if length(tmp_excel.dmcell[11])=8
+      PERSONS.APPDATE:=strtodate(tmp_excel.dmcell[11],'DD.MM.YY') ;
+    else
+      PERSONS.APPDATE:=strtodate(tmp_excel.dmcell[11],datemsk) ;
+    if length(tmp_excel.dmcell[12])=8
+      PERSONS.DISDATE:=strtodate(tmp_excel.dmcell[12],'DD.MM.YY') ;
+    else
+      PERSONS.DISDATE:=strtodate(tmp_excel.dmcell[12],datemsk) ;
+
+//    Persons.CADDNREC2 :=iKatalog_GetValue.GetCatalNrec1(tmp_excel.dmcell[8],-4,'') ;
+    Persons.sex:=char(substr(tmp_excel.dmcell[10],1,1)) ;
+         iKatalog_GetValue.PasspIns(505, // INN
+            Persons.nrec,
+            '', //SER
+            tmp_excel.dmcell[7],//'NMB'),
+            '',//'GIVENBY',
+            date(0,0,0), // 'GIVENDATE'),datemask),
+            '',//'GIVENPODR'),
+            date(0,0,0), // 'TODATE'),datemask),
+            '101',//'KIND',
+            '1',
+            '') ;
+       iKatalog_GetValue.PasspIns(501,//ПФР
+            Persons.nrec,
+            '', //SER
+            tmp_excel.dmcell[8],//'NMB'),
+            '',//'GIVENBY',
+            date(0,0,0), // 'GIVENDATE'),datemask),
+            '',//'GIVENPODR'),
+            date(0,0,0), // 'TODATE'),datemask),
+            '102',//'KIND',
+            '1',
+            '') ;
+//Паспорт гражданина России,41 99,075333,16.05.2000,Приморским ОМ
+       wstr:=ExtractDelimitedWord(tmp_excel.dmcell[5],2,';')
+       wser:=ExtractDelimitedWord(wstr,1,',')  ; wnmb:=ExtractDelimitedWord(wstr,2,',')
+       persons.PASSPRUS:=iKatalog_GetValue.PasspIns(502,
+            Persons.nrec,
+            trim(replace(wser,' серия ','')) , //SER
+            trim(replace(wnmb,' номер ','')),//'NMB'),
+            ExtractDelimitedWord(tmp_excel.dmcell[5],4,';'),//'GIVENBY',
+            StrToDate(trim(ExtractDelimitedWord(tmp_excel.dmcell[5],3,';')),'DD mon YYYY'), // 'GIVENDATE'),datemask),
+            '',//'GIVENPODR'),
+            date(0,0,0), // 'TODATE'),datemask),
+            iKatalog_GetValue.GetTypePassPorts(ExtractDelimitedWord(tmp_excel.dmcell[5],1,';')),//'KIND',
+            '1',
+            '') ;
+//        persons.PASSPRUS:=passports.nrec ;
+    update current persons ;
+    OpenLsch ;
+    update current lschet set
+    lschet.datpos:=persons.appdate,lschet.datuv:=persons.disdate
+    ,lschet.cappoint:=Persons.cBaseProf;
+    logtime('Загрузили карточку '+persons.fio) ;
+  } //_loop tmp_excel
+  Imp_Persons:=true ;
+} //  Imp_Persons:=false ;
+
+Function Imp_Bank  :boolean ;
+var wccity:comp;
+{//20071224 БИК	Наименование	Корр. счет	Город	Адрес	Телефоны
+ //20080116 Код	Наименование	КоррСчет	Город	Адрес	Телефоны - нет изменений
+ //20101227 1:<Дополнительный признак> 2<Код>	3:<Наименование>	4:<КоррСчет>	5:<Город>	6:<Адрес>	7:<Телефоны>
+ //         8:<ID банка системы-источника> 9:<ID города системы-источника>
+
+  Imp_Bank:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника банков')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+
+    //IENTRYPOINT
+    if tmp_excel.dmcell[9] <> '' and getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                             and if(CodeSource<>'',
+                                                                    CodeSource+'.'+tmp_excel.dmcell[9],
+                                                                    tmp_excel.dmcell[9])==spkau_soot.name
+                                                             and 1461==spkau_soot.vdata (noindex))) = 0
+    {
+      wCCITY:=comp(spkau_soot.code)
+    }
+    else
+    {
+      wCCITY:=iKatalog_GetValue.GetKatCityNrecByName(tmp_excel.dmcell[5])
+    }
+    if getfirst katb where (( tmp_excel.dmcell[3] ==katb.name and tmp_excel.dmcell[2] == katb.mfo1 (noindex)))<>0
+
+    { if only_check = 1
+      {
+        continue
+      }
+      clearbuffer(#katb)
+      katb.name    :=tmp_excel.dmcell[3] ;
+      katb.mfo1:=tmp_excel.dmcell[2] ;
+      insert current katb ;
+      katb.ccity := wccity;
+      katb.KORSCHET :=tmp_excel.dmcell[4]
+      katb.addr :=tmp_excel.dmcell[6]+if(tmp_excel.dmcell[7]<>'',',тел '+tmp_excel.dmcell[7],'') ;
+      update current katb ;
+      logtime('Загрузили bank '+katb.name) ;
+    }
+    else
+    {
+      logtime('bank уже загружен'+katb.name+'/'+katb.mfo1) ;
+    }
+    if tmp_excel.dmcell[8] <> ''
+    {  if only_check = 1
+      {
+        continue
+      }
+      clearbuffer(#spkau_soot)
+      spkau_soot.kodgrkau := katkau_soot.kodgroup
+      spkau_soot.code := katb.nrec
+      spkau_soot.name := if(CodeSource<>'', CodeSource+'.'+tmp_excel.dmcell[8],tmp_excel.dmcell[8])
+      spkau_soot.vdata := 1422;
+      insert current spkau_soot;
+    }
+  } //_loop tmp_excel
+  Imp_bank:=true ;
+
+
+}
+
+//==========================
+Function Imp_KatOrgDescr :boolean ;
+{ 
+//20101227
+//1:<дополнительный признак> 2:<Код> 3:<Наименование>	4:<ЭтоГруппа>	5:<Родитель>	6:<НаименованиеПолное>
+//7:<ИНН>	8:<КПП>	9:<КодПоОКПО>	10:<Покупатель>	11:<Поставщик>	12:<ФизЛицо>
+//13:<ОКОПФ>	14:<НеЯвляетсяРезидентом> 15:<Страна>
+//16:<ID контрагента/группы в системе-источнике> 17:<ID страны в системе-источнике>
+  Imp_KatorgDescr := false;
+  ClearGroup ;
+  logtime('Обработка групп контрагентов') ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    if tmp_excel.dmcell[4]='1'
+    { if not group_prev then cleargroup ;
+      if getfirst KatOrgDescr where (( tmp_excel.dmcell[3] == KatOrgDescr.name(noindex) ))<>0
+      { if only_check = 1
+        {
+          continue
+        }
+        insert into KatOrgDescr
+         set KatOrgDescr.cGroup:=if(group_level>0,group_c[group_level],0)
+            ,KatOrgDescr.name  :=tmp_excel.dmcell[3]
+            ,KatOrgDescr.Code  :=1 //longint(group_level)
+            ,KATORGDESCR.SHORTNAME:=tmp_excel.dmcell[2]
+            ;
+
+      }
+      else
+      {
+  
+        logtime('Группа уже загружена '+katorgDescr.name) ;
+        kl_new:=false ;
+        continue;
+      }
+
+      ADD_GROUP(KatOrgDescr.name,string(KatOrgDescr.nrec))
+      if tmp_excel.dmcell[16] <> ''
+      {  if only_check = 1
+        {
+          continue
+        }
+         insert into spkau_soot set
+           spkau_soot.kodgrkau := katkau_soot.kodgroup
+           spkau_soot.code := katOrgDescr.nrec
+           spkau_soot.name := if(CodeSource<>'', CodeSource+'.'+tmp_excel.dmcell[16], tmp_excel.dmcell[16])
+           spkau_soot.vdata := 1471;
+      }
+    }
+  }
+  Imp_KatorgDescr := true;
+    // группа
+}
+
+//==========================
+Function Imp_Katorg :boolean ;
+var wcGrpFiz:comp;
+var wcState:comp;
+{ //	Код	Наименование	ИНН	Полное наименование	Основной договор контрагента
+//20080116
+//Код-2	Наименование-3V	ЭтоГруппа-4V	Родитель-5V	НаименованиеПолное-6V
+//ИНН-7V	КПП-8V	КодПоОКПО-9	Покупатель-10V	Поставщик-11V	ЮрФизЛицо	-12V
+//ОКОПФ-13	НеЯвляетсяРезидентом-14
+//20101227
+//1:<дополнительный признак> 2:<Код> 3:<Наименование>	4:<ЭтоГруппа>	5:<Родитель>	6:<НаименованиеПолное>
+//7:<ИНН>	8:<КПП>	9:<КодПоОКПО>	10:<Покупатель>	11:<Поставщик>	12:<ФизЛицо>
+//13:<ОКОПФ>	14:<НеЯвляетсяРезидентом> 15:<Страна>
+//16:<ID контрагента/группы в системе-источнике> 17:<ID страны в системе-источнике>
+
+//3 группы !!!
+
+  Imp_Katorg:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника контрагентов')
+  Imp_KatOrgDescr ;
+  if getfirst KatOrgDescr where (( 'Физическое лицо' == KatOrgDescr.name(noindex) ))=0
+  {
+    wcGrpFiz := KatorgDescr.nrec
+  }
+  else
+  {
+    logtime('Группа "Физическое лицо" не зарегистрирована!') ;
+    kl_new:=false ;
+    exit;
+  }
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+//    if tmp_excel.dmcell[5]+tmp_excel.dmcell[4]+tmp_excel.dmcell[6]='' // группа
+    if tmp_excel.dmcell[4]='1'
+    { continue ;
+    }
+    // группа
+    if tmp_excel.dmcell[6]='' then tmp_excel.dmcell[6]:=tmp_excel.dmcell[3]
+    group_prev:=false ;
+    if tmp_excel.dmcell[17] <> '' and getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                             and if(CodeSource<>'',
+                                                                    CodeSource+'.'+tmp_excel.dmcell[17],
+                                                                    tmp_excel.dmcell[17])==spkau_soot.name
+                                                             and 1458==spkau_soot.vdata (noindex))) = 0
+    {
+      wcState := comp(spkau_soot.code)
+    }
+    else
+    {
+      wcState := iKatalog_GetValue.GetKatStateNrecByName(tmp_excel.dmcell[15])
+    }
+    if wcState = 0
+    {
+      logtime('Страна отсутствует в справочнике '+tmp_excel.dmcell[15]+'(ID:'+tmp_excel.dmcell[17]+')') ;
+      kl_new:=false ;
+      continue;
+    }
+    if getfirst katorg where ((wcstate==katorg.cstate and tmp_excel.dmcell[6]==katorg.name
+                               and if(tmp_excel.dmcell[7]='','?'+tmp_excel.dmcell[2],tmp_excel.dmcell[7])==katorg.unn))<>0
+
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#katorg)
+      katorg.name    := tmp_excel.dmcell[6] ;
+      KATORG.UNN     := if(tmp_excel.dmcell[7]='','?'+tmp_excel.dmcell[2],tmp_excel.dmcell[7]) //tmp_excel.dmcell[7]
+      katorg.cstate  := wcState
+      insert current katorg ;
+      KATORG.CODE:=tmp_excel.dmcell[2]
+      KATORG.SHORTNAME:=tmp_excel.dmcell[3]
+      KATORG.KODPLATNDS:=tmp_excel.dmcell[8]
+      KATORG.OKPO:=tmp_excel.dmcell[9]
+      KATORG.OKDP:=tmp_excel.dmcell[13]
+      update current katorg ;
+      if tmp_excel.dmcell[5]<>''
+      {
+        Check_Org(tmp_excel.dmcell[5]) ;
+      }
+      if tmp_excel.dmcell[12]=1
+      {
+        Check_Org('Физ. лицо')
+      }
+      if tmp_excel.dmcell[10]='1'
+      {
+        Check_Org('00001') //Покупатель
+      }
+      if tmp_excel.dmcell[11]='1'
+      {
+        Check_Org('00005') //Поставщик
+      }
+      logtime('Загрузили организацию '+katorg.name) ;
+    }
+    else
+    {
+
+      logtime('Организ. уже загружена '+katorg.name+'/'+katorg.unn+'/'+tmp_excel.dmcell[15]) ;
+    }
+    if tmp_excel.dmcell[16] <> ''
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#spkau_soot)
+      spkau_soot.kodgrkau := katkau_soot.kodgroup
+      spkau_soot.code := katOrg.nrec
+      spkau_soot.name := if(CodeSource<>'',CodeSource+'.'+tmp_excel.dmcell[16],tmp_excel.dmcell[16])
+      spkau_soot.vdata := 1418;
+      insert current spkau_soot;
+    }
+  } //_loop tmp_excel
+  Imp_Katorg:=true ;
+
+}
+
+//20080116
+//==========================
+Function Imp_bankSchet: boolean ;
+var wcBank:comp;
+{
+//	Код-2V	Владелец-3V	Наименование-4V	НомерСчета-5V	БанкКод-6V	ДатаОткрытия-7V	ДатаЗакрытия-8V	БанкДляРасчетов-9V
+//20101227
+//	1:<Дополнительный признак> 2:<ID счета в ИС>	3:<ID организации в ИС>	4:<АктивностьСчета>	5:<НомерСчета>
+//	6:<<БИК банка>	7:<ДатаОткрытия>	8:<ДатаЗакрытия>	9:<БанкДляРасчетов> 
+//      10:<<Наименование банка> 11:<ID банка в ИС>
+
+  Imp_bankSchet:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника ед.измерения')
+  ClearGroup ;
+  CheckAttr(coKatbank,'Дата открытия',2)
+  CheckAttr(coKatbank,'Дата закрытия',2)
+  CheckAttr(coKatbank,'Банк для расчетов',0)
+  CheckAttr(coKatbank,'Тип счета',0)
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[3] = ''
+    {
+      logtime('Не указано ID организации в ИС для счета'+tmp_excel.dmcell[5]+'/'+tmp_excel.dmcell[6]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                             and if(CodeSource<>'',
+                                                                    CodeSource+'.'+tmp_excel.dmcell[3],
+                                                                    tmp_excel.dmcell[3])==spkau_soot.name 
+                                                             and 1418==spkau_soot.vdata (noindex))) <> 0
+    { logtime('Отсутствует соответствие для организации с ID '+tmp_excel.dmcell[3]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+
+    }
+    if getfirst katorg where ((comp(spkau_soot.code)==katorg.nrec)) <> 0
+    {
+      logtime('Не удалось установить организацию для счета'+tmp_excel.dmcell[5]+'/'+tmp_excel.dmcell[6]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wcBank := 0;
+    if tmp_excel.dmcell[11] <> '' and getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                             and if(CodeSource<>'',
+                                                                    CodeSource+'.'+tmp_excel.dmcell[11],
+                                                                    tmp_excel.dmcell[11])==spkau_soot.name
+                                                             and 1422==spkau_soot.vdata (noindex))) = 0
+    { 
+      wcBank := comp(spkau_soot.code);
+    }
+    else
+    {
+      if getfirst katb where ((tmp_excel.dmcell[6]==katb.mfo1 and tmp_excel.dmcell[10]==katb.name (noindex))) <> 0
+      {
+        logtime('Не удалось найти банк с параметрами'+tmp_excel.dmcell[6]+'/'+tmp_excel.dmcell[10]) ;
+        wexrow:=wexrow+1 ;
+        continue ;
+      }
+      else
+      {
+        wcBank := katb.nrec
+      }
+    }
+    if getfirst katb where ((wcbank==katb.nrec)) <> 0
+    {
+        logtime('Не удалось идентифицировать банк для счета'+tmp_excel.dmcell[6]+'/'+tmp_excel.dmcell[5]) ;
+        wexrow:=wexrow+1 ;
+        continue ;
+    }
+    if getfirst katbank where ((
+                                tmp_excel.dmcell[5]==KATBANK.SCHET1
+                            and katb.mfo1 == katbank.mfo1
+                            and katb.name == katbank.name
+                            and katorg.nrec == katbank.corg))<>0
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#katbank)
+      katbank.corg  :=katorg.nrec ;
+      KATBANK.SCHET1:=tmp_excel.dmcell[5] ;
+      KATBANK.MFO1  :=katb.mfo1
+      KATBANK.NAME  :=katb.name
+      insert current katbank ;
+      KATBANK.MFO2:=tmp_excel.dmcell[9] ;
+      KATBANK.AKTIV:=if('ОСНОВНОЙ'=upcase(tmp_excel.dmcell[4]),1,0)
+      KATBANK.cbank :=katb.nrec ;
+      KATBANK.SCHET2:=katb.KORSCHET
+      update current katbank ;
+//      SetAttr(cokatbank,'Тип счета',katbank.nrec,tmp_excel.dmcell[4])
+//      SetAttr(cokatbank,'Дата открытия',katbank.nrec,DateTostr(strtodate(tmp_excel.dmcell[7],'DD.MM.YYYY'),'DD/MM/YYYY'))
+//      SetAttr(cokatbank,'Дата закрытия',katbank.nrec,DateTostr(strtodate(tmp_excel.dmcell[8],'DD.MM.YYYY'),'DD/MM/YYYY'))
+//      SetAttr(cokatbank,'Банк для расчетов',katbank.nrec,tmp_excel.dmcell[9])
+      logtime('Загрузили счет '+KATBANK.SCHET1+'/'+katbank.mfo1) ;
+    }
+    else
+    {
+        logtime('Счет организации уже существует '+tmp_excel.dmcell[5]+'/'+tmp_excel.dmcell[6]) ;
+    }
+    if tmp_excel.dmcell[2] <> ''
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#spkau_soot)
+      spkau_soot.kodgrkau := katkau_soot.kodgroup
+      spkau_soot.code := katbank.nrec
+      spkau_soot.name := if(CodeSource<>'', CodeSource+'.'+tmp_excel.dmcell[2], tmp_excel.dmcell[2])
+      spkau_soot.vdata := 1421;
+      insert current spkau_soot;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+ } //_loop tmp_excel
+ Imp_bankSchet:=true ;
+}
+
+//20080116
+//==========================
+Function Imp_KatorgKontact: boolean ;
+{
+//	Представление-2	Тип-3	Вид-4	ВладелецКод-5
+//20101227
+//	1:<дополнительный признак> 2:<Представление>	3:<Тип>	4:<Вид>	5:<ID организации в ИС>
+  Imp_KatorgKontact:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника контактные данные котрагента')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[5] = '' 
+    {
+      logtime('Не указано ID организации в ИС для контакта '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[4]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                             and if(CodeSource<>'', 
+                                                                    CodeSource+'.'+tmp_excel.dmcell[5],
+                                                                    tmp_excel.dmcell[5])==spkau_soot.name 
+                                                             and 1418==spkau_soot.vdata (noindex))) <> 0
+    { logtime('Отсутствует соответствие для организации с ID '+tmp_excel.dmcell[5]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+
+    }
+    if getfirst katorg where ((comp(spkau_soot.code)==katorg.nrec)) <> 0
+    {
+      logtime('Не удалось установить организацию для контакта'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[4]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+
+    if only_check = 1
+    {
+      continue
+    }
+    if tmp_excel.dmcell[4]='Телефон контрагента'
+    { if tmp_excel.dmcell[2]<>''
+        KATORG.TEL:=tmp_excel.dmcell[2]
+
+    }
+    if tmp_excel.dmcell[4]='Фактический адрес контрагента'
+    { if tmp_excel.dmcell[2]<>''
+      {
+        KATORG.ADDR:=tmp_excel.dmcell[2]
+      }
+    }
+    update current KATorg ;
+
+    if getfirst PODRINFO where (( KATORG.NREC  == PODRINFO.CPODR  ))<>0
+    { 
+      insert into PODRINFO  set PODRINFO.CPODR:=KATORG.NREC ;
+    }
+    if katorg.addr <> ''
+    {
+      PODRINFO.OKVED:=string(GetAddr(3,comp(PODRINFO.OKVED),katorg.addr))
+    }
+    if tmp_excel.dmcell[4]='Юридический адрес контрагента'
+    {
+      PODRINFO.INSNOMER:=string(GetAddr(3,comp(PODRINFO.INSNOMER),tmp_excel.dmcell[2]))
+    }
+    update current podrinfo ;
+
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+  } //_loop tmp_excel
+  Imp_KatorgKontact:=true ;
+}
+
+//==========================
+Function Imp_ExtAttr: boolean ;
+var i:integer;
+var wcobj:comp;
+var wTable:word;
+var wsAttr:string;
+{
+//	Представление-2	Тип-3	Вид-4	ВладелецКод-5
+//20101227
+//	1:<дополнительный признак> 2:<Представление атрибута>	3:<Тип объекта>	4:<Вид атрибута>	5:<ID объекта в ИС>  6:<ID значения в ИС> 7<Текстовое представление атрибута>
+//6:<Тип объекта аналитики атрибута>
+
+  Imp_ExtAttr:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка внешних атрибутов контрагента')
+  ClearGroup ;
+  _loop tmp_excel
+  { wcobj := 0
+    if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[3]=''
+    {
+      logtime('Не указано значение атрибута для объекта '+tmp_excel.dmcell[4]+'='+tmp_excel.dmcell[5]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[5]=''
+    {
+      logtime('Не указан ID объекта в ИС для атрибута со значением '+tmp_excel.dmcell[4]+'='+tmp_excel.dmcell[2]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if getfirst x$files where ((tmp_excel.dmcell[3]==x$files.xf$name)) <> 0
+    { logtime('Некорректный тип объекта '+tmp_excel.dmcell[3]) ;
+      continue;
+    }
+    wTable := x$files.xf$code
+//    wcobj:=Check_Obj(wTable, tmp_excel.dmcell[5])
+    if wcobj=0
+    {
+//      wexrow:=wexrow+1 ;
+//      continue ;
+        wcobj:=tmp_excel.dmcell[5]
+    }
+    if tmp_excel.dmcell[6] <> ''
+    {
+      if getfirst x$files where ((tmp_excel.dmcell[6]==x$files.xf$name)) <> 0
+      { logtime('Некорректный тип объекта аналитики '+tmp_excel.dmcell[6]) ;
+        continue;
+      }
+      wsattr := string(Check_Obj(x$files.xf$code, tmp_excel.dmcell[2]))
+    }
+    else
+    {
+      wsattr := tmp_excel.dmcell[2]
+    }
+    if getfirst attrnam where ((wTable==attrnam.wtable and tmp_excel.dmcell[4]==attrnam.name)) = 0
+    {
+      if tmp_excel.dmcell[2]<>''
+      {
+        if only_check = 1
+        {
+          continue
+        }
+        if attrnam.attrtype=5
+        {
+          SetAttrCompStr(attrnam.wTable,attrnam.name,wcobj,comp(wsattr), tmp_excel.dmcell[7]) ;
+        }
+        else
+        {
+          SetAttr(attrnam.wTable,attrnam.name,wcobj,wsattr) ;
+        }
+      }
+    }
+    else
+    {
+      logtime('Не определен атрибут для типа объекта '+tmp_excel.dmcell[4]+'/'+tmp_excel.dmcell[3])
+      wexrow:=wexrow+1 ;
+      continue;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+ } //_loop tmp_excel
+ Imp_ExtAttr:=true ;
+}
+
+//20080116
+//==========================
+Function Imp_Dogovor: boolean ;
+var wwdt :date ;
+  wwstr,wwstr1: string ;
+  wstat1:word ;
+  wcorg, wcstate, wcvidd:comp ;
+  wcpodr, wcgrpodr, wcfpco:comp;
+  wspodr, wsgrpodr, wstemp:string;
+  wviddog, wdirect:word;
+{Imp_Dogovor:=false ;
+  wexrow:=0 ;
+//Собственная организация-1
+//Спецификация-2
+//№ ДОГОВОРА КОНТРАГЕНТА-3
+//№ ДОГОВОРА ОБЩЕСТВА-4V
+//ДАТА ЗАКЛЮЧЕНИЯ ДОГОВОРА-5V
+//ПРЕДМЕТ ДОГОВОРА-6
+//КОНТРАГЕНТ/ ИНН-7
+//Ф.И.О. ЛИЦА, ОТВЕТСТВЕННОГО ПО ДОГОВОРУ-8
+//СРОК ДЕЙСТВИЯ ДОГОВОРА-9
+//ЦЕНА ДОГОВОРА-10
+//СВЕДЕНИЯ ОБ ИСПОЛНЕНИИ ДОГОВОРА-11
+//ДОПОЛНИТЕЛЬНЫЕ СОГЛАШЕНИЯ, СПЕЦИФИКАЦИИ (ДАТА, НОМЕР, СУММА)-12
+//ОДОБРЕНИЕ СДЕЛКИ	-13
+//ДАТА РЕГИСТРАЦИИ, РЕГИСТРАТОР -14
+// 15 - направление
+
+//20080215
+//№ ДОГОВОРА КОНТРАГЕНТА-1
+//№ ДОГОВОРА ОБЩЕСТВА-2
+//ДАТА ЗАКЛЮЧЕНИЯ ДОГОВОРА-3
+//ВИД ДОГОВОРА-4
+//ПРЕДМЕТ ДОГОВОРА-5
+//КОНТРАГЕНТ/ ИНН-6
+//Ф.И.О. ЛИЦА, ОТВЕТСТВЕННОГО ПО ДОГОВОРУ-7
+//СРОК ДЕЙСТВИЯ ДОГОВОРА-8
+//ЦЕНА ДОГОВОРА-9
+//СВЕДЕНИЯ ОБ ИСПОЛНЕНИИ ДОГОВОРА-10
+//ДОПОЛНИТЕЛЬНЫЕ СОГЛАШЕНИЯ, СПЕЦИФИКАЦИИ (ДАТА, НОМЕР, СУММА)-11
+//ОДОБРЕНИЕ СДЕЛКИ-12
+//ДАТА РЕГИСТРАЦИИ, РЕГИСТРАТОР	-13
+
+//20100817
+//№ ДОГОВОРА КОНТРАГЕНТА-1
+//№ ДОГОВОРА ОБЩЕСТВА-2
+//ДАТА ЗАКЛЮЧЕНИЯ ДОГОВОРА-3
+//НАПРАВЛЕНИЕ ДОГОВОРА-4
+//ВИД ДОГОВОРА-5
+//ПРЕДМЕТ ДОГОВОРА-6
+//КОНТРАГЕНТ-7
+//ИНН-8
+//курирующее подразделение-9
+//НАЧАЛО ДЕЙСТВИЯ ДОГОВОРА-10
+//КОНЕЦ ДЕЙСТВИЯ ДОГОВОРА-11
+//СУММА ДОГОВОРА-12
+//СУММА НДС-13
+//СУММА ДОГОВОРА С НДС-14
+//СВЕДЕНИЯ ОБ ИСПОЛНЕНИИ ДОГОВОРА-15
+//ДОПОЛНИТЕЛЬНЫЕ СОГЛАШЕНИЯ, СПЕЦИФИКАЦИИ (ДАТА, НОМЕР, СУММА)-16
+//ОДОБРЕНИЕ СДЕЛКИ-17
+//ДАТА РЕГИСТРАЦИИ, РЕГИСТРАТОР	-18
+
+//20101227
+//1:<№ ДОГОВОРА КОНТРАГЕНТА>
+//2:<№ ДОГОВОРА ОБЩЕСТВА>
+//3:<ДАТА ЗАКЛЮЧЕНИЯ ДОГОВОРА>
+//4:<НАПРАВЛЕНИЕ ДОГОВОРА>
+//5:<ВИД ДОГОВОРА>
+//6:<ПРЕДМЕТ ДОГОВОРА>
+//7:<КОНТРАГЕНТ>
+//8:<ИНН>
+//9:<курирующее подразделение>
+//10:<НАЧАЛО ДЕЙСТВИЯ ДОГОВОРА>
+//11:<КОНЕЦ ДЕЙСТВИЯ ДОГОВОРА>
+//12:<СУММА ДОГОВОРА>
+//13:<СУММА НДС>
+//14:<СУММА ДОГОВОРА С НДС>
+//15:<ДАТА РЕГИСТРАЦИИ ДОГОВОРА>
+//16<ГРУППА ПОДРАЗДЕЛЕНИЙ>
+//17<СТРАНА КОНТРАГЕНТА>
+//18<ОТВЕТСТВЕННЫЙ>
+//19:<ПРЕДМЕТ ДОГОВОРА 2>
+//20:<ПРЕДМЕТ ДОГОВОРА 3>
+//21<ID подразделения в ИС>
+//22<ID контрагента в ИС>
+//23<ID договора в ИС>
+//24<Центр ответственности>
+
+  inextvisual('Обработка договоров')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[1]='' then tmp_excel.dmcell[1]:=tmp_excel.dmcell[2] ;
+    if tmp_excel.dmcell[3]='' then tmp_excel.dmcell[3]:=tmp_excel.dmcell[15] ;
+    if tmp_excel.dmcell[15]='' or tmp_excel.dmcell[2]='' 
+    { 
+      logtime('Отсутствуют регистрационные данные договора!') ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[18]='' and tmp_excel.dmcell[7]='' 
+    { 
+      logtime('Отсутствуют данные для организации по договору '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[15]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wcorg:=0
+    if tmp_excel.dmcell[22] <> ''
+    {
+      if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                               and if(CodeSource<>'', 
+                                                                    CodeSource+'.'+tmp_excel.dmcell[22],
+                                                                    tmp_excel.dmcell[22])==spkau_soot.name 
+                                                               and 1418==spkau_soot.vdata (noindex))) <> 0
+      { logtime('Отсутствует соответствие для контрагента с ID '+tmp_excel.dmcell[22]) ;
+        wexrow:=wexrow+1 ;
+        continue ;
+      }
+      wcorg := comp(spkau_soot.code);
+    }
+    else
+    {
+      wcState := iKatalog_GetValue.GetKatStateNrecByName(tmp_excel.dmcell[17])
+      if getfirst katorg where ((wcstate==katorg.cstate and tmp_excel.dmcell[7] ==katorg.name and tmp_excel.dmcell[8] == katorg.unn))=0
+      {
+        wcorg:=katorg.nrec;
+      }
+      else
+      {
+        logtime('Отсутствует контрагент с параметрами '+tmp_excel.dmcell[7]+'/'+tmp_excel.dmcell[8]+'/'+tmp_excel.dmcell[17]) ;
+        wexrow:=wexrow+1 ;
+        continue ;        }
+    }
+    if wcorg=0
+    {
+        logtime('Не удалось определить контрагента для договора '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[15]) ;
+        wexrow:=wexrow+1 ;
+        continue;
+    }
+    if getfirst katorg where ((wcorg==katorg.nrec)) <> 0
+    {
+        logtime('Не удалось идентифицировать контрагента в каталоге для договора'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[15]) ;
+        wexrow:=wexrow+1 ;
+        continue ;
+    }
+    if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                               and if(CodeSource<>'', 
+                                                                    CodeSource+'.'+tmp_excel.dmcell[5],
+                                                                    tmp_excel.dmcell[5])==spkau_soot.name 
+                                                               and tmp_excel.dmcell[4]==spkau_soot.levelcode (noindex)
+                                                               and 1710==spkau_soot.vdata (noindex))) <> 0
+    { 
+      wcvidd := iKatalog_GetValue.FindKatVid(tmp_excel.dmcell[5],word(tmp_excel.dmcell[4]));
+    }
+    else
+    {
+      wcvidd := comp(spkau_soot.code)
+    }
+    if getfirst katvidd where ((wcvidd==katvidd.nrec)) <> 0
+    {
+      logtime('Не удалось установить вид для договора'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[15]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    else
+    {
+      wviddog := katvidd.viddog
+      wdirect := katvidd.direct
+    }
+    wwdt := StrTodate(tmp_excel.dmcell[15],datemsk)
+    if wwdt = date(0,0,0)
+    {
+      logtime('Ошибка даты регистрации для договора '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[15]) ;
+      wexrow:=wexrow+1 ;
+      continue;
+    }
+    wcgrpodr := 0
+    wcpodr := 0
+    if tmp_excel.dmcell[21] <> ''
+    {
+      if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                               and if(CodeSource<>'', 
+                                                                    CodeSource+'.'+tmp_excel.dmcell[21],
+                                                                    tmp_excel.dmcell[21])==spkau_soot.name 
+                                                               and 1413==spkau_soot.vdata (noindex))) = 0
+      { wcpodr := comp(spkau_soot.code);
+      }
+    }
+    if wcpodr = 0
+    {
+      if getfirst grpodr where (( tmp_excel.dmcell[16] ==grpodr.name))=0
+      {
+        wcgrpodr := grpodr.nrec
+        if getfirst katpodr where ((wcgrpodr==katpodr.cgrpodr and tmp_excel.dmcell[9]==katpodr.name))=0
+        {
+          wcpodr := katpodr.nrec
+        }
+        else
+        {
+          logtime('Не удалось установить подразделение для договора'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[15]) ;
+        }
+      }
+      else
+      {
+        logtime('Не удалось установить группу подразделений для договора'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[15]) ;
+      }
+    }
+    wcfpco := comp(0)
+    if tmp_excel.dmcell[24] <> ''
+    {
+       wcfpco := iKatalog_GetValue.GetFPCONrecByName(tmp_excel.dmcell[24])
+    }
+    if getfirst dogovor where ((0==dogovor.cdogovor and wcorg==dogovor.corg and tmp_excel.dmcell[2]==dogovor.nodoc and wwdt==DOGOVOR.DDOC))<>0
+    {  if only_check = 1
+       {
+         continue
+       }
+       clearbuffer(#dogovor)
+       dogovor.nodoc:=tmp_excel.dmcell[2]
+       DOGOVOR.DDOC :=wwdt
+       dogovor.corg :=wcorg
+       dogovor.cdogovor :=0
+       Dogovor.cMyOrg:=cogettune('MyOrg') ;
+       dogovor.cviddog := wcvidd
+       dogovor.viddog  := wviddog
+       dogovor.direct  := wdirect
+       dogovor.tidk:=400 ;
+       dogovor.tipmoney:=1;
+       insert current dogovor ;
+      if tmp_excel.dmcell[10] <> ''
+      { DOGOVOR.DBEG:=strtodate(tmp_excel.dmcell[10],datemsk)
+      }
+      if DOGOVOR.DBEG=date(0,0,0)
+      { DOGOVOR.DBEG:=dogovor.dinput ;
+      }
+      if tmp_excel.dmcell[11] <> ''
+      { DOGOVOR.DEND:=strtodate(tmp_excel.dmcell[11],datemsk)
+      }
+      if DOGOVOR.DEND=date(0,0,0)
+      { DOGOVOR.DEND:=date(31,12,year(cur_date))
+      }
+      DOGOVOR.NODOC_EXT:=tmp_excel.dmcell[1]
+      DOGOVOR.DINPUT:=strtodate(tmp_excel.dmcell[3],datemsk)  //strtodate(trim(substr(tmp_excel.dmcell[13],1,pos(' ',tmp_excel.dmcell[13])-1)),datemsk)
+      if DOGOVOR.DINPUT=date(0,0,0) then DOGOVOR.DINPUT:=dogovor.ddoc ;
+      DOGOVOR.CCURPODR := wcpodr
+      if dogovor.direct=1
+      { dogovor.CPOL:=cogettune('MyOrg')
+        dogovor.CBANKPOL:=cogettune('MyBank')
+        dogovor.CPLAT:=dogovor.corg ;
+        dogovor.CGROTP:=dogovor.cpol
+        dogovor.CGRPOL:=dogovor.CPLAT
+        dogovor.CBANKPLAT:=iKatalog_GetValue.GetKatbankNrec(wcorg,'')
+      }
+      else
+      { dogovor.CPLAT:=cogettune('MyOrg')
+        dogovor.CBANKPLAT:=cogettune('MyBank')
+        dogovor.CPOL :=dogovor.corg ;
+        dogovor.CGROTP:=dogovor.cpol
+        dogovor.CGRPOL:=dogovor.CPLAT
+        dogovor.CBANKPOL:=iKatalog_GetValue.GetKatbankNrec(wcorg,'')
+      }
+      if dogovor.cnote=0
+      { wwstr:='оформляемый' ;wstat1:=0 ;
+        dogovor.CNOTE:=iKatalog_GetValue.FindNote(400,wwstr,wstat1)
+        dogovor.STATUS:=wstat1 ;
+      }
+      if mydouble(tmp_excel.dmcell[12]) < mydouble(tmp_excel.dmcell[14])
+      {
+        dogovor.VHODNAL:=1
+      }
+      else
+      {
+        dogovor.VHODNAL:=2
+      }
+      DOGOVOR.SUMMA:=mydouble(tmp_excel.dmcell[14])
+      DOGOVOR.SUMNDS:=mydouble(tmp_excel.dmcell[13])
+      update current dogovor ;
+ 
+      if getfirst AttrDog where (( dogovor.nrec == AttrDog.cDogovor ))<>0
+      { clearbuffer(tnAttrDog )
+        AttrDog.cDogovor:=dogovor.nrec ;
+        insert current AttrDog ;
+      }
+ 
+      ATTRDOG.SUBJECT1:=tmp_excel.dmcell[6]
+      ATTRDOG.SUBJECT2:=tmp_excel.dmcell[19]
+      ATTRDOG.SUBJECT3:=tmp_excel.dmcell[20]
+      ATTRDOG.OTV_MY_FIO:=tmp_excel.dmcell[18]
+      ATTRDOG.cpodr:= wcfpco
+//    ATTRDOG.OTV_MY_POST:=GetDolgByIn(tmp_excel.dmcell[18])
+//    ATTRDOG.COTV_MY:=persons.nrec ;
+
+      update current ATTRDOG ;
+      logtime('Загрузили договор '+dogovor.nodoc+' от '+tmp_excel.dmcell[3]) ;
+    }
+    else
+    {
+      logtime('договор уже загружен '+tmp_excel.dmcell[2]+'/'+datetostr(wwdt, 'DD-MM-YYYY')  + '/' + tmp_excel.dmcell[7]) ;
+    }
+
+    if tmp_excel.dmcell[23] <> ''
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#spkau_soot)
+      spkau_soot.kodgrkau := katkau_soot.kodgroup
+      spkau_soot.code := dogovor.nrec
+      spkau_soot.name := if(CodeSource<>'', CodeSource+'.'+tmp_excel.dmcell[23], tmp_excel.dmcell[23])
+      spkau_soot.vdata := 1707;
+      insert current spkau_soot ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 10=0 if not nextvisual then exit ;
+ } //_loop tmp_excel
+ Imp_Dogovor:=true ;
+}
+
+//===============
+Function Imp_DogSpec: boolean ;
+var wwdt :date ;
+  wwstr, wwstr1: string ;
+  wnom:string ;
+  wtidk:word ;
+  wsu,wsunds:double ;
+  wCorg,wcmaindog,wcdogdop,wcdog,wcmcusl, wcgrmcusl,wcgrnal, wcotped:comp ;
+//УДАЛИТЬ -1
+//Договор по спецификации-2
+//Дата договора спецификации-3
+//Номер спецификации-4
+//Дата спецификации-5
+//Контрагент-6
+//ИНН-7
+//Вид-8
+//Код-9
+//Номенклатура-10
+//Количество-11
+//Ед.-12
+//Цена-13
+//Сумма без НДС-14
+//%НДС-15
+//Сумма НДС-16
+//Всего-17
+//Дата поставки-18
+//Абонентский ящик-19
+//20101227
+//1:<Дополнительный признак>
+//2:<ID договора в ИС>
+//3:<ID доопсоглашения в ИС>
+//4:<Вид-4>
+//5:<Код-5>
+//6:<Номенклатура-6>
+//7:<Количество-7>
+//8:<Ед.-8>
+//9<Цена-9>
+//10<Сумма без НДС-10>
+//11<%НДС-11>
+//12<Сумма НДС-12>
+//13<Всего-13>
+//14<Дата поставки-14>
+
+{Imp_DogSpec:=false ;
+  wexrow:=0 ;
+
+  inextvisual('Обработка спецификации договоров|соглашений')
+  delete all ierdog ;
+  ClearGroup ;
+  delete all tmp_nmgroup ;
+  logfilekl:=true ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0
+    { if not nextvisual then exit ;
+    }
+    wcmaindog := 0;
+    wcdogdop := 0;
+    if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                               and if(CodeSource<>'', 
+                                                                    CodeSource+'.'+tmp_excel.dmcell[2],
+                                                                    tmp_excel.dmcell[2])==spkau_soot.name 
+                                                               and 1707==spkau_soot.vdata (noindex))) = 0
+    { wcmaindog := comp(spkau_soot.code);
+    }
+    else
+    { logmy('Отсутствует соответствие для Id договора источника!'+tmp_excel.dmcell[2]) ;
+      wexrow := wexrow+1
+      continue ;
+    }
+    if getfirst dogovor1 where ((wcmaindog == dogovor1.nrec))<>0
+    {  logmy('Нет договора для ID источника!'+tmp_excel.dmcell[2]) ;
+       continue ;
+    }
+    if tmp_excel.dmcell[3] <> ''
+    {
+      if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                                 and if(CodeSource<>'', 
+                                                                    CodeSource+'.'+tmp_excel.dmcell[3],
+                                                                    tmp_excel.dmcell[3])==spkau_soot.name 
+                                                                 and 1707==spkau_soot.vdata (noindex))) = 0
+      { wcdogdop := comp(spkau_soot.code);
+      }
+      else
+      { logmy('Отсутствует соответствие для Id допсоглашения источника!'+tmp_excel.dmcell[2]) ;
+        continue ;
+      }
+      if getfirst dogovor where ((wcdogdop==dogovor.nrec))<>0
+      {  logmy('Отсутствует допсоглашение для Id источника!'+tmp_excel.dmcell[3]) ;
+         continue ;
+      }
+      if dogovor.cdogovor <> wcmaindog
+      {  logmy('Допсоглашение не относится к главному договору для Id источника!'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3]) ;
+         continue ;
+      }
+    }
+    if wcdogdop > 0
+    {
+       wcdog := wcdogdop
+       wtidk := dogovor.tidk
+    }
+    else
+    {
+       wcdog := wcmaindog
+       wtidk := dogovor1.tidk
+    }
+    if tmp_excel.dmcell[4]='МЦ'
+    {
+      wCMCUSL:=iKatalog_GetValue.GetKatMcNrecByCodeName(tmp_excel.dmcell[5],tmp_excel.dmcell[6])
+      if wCMCUSL=0
+      { wCMCUSL:=iKatalog_GetValue.GetKatMcNrecByName(tmp_excel.dmcell[6])
+      }
+      if wcmcusl>0
+      { if getfirst katmc where (( wcmcusl == katmc.nrec ))=0
+        {
+          wCGRMCUSL:=katmc.cgroupmc ;
+          wcgrnal:=katmc.cgrnal ;
+          wCOTPED:=iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,tmp_excel.dmcell[8])  //Ц из каталога единиц измерения
+        }
+      }
+      else
+      { LogMy('Нет записи='+tmp_excel.dmcell[5]+'='+tmp_excel.dmcell[6])
+        continue;
+      }
+    }
+    else
+    {
+      wCMCUSL:=iKatalog_GetValue.GetKatUslNrecByName(tmp_excel.dmcell[6])
+      if wcmcusl>0
+      { if getfirst katusl where (( wcmcusl == katusl.nrec ))=0
+        {
+          wCGRMCUSL:=katusl.cgroupusl ;
+          wcgrnal:=katusl.cgrnal ;
+          wCOTPED:=iKatalog_GetValue.Getkatotpednrec(2,katusl.nrec,tmp_excel.dmcell[8])  //Ц из каталога единиц измерения
+        }
+      }
+      else
+      { LogMy('Нет записи='+tmp_excel.dmcell[5]+'='+tmp_excel.dmcell[6])
+        continue;
+      }
+    }
+    if only_check = 1
+    {
+      continue
+    }
+    if getfirst tmp_nmgroup where (( string(wcdog) == tmp_nmgroup.nrec ))<>0
+    { insert into tmp_nmgroup set tmp_nmgroup.nrec:=string(wcdog),tmp_nmgroup.name:='00000' ;
+    }
+    // счетчик позиции
+    update current tmp_nmgroup set tmp_nmgroup.name:=nextnumstr(tmp_nmgroup.name) ;
+//    if getfirst spdocs where
+//      (( wcdog == spdocs.cdoc
+//     and wtidk == spdocs.tidk
+//     and tmp_nmgroup.name == spdocs.code )) <>0
+//    {
+      insert into spdocs set
+        spdocs.cdoc:=wcdog
+       ,spdocs.tidk:=wtidk
+       ,spdocs.code:=tmp_nmgroup.name ;
+
+//    }
+    spdocs.prmc:=if(tmp_excel.dmcell[4]='МЦ',1,2) ;
+    spdocs.CMCUSL:= wcmcusl
+    spdocs.CGRMCUSL:=wCGRMCUSL ;
+    spdocs.cgrnal:=wcgrnal ;
+    spdocs.COTPED:=wCOTPED
+    spdocs.DIRECT:=dogovor1.direct ;
+    spdocs.EMPTY:=1
+    SPDOCS.DPOST:=if(wcdogdop>0,dogovor.dbeg,dogovor1.dbeg) ;
+    spdocs.KOL:=mydouble(tmp_excel.dmcell[7]) //- Количество
+    spdocs.OSTATOK:=spdocs.KOL
+    spdocs.PRICE:=mydouble(tmp_excel.dmcell[9])// Цена (за единицу)
+    spdocs.SUMMA:=if(tmp_excel.dmcell[13]<>'',mydouble(tmp_excel.dmcell[13]),mydouble(tmp_excel.dmcell[10])) // Сумма (с учетом налогов)
+    spdocs.SUMNDS:=if(tmp_excel.dmcell[12]<>'',mydouble(tmp_excel.dmcell[12]),mydouble(tmp_excel.dmcell[13])-mydouble(tmp_excel.dmcell[10])) // = Сумма НДС
+    spdocs.DFROM:=if(wcdogdop>0,dogovor.dbeg,dogovor1.dbeg) ;// берется из полей Дополнительного соглашения = DOGOVOR.DBEG
+    spdocs.DTO:=if(wcdogdop>0,dogovor.dend,dogovor1.dend) ;// берется из полей Дополнительного соглашения =DOGOVOR.DEND
+    spdocs.period:=4
+    spdocs.numperiod:=MONTHS_BETWEEN(spdocs.dto, spdocs.dfrom)+1
+    spdocs.kolperiod:=spdocs.kol/if(spdocs.numperiod=0,1, spdocs.numperiod)
+    update current spdocs ;
+  // спец.налогов !
+    iKatalog_GetValue.MakeSpDocNal(spdocs.tidk,spdocs.nrec,if(wcdogdop>0,dogovor.nrec,dogovor1.nrec),0.18,spdocs.SUMNDS,spdocs.CGRNAL,katnalog.nrec,if(wcdogdop>0,dogovor.corg,dogovor1.corg)) ;
+    logtime('Загрузили спецификацию '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3]) ;
+  } //_loop tmp_excel
+
+  _loop tmp_nmgroup // подсчитаем сумму по спецификации
+  {
+    chet:=chet+1 ;
+    if chet mod 100=0
+    { if not nextvisual then exit ;
+    }
+    if getfirst dogovor where (( comp(tmp_nmgroup.nrec) == dogovor.nrec ))<>0 continue ;
+    wsu:=0 ; wsunds:=0 ;
+    external _loop spdocs where (( dogovor.nrec == spdocs.cdoc and dogovor.tidk == spdocs.tidk ))
+    { if spdocs.code>tmp_nmgroup.name
+      { delete SPDOCNAL where (( spdocs.nrec ==SPDOCNAL.CSPDOC and spdocs.tidk == SPDOCNAL.TIPDOC )) ;
+        delete current spdocs ;
+      }
+      else
+      { wsu:=wsu+spdocs.summa ;
+        wsunds:=wsunds+spdocs.sumnds ;
+      }
+    }
+    if dogovor.summa <> wsu
+    {
+       logtime('Сумма договора отличается от суммы спецификации'+dogovor.nodoc+' от '+datetostr(dogovor.dinput, 'DD-MM-YYYY')) ;
+    }
+  } //_loop tmp_nmgroup
+  Imp_DogSpec:=true ;
+}//Imp_DogSpec
+
+//==========
+Function Imp_DogDop: boolean ;
+var wwdt :date ;
+  wwstr: string ;
+  wstat1:word ;
+  wnom:string ;
+  wsu,wsunds:double ;
+  wCSALDTUNE,wcobj,wckau1,wckau2,wckau3:comp ;
+{Imp_DogDop:=false ;
+  wexrow:=0 ;
+//УДАЛИТЬ -1
+//Номер спецификации-2	Дата спецификации-3
+//Договор по спецификации-4
+//Дата договора спецификации-5
+//№-6
+//Код-7
+//Артикул-8
+//Поставка-9
+//Код позиции (PID)-10
+//Номенклатура-11
+//Целевое использование-12
+//Год использования-13
+//Ед. мест-14
+//К. мест-15
+//Мест-16
+//Количество-17
+//Ед.-18
+//К.-19
+//Цена-20
+//Сумма без НДС-21
+//%НДС-22
+//Сумма НДС-23
+//Всего-24
+//Авансирование-25
+//Аванс,%-26
+//Сумма аванса-27
+//Подразделение-28
+//Спецификация-29
+//Заказ-30
+//Себестоимость-31
+//Сумма себестоимости-32
+//Отклонение-33
+//% отклонения-34
+//Галактика	DOGOVOR.NODOC_EXT	DOGOVOR.DINPUT	DOGOVOR.CDOGOVOR	DOGOVOR.CDOGOVOR	SPDOCS.CODE	SPDOCS.CMCUSL	НЕ НАДО	SPDOCS.DPOST	Создать внешний атрибут Код позиции (PID)	SPDOCS.CMCUSL	SPECMTR.COBJ	НЕ НАДО, так как это поле в предыдущем разделе совмещенно	НЕ НАДО	НЕ НАДО	НЕ НАДО	SPDOCS.KOL	KATOTPED.ABBR	НЕ НАДО	SPDOCS.PRICE	НЕ НАДО	GRNAL.NAME	SPDOCS.SUMNDS	SPDOCS.SUMMA	НЕ НАДО	НЕ НАДО	НЕ НАДО	SPECMTR.CKAU[1]
+//Статус	Изменять	Изменять	Из вышестоящего договора	Из вышестоящего договора							ССЫЛКА на каталог ОБЪЕКТОВ строительства										НАЛОГИ ВХОДЯТ в ЦЕНУ						Ссылка на каталог ЦЕНТРОВ ОТВЕТСТВЕННОСТИ	НЕ НАДО	НЕ НАДО	НЕ НАДО	НЕ НАДО	НЕ НАДО	НЕ НАДО
+
+    CheckAttr(coSPDocs,'Код позиции (PID)',0) ;
+//"номер договора"+'/'+substr(lpad(номер соглашения,10),length(lpad(номер соглашения,10))-9,10) ;
+
+  inextvisual('Обработка договоров|соглашений')
+  delete all ierdog ;
+  ClearGroup ;
+  delete all tmp_nmgroup ;
+  logfilekl:=true ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0
+    { if not nextvisual then exit ;
+    }
+    wwdt:=StrTodate(tmp_excel.dmcell[3],datemsk)
+    if tmp_excel.dmcell[4]=''
+    { logtime('Пустой номер !!'+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[6]+'/'+tmp_excel.dmcell[7])
+    }
+
+    if getfirst dogovor1 where ((
+     0 == dogovor1.cdogovor  and tmp_excel.dmcell[4] == dogovor1.nodoc_ext(noindex)
+     ))<>0
+    {  logmy('Нет договора !'+tmp_excel.dmcell[4]) ;
+       continue ;
+/*
+       clearbuffer(#dogovor1)
+       dogovor1.nodoc:=tmp_excel.dmcell[2]
+       DOGOVOR1.DINPUT :=wwdt
+       DOGOVOR1.DESGR:='ZAK ERR'
+       insert current dogovor1 ;
+*/
+    }
+    if dogovor1.status=0
+    { wwstr:='исполняемый' ;wstat1:=0 ;
+      dogovor1.CNOTE:=iKatalog_GetValue.FindNote(400,wwstr,wstat1)
+      dogovor1.STATUS:=wstat1 ;
+      update current dogovor1 ;
+    }
+   wnom:=dogovor1.nodoc+'/' ;
+   if getfirst dogovor where (( dogovor1.nrec == dogovor.cdogovor
+    and tmp_excel.dmcell[2] == dogovor.nodoc_ext(noindex) )) <>0
+   {  if (getlast dogovor where (( dogovor1.nrec == dogovor.cdogovor
+      )) ordered by index DOGOVOR19) =0 //DOGOVOR19 = dogovor.cdogovor,dogovor.nodoc
+      { wnom:=nextnumstr(DOGOVOR.NODOC) ;
+      }
+      else wnom:=dogovor1.nodoc+'_0001' ;
+      clearbuffer(#dogovor) ;
+      dogovor.nodoc:=wnom ;
+      dogovor.nodoc_ext:=tmp_excel.dmcell[2] ;
+      dogovor.dinput:=wwdt ;
+      dogovor.CALPLANSTATUS:=0
+      dogovor.CBANKPLAT:=dogovor1.CBANKPLAT // из Родителя
+      dogovor.CBANKPOL:=dogovor1.CBANKPLAT //- из Родителя
+      dogovor.CDOGOVOR:=dogovor1.nrec // - из Родителя 00010000000000E0h
+      dogovor.CMYORG:=dogovor1.CMYORG // - из Родителя
+      dogovor.CNOTE:=dogovor1.CNOTE// - из Родителя
+      dogovor.CORG:=dogovor1.CORG// - из Родителя
+      dogovor.CPLAT:=dogovor1.CPLAT// - из Родителя
+      dogovor.CPOL :=dogovor1.CPOL//- из Родителя
+      dogovor.CVIDDOG:=dogovor1.CVIDDOG //- из Родителя
+      dogovor.DBEG:=dogovor1.DBEG// - из Родителя
+      dogovor.DDOC:=dogovor1.DDOC // - из Родителя
+      dogovor.DEND:=dogovor1.DEND// - из Родителя
+      dogovor.DESCR:=dogovor1.DESCR// - из Родителя
+      dogovor.DESGR:=dogovor1.DESGR// - из Родителя
+      dogovor.DINPUT:=if(wwdt<>date(0,0,0),wwdt,dogovor1.DINPUT) // - из Родителя
+      dogovor.DIRECT := dogovor1.direct ;
+      dogovor.TIDK := 401
+      dogovor.TIPMONEY:=1
+      dogovor.VHODNAL:=1
+      dogovor.VIDDOG := 15
+      dogovor.CGROTP:=dogovor1.CGROTP // - из Родителя
+      dogovor.CGRPOL:=dogovor1.CGRPOL// - из Родителя
+      insert current dogovor ;
+   } //   if getfirst dogovor where (( dogovor1.nrec == dogovor.cdogovor
+   if getfirst AttrDog where (( dogovor.nrec == AttrDog.cDogovor ))<>0
+   {
+     if getfirst AttrDog where (( dogovor1.nrec == AttrDog.cDogovor ))=0
+     { AttrDog.nrec:=0 ;
+     }
+     else
+     { clearbuffer(#AttrDog) ;
+     }
+     AttrDog.cDogovor:=dogovor.nrec ;
+     insert current AttrDog ;
+   } //   if getfirst AttrDog where (( dogovor.nrec == AttrDog.cDogovor ))<>0
+
+    update current dogovor ;
+    update current ATTRDOG ;
+   if getfirst tmp_nmgroup where (( string(dogovor.nrec) == tmp_nmgroup.nrec ))<>0
+   { insert into tmp_nmgroup set tmp_nmgroup.nrec:=string(dogovor.nrec),tmp_nmgroup.name:='00000' ;
+   }
+   // счетчик позиции
+   update current tmp_nmgroup set tmp_nmgroup.name:=nextnumstr(tmp_nmgroup.name) ;
+   if getfirst spdocs where
+      (( dogovor.nrec == spdocs.cdoc
+    and dogovor.tidk == spdocs.tidk
+    and tmp_nmgroup.name == spdocs.code )) <>0
+   { insert into spdocs set
+        spdocs.cdoc:=dogovor.nrec
+       ,spdocs.tidk:=dogovor.tidk
+       ,spdocs.code:=tmp_nmgroup.name ;
+
+   }
+   spdocs.prmc:=1 ;
+//   spdocs.CMCUSL:=iKatalog_GetValue.GetKatMcNrec(tmp_excel.dmcell[7])
+   spdocs.CMCUSL:=iKatalog_GetValue.GetKatMcNrecByCodeName(tmp_excel.dmcell[7],tmp_excel.dmcell[11])
+   if spdocs.CMCUSL=0
+   { spdocs.CMCUSL:=iKatalog_GetValue.GetKatMcNrecByName(tmp_excel.dmcell[11])
+   }
+   if spdocs.cmcusl>0
+   { if getfirst katmc where (( spdocs.cmcusl == katmc.nrec ))=0
+     spdocs.CGRMCUSL:=katmc.cgroupmc ;
+     spdocs.cgrnal:=katmc.cgrnal ;
+     spdocs.COTPED:=iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,tmp_excel.dmcell[18])  //Ц из каталога единиц измерения
+  }
+  else
+  { LogMy('Нет записи='+tmp_excel.dmcell[7]+'='+tmp_excel.dmcell[11])
+  }
+  spdocs.DIRECT:=dogovor.direct ;
+  spdocs.EMPTY:=1
+  SPDOCS.DPOST:=StrTodate(tmp_excel.dmcell[9],datemsk) ;
+  spdocs.KOL:=mydouble(tmp_excel.dmcell[17]) //- Количество
+  spdocs.OSTATOK:=spdocs.KOL
+  spdocs.PRICE:=mydouble(tmp_excel.dmcell[20])// Ц Цена (за единицу)
+  spdocs.SUMMA:=mydouble(tmp_excel.dmcell[24]) // Сумма (с учетом налогов)
+  spdocs.SUMNDS:=mydouble(tmp_excel.dmcell[23]) // = Сумма НДС
+  spdocs.DFROM:=dogovor1.dbeg ;// Ц берется из полей Дополнительного соглашения = DOGOVOR.DBEG
+  spdocs.DTO:=DOGOVOR.DEND ;// Ц берется из полей Дополнительного соглашения =DOGOVOR.DEND
+  update current spdocs ;
+
+  SetAttr(coSpDocs,'Код позиции (PID)',spdocs.nrec,tmp_excel.dmcell[10]) ;
+// целевой учет
+  wCSALDTUNE:=013B000000000008h ;
+  wcobj:=iKatalog_GetValue.GetKatStroyNrecByName(tmp_excel.dmcell[12])
+  wckau1:=iKatalog_GetValue.GetFPCONrecByName(tmp_excel.dmcell[28])
+  wckau2:=0 ;
+  wckau3:=0 ;
+  iKatalog_GetValue.MakeSpecmtr(coSpDocs,SPDOCS.NREC,wCSALDTUNE,wcobj,wckau1,wckau2,wckau3,0,0,0,0,0,0) ;
+
+  // спец.налогов !
+  iKatalog_GetValue.MakeSpDocNal(spdocs.tidk,spdocs.nrec,dogovor.nrec,0.18,spdocs.SUMNDS,spdocs.CGRNAL,katnalog.nrec,dogovor.corg) ;
+    logtime('Загрузили доп.соглашение '+dogovor.nodoc+' от '+tmp_excel.dmcell[3]+'/'+dogovor1.nodoc_ext) ;
+
+
+ } //_loop tmp_excel
+
+ _loop tmp_nmgroup // подсчитаем сумму по спецификации
+ {
+   chet:=chet+1 ;
+   if chet mod 100=0
+   { if not nextvisual then exit ;
+   }
+   if getfirst dogovor where (( comp(tmp_nmgroup.nrec) == dogovor.nrec ))<>0 continue ;
+   wsu:=0 ; wsunds:=0 ;
+   external _loop spdocs where (( dogovor.nrec == spdocs.cdoc
+    and dogovor.tidk == spdocs.tidk ))
+   { if spdocs.code>tmp_nmgroup.name
+     { delete SPDOCNAL where (( spdocs.nrec ==SPDOCNAL.CSPDOC
+        and spdocs.tidk == SPDOCNAL.TIPDOC )) ;
+       delete current spdocs ;
+     }
+     else
+     { wsu:=wsu+spdocs.summa ;
+       wsunds:=wsunds+spdocs.sumnds ;
+     }
+
+   }
+   update current dogovor set dogovor.summa:=wsu ,dogovor.sumnds:=wsunds ;
+ } //_loop tmp_nmgroup
+ Imp_DogDop:=true ;
+}//Imp_DogDop
+
+//20080116
+//===============
+Function Imp_OKEI: boolean ;
+{Imp_OKEI:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника ед.измерения')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[4]='' then tmp_excel.dmcell[4]:=tmp_excel.dmcell[3] ;
+    if getfirst kated where (( tmp_excel.dmcell[3] == kated.abbr ))<>0
+    { if getfirst kated where (( tmp_excel.dmcell[4] == kated.name ))<>0
+      { clearbuffer(#kated)
+        kated.name:=tmp_excel.dmcell[4]
+        kated.abbr:=tmp_excel.dmcell[3]
+        insert current kated ;
+      }
+    }
+//    kated.name:=tmp_excel.dmcell[4]
+//    if kated.kod=''
+    KATED.KOD:=tmp_excel.dmcell[2]
+    update current KATED ;
+    SetAttr(cokated,'Код',kated.nrec,tmp_excel.dmcell[2])
+    SetAttr(cokated,'МеждународноеСокращение',kated.nrec,tmp_excel.dmcell[5])
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    logtime('Загрузили ед.изм.'+kated.name) ;
+ } //_loop tmp_excel
+
+ Imp_OKEI:=true ;
+}
+
+//20080116
+//===============
+Function Imp_KatMcOtp: boolean ;
+var wwnrec :comp ;
+{Imp_KatMcOtp:=false ;
+//ВладелецКод 2	Код- 3	Наименование-4	КодЕдиницаПоОКЕИ-5	Вес-6	Объем-7	Коэффициент-8
+  wexrow:=0 ;
+  inextvisual('Обработка справочника ед.измерения')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    if getfirst katmc where (( tmp_excel.dmcell[2] == katmc.barkod ))<>0
+    { continue ;
+    }
+    wwnrec:=iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,tmp_excel.dmcell[4]);
+    if getfirst katotped where (( wwnrec == katotped.nrec )) <> 0 then continue ;
+    if mydouble(tmp_excel.dmcell[9])>0
+       katotped.koef:=mydouble(tmp_excel.dmcell[9])
+    update current katotped ;
+    logtime('Загрузили ед.изм.'+kated.name) ;
+ } //_loop tmp_excel
+
+ Imp_KatMcOtp:=true ;
+}
+
+//===============
+Function Imp_GroupMc : boolean ;
+var wkod :string ;
+    wced, wctype, wcstzatr, wckaelem:comp ;
+    wUpdate:boolean;
+{ //Код	Наименование Тип_матценности  Учетная_Единица  Категория Статья_затрат	Элемент_затрат Базовая_кдиница Тип_размера1 Ти_размера2
+  Imp_GroupMc:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника групп МЦ')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    // группа
+    group_prev:=false ;
+    wkod:=tmp_excel.dmcell[1] ;
+    if getfirst GroupMc where (( tmp_excel.dmcell[2] ==GroupMc.name ))<>0
+
+    { 
+      if (getfirst GroupMc where ((wkod == GroupMc.kod ))=0)
+      {
+        kl_new:=false ;
+        logtime('Код группы уже существует: '+GroupMc.kod) ;
+        continue
+      }
+      wced := iKatalog_GetValue.GetKatEDNrecByName(tmp_excel.dmcell[4]);
+      if wced = 0
+      {
+        
+        kl_new:=false ;
+        logtime('Единица измерения отсутствует: '+tmp_excel.dmcell[4]) ;
+        continue
+      }
+      if getfirst typemc where ((tmp_excel.dmcell[3] == typemc.name)) = 0
+      {
+        wctype := typemc.nrec
+      }
+      else
+      {
+        kl_new:=false ;
+        logtime('Тип МЦ отсутствует: '+tmp_excel.dmcell[3]) ;
+        continue;
+      }
+      if getfirst stzatr where ((tmp_excel.dmcell[6] == stzatr.name)) = 0
+      {
+        wcstzatr := stzatr.nrec
+      }
+      else
+      {
+        logtime('Группа будет загружена без статьи затрат: '+tmp_excel.dmcell[6]) ;
+      }
+      if getfirst kaelem where ((tmp_excel.dmcell[7] == kaelem.name)) = 0
+      {
+        wckaelem := kaelem.nrec
+      }
+      else
+      {
+        logtime('Группа будет загружена без элемента затрат: '+tmp_excel.dmcell[7]) ;
+      }
+      clearbuffer(#GroupMc)
+      GroupMc.name:=tmp_excel.dmcell[2] ;
+      GroupMc.kod:=wkod;
+      GroupMc.ced:=wced;
+      GroupMc.ctype:=wctype;
+      groupMC.kind:=case(tmp_excel.dmcell[5];'Покупная':0,
+                          'Собственного производства':1,
+                          'Обобщенная':2,
+                          'Фантомная':3,
+                          'Субподрядная':4;0)
+      groupmc.CSTZATR:=wcstzatr
+      groupmc.CKAELEM:=wckaelem
+      insert current GroupMc ;
+      wUpdate := iKatalog_GetValue.Get_Update
+      iKatalog_GetValue.Set_Update(TRUE)
+      iKatalog_GetValue.Getkatotpednrec(3,groupmc.nrec,tmp_excel.dmcell[4]);
+      iKatalog_GetValue.Set_Update(wUpdate)
+      logtime('Загрузили GroupMc '+GroupMc.name) ;
+      kl_new:=true ;
+    }
+    else
+    {
+      kl_new:=false ;
+      logtime('Группа уже существует: '+GroupMc.name) ;
+      continue
+    }
+  } //_loop tmp_excel
+  Imp_GroupMc:=true ;
+
+
+}//GroupMc
+
+//===============
+Function Imp_GroupSFO : boolean ;
+var wkod :string ;
+    wced, wcgroupmc:comp ;
+{ //Код	Наименование Тип_матценности  Учетная_Единица  Категория Статья_затрат	Элемент_затрат Базовая_кдиница Тип_размера1 Ти_размера2
+  Imp_GroupSFO:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника групп СФО')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    wexrow:=wexrow+1 ;
+    // группа
+    group_prev:=false ;
+    wkod:=tmp_excel.dmcell[1] ;
+    if getfirst GroupSFO where (( tmp_excel.dmcell[2] ==GroupSFO.name ))<>0
+    { 
+      if (getfirst GroupSFO where ((wkod == GroupSFO.kod ))=0)
+      {
+        kl_new:=false ;
+        logtime('Код группы уже существует: '+GroupSFO.kod) ;
+        continue
+      }
+      if getfirst groupmc where ((tmp_excel.dmcell[1] == groupmc.kod)) = 0
+      {
+        wcgroupmc := groupmc.nrec
+        wced := groupmc.ced
+      }
+      else
+      {
+        kl_new:=false ;
+        logtime('Группа МЦ отсутствует: '+tmp_excel.dmcell[1]) ;
+        continue;
+      }
+      clearbuffer(#GroupSFO)
+      GroupSFO.name:=tmp_excel.dmcell[2] ;
+      GroupSFO.kod:=wkod;
+      GroupSFO.lkod:=length(wkod);
+      GroupSFO.cgroupmc:=wcgroupmc;
+      GroupSFO.ced:=wced;
+      GroupSFO.uv:='Ц';
+      groupSFO.Positions[1]:=case(tmp_excel.dmcell[9];'Рост':1,
+                          '1-й размер одежды':2,
+                          'Обувь зимняя':3,
+                          'Обувь':4,
+                          'Головной убор':5,
+                          'Перчатки':6,
+                          'ИСЗ':7,
+                          'Погоны':8;'')
+      groupSFO.Positions[2]:=case(tmp_excel.dmcell[10];'Рост':1,
+                          '1-й размер одежды':2,
+                          'Обувь зимняя':3,
+                          'Обувь':4,
+                          'Головной убор':5,
+                          'Перчатки':6,
+                          'ИСЗ':7,
+                          'Погоны':8;'')
+      insert current GroupSFO ;
+      logtime('Загрузили GroupSFO '+GroupSFO.name) ;
+      kl_new:=true ;
+    }
+    else
+    {
+      kl_new:=false ;
+      logtime('Группа уже существует: '+GroupSFO.name) ;
+      continue
+    }
+  } //_loop tmp_excel
+  Imp_GroupSFO:=true ;
+
+
+}//GroupSFO
+
+//===============
+Function Imp_Katmc : boolean ;
+var wstr, wbkod, wtemp:string ;
+    ii :word ;
+    wcgrmc:comp;
+{
+//Код(1)	Артикул
+// Наименование(3)
+// Полное наименование(-)	Вид номенклатуры(5)
+// Базовая единица измерения(6)	Единица хранения остатков(7)
+// Номер ГТД	(8)
+// Страна происхождения	(9)
+// Ставка НДС(10)	Номенклатурная группа(!)
+// Ценовая группа	(12)
+// Комментарий(13)
+
+//6 групп
+// 20080116
+//	Код-2V	Наименование-3V Родитель-4	ВидНоменклатуры-5
+//Тип-6	Комментарий-7	НаименованиеПолное-8V	СтавкаНДС-9	Услуга-10N
+//Услуга1-11V	ЕдиницаИзмеренияМестНаименование-12V
+//ЭтоГруппа-13V	БазоваяЕИКодОКЕИ-14N
+//БазоваяЕИНаименование-15V	ЕдиницаДляОтчетовНаименование-16V
+//ЕдиницаДляОтчетовКодОКЕИ-17N	ЕдиницаХраненияНаименование-18V
+//ЕдиницаХраненияКодОКЕИ-19N
+
+  Imp_Katmc:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника каталог МЦ')
+  ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    wstr:=''
+    if tmp_excel.dmcell[3]='' then continue ;
+    for (ii:=4;ii<12;ii:=ii+1)
+    { if ii=5 then continue ;
+      wstr:=wstr+tmp_excel.dmcell[ii]
+    }
+    if mydouble(tmp_excel.dmcell[13])>0
+    { if not group_prev then ClearGroup
+      Add_Group(tmp_excel.dmcell[3],tmp_excel.dmcell[2])
+      logmy('Запомнили группу '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[2])
+      continue ;
+    }
+    if tmp_excel.dmcell[18]='' tmp_excel.dmcell[18]:=tmp_excel.dmcell[16]
+    if tmp_excel.dmcell[16]='' tmp_excel.dmcell[16]:=tmp_excel.dmcell[18]
+    // услуга
+    if tmp_excel.dmcell[11]='1' // услуга
+    { if getfirst Katusl where (( tmp_excel.dmcell[3] ==Katusl.name ))<>0
+      { clearbuffer(#Katusl)
+        Katusl.name    :=tmp_excel.dmcell[3] ;
+        insert current Katusl ;
+        kl_new:=true ;
+       } else kl_new:=false ;
+      Katusl.KOD:=tmp_excel.dmcell[2]
+//      Katmc.ced:=iKatalog_GetValue.GetKatEDNrecByName(tmp_excel.dmcell[6]);
+      Katusl.ced:=iKatalog_GetValue.GetKatEDNrecByName(tmp_excel.dmcell[18]);
+      iKatalog_GetValue.Getkatotpednrec(2,katusl.nrec,tmp_excel.dmcell[18]);
+      if tmp_excel.dmcell[16]<>''
+        iKatalog_GetValue.Getkatotpednrec(2,katusl.nrec,tmp_excel.dmcell[16]);
+
+      update current katusl ;
+      continue ;
+    }
+    // МЦ
+    group_prev:=false ;
+    if getfirst Katmc where (( tmp_excel.dmcell[3] ==Katmc.name
+     and tmp_excel.dmcell[2] ==Katmc.barkod(noindex)
+     ))<>0
+
+    {
+      wbkod := ''
+      wtemp:=''
+      wcgrmc := 0
+      if getfirst groupmc where ((tmp_excel.dmcell[4] == groupmc.kod)) = 0
+      {
+        logtime('Группа МЦ '+groupMc.kod) ;
+        wcgrmc := groupmc.nrec
+        wbkod := '0';
+        _loop katmc where ((groupmc.nrec == katmc.cgroupmc))
+        {
+           wtemp := replace(padch(substr(groupmc.kod,1,10),'0',10) +
+                       lpad(string(integer(trim(substr(katmc.barkod, length(groupmc.kod)+1, 10)))+1),5),' ','0');
+           if wtemp > wbkod
+           {
+             wbkod := wtemp;
+           }
+        }
+        logtime('Последний баркод МЦ '+wbkod) ;
+      }
+      if wcgrmc = 0
+      {
+        logtime('Не удалось найти группу МЦ '+ tmp_excel.dmcell[4]) ;
+        continue;
+      }
+      if wbkod = ''
+      {
+        logtime('Не удалось сгенерить баркод '+ tmp_excel.dmcell[3]) ;
+        continue;
+      }
+      if wbkod = '0'
+      {
+         wbkod := padch(substr(groupmc.kod,1,10),'0',10) + '00001';
+      };
+      clearbuffer(#Katmc)
+      Katmc.name    :=tmp_excel.dmcell[3] ;
+      Katmc.BARKOD  :=wbkod; //tmp_excel.dmcell[2]
+      insert current Katmc ;
+      kl_new:=true ;
+    }
+    else
+    {
+      kl_new:=false ;
+      logtime('МЦ уже существует '+KatMc.name) ;
+      continue;
+    }
+    Katmc.obozn:=tmp_excel.dmcell[8]
+    Katmc.ced:=iKatalog_GetValue.GetKatEDNrecByName(tmp_excel.dmcell[18]);
+    iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,tmp_excel.dmcell[18]);
+    if tmp_excel.dmcell[16]<>''
+      iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,tmp_excel.dmcell[16]);
+    if tmp_excel.dmcell[15]<>''
+      iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,tmp_excel.dmcell[15]);
+    if tmp_excel.dmcell[12]<>''
+      iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,tmp_excel.dmcell[12]);
+
+//    katmc.cgroupmc:=iKatalog_GetValue.GetGroupMcNrecByName(tmp_excel.dmcell[11],'')
+/*    wstr:=Find_group(tmp_excel.dmcell[4])
+    if wstr<>''
+    { logmy('Нашли группу '+wstr)
+      katmc.cgroupmc:=iKatalog_GetValue.GetGroupMcNrecByName(wstr,tmp_excel.dmcell[4])
+    }
+    else
+    { logmy('не нашли группу '+tmp_excel.dmcell[4])
+      katmc.cgroupmc:=iKatalog_GetValue.GetGroupMcNrecByName(tmp_excel.dmcell[5],'')
+    }*/
+    katmc.cgroupmc:=wcgrmc;
+    katmc.cgrnal:=iKatalog_GetValue.GetGrnalNrecByName(tmp_excel.dmcell[9])
+    KATMC.REMMC:=tmp_excel.dmcell[7]
+    katmc.ctype:=iKatalog_GetValue.GetTYPEMcNrecByName(tmp_excel.dmcell[6])
+    update current Katmc ;
+//    SetAttr(cokatmc,'Страна происхождения',katmc.nrec,tmp_excel.dmcell[9])
+//    SetAttr(cokatmc,'Номер ГТД',katmc.nrec,tmp_excel.dmcell[8])
+//    SetAttr(cokatmc,'Ценовая группа',katmc.nrec,tmp_excel.dmcell[12])
+    if group_level>0
+      SetAttr(cokatmc,'!!!Группа!!!',katmc.nrec,group_s[group_level])
+
+//    SetAttr(cokatmc,'Номер ГТД',katmc.nrec,tmp_excel.dmcell[8])
+    logtime('Загрузили KatMc '+KatMc.name) ;
+
+  } //_loop tmp_excel
+  Imp_Katmc:=true ;
+
+}
+Function Imp_KATSTROY : boolean ;
+var wcotvpodr : comp ;
+{ //Код	Наименование
+  Imp_KATSTROY:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника объекты строительства')
+  ClearGroup ;
+  wcotvpodr:=coGetTune('UKS.TekCO') ;
+
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    if getfirst KATSTROY where (( tmp_excel.dmcell[2] ==KATSTROY.name ))<>0
+
+    { clearbuffer(#KATSTROY)
+      KATSTROY.name    :=tmp_excel.dmcell[2] ;
+      KATSTROY.levelobj:=1 ;
+      insert current KATSTROY ;
+      kl_new:=true ;
+    } else kl_new:=false ;
+    KATSTROY.code:=tmp_excel.dmcell[1]   ;
+    KATSTROY.levelobj:=1 ;
+    KATSTROY.COTVPODR:=wcotvpodr ;
+    update current KATSTROY ;
+    logtime('Загрузили KATSTROY '+KATSTROY.name) ;
+  } //_loop tmp_excel
+  Imp_KATSTROY:=true ;
+
+}//KATSTROY
+
+Function Imp_objrem : boolean ;
+var wcpodr : comp ;
+ wcorg, wcstate : comp ;
+ wcgrpodr : comp ;
+ wcvidobj : comp ;
+ wctipobj : comp ;
+ wcgoods : comp ;
+ wsgrpodr : string ;
+ wspodr, wstemp, wsorgname : string ;
+ wcobjrem:comp;
+ wcgroup:comp;
+{
+//20101227
+//1:<Дополнительный признак>
+//2:<ИНН организации>
+//3:<Наименование организации>
+//4:<Страна организации>
+//5:<Наименование группы подразделений>
+//6:<Наименование подразделения>
+//7:<Номер объекта-владельца>
+//8:<Наименование объекта>
+//9:<Номер объекта>
+//10:<Вид объекта>
+//11:<Тип объекта>
+//12:<Дата ввода объекта>
+//13:<ID организации в ИС>
+//14:<ID подразделения в ИС>
+//15:<ID объекта-владельца в ИС>
+//16:<ID объекта в ИС>
+//17:<аббревиатура объекта>
+  Imp_objrem:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника Объекты ремонта')
+
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    wcorg := 0;
+    if tmp_excel.dmcell[13] <> '' and getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[13],
+                                                                      tmp_excel.dmcell[13])==spkau_soot.name 
+                                                               and 1418==spkau_soot.vdata (noindex))) = 0
+    { wcorg := comp(spkau_soot.code);
+    }
+    if wcorg = 0
+    {
+      if ' '+tmp_excel.dmcell[3] = sGetTune('MYORG')
+      {
+        wsorgname := ' '+tmp_excel.dmcell[3]
+      }
+      else
+      {
+        wsorgname := tmp_excel.dmcell[3]
+      }
+      wcstate := 0;
+      wcState := iKatalog_GetValue.GetKatStateNrecByName(tmp_excel.dmcell[4])      
+      if wcState = 0
+      {
+        logtime('Страна отсутствует в справочнике '+tmp_excel.dmcell[4]) ;
+        continue;
+      }
+      if getfirst katorg where ((tmp_excel.dmcell[2] == katorg.unn and  wsorgname == katorg.name and wcstate == katorg.cstate))<>0
+      { logtime('Не удалось установить организацию '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3]) ;
+        wexrow:=wexrow+1 ;
+        continue ;
+
+      }
+      else
+      {
+        wcorg := katorg.nrec
+      }
+    }
+    wsgrpodr:=trim(substr(tmp_excel.dmcell[3],1,pos('/',tmp_excel.dmcell[3])-1))
+    wstemp:=trim(substr(tmp_excel.dmcell[3],pos('/',tmp_excel.dmcell[3])+1,100))
+    wspodr:=substr(wstemp,length(wstemp)-5,6) + ' ' + substr(wstemp,1,length(wstemp)-7)
+//    wspodr:=substr(replace(trim(substr(tmp_excel.dmcell[3],pos('/',tmp_excel.dmcell[3])+1,100)),'ОПС Санкт-Петербург ',''),1,6)+' ОПС Санкт-Петербург'
+    logtime(wsgrpodr+'/'+wspodr) ;
+    wcgrpodr := 0
+    wcpodr := 0
+    if tmp_excel.dmcell[14] <> '' and getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[14],
+                                                                      tmp_excel.dmcell[14])==spkau_soot.name
+                                                               and 1413==spkau_soot.vdata (noindex))) = 0
+    { wcpodr := comp(spkau_soot.code);
+    }
+    if wcpodr = 0
+    {
+      if getfirst grpodr where (( tmp_excel.dmcell[5] ==grpodr.name))=0
+      {
+        wcgrpodr := grpodr.nrec
+        if getfirst katpodr where ((wcgrpodr==katpodr.cgrpodr and tmp_excel.dmcell[6]==katpodr.name))=0
+        {
+          wcpodr := katpodr.nrec
+        }
+        else
+        {
+          logtime('Не удалось установить подразделение '+tmp_excel.dmcell[5]+'/'+tmp_excel.dmcell[6]) ;
+          continue ;
+        }
+      }
+      else
+      {
+        logtime('Не удалось установить группу подразделений '+tmp_excel.dmcell[5]) ;
+        continue ;
+      }
+    }
+    if getfirst vidobj where ((tmp_excel.dmcell[10] == vidobj.name ))<>0
+    { logtime('Не удалось установить вид объекта ремонта '+tmp_excel.dmcell[10]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+
+    }
+    else
+    {
+      wcvidobj := vidobj.nrec
+    }
+    if getfirst tipobj where ((tmp_excel.dmcell[11] == tipobj.name ))<>0
+    { logtime('Не удалось установить тип объекта ремонта '+tmp_excel.dmcell[11]) ;
+      wexrow:=wexrow+1 ;
+      continue ;
+
+    }
+    else
+    {
+      wctipobj := tipobj.nrec
+    }
+    wcgoods := 0
+    if tmp_excel.dmcell[15] <> '' and getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau 
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[15],
+                                                                      tmp_excel.dmcell[15])==spkau_soot.name 
+                                                               and 27001==spkau_soot.vdata (noindex))) = 0
+    { wcgoods := comp(spkau_soot.code);
+    }
+    if wcgoods = 0 and tmp_excel.dmcell[7] <> ''
+    {
+      if getfirst objrem where ((tmp_excel.dmcell[7] == objrem.number and wctipobj == objrem.ctipobj (noindex)))<>0
+      { logtime('Не удалось установить владельца объекта '+tmp_excel.dmcell[7]+' (ID '+tmp_excel.dmcell[15]+')') ;
+        wexrow:=wexrow+1 ;
+        continue ;
+
+      }
+      else
+      {
+        wcgoods := objrem.nrec
+      }
+    }
+    wcgroup := 0
+    if wcgoods > 0
+    {
+      if getfirst objremdescr where ((1 == objremdescr.code and wcgoods == objremdescr.crec ))<>0
+      { logtime('Не удалось установить уровень иерархии для объекта-владельца '+tmp_excel.dmcell[7]+' (ID '+tmp_excel.dmcell[15]+')') ;
+        wexrow:=wexrow+1 ;
+        continue ;
+      }
+      else
+      {
+        wcgroup := objremdescr.nrec
+      }
+    }
+    if getfirst OBJREM where (( tmp_excel.dmcell[9] ==objrem.number and wcvidobj == objrem.cvidobj (noindex)))<>0
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#OBJREM)
+      objrem.name    :=tmp_excel.dmcell[8] ;
+      objrem.number    :=tmp_excel.dmcell[9] ;
+      objrem.cgoods:= wcgoods ;
+      objrem.ckatorg:= wcorg ;
+      objrem.ckatpodr:= wcpodr ;
+      objrem.cvidobj:= wcvidobj ;
+      objrem.ctipobj:= wctipobj ;
+      objrem.datev:= strtodate(tmp_excel.dmcell[12], 'DD.MM.YYYY') ;
+      objrem.abbrobjr:=tmp_excel.dmcell[17]
+      insert current objrem ;
+      wcobjrem := objrem.nrec
+
+      clearbuffer(#OBJREMDESCR)
+      objremdescr.name    :=tmp_excel.dmcell[5] ;
+      objremdescr.number    :=tmp_excel.dmcell[6] ;
+      objremdescr.cgroup:= wcgroup ;
+      objremdescr.crec:= wcobjrem ;
+      objremdescr.code:= 1 ;
+      objremdescr.ctable:= 1 ;
+      objremdescr.isleaf:= if(wcgoods > 0,  1, 0);
+      insert current objremdescr ;
+
+      logtime('Загрузили objrem '+objrem.name+'/'+objrem.number+' ('+string(only_check)+')') ;
+    }
+    else
+    {
+      logtime('Объект ремонта уже существует '+objrem.name+'/'+objrem.number) ;
+    }
+    if tmp_excel.dmcell[16] <> ''
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#spkau_soot)
+      spkau_soot.kodgrkau := katkau_soot.kodgroup
+      spkau_soot.code := katOrg.nrec
+      spkau_soot.name := if(CodeSource<>'', CodeSource+'.'+tmp_excel.dmcell[16], tmp_excel.dmcell[16])
+      spkau_soot.vdata := 27001;
+      insert current spkau_soot ;
+    }
+  } //_loop tmp_excel
+  Imp_objrem:=true ;
+
+}//objrem
+
+Function Imp_Os : boolean ;
+var wnrec1,wnrec2 :comp ;
+{ //4 группы
+//Код	Наименование	Полное наименование	Изготовитель
+//Номер паспорта (регистрационный)	Заводской номер	Дата выпуска (постройки)
+//Код по ОКОФ	Амортизационная группа	Группа ОС	Признак автотранспорта
+
+//	Код=2
+//Наименование=3V
+//Родитель=4	ЭтоГруппа=5
+//	ИнвентарныйНомер=6V
+//СпособПоступленияБУ=7	СпособАмортизацииБУ=8V
+//МОЛБУ=9V	ПодразделениеБУ=10V
+//КодПодразделениеБУ=11
+//Изготовитель=12V
+//НомерПаспорта=13V	ЗаводскойНомер=14V
+//ДатаВыпуска=15V	ГруппаОС=16V
+//КодПоОКОФ=17V	АмортизационнаяГруппа=18V
+//ПодлежитАмортизации=19	Автотранспорт=20V
+//ВидТС=21	АдресМестонахождения=22
+//КодРегиона=23	Комментарий=24
+//================new=================
+//Код-2V	Наименование3V	Родитель4V	ЭтоГруппа5V	ИнвентарныйНомер6V	-!
+//ПервоначальнаяСтоимостьБУ-7	ТекущаяСтоимостьБУ-8
+//СрокИспользованияБУ-9
+//ОбъемРаботБУ-10
+//ТекАмортизацияБУ-11
+//ПроцентГодовойАмортизацииБУ-12
+//КоэфУскоренияБУ-13
+//СпособАмортизацииБУ-14V
+//МОЛБУ-15V
+//ПодразделениеБУ-16V
+//КодПодразделениеБУ-17V
+//СпособПоступленияБУ-18V
+//СпособАмортизацииНУ-19V
+//ПервоначальнаяСтоимостьНУ	-20V
+//ПорядокВключенияСтоимостиВСоставРасходовНУ-21	?
+//СрокИспользованияНУ-22V
+//НаправленияАмортизацииНУ-23
+//СчетУчетаСтоимостиНУ-24
+//СчетУчетаАмортизацииНУ-25
+//СпецКоэффициентНУ-26V
+//ТекущаяСтоимостьНУ-27V
+//ТекАмортизацияНУ-28V
+//Изготовитель-29V
+//НомерПаспорта-30V
+//ЗаводскойНомер-31V
+//ДатаВыпуска-32V
+//ГруппаОС-33V
+//КодПоОКОФ-34V
+//АмортизационнаяГруппа-35V
+//ПодлежитАмортизации-36
+//Автотранспорт-37
+//ВидТС-38V
+//АдресМестонахождения-39V	КодРегиона-40V	Комментарий-41V
+
+  Imp_os:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка справочника основных средств')
+  group_prev:=false ; ClearGroup ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 10=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    if mydouble(tmp_excel.dmcell[5])=1
+    { if not group_prev then cleargroup ;
+      ADD_GROUP(tmp_excel.dmcell[3],tmp_excel.dmcell[2])
+      continue ; // группы на качаем
+    }
+ group_prev:=false ;
+    if tmp_excel.dmcell[6]='' then tmp_excel.dmcell[6]:=tmp_excel.dmcell[2] ;
+    //Код(1)	Наименование(2)
+    if getfirst Katos where (( 15 == katos.TIDK and
+                0 == katos.CHIGHEROS and  tmp_excel.dmcell[6] ==Katos.innum ))<>0
+
+    { clearbuffer(#Katos)
+      katos.TIDK:=15 ;
+      Katos.nameos :=tmp_excel.dmcell[3] ;
+      katos.innum:=tmp_excel.dmcell[6]
+      katos.isleaf:=1 ;
+      insert current Katos ;
+      kl_new:=true ;
+    } else kl_new:=false ;
+    if  tmp_excel.dmcell[4]='90000182' and katos.DATV=date(0,0,0)
+    { katos.DATV:=date(1,1,2008) ;
+    }
+    if katos.kol=0
+     set katos.kol:=1 ;
+    if katos.datok=date(0,0,0)
+      katos.datok:=KATOS.GODV
+    //Полное наименование	(3)
+    katos.OTCHPER:=dgettune('OS.OTCHPERIOD') ;
+    //Изготовитель(4)
+    katos.isleaf:=1 ;
+    KATOS.NAMEIZG:=tmp_excel.dmcell[29]
+    //Номер паспорта (регистрационный)
+    KATOS.PSNUM:=tmp_excel.dmcell[30]
+    //Заводской номер
+    KATOS.ZAVNOM:=tmp_excel.dmcell[31]
+    //Дата выпуска (постройки) 7
+    KATOS.GODV:=StrToDate(tmp_excel.dmcell[32],datemsk)
+    if katos.datok=date(0,0,0)
+      katos.datok:=KATOS.GODV
+    if katos.datok=date(0,0,0)
+      katos.datok:=date(1,1,1900) ;
+
+    //Код по ОКОФ	8  Kodof.Nrec
+    Katos.cOKOF:=iKatalog_GetValue.FindOkof(tmp_excel.dmcell[34],tmp_excel.dmcell[34])
+    //Группа ОС - GROS.NAMEGR  10
+//    Katos.cGrup:=iKatalog_GetValue.FindGrOs('',Find_group(tmp_excel.dmcell[4]))
+//    if Katos.cGrup=0
+//20080329     Katos.cGrup:=iKatalog_GetValue.FindGrOs('',tmp_excel.dmcell[33])
+//Procedure GetNormOS(var wcnorma :comp ; var wcvid :comp ;wnorm :double ; wkod :string ;wname:string;wtidk:word ) ;
+   wnrec1:=0;wnrec2:=0 ;
+   iKatalog_GetValue.GetNormOS(wnrec1,wnrec2,0,tmp_excel.dmcell[42],tmp_excel.dmcell[33],15)
+   katos.cvid:=wnrec2 ;
+    //Признак автотранспорта [11] SPOSOB.NAMESB
+    if tmp_excel.dmcell[37]='1'
+      Katos.cSposob:=iKatalog_GetValue.FindSposob('АВТОТРАНСПОРТ')
+//СпособПоступленияБУ=7	СпособАмортизацииБУ=8
+//    katos.kod:=tmp_excel.dmcell[7]
+//МОЛБУ=9	ПодразделениеБУ=10
+//КодПодразделениеБУ=11
+   Katos.cpodr:=iKatalog_GetValue.GetKatpodrNrecByName(tmp_excel.dmcell[16])
+   if Katos.cpodr=0
+     Katos.cpodr:=iKatalog_GetValue.GetKatpodrNrecByName(string(word(tmp_excel.dmcell[16])))
+   if Katos.cpodr=0
+     Katos.cpodr:=iKatalog_GetValue.GetKatpodrNrec(tmp_excel.dmcell[17])
+   if Katos.cpodr=0
+   { insert into katpodr set katpodr.name:=tmp_excel.dmcell[16],katpodr.kod:=tmp_excel.dmcell[17],katpodr.fio:='OS' ;
+     Katos.cpodr:=katpodr.nrec ;
+   }
+   Katos.cmol:=iKatalog_GetValue.GetKatMolNrecByNameSKL(tmp_excel.dmcell[15],Katos.cpodr)
+//ВидТС=21	АдресМестонахождения=22
+//КодРегиона=23	Комментарий=24
+    KATOS.TIPMARK:=tmp_excel.dmcell[38] ;
+    KATOS.DOPINNUM:=tmp_excel.dmcell[41] ;
+    update current Katos ;
+    //Амортизационная группа	9   KlassOs.nRec     and  // амортизационная группа
+    set wnameos:='Бухгалтерский'
+    if getfirst spkatos where (( katos.nrec == spkatos.ckatos and nastros.nrec == spkatos.cnastros ))<>0
+    { clearbuffer(#spkatos)
+      insert into spkatos set spkatos.ckatos:=katos.nrec, spkatos.cnastros:=nastros.nrec ;
+    }
+    SpKatOs.cGrAm:=iKatalog_GetValue.FindKlassOs('',tmp_excel.dmcell[35])
+    if spkatos.CMETOD=0
+    { spkatos.CMETOD:=iKatalog_GetValue.FindOSALG(15,tmp_excel.dmcell[14])
+    }
+//ПервоначальнаяСтоимостьБУ-7V	ТекущаяСтоимостьБУ-8V
+//СрокИспользованияБУ-9V
+//ОбъемРаботБУ-10 - ?
+//ТекАмортизацияБУ-11V
+//ПроцентГодовойАмортизацииБУ-12	?
+//КоэфУскоренияБУ-13V
+    spkatos.STOIMPS:=mydouble(tmp_excel.dmcell[7])
+    spkatos.STOIM:=mydouble(tmp_excel.dmcell[8])
+    spkatos.SUMIZN:=mydouble(tmp_excel.dmcell[11])
+    spkatos.SROKISP:=mydouble(tmp_excel.dmcell[9])
+    spkatos.POPRKOEF:=mydouble(tmp_excel.dmcell[13])
+    if spkatos.POPRKOEF=0 then spkatos.POPRKOEF:=1 ;
+    update current SpKatos ;
+
+    set wnameos:='Налоговый'
+    if getfirst spkatos where (( katos.nrec == spkatos.ckatos and nastros.nrec == spkatos.cnastros ))<>0
+    { clearbuffer(#spkatos)
+      insert into spkatos set spkatos.ckatos:=katos.nrec, spkatos.cnastros:=nastros.nrec ;
+    }
+//СпособАмортизацииНУ-19
+    SpKatOs.cGrAm:=iKatalog_GetValue.FindKlassOs('',tmp_excel.dmcell[35])
+    if spkatos.CMETOD=0
+    { spkatos.CMETOD:=iKatalog_GetValue.FindOSALG(15,tmp_excel.dmcell[19])
+    }
+//ПервоначальнаяСтоимостьНУ	-20V
+//ПорядокВключенияСтоимостиВСоставРасходовНУ-21
+//СрокИспользованияНУ-22	V
+//НаправленияАмортизацииНУ-23
+//СчетУчетаСтоимостиНУ-24
+//СчетУчетаАмортизацииНУ-25
+//СпецКоэффициентНУ-26V
+//ТекущаяСтоимостьНУ-27V
+//ТекАмортизацияНУ-28  V
+    spkatos.STOIMPS:=mydouble(tmp_excel.dmcell[20])
+    spkatos.STOIM:=mydouble(tmp_excel.dmcell[27])
+    spkatos.SUMIZN:=mydouble(tmp_excel.dmcell[28])
+    spkatos.SROKISP:=mydouble(tmp_excel.dmcell[22])
+    spkatos.POPRKOEF:=mydouble(tmp_excel.dmcell[26])
+    if spkatos.POPRKOEF=0 then spkatos.POPRKOEF:=1 ;
+    update current SpKatos ;
+
+
+    if group_level>0 and group_level<10
+    {   SetAttr(cokatos,'Группа',katos.nrec,group_s[group_level])
+    }
+    SetAttr(cokatos,'Группа код',katos.nrec,tmp_excel.dmcell[4])
+    SetAttr(cokatos,'СпособПоступленияБУ',katos.nrec,tmp_excel.dmcell[18])
+    SetAttr(cokatos,'Вид транспортного средства',katos.nrec,tmp_excel.dmcell[38])
+    SetAttr(cokatos,'Адрес Местонахождения',katos.nrec,tmp_excel.dmcell[39])
+    SetAttr(cokatos,'Код Региона',katos.nrec,tmp_excel.dmcell[40])
+    SetAttr(cokatos,'Комментарий',katos.nrec,tmp_excel.dmcell[41])
+    SetAttr(cokatos,'Счет учета Налоговый,стоимости',katos.nrec,tmp_excel.dmcell[24])
+    SetAttr(cokatos,'Счет учета Налоговый,износа',katos.nrec,tmp_excel.dmcell[25])
+    logtime('Загрузили Katos '+Katos.nameos) ;
+  } //_loop tmp_excel
+  Imp_os:=true ;
+} //Imp_os
+
+function Imp_OsArc :boolean ;
+var
+ jj :word ;
+ wnrec1,wnrec2 :comp ;
+{ Imp_OsArc:=false ;
+//Код	Наименование	Полное наименование	Изготовитель
+//Номер паспорта (регистрационный)	Заводской номер	Дата выпуска (постройки)
+//Код по ОКОФ	Амортизационная группа	Группа ОС	Признак автотранспорта
+
+//	Код=2
+//Наименование=3V
+//Родитель=4	ЭтоГруппа=5
+//	ИнвентарныйНомер=6V
+//СпособПоступленияБУ=7	СпособАмортизацииБУ=8V
+//МОЛБУ=9V	ПодразделениеБУ=10V
+//КодПодразделениеБУ=11
+//Изготовитель=12V
+//НомерПаспорта=13V	ЗаводскойНомер=14V
+//ДатаВыпуска=15V	ГруппаОС=16V
+//КодПоОКОФ=17V	АмортизационнаяГруппа=18V
+//ПодлежитАмортизации=19	Автотранспорт=20V
+//ВидТС=21	АдресМестонахождения=22
+//КодРегиона=23	Комментарий=24
+//================new=================
+//Код-2	Наименование3	Родитель4	ЭтоГруппа5	ИнвентарныйНомер6
+//ПервоначальнаяСтоимостьБУ-7	ТекущаяСтоимостьБУ-8
+//СрокИспользованияБУ-9
+//ОбъемРаботБУ-10
+//ТекАмортизацияБУ-11
+//ПроцентГодовойАмортизацииБУ-12
+//КоэфУскоренияБУ-13
+//СпособАмортизацииБУ-14
+//МОЛБУ-15
+//ПодразделениеБУ-16
+//КодПодразделениеБУ-17
+//СпособПоступленияБУ-18
+//СпособАмортизацииНУ-19
+//ПервоначальнаяСтоимостьНУ	-20
+//ПорядокВключенияСтоимостиВСоставРасходовНУ-21
+//СрокИспользованияНУ-22
+//НаправленияАмортизацииНУ-23
+//СчетУчетаСтоимостиНУ-24
+//СчетУчетаАмортизацииНУ-25
+//СпецКоэффициентНУ-26
+//ТекущаяСтоимостьНУ-27
+//ТекАмортизацияНУ-28
+//Изготовитель-29
+//НомерПаспорта-30
+//ЗаводскойНомер-31
+//ДатаВыпуска-32
+//ГруппаОС-33
+//КодПоОКОФ-34
+//АмортизационнаяГруппа-35
+//ПодлежитАмортизации-36
+//Автотранспорт-37
+//ВидТС-38
+//АдресМестонахождения-39	КодРегиона-40	Комментарий-41
+
+  wexrow:=0 ;
+  inextvisual('Обработка справочника основных средств')
+  group_prev:=false ; ClearGroup ;
+  osarcdat  :=date(last_day(osarcdat),month(osarcdat),year(osarcdat))
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 10=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    if tmp_excel.dmcell[5]='1'
+    { if not group_prev then cleargroup ;
+      ADD_GROUP(tmp_excel.dmcell[3],tmp_excel.dmcell[2])
+      continue ; // группы на качаем
+    }
+ group_prev:=false ;
+    if tmp_excel.dmcell[6]='' then tmp_excel.dmcell[6]:=tmp_excel.dmcell[2] ;
+    //Код(1)	Наименование(2)
+  for(jj:=1;jj<=2;jj:=jj+1)
+  { case jj of
+    2:set wnameos:='Налоговый' ;
+    1:set wnameos:='Бухгалтерский'
+    end ;
+    if getfirst arciznos where (( 15 == arciznos.TIDK
+                and   0 == arciznos.CHIGHEROS
+                and nastros.nrec == arciznos.cnastros
+                and  osarcdat == arciznos.data
+                and  tmp_excel.dmcell[6] ==arciznos.innum
+                 ))<>0
+
+    { clearbuffer(#arciznos)
+      arciznos.TIDK:=15 ;
+    //  arciznos.nameos :=tmp_excel.dmcell[3] ;
+      arciznos.innum:=tmp_excel.dmcell[6]
+      arciznos.isleaf:=1 ;
+      arciznos.cnastros:=nastros.nrec ;
+      arciznos.data:=osarcdat ;
+      insert current arciznos ;
+      kl_new:=true ;
+    } else kl_new:=false ;
+    if getfirst Katos where (( 15 == katos.TIDK and
+                0 == katos.CHIGHEROS and  tmp_excel.dmcell[6] ==Katos.innum ))=0
+    { arciznos.ckatos :=katos.nrec ;
+    }
+//    if  tmp_excel.dmcell[4]='90000182' and arciznos.DATV=date(0,0,0)
+//    { arciznos.DATV:=date(1,1,2008) ;
+//    }
+    //Полное наименование	(3)
+//    arciznos.OTCHPER:=dgettune('OS.OTCHPERIOD') ;
+    //Изготовитель(4)
+    arciznos.isleaf:=1 ;
+    //arciznos.NAMEIZG:=tmp_excel.dmcell[12]
+    //Номер паспорта (регистрационный)
+    //arciznos.PSNUM:=tmp_excel.dmcell[13]
+    //Заводской номер
+    //arciznos.ZAVNOM:=tmp_excel.dmcell[14]
+    //Дата выпуска (постройки) 7
+    //arciznos.GODV:=StrToDate(tmp_excel.dmcell[15],datemsk)
+
+    //Код по ОКОФ	8  Kodof.Nrec
+    //arciznos.cOKOF:=iKatalog_GetValue.FindOkof('',tmp_excel.dmcell[17])
+    //Группа ОС - GROS.NAMEGR  10
+//20080329      arciznos.cGrup:=iKatalog_GetValue.FindGrOs('',tmp_excel.dmcell[33])
+//Procedure GetNormOS(var wcnorma :comp ; var wcvid :comp ;wnorm :double ; wkod :string ;wname:string;wtidk:word ) ;
+   wnrec1:=0;wnrec2:=0 ;
+   iKatalog_GetValue.GetNormOS(wnrec1,wnrec2,0,tmp_excel.dmcell[42],tmp_excel.dmcell[33],15)
+   arciznos.cvid:=wnrec2 ;
+    //Признак автотранспорта [11] SPOSOB.NAMESB
+    if tmp_excel.dmcell[37]='1'
+      arciznos.cSposob:=iKatalog_GetValue.FindSposob('АВТОТРАНСПОРТ')
+//СпособПоступленияБУ=7	СпособАмортизацииБУ=8
+    //arciznos.kod:=tmp_excel.dmcell[7]
+//МОЛБУ=9	ПодразделениеБУ=10
+//КодПодразделениеБУ=11
+   arciznos.ckatpodr:=iKatalog_GetValue.GetKatpodrNrecByName(tmp_excel.dmcell[16])
+   if arciznos.ckatpodr=0
+     arciznos.ckatpodr:=iKatalog_GetValue.GetKatpodrNrec(tmp_excel.dmcell[17])
+
+   arciznos.cmol:=iKatalog_GetValue.GetKatMolNrecByNameSKL(tmp_excel.dmcell[15],arciznos.ckatpodr)
+//ВидТС=21	АдресМестонахождения=22
+//КодРегиона=23	Комментарий=24
+    //arciznos.TIPMARK:=tmp_excel.dmcell[21] ;
+    //arciznos.DOPINNUM:=tmp_excel.dmcell[24] ;
+    update current arciznos ;
+    //Амортизационная группа	9   KlassOs.nRec     and  // амортизационная группа
+    //arciznos.cGrAm:=iKatalog_GetValue.FindKlassOs('',tmp_excel.dmcell[18])
+    if arciznos.CMETOD=0
+    { arciznos.CMETOD:=iKatalog_GetValue.FindOSALG(15,tmp_excel.dmcell[19])
+    }
+    case jj of
+    1: {
+    arciznos.STOIMPS:=mydouble(tmp_excel.dmcell[7])
+    arciznos.STOIM:=mydouble(tmp_excel.dmcell[8])
+    arciznos.SUMIZN:=mydouble(tmp_excel.dmcell[11])
+    arciznos.SROKISP:=mydouble(tmp_excel.dmcell[9])
+
+    }
+    2:{
+    arciznos.STOIMPS:=mydouble(tmp_excel.dmcell[20])
+    arciznos.STOIM:=mydouble(tmp_excel.dmcell[27])
+    arciznos.SUMIZN:=mydouble(tmp_excel.dmcell[28])
+    arciznos.SROKISP:=mydouble(tmp_excel.dmcell[22])
+
+    }
+    end ;
+    update current arciznos ;
+  } //end   for
+    if group_level>0 and group_level<10
+    {   SetAttr(coarciznos,'Группа',arciznos.nrec,group_s[group_level])
+    }
+  } //_loop tmp_excel
+
+  Imp_OsArc:=true ;
+}//Imp_OsArc
+
+Function Imp_NormSFO :boolean ;
+var wnom   :string ;
+    wdt :date ;
+    wkodnormsfo:string;
+    wcnormsfo:comp;
+    wdatenormsfo:date;
+    wcnormdate:comp;
+    i:integer;
+//Номер пп - 1
+//Код нормы -2	V
+//Наименование нормы-3	    V
+//Вариант нормы (мужской/женский)-4
+//Признак Накопительная-5
+//Признак форменная/специальная-6	V
+//Параграф нормы-7	V
+//Дата начала действия-8	N
+//Код группы СФО-9	  V
+//Наименование групы СФО-10
+//Количество-11
+//Срок носки-12
+//Параграф нормы для группы-13	V
+
+{
+  Imp_NormSFO:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка норм СФО')
+  ClearGroup ;
+
+  _loop tmp_excel
+  {  if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[2] <> ''
+    {
+      wkodnormsfo:=''
+      wcnormsfo:=comp(0)
+      wdatenormsfo:=to_date(0,0,0);
+      wcnormdate:=comp(0)
+      if tmp_excel.dmcell[8] = ''
+      {
+        kl_new:=false ;
+        logtime('Строка '+tmp_excel.dmcell[1]+'->Не задана дата начала действия нормы СФО с кодом: '+tmp_excel.dmcell[2]) ;
+        continue;
+      }
+      if getfirst normsfo where (( tmp_excel.dmcell[2] == normsfo.kod)) = 0
+      {
+        kl_new:=false ;
+        logtime('Строка '+tmp_excel.dmcell[1]+'->Код нормы СФО уже существует: '+tmp_excel.dmcell[2]) ;
+        continue;
+      }
+      if getfirst normsfo where (( tmp_excel.dmcell[3] == normsfo.name)) = 0
+      {
+        kl_new:=false ;
+        logtime('Строка '+tmp_excel.dmcell[1]+'->Наименование группы СФО уже существует: '+tmp_excel.dmcell[3]) ;
+        continue;
+      }
+      wkodnormsfo:=tmp_excel.dmcell[2]
+      wdatenormsfo:=strtodate(tmp_excel.dmcell[8],datemsk)
+      if only_check<>1
+      {
+        insert into normsfo set
+              normsfo.kod:=wkodnormsfo,
+              normsfo.lkod:=length(wkodnormsfo), 
+              normsfo.name:=tmp_excel.dmcell[3],
+              normsfo.nsex:=case(tmp_excel.dmcell[4];
+                            'мужской':'М',
+                            'женский':'Ж';
+                            ''),
+              normsfo.nacop:=tmp_excel.dmcell[5], 
+              normsfo.spflag:=case(tmp_excel.dmcell[6];
+                               'Ф':0,
+                               'С':1;
+                               0);
+        wcnormsfo:=normsfo.nrec
+        SetAttr(coNormSFO, 'Параграф нормы по умолчанию', wcnormsfo, tmp_excel.dmcell[7])  
+        insert into normdatesfo set
+          normdatesfo.cnormsfo:=wcnormsfo,
+          normdatesfo.frdate:=wdatenormsfo,
+          normdatesfo.newdate:=0;
+        wcnormdate:=normdatesfo.nrec
+      }  
+      i:=1
+      logtime('Строка '+tmp_excel.dmcell[1]+'->Загрузка нормы СФО с кодом: '+normsfo.kod+'-'+normsfo.name+' на дату-'+wdatenormsfo) ;
+    }
+    if wkodnormsfo = ''
+    {
+      kl_new:=false ;
+      logtime('Строка '+tmp_excel.dmcell[1]+'->Не задан код нормы СФО!') ;
+      break;
+    }
+    if wdatenormsfo = to_date(0,0,0)
+    {
+      kl_new:=false ;
+      logtime('Строка '+tmp_excel.dmcell[1]+'->Не задана дата начала действия нормы СФО!') ;
+      break;
+    }
+    if getfirst groupsfo where ((tmp_excel.dmcell[9] == groupsfo.kod)) <> 0
+    {
+      kl_new:=false ;
+      logtime('Строка '+tmp_excel.dmcell[1]+'->Не существует группа СФО с кодом:'+tmp_excel.dmcell[9]) ;
+      continue;
+    }
+    if replace(groupsfo.name,'  ',' ') <> replace(tmp_excel.dmcell[10], '  ',' ')
+    {
+      kl_new:=false ;
+      logtime('Строка '+tmp_excel.dmcell[1]+'->Группа СФО с кодом:'+tmp_excel.dmcell[9]+' имеет отличное наименование от указанного-'+groupsfo.name+'\('+tmp_excel.dmcell[10]+')') ;
+      continue;
+    }
+    if only_check<>1
+    {
+      insert into normgroupsfo set
+        normgroupsfo.npp:=i,
+        normgroupsfo.cnormdate:=wcnormdate,     
+        normgroupsfo.cgroupsfo:=groupsfo.nrec,
+        normgroupsfo.firstkol:=1,
+        normgroupsfo.kol:=if(tmp_excel.dmcell[11]=0,65535,tmp_excel.dmcell[11]),
+        normgroupsfo.srok:=tmp_excel.dmcell[12],
+        normgroupsfo.article:=tmp_excel.dmcell[13],
+        normgroupsfo.alignfl:=2,
+        normgroupsfo.forcecls:=0;
+      i:=i+1      
+    }  
+    logtime('Строка '+tmp_excel.dmcell[1]+'->Загрузка для нормы группы СФО с кодом: '+groupsfo.kod+'-'+groupsfo.name) ;
+  }
+  Imp_NormSFO:=true ;
+}
+
+Function Imp_SFO :boolean ;
+var wnom   :string ;
+    wdt :date ;
+{
+//	КодНоменклатуры -2	V
+//Номенклатура-3	    V
+//Подразделение-4
+//СчетУчета-5
+//НазначениеИспользования-6	V
+//ФизЛицоКод-7	N
+//ФизЛицо-8	  V
+//Количество-9
+//Стоимость-10
+//ПогашеннаяСтоимость-11
+//СпособПогашенияСтоимости-12	V
+//СрокПолезногоИспользования-13
+//ДатаВводаВЭксплуатацию-14
+//ДатаПередачи-15
+//СпособОтраженияРасходов-16	V
+//ОбщееКолво10-17
+//ОбщаяСумма10-18
+//ОбщееКолво11-19
+//ОбщаяСумма11-20
+
+  Imp_SFO:=false ;
+  wexrow:=0 ;
+  inextvisual('Обработка СФО')
+  ClearGroup ;
+
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    if getfirst katmbp where (( tmp_excel.dmcell[2] == KATMBP.NNUMBER
+     and tmp_excel.dmcell[3] == KATMBP.NAME )) <>0
+    { insert into katmbp set KATMBP.NNUMBER:=tmp_excel.dmcell[2]
+                            ,KATMBP.NAME :=tmp_excel.dmcell[3]
+                            ,KATMBP.MBPKIND :=0;
+    }
+    KATMBP.MBPKIND :=1 ;
+    Katmbp.ced:=iKatalog_GetValue.GetKatEDNrecByName('штука');
+    if Katmbp.cmc=0
+    { Katmbp.cmc:=iKatalog_GetValue.GetKatMcNrecByName(KATMBP.NAME);
+      if Katmbp.cmc>0
+      { if getfirst katmc where ((Katmbp.cmc == katmc.nrec))=0
+        { katmbp.cgroupmc:=katmc.cgroupmc ;
+          katmbp.KODGR:=katmc.kgroupmc ;
+        }
+      }
+    }
+    katmbp.desgr:='SFO'
+    katmbp.CWRITEOFF:= iKatalog_GetValue.GetMBPWRITENrec(tmp_excel.dmcell[12])
+    katmbp.DOPINFO:=tmp_excel.dmcell[5]+'_'+tmp_excel.dmcell[6]
+    update current katmbp ;
+    SetAttr(cokatmbp,'Счет учета',katmbp.nrec,tmp_excel.dmcell[5])
+    SetAttr(cokatmbp,'СпособОтраженияРасходов',katmbp.nrec,tmp_excel.dmcell[16])
+//20080220
+    var wklpers :boolean ;
+    wklpers:=false ;
+    if getfirst persons where ((  'С' == PERSONS.ISEMPLOYEE
+    and tmp_excel.dmcell[8] == persons.fio ))=0
+    { wklpers:=true ;
+    }
+    else
+    { if GetDolgByIn(tmp_excel.dmcell[8])<>'_'
+      { tmp_excel.dmcell[8]:=persons.fio ;
+        wklpers:=true ;
+      }
+    }
+    if wklpers
+    { if getfirst lschet where (( persons.nrec == lschet.tperson ))<>0
+      { OpenLsch ;
+      }
+      // заполняем карточку
+      if getfirst perscard where (( lschet.nrec == perscard.clschet))<>0
+      { wnom:='000001'
+        insert into perscard set
+          perscard.CARDNOM:=doubletostr(lschet.tabn,'77777777')
+         ,perscard.clschet:=lschet.nrec
+         ,perscard.descr :='ZAK'
+         ,perscard.desgr :='ZAK'
+         ,PERSCARD.CPODR :=lschet.cex
+         ,PERSCARD.CPOST :=Persons.cBaseProf
+         ,PERSCARD.ATTDATE:=date(1,1,2008) ;
+
+         ;
+      }
+//20080214
+      PERSCARD.cmol:=iKatalog_GetValue.GetKatMolNrecByName(tmp_excel.dmcell[21])
+      PERSCARD.CPOST :=Persons.cBaseProf
+
+    } //if getfirst persons where ((  'С' == PERSONS.ISEMPLOYEE
+    else
+    { logmy('Ошибка поиска карточки!!залили на 00000000 '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[8])
+      if getfirst perscard where (( '00000000' == perscard.CARDNOM))<>0
+      {         insert into perscard set
+          perscard.CARDNOM:='00000000'
+         ,perscard.clschet:=0
+         ,perscard.descr :='ZAK'
+         ,perscard.desgr :='ZAK'
+         ,PERSCARD.CPODR :=0
+         ;
+      }
+    }
+    perscard.status:=1 ;
+    update current PERSCARD ;
+    wdt:=strtodate(tmp_excel.dmcell[14],datemsk)
+ /*   20080221
+    if getfirst mbpin where ((
+        PERSCARD.NREC ==mbpin.cpers
+       and wdt == MBPIN.DIN
+       and katmbp.nrec == mbpin.cmbp(noindex)
+     )) <>0
+*/
+     if true
+     { clearbuffer(#mbpin)
+       mbpin.din:=wdt ;
+       mbpin.cpers:=PERSCARD.NREC ;
+       mbpin.cmbp:=katmbp.nrec ;
+       insert current mbpin ;
+     }
+//20080214
+     mbpin.cmol:=iKatalog_GetValue.GetKatMolNrecByName(tmp_excel.dmcell[21])
+     mbpin.cpodr:=iKatalog_GetValue.GetKatpodrNrecByName(tmp_excel.dmcell[4])
+     mbpin.CPODRF:=mbpin.cpodr ;
+     mbpin.DATEEKSP:=strtodate(tmp_excel.dmcell[15],datemsk)
+     mbpin.NOM:='ZAKACHKA' ;
+     if mydouble(tmp_excel.dmcell[9])>0
+     { mbpin.KOLFACT:=mydouble(tmp_excel.dmcell[9])
+       MBPIN.KOLDOC :=mydouble(tmp_excel.dmcell[9])
+       MBPIN.PRICE:=mydouble(tmp_excel.dmcell[10])/mbpin.KOLFACT ;
+       MBPIN.SUMMAISNN:=mydouble(tmp_excel.dmcell[11]) ;
+       MBPIN.SUMISNF:=MBPIN.SUMMAISNN ;
+       MBPIN.SUMMA:=mydouble(tmp_excel.dmcell[10]) ;
+       MBPIN.SUMFACT:=MBPIN.SUMMA ;
+     }
+     else
+     { mbpin.KOLFACT:=0
+       MBPIN.KOLDOC :=0
+       MBPIN.PRICE:=0 ;
+       MBPIN.SUMMAISNN:=0 ;
+       MBPIN.SUMISNF:=0 ;
+       MBPIN.SUMMA:=0 ;
+       MBPIN.SUMFACT:=0 ;
+     }
+
+     MBPIN.INSTATE:=1 ;
+     mbpin.status:=1 ;
+     mbpin.dateend:=add_months(mbpin.DATEEKSP,integer(tmp_excel.dmcell[13]))
+     MBPIN.TPERCENT:=100*MBPIN.SUMMAISNN/MBPIN.SUMMA;
+     MBPIN.PERCNACH:=MBPIN.TPERCENT ;
+     update current mbpin ;
+
+ /*   20080221
+  if getfirst perssfo where (( perscard.nrec == perssfo.cperscard
+   and katmbp.nrec == perssfo.CKATMBP(noindex)
+      and wdt == perssfo.GIVEDATE(noindex)
+   ))<>0
+*/
+  if true
+   { insert into perssfo set
+       perssfo.cperscard:=perscard.nrec
+       ,perssfo.CKATMBP:=katmbp.nrec
+       ,perssfo.GIVEDATE:=wdt ;
+   }
+/*
+  CPERSCARD	Ссылка на ЛК	Созданная карточка по табельному номеру
+CPERSSPEC	Ссылка на специф. в истории	0
+CSPREQSFO	Ссылка на спец. треб. по котор. выдано	0
+CDOCMBPIN	Ссылка на приход по выдаче в МБП	0
+CCURMBPIN	Ссылка на текущий приход в МБП	0
+CMBPOUT	Ссылка на запись списания, резервная	0
+CMBPMOVE	Ссылка на групп документ МБП/СФО	Созданный документ
+CGROUPSFO	Ссылка на группу СФО	????
+CKATMBP	Ссылка на КУ МБП - что выдано	Созданная карточка СФО по номенклатурному номеру
+CPERSSFO	Ссылка на выдачу-родителя	0
+GIVEDATE	Дата выдачи	!!!
+OPERDATE	Дата операции списания/перевода СФО
+GIVENOM	Номер документа на выдачу
+EXPLDATE	Дата отсчета срока эксплуат.	!!!
+SROK	Срок службы предметов	!!!
+DOCKOL	Выдано реально	!!!
+CURKOL	Осталось после всех операций
+ENDDATE	Дата окончания срока службы	!!!
+SPISDATE	Дата списания в ЛК
+SPISNOM	Номер документа на списание
+SPECFLAG	Форменная 0 / специальная 1	!!!
+STATUS	Носится0/Возвр1./Утер2./Спис.3(перев)	0
+ZEROKOL	Для отбора выдач с ненулевым колич-вом	1
+CDOPREC	Для разных документов	0
+PRICES[1]	Цена при вводе вручную и расч удерж[1]	0
+PRICES[2]	Цена при вводе вручную и расч удерж[2]	0
+DOPATTR	Доп. аттрибут - до износа и т.д.	0
+EXTMOD	Из какого модуля предметы	0
+CEXTOPER	Ссылка на операцию в другом модуле	0
+*/
+        perssfo.SPECFLAG:=1; perssfo.ZEROKOL:=1 ;
+        perssfo.GIVENOM:='ZAK' ;
+        perssfo.EXPLDATE:=strtodate(tmp_excel.dmcell[15],datemsk) ;
+        perssfo.SROK:=integer(tmp_excel.dmcell[13]) ;
+        perssfo.DOCKOL:=integer(mbpin.KOLFACT) ;
+        perssfo.CURKOL:=perssfo.DOCKOL ;
+        perssfo.CCURMBPIN:=mbpin.nrec ;
+        update current perssfo ;
+  } //_loop tmp_excel
+  Imp_SFO:=true ;
+}//Function Imp_SFO :boolean ;
+
+//==================
+// ОСТАТКИ  МЦ
+//==================
+Function Imp_OstMC:boolean ; //Остатки_МЦ_БухУчет.xls
+var wstr:string ;
+    wnom:word ;
+    wns:string ;
+    wcpodr,wcmol, wcgrpodr:comp ;
+    wcnazna:comp ;
+    wnpp :longint ;
+    wstemp, wsgrpodr, wspodr:string;
+
+  wCSALDTUNE,wcobj,wckau1,wckau2,wckau3:comp ;
+{ Imp_OstMC:=false ;
+//	НоменклатураКод-2
+//  Номенклатура-5	СчетУчета-6	Организация-7
+// Склад-8	ХарактеристикаНоменклатуры-9	СерияНоменклатуры-10	КоличествоОстаток-11	СтоимостьОстаток-12
+//20080229
+//	Код=2	A	B	Материал-5	Счет-6
+//Орг-7	Подразделение-8	C	D	КоличествоНаСкладе-11	Сумма-12	Объект строительства-13	Партия-14	G	H	Склад
+  if getfirst katnazna where (( 'Первоначальные остатки МЦ' == katnazna.name)) = 0
+  {
+    wcnazna := katnazna.nrec;
+  }
+  else
+  { wstr:='Определите назначение - Первоначальные остатки МЦ!!'
+    logtime(wstr)
+    message(wstr)
+    exit ;
+
+  }
+  IF GETFIRST KATSOPR WHERE (( 611 == katsopr.vidsopr and date(31,08,2010 ) == katsopr.dsopr
+        and wcnazna == katsopr.cnazna (noindex) ))=0
+  { wstr:='Найдены акты об излишках по закачке от 31.08.2010 - удалите их!!'
+    logtime(wstr)
+    message(wstr)
+    exit ;
+  }
+  IF GETFIRST KATSOPR WHERE (( 612 == katsopr.vidsopr and date(31,08,2010 ) == katsopr.dsopr
+        and wcnazna == katsopr.cnazna (noindex) ))=0
+  { wstr:='Найдены акты о недостаче по закачке от 31.08.2010 - удалите их!!'
+    logtime(wstr)
+    message(wstr)
+    exit ;
+  }
+  inextvisual('Закачка складских остатков')
+  wnom:=0
+  wexrow:=0
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 100=0
+    { if not nextvisual then exit ;
+    }
+    wcmol:=0 ;
+    wcpodr:=0 ;
+    if tmp_excel.dmcell[8]<>''
+    {
+      wsgrpodr:=trim(substr(tmp_excel.dmcell[8],1,pos('/',tmp_excel.dmcell[8])-1))
+      wstemp:=trim(substr(tmp_excel.dmcell[8],pos('/',tmp_excel.dmcell[8])+1,100))
+      if substr(wstemp, 1, 19) = 'ОПС Санкт-Петербург'
+      {
+        wspodr:=substr(wstemp,length(wstemp)-5,6) + ' ' + substr(wstemp,1,length(wstemp)-7)
+      }
+      else
+      {
+        wspodr:=wstemp
+      }
+      logtime(wsgrpodr+'/'+wspodr) ;
+      wcgrpodr := 0
+      wcpodr := 0
+      if getfirst grpodr where (( wsgrpodr ==grpodr.name))=0
+      {
+        wcgrpodr := grpodr.nrec
+        logtime('GRPODR:'+wcgrpodr) ;
+        if getfirst katpodr where ((wcgrpodr == katpodr.cgrpodr and wspodr ==katpodr.name))=0
+        {
+          wcpodr := katpodr.nrec
+          logtime('PODR:'+wcpodr) ;
+        }
+      }
+    }
+    if wcpodr=0
+      wcpodr:=iKatalog_GetValue.GetKatpodrNrecByName('склад Кировского МРП') ;
+    if tmp_excel.dmcell[17]<>''
+      wcmol:=iKatalog_GetValue.GetKatMOLNrec(tmp_excel.dmcell[17]) ;
+    if wcmol=0
+    { if getfirst katmol where (( wcpodr == katmol.cskl ))=0
+        wcmol:=katmol.nrec ;
+    }
+    logtime('MOL:'+wcmol) ;
+    if wcmol = 0 or wcpodr = 0
+    {
+       wstr:='Не найден МОЛ или подразделение!!'+tmp_excel.dmcell[17]+'/'+tmp_excel.dmcell[8]
+       logtime(wstr)
+       continue;
+    }
+    if getfirst katmol where (( wcmol == katmol.nrec ))=0 {}
+    if getfirst katpodr where (( wcpodr == katpodr.nrec ))=0 {}
+    wns:=katpodr.kod+'/'+katmol.kod ;
+    IF GETFIRST KATSOPR WHERE (( if(mydouble(tmp_excel.dmcell[12]) > 0,611,612) == katsopr.vidsopr
+        and date(31,08,2010 ) == katsopr.dsopr
+        and 'ZAK31082010/'+wns == katsopr.nsopr
+        and if(mydouble(tmp_excel.dmcell[12]) > 0,wcpodr,0) == KATSOPR.cpodrto(noindex)
+        and if(mydouble(tmp_excel.dmcell[12]) > 0,wcmol,0) ==katsopr.cmolto(noindex)
+        and if(mydouble(tmp_excel.dmcell[12]) > 0,0,wcpodr) == KATSOPR.cpodrfrom(noindex)
+        and if(mydouble(tmp_excel.dmcell[12]) > 0,0,wcmol) ==katsopr.cmolfrom(noindex)
+        and tmp_excel.dmcell[6] == katsopr.name(noindex)
+         ))<>0
+    { clearbuffer(#katsopr)
+      wnom := wnom + 1;
+      if mydouble(tmp_excel.dmcell[12]) > 0
+      {
+        katsopr.vidsopr:=611 ;
+        KATSOPR.cpodrto:=wcpodr ;
+        KATSOPR.cmolto :=wcmol ;
+      }
+      else
+      {
+        katsopr.vidsopr:=612 ;
+        KATSOPR.cpodrfrom:=wcpodr ;
+        KATSOPR.cmolfrom :=wcmol ;
+      }
+      katsopr.dsopr:=date(31,08,2010 ) ;
+      katsopr.name :=tmp_excel.dmcell[6]
+      KATSOPR.cnazna :=wcnazna ;
+      katsopr.nsopr:='ZAK31082010/'+wns
+      KATSOPR.CNOTE:=iKatalog_GetValue.FindNote(katsopr.vidsopr,'оформляемый',0)
+      insert current katsopr ;
+      insert into soprhoz set
+         soprhoz.csoprdoc:= katsopr.nrec
+        ,soprhoz.tidkgal := katsopr.vidsopr
+        ,soprhoz.TIPDOC    := katsopr.vidsopr
+        ,soprhoz.datob   := katsopr.dsopr
+        ,soprhoz.nodoc   := katsopr.nsopr
+        ,soprhoz.descr   := katsopr.descr
+        ,soprhoz.desgr   := katsopr.desgr
+        ;
+    }
+    wnpp:=1 ;
+    if getlast spsopr where (( katsopr.nrec == spsopr.csopr )) ordered by index SPSOPR02=0
+       wnpp:=spsopr.npp+1 ;
+    clearbuffer(#spsopr)
+    spsopr.NPP:=wnpp //                 │номер по порядку                 │Word
+    spsopr.PRMC:=1 ; //                │признак товара или услуги        │Word
+    if tmp_excel.dmcell[2] > ''
+    {
+      spsopr.CMCUSL:=iKatalog_GetValue.GetKatmcNrec(tmp_excel.dmcell[2]) ;//               │код товара(услуги)               │Comp
+    }
+    if spsopr.CMCUSL=0
+    { spsopr.CMCUSL:=iKatalog_GetValue.GetKatmcNrecByName(tmp_excel.dmcell[5]) ;//               │код товара(услуги)               │Comp
+      if spsopr.CMCUSL=0
+      { logtime('! нет МЦ '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[5])
+        continue ;
+      }
+    }
+    if getfirst katmc where (( spsopr.CMCUSL == katmc.nrec ))=0
+    { IF SUBSTR(KATMC.NAME,1,10)<>SUBSTR(tmp_excel.dmcell[5],1,10)
+      { spsopr.CMCUSL:=iKatalog_GetValue.GetKatmcNrecByName(tmp_excel.dmcell[5])
+        IF getfirst katmc where (( spsopr.CMCUSL == katmc.nrec ))=0 {}
+      }
+      if getfirst kated where (( katmc.ced == kated.nrec ))=0
+       spsopr.COTPED:=iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,kated.abbr) //              │код отпускной ед.измерения       │Comp
+    }
+//    spsopr.CALTED               │Альт.единица измерения           │Comp
+//    spsopr.CPARTY:=iKatalog_GetValue.GetKatpartyNrec(spsopr.CMCUSL,tmp_excel.dmcell[10])//               │код партии                       │Comp
+    if  tmp_excel.dmcell[14] > ''
+    {
+      spsopr.CPARTY:=iKatalog_GetValue.GetKatpartyNrec(0,tmp_excel.dmcell[14])//               │код партии                       │Comp
+    }
+//    spsopr.CVAL                 │код валюты                       │Comp
+//    spsopr.CPRICELIST           │Ссылка на прайс-лист             │Comp
+    spsopr.KOL:=if(mydouble(tmp_excel.dmcell[11])=0, 1, abs(mydouble(tmp_excel.dmcell[11]))) //                  │количество                       │Double
+    spsopr.KOLOPL:=spsopr.KOL //               │количество оплаченного           │Double
+    spsopr.OSTKOL:=spsopr.KOL//               │Кол-во не списанного             │Double
+    spsopr.PRICE :=abs(mydouble(tmp_excel.dmcell[12]))/spsopr.KOL ;//               │цена за единицу                  │Double
+//    spsopr.PROCUB               │% естественной убыли             │Double
+//    spsopr.CPERSONS             │Сотрудник, выполняющий услугу    │Comp
+//    spsopr.MANUALTAX            │Ручные налоги                    │Word
+    spsopr.CGRNAL :=katmc.cgrnal //               │сылка на группу налогов          │Comp
+//    spsopr.CCELLVAL             │ед.подвижного состава MoveCell   │Comp
+//    spsopr.CTRANSP              │ссылка на транспорт              │Comp
+    spsopr.NVAGON:='ZAK' ;//               │Номер ед.подв.состава            │String
+//    spsopr.NKVIT                │Номер ж/д квитанции              │String
+//    spsopr.NSERTIF              │Сертификат качества              │String
+//    spsopr.SUMAVT               │сумма ж/д тарифа                 │Double
+//    spsopr.CVALAVT              │валюта 2                         │Comp
+//    spsopr.CMASED               │единица веса KatED               │Comp
+//    spsopr.CMASVID              │способ определения веса          │Comp
+//    spsopr.NETTO                │вес нетто                        │Double
+//    spsopr.MTARA                │вес тары                         │Double
+//    spsopr.CRESOTGR             │ресурс отгрузки                  │Comp
+//    spsopr.CSPDOCS              │сылка на вышестоящию спецификацию│Comp
+    spsopr.CSOPR:=katsopr.nrec ;//                │код ТТН                          │Comp
+    spsopr.DSOPR:=katsopr.dsopr;//                │копия из ТТН                     │Date
+    spsopr.DOPRTTN:=date(0,0,0) ;//              │копия из ТТН                     │Date
+    spsopr.VIDSOPR:=katsopr.vidsopr ;//              │копия из ТТН                     │Word
+    spsopr.KOL2:=spsopr.kol;//                 │количество2(базовое кач-во)      │Double
+//    spsopr.VPRICE               │VPRICE                           │Double
+    spsopr.KOLFACT:=spsopr.kol;//              │количество фактическое           │Double
+    spsopr.KOLFACT2:=spsopr.kol;//             │количество фактическое2          │Double
+    spsopr.KOLNORMA:=spsopr.kol;//             │количество по норме              │Double
+//    spsopr.OILPLOT              │плотность топлива                │Double
+//    spsopr.OILTEMPER            │температура топлива              │Double
+//    spsopr.CSPORDER             │Ссылка на специф. ордера по кот. │Comp
+//    spsopr.PROCNAC              │Процент наценки для розн. торг.  │Double
+//    spsopr.CSPSTEP              │Ссылка на позицию ДО             │Comp
+//    spsopr.SUMNDS               │Сумма нал. НДЕ к контр. по       │Double
+//    spsopr.SUMVNDS              │Сумма нал. вал. к контр. по      │Double
+    spsopr.RPRICE:=round(spsopr.PRICE,2);//               │округленная цена за единицу      │Double
+//    spsopr.RVPRICE              │округленная цена в вал. за       │Double
+//    spsopr.CSPNZAKAZ            │Сылка на позицию заказа          │Comp
+//    spsopr.CSPSCHF              │Ссылка на спецификацию СФ        │Comp
+//    spsopr.WADOCSP              │Дескриминатор абстрактного       │Word
+//    spsopr.CADOCSP              │Ссылка на абстрактный документ   │Comp
+//    spsopr.CZAKVOL              │Сылка на позицию производ.заказа │Comp
+//    spsopr.KOLGRM               │количество грузовых мест         │Double
+//    spsopr.COTPEDGRM            │отпускная ед для кол-ва грузовых │Comp
+//    spsopr.CNMOVECELL           │Номер ед.подв. состава           │Comp
+//    spsopr.COWNER               │Ссылка на Спецификация накладных │Comp
+//    spsopr.PRVOZ                │PRVOZ                            │Word
+//    spsopr.KOLPOV               │Кол-во поврежденной тары         │Double
+//    spsopr.CGPSOPR              │ссылка на накладн с Гот.Продукт  │Comp
+//    spsopr.KOLDOP               │кол-во в доп.ед.изм.             │Double
+//    spsopr.CUKS                 │Ссылка на объект строительства   │Comp
+//    spsopr.WMCPROP              │Доп. св-во товара/услуги         │Word
+    spsopr.PRICEN:=spsopr.price ;//               │цена для нал.учета               │Double
+//    spsopr.VPRICEN              │цена для нал.учета в вал.        │Double
+//    spsopr.MANUALNALUCH         │расч./ручн. цена для нал.уч.     │Word
+    spsopr.CPODR:=katsopr.cpodrto ;//                │ссылка на подр.                  │Comp
+    spsopr.CMOL :=katsopr.cmolto ;//               │ссылка на МОЛ                    │Comp
+//    spsopr.LASTDATE             │дата замера топлива              │Date
+//    spsopr.LASTTIME             │время замера топлива             │Time
+//    spsopr.RESERVE              │кол-во резерва                   │Double
+    insert current spsopr ;
+    update current katsopr set katsopr.summa:=katsopr.summa+abs(mydouble(tmp_excel.dmcell[12])) ;
+  if tmp_excel.dmcell[13]<>''
+  { wcobj:=iKatalog_GetValue.GetKatStroyNrecByName(tmp_excel.dmcell[13])
+    wckau1:=0 ; //iKatalog_GetValue.GetFPCONrecByName(tmp_excel.dmcell[17])
+    wckau2:=0 ;
+    wckau3:=0 ;
+    wCSALDTUNE:=013B000000000008h ;
+    iKatalog_GetValue.MakeSpecmtr(coSpsopr,Spsopr.NREC,wCSALDTUNE,wcobj,wckau1,wckau2,wckau3,0,0,0,0,0,0) ;
+  }
+  if tmp_excel.dmcell[9] > ''
+  {
+    SetAttr(cospsopr,'ХарактеристикаНоменклатуры',spsopr.nrec,tmp_excel.dmcell[9])
+  }
+  if tmp_excel.dmcell[7] > ''
+  {
+    SetAttr(cospsopr,'Организация',spsopr.nrec,tmp_excel.dmcell[7])
+  }
+
+  } //_loop tmp_excel
+
+  Imp_OstMC:=true ;
+}
+//==================
+// ОСТАТКИ  БУХ
+// ищем соотв. мжеду старым и новым планом счетов
+//==================
+Function getTablSoot(wsch :string ; wsub:string ;
+  wkau1:string ; wkau2:string ; wkau3:string ;
+  wkau4:string ; wkau5:string ; wkau6:string ; tp_form :word  ) :boolean ;
+// tp_form 0 - сразу в оборот, 1 - дебет , 2 кредит
+var i :word ;
+   wstr : string ;
+   wcorg, wcpodr, wcgrpodr:comp;
+   wsgrpodr, wspodr, wstemp, wsorgnum, wsorgname: string;
+{
+  getTablSoot:=false ;
+  if getfirst tmp_plan_sootv where (( wsch == tmp_plan_sootv.sch_old
+   and wsub == tmp_plan_sootv.sub_old )) <>0
+  { logtime('Не заполнено в таблице соотв.счет субсчет '+wsch+'/'+wsub)
+    exit ;
+  }
+//  logtime('тип оборотов '+string(tp_form)+'/'+wkau1+'/'+wkau2+'/'+wkau3+'/'+wsch+'/'+wsub)
+  wckau[7]:=0 ;
+  for(i:=1;i<=6;i:=i+1)
+  { wckau[i]:=0 ;
+    tbkau[i]:=0 ;
+  }
+  for(i:=1;i<=6;i:=i+1)
+  { case i of
+    1: wstr:=wkau1 ;
+    2: wstr:=wkau2 ;
+    3: wstr:=wkau3 ;
+    4: wstr:=wkau4 ;
+    5: wstr:=wkau5 ;
+    6: wstr:=wkau6 ;
+    end ;
+    if wstr>0 and tmp_plan_sootv.dmlev[i]>0 and tmp_plan_sootv.dmlev[i]<7
+    {
+      if wstr='' and  tmp_plan_sootv.dmval[i]<>'' then wstr := tmp_plan_sootv.dmval[i];
+      case tmp_plan_sootv.dmkau[i] of
+      1:
+      {
+        wsorgnum := substr(wstr, 1, instr('#',wstr)-1)
+        wsorgname := substr(wstr, instr('#',wstr)+1, 200)
+        logtime(wsorgnum+'/'+wsorgname) ;
+        if substr(wsorgnum,1,3) = 'ИНН'
+        {
+          if getfirst katorg where ((wsorgname ==katorg.name and substr(wsorgnum,4,40) == katorg.unn (noindex)))=0
+          {
+            wckau[tmp_plan_sootv.dmlev[i]]:= katorg.nrec
+          }
+          else
+          {
+            if getfirst katorg where ((wsorgname ==katorg.name))=0
+            {
+              wckau[tmp_plan_sootv.dmlev[i]]:=katorg.nrec;
+            }
+          }
+        }
+        else
+        {
+          if getfirst katorg where ((wsorgname ==katorg.name and wsorgnum == katorg.code (noindex)))=0
+          {
+            wckau[tmp_plan_sootv.dmlev[i]]:= katorg.nrec
+          }
+          else
+          {
+            if getfirst katorg where ((wsorgname ==katorg.name))=0
+            {
+              wckau[tmp_plan_sootv.dmlev[i]]:=katorg.nrec;
+            }
+          }
+        }
+      }
+      14:
+      {
+        wstemp := substr(wstr,instr('!',wstr)+1,200)
+        wsorgnum := substr(wstemp, 1, instr('#',wstemp)-1)
+        wsorgname := substr(wstemp, instr('#',wstemp)+1, 200)
+        logtime(wstemp+'/'+wsorgnum+'/'+wsorgname) ;
+        if substr(wsorgnum,1,3) = 'ИНН'
+        {
+          if getfirst katorg where ((wsorgname ==katorg.name and substr(wsorgnum,4,40) == katorg.unn (noindex)))=0
+          {
+            wcorg:= katorg.nrec
+          }
+          else
+          {
+            if getfirst katorg where ((wsorgname ==katorg.name))=0
+            {
+              wcorg:=katorg.nrec;
+            }
+          }
+        }
+        else
+        {
+          if getfirst katorg where ((wsorgname ==katorg.name and wsorgnum == katorg.code (noindex)))=0
+          {
+            wcorg:= katorg.nrec
+          }
+          else
+          {
+            if getfirst katorg where ((wsorgname ==katorg.name))=0
+            {
+              wcorg:=katorg.nrec;
+            }
+          }
+        }
+        logtime(wcorg) ;
+        logtime(Ltrim(rtrim(rtrim(substr(wstr,12,instr('!',wstr)-12),'_'),' '),' '))
+        if getfirst  fastfirstrow dogovor where (( 0 == dogovor.cdogovor
+          and StrToDate(substr(wstr,1,10),'YYYY-MM-DD') == dogovor.dinput (noindex)
+          and Ltrim(rtrim(rtrim(substr(wstr,12,instr('!',wstr)-12),'_'),' '),' ') == dogovor.nodoc_ext (noindex)
+          and wcorg == dogovor.corg
+          ))=0
+        {
+          wckau[tmp_plan_sootv.dmlev[i]]:= dogovor.nrec
+        }
+      }
+      2:
+      {
+        if wstr = '' then wstr :=  tmp_plan_sootv.dmval[7]
+        if wstr = '' then wstr :=  'Кировский МРП/Кировский МРП'
+        wsgrpodr:=trim(substr(wstr,1,pos('/',wstr)-1))
+        wstemp:=trim(substr(wstr,pos('/',wstr)+1,100))
+        if instr('ОПС', wstemp) > 0
+        {
+          wspodr:=substr(wstemp,length(wstemp)-5,6) + ' ' + substr(wstemp,1,length(wstemp)-7)
+        }
+        else
+        {
+          wspodr:=wstemp
+        }
+        logtime(wsgrpodr+'/'+wspodr) ;
+        wcgrpodr := 0
+        wcpodr := 0
+        if getfirst grpodr where (( wsgrpodr ==grpodr.name))=0
+        {
+          wcgrpodr := grpodr.nrec
+          logtime(wcgrpodr) ;
+          if getfirst katpodr where ((wcgrpodr == katpodr.cgrpodr and wspodr ==katpodr.name))=0
+          {
+            wcpodr := katpodr.nrec
+            logtime(wcpodr) ;
+          }
+        }
+        wckau[tmp_plan_sootv.dmlev[i]]:= wcpodr
+        wckau[7]:= wcpodr
+      }
+      3:
+      {
+        wckau[tmp_plan_sootv.dmlev[i]]:=if(getfirst fastfirstrow Persons  where (('С'== Persons.ISEMPLOYEE and wstr == Persons.fio))=0,Persons.nrec,0) ;
+        if wckau[tmp_plan_sootv.dmlev[i]] = 0
+        {
+          wckau[tmp_plan_sootv.dmlev[i]]:=if(getfirst fastfirstrow Persons  where (('У'== Persons.ISEMPLOYEE and wstr == Persons.fio))=0,Persons.nrec,0) ;
+        }
+      }
+      else
+      {
+      wckau[tmp_plan_sootv.dmlev[i]]:=
+       iKatalog_GetValue.GetAnaliticNrecByName(tmp_plan_sootv.dmkau[i],wstr)
+      }
+      end;
+      if wckau[7] = 0
+      {
+        wstr :=  tmp_plan_sootv.dmval[7]
+        if wstr = '' then wstr :=  'Кировский МРП/Кировский МРП'
+        wsgrpodr:=trim(substr(wstr,1,pos('/',wstr)-1))
+        wstemp:=trim(substr(wstr,pos('/',wstr)+1,100))
+        if instr('ОПС', wstemp) > 0
+        {
+          wspodr:=substr(wstemp,length(wstemp)-5,6) + ' ' + substr(wstemp,1,length(wstemp)-7)
+        }
+        else
+        {
+          wspodr:=wstemp
+        }
+        logtime('7:'+wsgrpodr+'/'+wspodr) ;
+        wcgrpodr := 0
+        wcpodr := 0
+        if getfirst grpodr where (( wsgrpodr ==grpodr.name))=0
+        {
+          wcgrpodr := grpodr.nrec
+          logtime('7:'+wcgrpodr) ;
+          if getfirst katpodr where ((wcgrpodr == katpodr.cgrpodr and wspodr ==katpodr.name))=0
+          {
+            wcpodr := katpodr.nrec
+            logtime('7:'+wcpodr) ;
+          }
+        }
+        wckau[7]:= wcpodr
+      }
+      tbkau[tmp_plan_sootv.dmlev[i]]:=tmp_plan_sootv.dmkau[i] ;
+      LOGTIME('AN.='+STRING(tmp_plan_sootv.dmkau[i])+'/'+WSTR+'/'+string(wckau[tmp_plan_sootv.dmlev[i]])+'/'+string(i)+'/'+string(tmp_plan_sootv.dmlev[i])) ;
+    }
+    //Test
+//     logtime('1  '+string(wckau[3])+'/'+string(tbkau[3])) ;
+  }
+//Test
+  logtime('2  '+string(wckau[3])+'/'+string(tbkau[3])) ;
+/*  for(i:=1;i<=6;i:=i+1)
+  { if wckau[i]=0 and  tmp_plan_sootv.dmval[i]<>''
+    { if tmp_plan_sootv.tbl[i]>0
+      {
+        tbkau[i]:=tmp_plan_sootv.tbl[i] ; ;
+        case tmp_plan_sootv.tbl[i]  of
+        22 : {
+          if wckau[7]>0
+          { if getfirst fpco where (( 2 == fpco.cotable
+               and wckau[7] == fpco.CMEAN ))=0
+            { wckau[i]:=fpco.nrec
+            }
+          }
+        } //22
+        end ;
+        if wckau[i]=0
+        wckau[i]:=
+         iKatalog_GetValue.GetAnaliticNrecByName(
+           tmp_plan_sootv.tbl[i],tmp_plan_sootv.dmval[i])
+      }
+    }
+  }
+  if wckau[7]=0 and tmp_plan_sootv.dmval[7]<>''
+     wckau[7]:=iKatalog_GetValue.GetKatpodrNrecByName(tmp_plan_sootv.dmval[7]) ;
+  if tmp_plan_sootv.podr_need=2 and wckau[7]=0
+  { wckau[7]:=iKatalog_GetValue.GetKatpodrNrecByName('Кировский МРП') ;
+  }
+  */
+//Test
+//  logtime('3  '+string(wckau[3])+'/'+string(tbkau[3])+'/'+string(tp_form)) ;
+  case tp_form of
+  1 :
+  { oborot.subossch:=tmp_plan_sootv.sub_new
+    oborot.scheto  :=planssch.kod+tmp_plan_sootv.sch_new ;
+    oborot.DBSCHETO:=tmp_plan_sootv.sch_new ;
+    for(i:=1;i<=6;i:=1+i)
+    {  oborot.kauos[i]:=wckau[i] ;
+       oborot.tblos[i]:=tbkau[i] ;
+    }
+    oborot.KODSPO:=wckau[7] ;
+    oborot.SODPR:='Деб.'+wsch+'/'+wsub+' '+wkau1+'\'+wkau2+'\'+wkau3 ;
+  }
+  2 : {
+    oborot.subschk:=tmp_plan_sootv.sub_new
+    oborot.schetk  :=planssch.kod+tmp_plan_sootv.sch_new ;
+    oborot.KRSCHETK:=tmp_plan_sootv.sch_new ;
+    for(i:=1;i<=6;i:=1+i)
+    {  oborot.kauks[i]:=wckau[i] ;
+       oborot.tblks[i]:=tbkau[i] ;
+    }
+//Test
+   logtime(string(oborot.kauks[3])+'/'+string(oborot.tblks[3])) ;
+    oborot.KODSPK:=wckau[7] ;
+    if oborot.KODSPK=0 oborot.KODSPK:=oborot.KODSPO ;
+    if oborot.KODSPO=0 oborot.KODSPO:=oborot.KODSPK
+    oborot.SODPR:=oborot.SODPR+'::Кред. '+ wsch+'/'+wsub+' '+wkau1+'\'+wkau2+'\'+wkau3 ;
+/*    if oborot.KRSCHETK='69'
+    { case oborot.subschk of
+      '02' : wstr:='Начисление резерва на страхование от несчастных случаев' ;
+      '03' ,'04','06' : wstr:='Обязательное пенсионное страхование' ;
+      '10' : wstr:='Страхование от несчастных случаев' ;
+      else wstr:='ЕСН (без обязательного пенсионного страхования)' ;
+      end ;
+      if oborot.tblos[2]=5017
+      { oborot.kauos[2]:=iKatalog_GetValue.GetAnaliticNrecByName(5017,wstr) ;
+      }
+      if oborot.tblos[3]=5017
+      { oborot.kauos[3]:=iKatalog_GetValue.GetAnaliticNrecByName(5017,wstr) ;
+      }
+    }
+*/
+  }
+  end ;
+  getTablSoot:=true ;
+}
+Function Imp_PlanSootv:boolean ;
+var i,j :word ;
+    wstr:string ;
+{ Imp_PlanSootv:=false ;
+//1,2 - старый счет, субсчет
+//3,4 - новый счет, субсчет
+//5,6,7,8,9,10 - коды таблиц по галактике
+//11-16 - значения по умолчанию аналитик в галактике
+//17 - подразделение по умолчанию
+  if fileexist('!PlansSootv.txt') deletefile('!PlansSootv.txt')
+  if getfirst buhschet where (( planssch.kod+'ZAK' == buhschet.SCHET ))<>0
+  { wstr:=' Заведите забалансовый счет "ZAK"'
+    message(wstr) ;
+    logtime(wstr) ;
+    exit ;
+  }
+
+  wstr:='Загрузка табл.соотв' ;
+  logtime('===========================')
+  logtime(wstr) ;
+  logtime('===========================')
+  inextvisual(wstr)
+  delete all tmp_plan_sootv ;
+  wexrow:=0
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 100=0
+    { if not nextvisual then exit ;
+    }
+    if tmp_excel.dmcell[1]='' and tmp_excel.dmcell[2]='' then continue ;
+    clearbuffer(#tmp_plan_sootv) ;
+    tmp_plan_sootv.sch_old :=tmp_excel.dmcell[1]
+    tmp_plan_sootv.sub_old :=tmp_excel.dmcell[2]
+    tmp_plan_sootv.sch_new :=tmp_excel.dmcell[3]
+    tmp_plan_sootv.sub_new :=tmp_excel.dmcell[4]
+    for(i:=1;i<=6;i:=i+1)
+    { tmp_plan_sootv.dmkau[i]:=word(tmp_excel.dmcell[4+i])
+      tmp_plan_sootv.dmval[i]:=tmp_excel.dmcell[10+i]
+    }
+    tmp_plan_sootv.dmval[7]:=tmp_excel.dmcell[17] // подразделение
+    if getfirst buhschet where (( planssch.kod+tmp_plan_sootv.sch_new == buhschet.SCHET
+      and tmp_plan_sootv.sub_new == buhschet.subsch )) <>0
+    { logstrtofile('!PlansSootv.txt','Не нашли счет/субсчет '+tmp_plan_sootv.sch_new+'/'+tmp_plan_sootv.sub_new
+           +' старые '
+           +tmp_plan_sootv.sch_old+'/'+tmp_plan_sootv.sub_old
+        )
+      continue ;
+    }
+    tmp_plan_sootv.podr_need:=buhschet.VISIB
+    for(i:=1;i<=6;i:=i+1)
+    { tmp_plan_sootv.tbl[i]:=buhschet.KODTABLE[i]
+      if tmp_plan_sootv.dmkau[i]>0
+      { for(j:=1;j<=6;j:=j+1)
+        { if buhschet.KODTABLE[j]=tmp_plan_sootv.dmkau[i]
+          { tmp_plan_sootv.dmlev[i]:=j ;
+            break ;
+          }
+        } //for(j:=1;j<=6;j:=j+1)
+        if tmp_plan_sootv.dmlev[i]=0 and tmp_plan_sootv.dmkau[i]=2
+        { tmp_plan_sootv.dmlev[i]:=7 ;
+        }
+        if tmp_plan_sootv.dmlev[i]=0
+        { logstrtofile('!PlansSootv.txt','Для счет/субсчет '
+           +tmp_plan_sootv.sch_new+'/'
+           +tmp_plan_sootv.sub_new+' нет кода аналитики '
+           +string(tmp_plan_sootv.dmkau[i])
+           +'='+iKatalog_GetValue.GetKatKauName(tmp_plan_sootv.dmkau[i]) )
+        }
+      } // if tmp_plan_sootv.dmkau[i]>0
+    } //for(i:=1;i<=6;i:=i+1)
+    insert current tmp_plan_sootv ;
+  } //_loop tmp_excel
+  if fileexist('!PlansSootv.txt')
+  {   ProcessText('!PlansSootv.txt',vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+              'Ошибки проверки таблицы соотв');
+     delete all  tmp_plan_sootv ;
+     Imp_PlanSootv:=false ;
+     exit ;
+  }
+  Imp_PlanSootv:=true ;
+}
+Function Imp_OstBuh:boolean ; //Остатки_ПланСчетов_БухУчет.xls ;
+var wstr,wsch,wsub :string ;
+    i:word ;
+{ //	Счет-2			Субконто1-5	Субконто2-6	Субконто3-7	СуммаОстаток-8	КоличествоОстаток-9
+
+  Imp_OstBuh:=false ;
+  wstr:='Обработка бухсальдо' ;
+  logtime('===========================')
+  logtime(wstr) ;
+  logtime('===========================')
+  inextvisual(wstr)
+
+  if getfirst plpor where (( 10 == tidkgal
+    and   date(31,07,2010) == plpor.datvip
+    and  'ZAKACHKA' == plpor.NODOK
+   )) <>0
+  { wstr:='Сделайте бухсправку с номером "ZAKACHKA" от 31.07.2010' ;
+    logtime(wstr) ;
+    message(wstr) ;
+    exit ;
+  }
+  if getfirst tmp_plan_sootv<>0
+  { wstr:='Загружать вместе с ПланСчетов_Соотв.xls!!!'
+    logtime(wstr) ;
+    message(wstr) ;
+    exit ;
+
+
+  }
+/*
+коды аналитик
+1
+3
+4
+14
+15
+16
+17
+18
+19
+40
+56
+60
+68
+71
+79
+5008
+5017
+*/
+//  wstr:='Исключаются обороты 002,43,08.04,10.01,10.03,10.05,10.06,10.09,10.10,41.01,50.03'
+  logtime(wstr) ;
+  message(wstr) ;
+  wexrow:=0
+  delete oborot where (( plpor.tidk == oborot.tidk and plpor.nrec == oborot.csoprdoc )) ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    if tmp_excel.dmcell[2] = '' then continue;
+    chet:=chet+1 ;
+    if chet mod 100=0
+    { if not nextvisual then exit ;
+    }
+    wsch:=tmp_excel.dmcell[2]
+    wsub:='' ;
+    if pos('.',wsch)>0
+    { wsub:=substr(wsch,pos('.',wsch)+1,10)
+      wsch:=substr(wsch,1,pos('.',wsch)-1)
+    }
+    if length(wsch)=1
+    { wsch:='00'+wsch ;
+    }
+/*    if wsch='002' or wsch='43'
+    or (wsch='08' and wsub='04')
+    or (wsch='10' and wsub='01')
+    or (wsch='10' and wsub='03')
+    or (wsch='10' and wsub='05')
+    or (wsch='10' and wsub='09')
+    or (wsch='10' and wsub='10')
+    or (wsch='41' and wsub='01')
+    or (wsch='50' and wsub='03')
+    then continue ;   */
+    clearbuffer(#oborot)
+    oborot.tidkgal:=plpor.tidkgal ;
+    oborot.tidk:=plpor.tidk ;
+    oborot.nodok:=plpor.nodok
+    oborot.datob:=plpor.datvip
+    oborot.csoprhoz:=soprhoz.nrec
+    oborot.csoprdoc:=plpor.nrec ;
+    oborot.sumob   :=mydouble(tmp_excel.dmcell[8])
+    if not getTablSoot(wsch,wsub,tmp_excel.dmcell[5],tmp_excel.dmcell[6],tmp_excel.dmcell[7],
+                                 tmp_excel.dmcell[10],tmp_excel.dmcell[11],tmp_excel.dmcell[12],1) then
+    { // continue ;
+    }
+    oborot.cplanssch :=planssch.nrec ;
+    if oborot.sumob<0
+    { oborot.sumob:=-oborot.sumob
+      for(i:=1;i<=6;i:=i+1)
+      { oborot.tblks[i]:=oborot.tblos[i] ;oborot.tblos[i]:=0 ;
+        oborot.kauks[i]:=oborot.kauos[i] ;oborot.kauos[i]:=0 ;
+      }
+      oborot.schetk:=oborot.scheto
+      oborot.subschk:=oborot.subossch
+      oborot.KRSCHETK:=oborot.DBSCHETO
+      oborot.subossch:=''
+      oborot.scheto :=planssch.kod+'ZAK' ;
+      oborot.DBSCHETO:='ZAK'
+      oborot.KODSPK:=oborot.KODSPO ;
+      oborot.KODSPO:=0 ;
+    }
+    else
+    {
+      oborot.schetk :=planssch.kod+'ZAK' ;
+      oborot.KRSCHETK:='ZAK'
+    }
+    insert current oborot ;
+  }
+  if fileexist('!PlansSootv.txt')
+     ProcessText('!PlansSootv.txt',vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+              'Ошибки проверки таблицы соотв');
+
+  Imp_OstBuh:=true ;
+}
+
+function MyCreateSoprhoz(wcdogovor:comp ; wccalplan :comp;wccalplanf :comp ) : comp ;
+{
+// soprhoz
+  if getfirst soprhoz where (( plpor.tidk == soprhoz.tipdoc
+      and plpor.nrec ==  soprhoz.CSOPRDOC ))<>tsok
+  {   clearbuffer(tnsoprhoz)
+      Soprhoz.CSOPRDOC :=plpor.nrec ;
+      Soprhoz.TIDKGAL  := Plpor.TIDKGAL ;
+      case  Plpor.TIDKGAL of
+      1:soprhoz.direct := 2 ; // плат.поруч.
+      2:soprhoz.direct := 1 ;
+      else
+      {
+       logtime('Тип документа пока не обрабатывается: '+Plpor.tidkGal+' ('+Plpor.Nodok+'/'+datetostr(Plpor.datob,'DD-MM-YYYY')+')');
+       exit;
+      }
+      end ;
+      Soprhoz.TIPDOC   := Plpor.TIDK;
+      Soprhoz.NODOC    := Plpor.NODOK;
+      Soprhoz.DATOB    := Plpor.DATOB;
+      Soprhoz.SUMMA    := Plpor.SUMPLAT;
+      Soprhoz.KODVALUT := Plpor.cval;
+      Soprhoz.SUMVALUT := Plpor.SUMPLATV;
+      Soprhoz.ModeDoc  :=plpor.modedoc;
+      Soprhoz.VHSUMHOZ :='+' ;
+      soprhoz.cstepdoc :=plpor.cstepdoc ;
+      soprhoz.desgr:=plpor.desgr ;
+      soprhoz.descr:=plpor.descr ;
+      soprhoz.chozoper:=plpor.chozoper ;
+      insert current soprhoz ;
+   }
+   else
+   { logtime('Хозоперация уже существует для документа '+plpor.nodok+'/'+datetostr(plpor.datob, 'DD-MM-YYYY'))
+   }
+  MyCreateSoprhoz :=soprhoz.nrec ;
+}
+
+
+function MyCreateBasefin(wcdogovor:comp ; wccalplan :comp;wccalplanf :comp ) : comp ;
+{
+// soprhoz
+  if getfirst soprhoz where (( plpor.tidk == soprhoz.tipdoc
+      and plpor.nrec ==  soprhoz.CSOPRDOC ))<>tsok
+  {   clearbuffer(tnsoprhoz)
+      Soprhoz.CSOPRDOC :=plpor.nrec ;
+      Soprhoz.TIDKGAL  := Plpor.TIDKGAL ;
+      case  Plpor.TIDKGAL of
+      1:soprhoz.direct := 2 ; // плат.поруч.
+      2:soprhoz.direct := 1 ;
+      else
+       basefin.direct := 3 ;
+      end ;
+      Soprhoz.TIPDOC   := Plpor.TIDK;
+      Soprhoz.NODOC    := Plpor.NODOK;
+      Soprhoz.DATOB    := Plpor.DATOB;
+      Soprhoz.SUMMA    := Plpor.SUMPLAT;
+      Soprhoz.KODVALUT := Plpor.cval;
+      Soprhoz.SUMVALUT := Plpor.SUMPLATV;
+      Soprhoz.ModeDoc  :=plpor.modedoc;
+      Soprhoz.VHSUMHOZ :='+' ;
+      soprhoz.cstepdoc :=plpor.cstepdoc ;
+      soprhoz.desgr:=plpor.desgr ;
+      soprhoz.descr:=plpor.descr ;
+      soprhoz.chozoper:=plpor.chozoper ;
+      insert current soprhoz ;
+   }
+   else
+   {  Soprhoz.SUMMA    := Plpor.SUMPLAT;
+      Soprhoz.KODVALUT := Plpor.cval;
+      Soprhoz.SUMVALUT := Plpor.SUMPLATV;
+      Soprhoz.ModeDoc   := plpor.modedoc;
+      update current PlPor ;
+   }
+  if getfirst basefin where (( plpor.tidk == basefin.tipdoc
+      and plpor.nrec ==  basefin.CSOPRDOC ))<>tsok
+  {
+      clearbuffer(tnbasefin)
+      basefin.CSOPRDOC :=plpor.nrec
+//? не извсетно надо ли   basefin.CSOPRDOC :=plpor.nrec ;
+      basefin.corg:= if (plpor.tidkgal=2,plpor.cplat,plpor.cpol)
+//      basefin.cdogovor :=plpor.cdogovor ;
+      basefin.CSTEPDOC :=plpor.CSTEPDOC ;
+      basefin.CPLPOR   :=plpor.nrec ;
+      basefin.TIDKGAL  := Plpor.TIDKGAL ;
+      basefin.TIPDOC   := Plpor.TIDK;
+      basefin.NODOC    := Plpor.NODOK;
+      basefin.DDoc    := Plpor.DATOB;
+      basefin.SUMMA    := Plpor.SUMPLAT;
+      basefin.csoprhoz := soprhoz.nrec ;
+ //а какой нужен ddddd
+      case  Plpor.TIDKGAL of
+      1:basefin.direct := 2 ; // плат.поруч.
+      2:basefin.direct := 1 ;
+      else
+       basefin.direct := 3 ;
+      end ;
+      insert current basefin ;
+  }
+  basefin.SUMMA    := Plpor.SUMPLAT;
+  basefin.cval     := Plpor.cval;
+  basefin.SUMVAL    := Plpor.SUMPLATV;
+
+/*if plpor.CSTEPDOC>0
+  { basefin.CSTEPDOC :=plpor.CSTEPDOC ;
+        basefin.cbasedoc :=stepdoc.cbasedoc ;
+  }
+*/
+  if wcdogovor>0 // договор
+  { basefin.Cdogovor :=wcdogovor ;
+  }
+  if wccalplan>0 // тов.план
+  { basefin.ccalplan :=wccalplan ;
+  }
+  if wccalplanf>0 // финплан
+  { BaseFin.cKatSopr:=wccalplanf ;
+  }
+  basefin.desgr:=plpor.desgr ;
+  basefin.descr:=plpor.descr ;
+  update current basefin ;
+  MyCreateBasefin :=basefin.nrec ;
+}
+/*
+delete all katorg ;
+delete all katbank ;
+delete all CASHBANK ;
+delete all usersdoc ;
+import katorg from dbf c:\1\1\katorg  n f s ;
+import katbank from dbf c:\1\1\katbank  n f s ;
+import CASHBANK from dbf c:\1\1\CASHBANK  n f s ;
+import usersdoc from dbf c:\1\1\usersdoc  n f s ;
+*/
+
+Function Imp_Plpor:boolean ; //Платежи.xls ;
+var wstr,wnom :string ;
+    wdt:date ;
+    wtidk,wtidkgal : word ;
+    wcplat, wcpol, wcplatnew, wcbankplat, wcbankpol, wccashbank :comp ;
+{
+//20110206
+//1:<Дополнительный признак>
+//2:<системный тип документа>
+//3:<номер документа>
+//4:<дата документа>
+//5:<дата обработки документа>
+//6:<дата получения документа>
+//7:<подотчетное лицо>
+//8:<ID контрагента-плательщика в ИС>
+//9:<ID контрагента-получателя в ИС>
+//10:<ID расчетного счета плательщика в ИС>
+//11:<ID расчетного счета получателя в ИС>
+//12:<ID валюты в ИС>
+//13:<сумма документа>
+//14:<сумма документа в валюте>
+//15:<назначение документа 1>
+//16:<назначение документа 2>
+//17:<назначение документа 3>
+//18:<назначение документа 4>
+//19:<вид операции>
+//20:<налоги>
+//21:<ID контрагента-должника>
+//22:<почта/телеграф>
+//23:<ID документа в ИС>
+  Imp_Plpor:=false ;
+  wstr:='Обработка платежных поручений ';
+  logtime('===========================')
+  logtime(wstr) ;
+  logtime('===========================')
+  inextvisual(wstr)
+  wexrow:=0 ;
+  chet:=0 ;
+  _loop tmp_excel
+  {
+     chet:=chet+1 ;
+     if chet mod 100=0
+     { if not NextVisual then exit  ;
+     }
+     if tmp_excel.dmcell[8] = '' or tmp_excel.dmcell[10] = ''
+     {
+       logtime('Не указано ID реквизитов плательщика в ИС для документа '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+       continue;
+     }
+     if tmp_excel.dmcell[9] = '' or tmp_excel.dmcell[11] = ''
+     {
+       logtime('Не указано ID реквизитов получателя в ИС для документа '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+       continue;
+     }
+     if comp(tmp_excel.dmcell[8]) > comp(0)
+     {  if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[8],
+                                                                      tmp_excel.dmcell[8])==spkau_soot.name
+                                                               and 1418==spkau_soot.vdata (noindex))) = 0
+        { wcplat := comp(spkau_soot.code);
+        }
+        else
+        {
+          logtime('Не удалось установить соответствие для плательщика по документу '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+          continue;
+        }
+     }
+     if comp(tmp_excel.dmcell[9]) > comp(0)
+     {
+       if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[9],
+                                                                      tmp_excel.dmcell[9])==spkau_soot.name
+                                                               and 1418==spkau_soot.vdata (noindex))) = 0
+       { wcpol := comp(spkau_soot.code);
+       }
+       else
+       {
+         logtime('Не удалось установить соответствие для получателя по документу '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+         continue;
+       }
+     }
+     if comp(tmp_excel.dmcell[10]) > comp(0)
+     {
+       if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[10],
+                                                                      tmp_excel.dmcell[10])==spkau_soot.name
+                                                               and 1421==spkau_soot.vdata (noindex))) = 0
+       { wcbankplat := comp(spkau_soot.code);
+       }
+       else
+       {
+         logtime('Не удалось установить соответствие для р/с плательщика по документу '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+         continue;
+       }
+     }
+     if comp(tmp_excel.dmcell[11]) > comp(0)
+     {
+       if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[11],
+                                                                      tmp_excel.dmcell[11])==spkau_soot.name
+                                                               and 1421==spkau_soot.vdata (noindex))) = 0
+       { wcbankpol := comp(spkau_soot.code);
+       }
+       else
+       {
+         logtime('Не удалось установить соответствие для р/с получателя по документу '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+         continue;
+       }
+     }
+     wcplatnew:=0
+     if comp(tmp_excel.dmcell[21]) > comp(0)
+     {
+       if getfirst spkau_soot where ((katkau_soot.kodgroup==spkau_soot.kodgrkau
+                                                               and if(CodeSource<>'',
+                                                                      CodeSource+'.'+tmp_excel.dmcell[21],
+                                                                      tmp_excel.dmcell[21])==spkau_soot.name
+                                                               and 1418==spkau_soot.vdata (noindex))) = 0
+       { wcplatnew := comp(spkau_soot.code);
+       }
+       else
+       {
+         logtime('Не удалось установить соответствие для должника по документу '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+         continue;
+       }
+     }
+     wccashbank:=if(tmp_excel.dmcell[2]=1,wcbankplat,wcbankpol)
+
+     if wccashbank > comp(0)
+     {
+       if getfirst CASHBANK where (( 2 ==  CASHBANK.razdel
+       and wccashbank == CASHBANK.cpodr ))=0
+       { if getfirst USERSDOC where ((
+            CASHBANK.razdel ==USERSDOC.razdel
+          and CASHBANK.nrec == USERSDOC.CCASHBANK
+          and word(tmp_excel.dmcell[2]) == USERSDOC.TIPGAL ))=0
+          {
+            wtidk:=USERSDOC.TIPUSERS
+          }
+          else
+          {
+            logtime('Не удалось идентифицировать тип для расчетного счета по документу ('+wccashbank+')'+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+            continue;
+          }
+       }
+       else
+       {
+         logtime('Не удалось идентифицировать расчетный счет по документу ('+wccashbank+')'+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+         continue;
+       }
+     }
+     if getfirst plpor where (( wtidk == plpor.tidk
+          and wcplat == plpor.cplat
+          and tmp_excel.dmcell[3] == plpor.nodok (noindex)
+          and strtodate(tmp_excel.dmcell[4], datemsk) == plpor.datvip
+        )) <>0
+     { if only_check = 1
+       {
+         logtime('Будет загружен документ '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]+'/'+tmp_excel.dmcell[13])
+         continue
+       }
+       clearbuffer(#plpor)
+       plpor.tidkgal:=word(tmp_excel.dmcell[2])
+       plpor.nodok:=tmp_excel.dmcell[3]
+       plpor.datvip:=strtodate(tmp_excel.dmcell[4], datemsk)
+       plpor.cplat:=wcplat
+       plpor.tidk:=wtidk;
+       insert current plpor;
+
+       plpor.cpol:=wcpol
+       plpor.datob:=strtodate(tmp_excel.dmcell[5], datemsk)
+       plpor.DATAPOL:=tmp_excel.dmcell[6]
+       plpor.CBANKPLAT:=wcbankplat
+       plpor.CBANKPOL:=wcbankpol
+       plpor.SUMPLAT:=double(tmp_excel.dmcell[13])
+       plpor.NAMEPL1:=tmp_excel.dmcell[15]
+       plpor.NAMEPL2:=tmp_excel.dmcell[16]
+       plpor.NAMEPL3:=tmp_excel.dmcell[17]
+       plpor.NAMEPL4:=tmp_excel.dmcell[18]
+       plpor.PODOTCHET:=tmp_excel.dmcell[7]
+       PLPOR.TELEPOST:=word(tmp_excel.dmcell[22])
+       PLPOR.VIDOPER:=tmp_excel.dmcell[19]
+       PLPOR.CPLATNEW:=wcplatnew
+       PLPOR.TAX:=tmp_excel.dmcell[20]
+       if tmp_excel.dmcell[2]=1
+       {
+         plpor.MODEDOC:=2048
+       }
+       else
+       {
+         plpor.MODEDOC:=1024
+       }
+       update current plpor ;
+       logtime('Загрузили документ '+plpor.nodok+'/'+datetostr(plpor.datvip, 'DD-MM-YYYY')+'/'+string(plpor.sumplat)) ;
+     }
+     else
+     {
+       logtime('документ уже существует '+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]) ;
+     }
+    if tmp_excel.dmcell[23] <> ''
+    { if only_check = 1
+      {
+        continue;
+      }
+      clearbuffer(#spkau_soot)
+      spkau_soot.kodgrkau := katkau_soot.kodgroup
+      spkau_soot.code := plpor.nrec
+      spkau_soot.name := if(CodeSource<>'', CodeSource+'.'+tmp_excel.dmcell[23], tmp_excel.dmcell[23])
+      spkau_soot.vdata := 9015;
+      insert current spkau_soot ;
+    }
+     MyCreateSoprhoz(0,0,0)
+  }
+  Imp_Plpor:=true ;
+}    //  Imp_Plpor
+
+Function Imp_NaklVNNover :boolean ;
+var kk :word ;
+{ Imp_NaklVNNover:=false ;
+//Дата=1	Номер=2	Сумма-3
+//Контрагент-4	Номер-5 вход. документа-6	Дата вход. документа-7
+  wexrow:=0 ;
+  inextvisual('Обработка справочника основных средств')
+  group_prev:=false ; ClearGroup ;
+  osarcdat  :=date(last_day(osarcdat),month(osarcdat),year(osarcdat))
+  delete all tmp_nakl ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 10=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    tmp_nakl.nom:=tmp_excel.dmcell[5]
+    tmp_nakl.nomin:=substr('000000',1,6-length(tmp_excel.dmcell[2]))+tmp_excel.dmcell[2]
+    tmp_nakl.dtdoc :=StrToDate(tmp_excel.dmcell[6],'DD.MM.YYYY')
+    tmp_nakl.su:=mydouble(tmp_excel.dmcell[3])
+    tmp_nakl.nmorg:=tmp_excel.dmcell[4]
+    insert current tmp_nakl ;
+  } //_loop tmp_excel
+  inextvisual('Проверка накладных')
+  for (kk:=1;kk<=2;kk:=kk+1)
+  { case kk of
+    1 : wvidsopr :=101 ;
+    2 : wvidsopr :=111 ;
+    end ;
+    _loop fullcache katsopr1
+    {
+      chet:=chet+1 ;
+      if chet mod 10=0 if not nextvisual then exit ;
+      if getfirst tmp_nakl where (( trim(katsopr1.userfield) == tmp_nakl.nom
+        and katsopr1.dsopr == tmp_nakl.dtdoc
+        and katsopr1.summa == tmp_nakl.su ))=0
+      { logtime('Накладная тип '+string(wvidsopr)+'='+katsopr1.userfield+'='+datetostr(katsopr1.dsopr,'DD/MM/YYYY')
+           +'='+katsopr.nsopr+'='+tmp_nakl.nomin ) ;
+        update current katsopr1 set katsopr1.nsopr:=tmp_nakl.nomin ;
+        if getfirst soprhoz1=0
+        { update soprhoz1 set soprhoz1.nodoc:=katsopr1.nsopr ;
+        }
+      }
+    } //    _loop katsopr1
+  } //for (kk:=1;kk<=2;kk:=kk+1)
+  Imp_NaklVNNover:=True ;
+}
+
+
+Function Imp_Prov :boolean ;
+var wstr,wsch,wsub, wschk,wsubk :string ;
+    wtidk,wtidkgal : word ;
+    wsu: double ;
+    kk :word ;
+{ Imp_Prov:=false ;
+  wexrow:=0 ;
+  if getfirst tmp_plan_sootv<>0
+  { wstr:='Загружать вместе с ПланСчетов_Соотв.xls!!!'
+    logtime(wstr) ;
+    message(wstr) ;
+    exit ;
+  }
+  inextvisual('Загрузка проводок '+nmfile)
+  group_prev:=false ;
+  wsch:='' ;wsub:='' ;wschk:='' ; wsubk:='' ;
+  wtidk:=10208 ;
+  wtidkgal:=10 ;
+  insert into plpor set
+           plpor.tidkgal:= wtidkgal
+          ,plpor.nodok:=datetostr(prov_dt,'_00YYMM')
+          ,plpor.datvip:=prov_dt
+  plpor.desgr:='ZAK'
+  plpor.descr:='ZAK'
+  plpor.datob:=prov_dt ;
+  if getfirst CASHBANK where (( 4 ==  CASHBANK.razdel
+   and 'Б-013 Заработная плата' == CASHBANK.name ))=0
+  { if getfirst USERSDOC where ((
+            CASHBANK.razdel ==USERSDOC.razdel
+        and CASHBANK.nrec == USERSDOC.CCASHBANK
+        and wtidkgal == USERSDOC.TIPGAL ))=0
+         wtidk:=USERSDOC.TIPUSERS
+  }
+  plpor.tidk:=wtidk
+  plpor.NAMEPL1:=nmfile ;
+  plpor.MODEDOC:=4096 ;
+  update current plpor ;
+  MyCreateSoprhoz(0,0,0)
+  wsu:=0 ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 10=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    if tmp_excel.dmcell[2]<>''
+    { if wsch<>''
+      { if not getTablSoot(wsch,wsub,dmkau[1],dmkau[2],dmkau[3],'','','',1) then { }
+        if not getTablSoot(wschk,wsubk,dmkau[11],dmkau[12],dmkau[13],'','','',2) then        {}
+        logtime(oborot.sodpr)
+        insert current oborot ;
+      }
+      for(kk:=1;kk<=20;kk:=kk+1) dmkau[kk]:='' ;
+      kk:=1 ;
+      wsch:=tmp_excel.dmcell[2]
+      wsub:='' ;
+      if pos('.',wsch)>0
+      { wsub:=substr(wsch,pos('.',wsch)+1,10)
+        wsch:=substr(wsch,1,pos('.',wsch)-1)
+      }
+      if length(wsch)=1
+      { wsch:='00'+wsch ;
+      }
+      wsubk:='' ;
+      wschk:=tmp_excel.dmcell[4]
+      if pos('.',wschk)>0
+      { wsubk:=substr(wschk,pos('.',wschk)+1,10)
+        wschk:=substr(wschk,1,pos('.',wschk)-1)
+      }
+      if length(wschk)=1
+      { wsch:='00'+wschk ;
+      }
+      clearbuffer(#oborot)
+      oborot.tidkgal:=plpor.tidkgal ;
+      oborot.tidk:=plpor.tidk ;
+      oborot.nodok:=plpor.nodok
+      oborot.datob:=plpor.datvip
+      oborot.csoprhoz:=soprhoz.nrec
+      oborot.csoprdoc:=plpor.nrec ;
+      oborot.sumob   :=mydouble(tmp_excel.dmcell[10])
+      oborot.VHPROP:='+' ;
+      oborot.cplanssch :=planssch.nrec ;
+      wsu:=wsu+oborot.sumob ;
+    }  //if tmp_excel.dmcell[2]<>''
+    else kk:=kk+1 ;
+    if kk>0 and kk<10
+    { dmkau[kk]:=tmp_excel.dmcell[3]
+      dmkau[kk+10]:=tmp_excel.dmcell[5]
+    }
+  } //_loop tmp_excel
+  if wsch<>''
+  {
+    if not getTablSoot(wsch,wsub,dmkau[1],dmkau[2],dmkau[3],'','','',1) then { }
+    if not getTablSoot(wschk,wsubk,dmkau[11],dmkau[12],dmkau[13],'','','',2) then        {}
+    insert current oborot ;
+  }
+  plpor.sumplat:=wsu ;
+  update current plpor ;
+  MyCreateSoprhoz(0,0,0)
+  if fileexist('!PlansSootv.txt')
+     ProcessText('!PlansSootv.txt',vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+              'Ошибки проверки таблицы соотв');
+  Imp_Prov:=true ;
+} //Imp_Prov
+
+Function Imp_Prov_line :boolean ;
+var wstr,wsch,wsub, wschk,wsubk :string ;
+    wtidk,wtidkgal : word ;
+    wsu: double ;
+    kk :word ;
+{ Imp_Prov_line:=false ;
+  wexrow:=0 ;
+  if getfirst tmp_plan_sootv<>0
+  { wstr:='Загружать вместе с ПланСчетов_Соотв.xls!!!'
+    logtime(wstr) ;
+    message(wstr) ;
+    exit ;
+  }
+//Регистратор -2
+//Номер строки=3
+//Активность=4
+//Период=5
+//Счет Дт=6
+//СубконтоДт1=7
+//СубконтоДт2=8
+//СубконтоДт3=9
+//Счет Кт=10
+//СубконтоКт1=11
+//СубконтоКт2=12
+//СубконтоКт3=13
+//Организация=14
+//Валюта=15
+//Валюта=16
+//Сумма=17
+//Валютная сумма=Валютная сумма=
+//Количество=20
+//Количество=Содержание=Номер журнала=Списание партий=Дата записи=Вид регламентной операции=НДСПродукции
+
+  inextvisual('Загрузка проводок '+nmfile)
+  group_prev:=false ;
+  wsch:='' ;wsub:='' ;wschk:='' ; wsubk:='' ;
+  wtidk:=10208 ;
+  wtidkgal:=10 ;
+  insert into plpor set
+           plpor.tidkgal:= wtidkgal
+          ,plpor.nodok:=datetostr(prov_dt,'_00YYMM')
+          ,plpor.datvip:=prov_dt
+  plpor.desgr:='ZAK'
+  plpor.descr:='ZAK'
+  plpor.datob:=prov_dt ;
+  if getfirst CASHBANK where (( 4 ==  CASHBANK.razdel
+   and 'Б-013 Заработная плата' == CASHBANK.name ))=0
+  { if getfirst USERSDOC where ((
+            CASHBANK.razdel ==USERSDOC.razdel
+        and CASHBANK.nrec == USERSDOC.CCASHBANK
+        and wtidkgal == USERSDOC.TIPGAL ))=0
+         wtidk:=USERSDOC.TIPUSERS
+  }
+  plpor.tidk:=wtidk
+  plpor.NAMEPL1:=nmfile ;
+  plpor.MODEDOC:=4096 ;
+  update current plpor ;
+  MyCreateSoprhoz(0,0,0)
+  wsu:=0 ;
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 10=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    for(kk:=1;kk<=20;kk:=kk+1) dmkau[kk]:='' ;
+    kk:=1 ;
+    for(kk:=1;kk<=3;kk:=kk+1)
+    { dmkau[kk]:=tmp_excel.dmcell[6+kk]
+      dmkau[kk+10]:=tmp_excel.dmcell[10+kk]
+    }
+    wsch:=tmp_excel.dmcell[6]
+    wschk:=tmp_excel.dmcell[10]
+    wsub:='' ;
+    wsubk:='' ;
+    if pos('.',wsch)>0
+    { wsub:=substr(wsch,pos('.',wsch)+1,10)
+      wsch:=substr(wsch,1,pos('.',wsch)-1)
+    }
+    if length(wsch)=1
+    { wsch:='00'+wsch ;
+    }
+    if pos('.',wschk)>0
+    { wsubk:=substr(wschk,pos('.',wschk)+1,10)
+      wschk:=substr(wschk,1,pos('.',wschk)-1)
+    }
+    if length(wschk)=1
+    { wsch:='00'+wschk ;
+    }
+    clearbuffer(#oborot)
+    oborot.tidkgal:=plpor.tidkgal ;
+    oborot.tidk:=plpor.tidk ;
+    oborot.nodok:=plpor.nodok
+    oborot.datob:=plpor.datvip
+    oborot.csoprhoz:=soprhoz.nrec
+    oborot.csoprdoc:=plpor.nrec ;
+    oborot.sumob   :=mydouble(tmp_excel.dmcell[17])
+    oborot.kol   :=mydouble(tmp_excel.dmcell[20])
+    oborot.VHPROP:='+' ;
+    oborot.cplanssch :=planssch.nrec ;
+    wsu:=wsu+oborot.sumob ;
+    if not getTablSoot(wsch,wsub,dmkau[1],dmkau[2],dmkau[3],'','','',1) then { }
+    if not getTablSoot(wschk,wsubk,dmkau[11],dmkau[12],dmkau[13],'','','',2) then        {}
+    logtime(oborot.sodpr)
+    insert current oborot ;
+  } //_loop tmp_excel
+  plpor.sumplat:=wsu ;
+  update current plpor ;
+  MyCreateSoprhoz(0,0,0)
+  if fileexist('!PlansSootv.txt')
+     ProcessText('!PlansSootv.txt',vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+              'Ошибки проверки таблицы соотв');
+  Imp_Prov_line:=true ;
+} //Imp_Prov_line
+
+//=============================
+// загрузка склада
+//=============================
+Function Imp_Sklad :boolean ;
+var wstr,wsch,wsub, wschk,wsubk :string ;
+//    wtidk,wtidkgal : word ;
+    wnmdoc :string ;
+    wdtdoc :date ;
+    wsu: double ;
+    kk,ii :word ;
+    wvidsopr :word ;
+    wcpodr1,wcpodr,wcmc , wcmol ,wcmol1 :comp ;
+    dmstr :array[1..30] of string ;
+    wkoef:double ;
+    wcmc_unknown :comp ;
+    wnmdoc_prev :string ;
+    wvidsopr_prev:word ;
+{ Imp_Sklad:=false ;
+  wexrow:=0 ;
+  logtime('====================')
+  if getfirst tmp_plan_sootv<>0
+  { wstr:='Загружать вместе с ПланСчетов_Соотв.xls!!!'
+    logtime(wstr) ;
+    message(wstr) ;
+    exit ;
+  }
+  inextvisual('Загрузка документов по складу '+nmfile)
+  group_prev:=false ;
+  wsch:='' ;wsub:='' ;wschk:='' ; wsubk:='' ;
+  wvidsopr_prev:=0 ; wnmdoc_prev:='' ;
+  wsu:=0 ;
+  kk:=0 ;
+  wcmc_unknown:=iKatalog_GetValue.GetKatMcNrecByName('ЯЯЯ не известно') ;
+  if wcmc_unknown=0
+  { insert into katmc set katmc.barkod:='??????',katmc.name:='ЯЯЯ не известно' ;
+    wcmc_unknown:=katmc.nrec ;
+  }
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 10=0 if not nextvisual then exit ;
+    wexrow:=wexrow+1 ;
+    kk:=kk+1 ;
+    case kk of
+    1: {
+     dmstr[2]:=substr(tmp_excel.dmcell[2],1,10) ; //дата
+     dmstr[4]:=tmp_excel.dmcell[4] ; // счет, субсчет дебета
+     dmstr[3]:=tmp_excel.dmcell[3] ; // порудковый номер
+     dmstr[5]:=tmp_excel.dmcell[5] ; // кау 1
+     dmstr[6]:=tmp_excel.dmcell[6] ; // кол-во дебет
+     dmstr[7]:=tmp_excel.dmcell[7] ; // счет, субсчет кредит
+     dmstr[8]:=tmp_excel.dmcell[8] ; // кау 1 кредит
+     dmstr[9]:=tmp_excel.dmcell[9] ; // кол-во кредит
+     dmstr[10]:=tmp_excel.dmcell[10] ; // сумма
+    }
+    2:
+    {
+     dmstr[12]:=tmp_excel.dmcell[2] ; // тип операции
+//     dmstr[13]:=tmp_excel.dmcell[3] ; // порудковый номер
+//     dmstr[14]:=tmp_excel.dmcell[4] ; // счет, субсчет дебета
+     dmstr[15]:=tmp_excel.dmcell[5] ; // кау 2
+//     dmstr[16]:=tmp_excel.dmcell[6] ; // кол-во дебет
+//     dmstr[17]:=tmp_excel.dmcell[7] ; // счет, субсчет кредит
+     dmstr[18]:=tmp_excel.dmcell[8] ; // кау 2 кредит
+//     dmstr[19]:=tmp_excel.dmcell[9] ; // кол-во кредит
+//     dmstr[20]:=tmp_excel.dmcell[10] ; // сумма
+
+    }
+    3:
+    {  kk:=0 ;
+
+     dmstr[22]:=tmp_excel.dmcell[2] ; // ЦО
+//     dmstr[23]:=tmp_excel.dmcell[3] ; // порудковый номер
+//     dmstr[24]:=tmp_excel.dmcell[4] ; // счет, субсчет дебета
+     dmstr[25]:=tmp_excel.dmcell[5] ; // кау 3
+//     dmstr[26]:=tmp_excel.dmcell[6] ; // кол-во дебет
+//     dmstr[27]:=tmp_excel.dmcell[7] ; // счет, субсчет кредит
+     dmstr[28]:=tmp_excel.dmcell[8] ; // кау 3 кредит
+//     dmstr[29]:=tmp_excel.dmcell[9] ; // кол-во кредит
+//     dmstr[30]:=tmp_excel.dmcell[10] ; // сумма
+
+      wdtdoc :=StrToDate(dmstr[2],'DD.MM.YYYY')
+      wstr:=substr(dmstr[12],1,pos(' ',dmstr[12])-1) ;
+
+
+
+      logtime(wstr+'/'+dmstr[2]+'/'+dmstr[12]+'/'+dmstr[22]) ;
+      wvidsopr:=0 ;
+      case wstr of
+      'Сторнирование' :
+      {  wnmdoc:=trim(substr(dmstr[12],pos(' ',dmstr[12])+1,100)) ;
+         wnmdoc:=substr(wnmdoc,1,pos(' ',wnmdoc)-1) ;
+         wnmdoc:=substr(wnmdoc,length(wnmdoc)-5,10)
+         wvidsopr:=600 ; // акт об излишках
+      }
+// спецодежду не трогаем !
+      'Списание' : // материалов из эксплуатации 00000000016 от 01.02.2008 23:57:57
+//'Списание материалов из эксплуатации 00000000016 от 01.02.2008 23:57:57'
+      {  wnmdoc:=trim(substr(dmstr[12],40-3,100)) ;
+         wnmdoc:=substr(wnmdoc,1,pos(' ',wnmdoc)-1) ;
+         wnmdoc:=substr(wnmdoc,length(wnmdoc)-5,10)
+//         wvidsopr:=204 ; // акт об списании
+      }
+      'Перемещение' :
+//Перемещение товаров 00000000100 от 05.02.2008 11:03:31
+      {  wnmdoc:=trim(substr(dmstr[12],23-3,100)) ;
+         wnmdoc:=substr(wnmdoc,1,pos(' ',wnmdoc)-1) ;
+         wnmdoc:=substr(wnmdoc,length(wnmdoc)-5,10)
+         wvidsopr:=600 ; // перемещение
+      }
+      'Требование-накладная':
+//Требование-накладная 00000000476 от 31.05.2008 23:52:36
+      {  wnmdoc:=trim(substr(dmstr[12],24-3,100)) ;
+         wnmdoc:=substr(wnmdoc,1,pos(' ',wnmdoc)-1) ;
+         wnmdoc:=substr(wnmdoc,length(wnmdoc)-5,10)
+         wvidsopr:=204 ; // акт об списании
+      }
+      // 602 - перевод в спецодежду
+      'Передача':
+//Передача материалов в эксплуатацию 00000000019 от 07.02.2008
+      {  wnmdoc:=trim(substr(dmstr[12],36,100)) ;
+         wnmdoc:=substr(wnmdoc,1,pos(' ',wnmdoc)-1) ;
+         wnmdoc:=substr(wnmdoc,length(wnmdoc)-5,10)
+         wvidsopr:=602 ; // перевод в спецодежду
+      }
+      // 604 - перевод со спецодежды на склад
+      'Списание':
+//Списание материалов из эксплуатации 00000000018
+      {  wnmdoc:=trim(substr(dmstr[12],37,100)) ;
+         wnmdoc:=substr(wnmdoc,1,pos(' ',wnmdoc)-1) ;
+         wnmdoc:=substr(wnmdoc,length(wnmdoc)-5,10)
+         wvidsopr:=604 ; // 604 - перевод со спецодежды на склад
+      }
+      end ;
+///=================================
+      if wvidsopr=0 then continue ;
+      if wvidsopr=600 and wdtdoc<date(1,5,2008) then continue ;
+      logtime('Грузим строку '+string(wexrow)+'/'+string(wvidsopr)+'/'+wnmdoc )
+      wnmdoc:=wnmdoc+'ZAK'
+///=================================
+      wsch:=dmstr[4]
+      wsub:='' ;
+      if pos('.',wsch)>0
+      { wsub:=substr(wsch,pos('.',wsch)+1,10)
+        wsch:=substr(wsch,1,pos('.',wsch)-1)
+      }
+      wschk:=dmstr[7]
+      wsubk:='' ;
+      if pos('.',wschk)>0
+      { wsubk:=substr(wschk,pos('.',wschk)+1,10)
+        wschk:=substr(wschk,1,pos('.',wschk)-1)
+      }
+//
+      clearbuffer(#oborot) // не вставлять !
+      if not getTablSoot(wsch,wsub,dmstr[5],dmstr[15],dmstr[25],'','','',1) then { }
+      if not getTablSoot(wschk,wsubk,dmstr[8],dmstr[18],dmstr[28],'','','',2) then { }
+      wkoef:=1 ;
+    WCMC:=0
+    for(ii:=1;ii<=6;ii:=ii+1)
+    { if oborot.tblos[ii]=2 // подразделение
+      { wcpodr:=oborot.kauos[ii]
+      }
+      if oborot.tblks[ii]=2 // подразделение
+      { wcpodr1:=oborot.kauks[ii]
+      }
+      if oborot.tblos[ii]=4 and oborot.kauos[ii]>0 // мс
+      { wcmc:=oborot.kauos[ii] ;
+      }
+      if wcmc=0
+      { if oborot.tblks[ii]=4 // мс
+        { wcmc:=oborot.kauks[ii] ;
+        }
+      }
+    }
+    if wcpodr=0
+      wcpodr:=oborot.kodspo ;
+    if wcpodr1=0
+      wcpodr1:=oborot.kodspk ;
+    if wcmol=0
+    { if getfirst katmol where (( wcpodr == katmol.cskl ))=0
+        wcmol:=katmol.nrec ;
+    }
+    if wcmol1=0
+    { if getfirst katmol where (( wcpodr1 == katmol.cskl ))=0
+        wcmol1:=katmol.nrec ;
+    }
+    if (wnmdoc_prev<>wnmdoc or wvidsopr<>wvidsopr_prev) and wnmdoc_prev<>''
+    { update current katsopr set katsopr.summa:=wsu ;
+      update current soprhoz set soprhoz.summa:=wsu ;
+      wsu:=0 ;
+
+    }
+    wnmdoc_prev:=wnmdoc ;
+    wvidsopr_prev:=wvidsopr;
+    IF GETFIRST KATSOPR WHERE (( wvidsopr == katsopr.vidsopr and wdtdoc == katsopr.dsopr
+        and 'ZAK' == katsopr.desgr and wnmdoc == KATSOPR.nsopr(noindex)
+         ))<>0
+    { clearbuffer(#katsopr)
+      katsopr.vidsopr:=wvidsopr ;
+      katsopr.dsopr:=wdtdoc ;
+      katsopr.desgr:='ZAK'
+      katsopr.descr:='ZAK'
+      katsopr.nsopr:=wnmdoc
+      katsopr.name :=dmstr[12]+' '+dmstr[22]+wsch+'.'+wsub+'/'+wschk+'.'+wsubk+' '+dmstr[15] ;
+      katsopr.yearsopr:=year(katsopr.dsopr) ;
+      insert current katsopr ;
+      insert into soprhoz set
+         soprhoz.csoprdoc:= katsopr.nrec
+        ,soprhoz.tidkgal := katsopr.vidsopr
+        ,soprhoz.TIPDOC    := katsopr.vidsopr
+        ,soprhoz.datob   := katsopr.dsopr
+        ,soprhoz.nodoc   := katsopr.nsopr
+        ,soprhoz.descr   := katsopr.descr
+        ,soprhoz.desgr   := katsopr.desgr
+        ;
+    }
+      katsopr.name :=dmstr[12]+' '+dmstr[22]+wsch+'.'+wsub+'/'+wschk+'.'+wsubk+' '+dmstr[15] ;
+      KATSOPR.cpodrto:=wcpodr ;
+      KATSOPR.cpodrfrom:=wcpodr1 ;
+      KATSOPR.cmolto :=wcmol ;
+      KATSOPR.cmolfrom :=wcmol1 ;
+      katsopr.nsopr:=wnmdoc
+      KATSOPR.CNOTE:=iKatalog_GetValue.FindNote(katsopr.vidsopr,'оформляемый',0)
+    update current katsopr ;
+    if getFIRST spsopr where (( katsopr.nrec == spsopr.csopr
+       and word(dmstr[3]) == spsopr.npp
+       )) <>0 //ordered by index SPSOPR02=0
+    { clearbuffer(#spsopr)
+      spsopr.csopr:=katsopr.nrec ;
+      spsopr.NPP:=word(dmstr[3]) //                 │номер по порядку                 │Word
+      spsopr.PRMC:=1 ; //                │признак товара или услуги        │Word
+      insert current spsopr ;
+    }
+      spsopr.CMCUSL:=wcmc ;//               │код товара(услуги)               │Comp
+      if getfirst katmc where (( spsopr.CMCUSL == katmc.nrec ))=0
+      { if getfirst kated where (( katmc.ced == kated.nrec ))=0
+         spsopr.COTPED:=iKatalog_GetValue.Getkatotpednrec(1,katmc.nrec,kated.abbr) //              │код отпускной ед.измерения       │Comp
+      }
+      logtime(katmc.name+'/'+string(wcmc)+'/'+string(oborot.kauks[3]))
+      if spsopr.CMCUSL=0
+      { spsopr.CMCUSL:=wcmc_unknown ; spsopr.nkvit:='не изв.МЦ' ;
+      }
+//    spsopr.CALTED               │Альт.единица измерения           │Comp
+//    spsopr.CPARTY:=iKatalog_GetValue.GetKatpartyNrec(spsopr.CMCUSL,tmp_excel.dmcell[10])//               │код партии                       │Comp
+//    spsopr.CPARTY:=iKatalog_GetValue.GetKatpartyNrec(0,tmp_excel.dmcell[14])//               │код партии                       │Comp
+//    spsopr.CVAL                 │код валюты                       │Comp
+//    spsopr.CPRICELIST           │Ссылка на прайс-лист             │Comp
+    spsopr.KOL:=if(mydouble(dmstr[6])>0,mydouble(dmstr[6]),mydouble(dmstr[9])) //                  │количество                       │Double
+    spsopr.KOLOPL:=spsopr.KOL //               │количество оплаченного           │Double
+    spsopr.OSTKOL:=spsopr.KOL//               │Кол-во не списанного             │Double
+    spsopr.PRICE :=mydouble(dmstr[10])/spsopr.KOL ;//               │цена за единицу                  │Double
+    wsu:=wsu+mydouble(dmstr[10]) ;
+//    spsopr.PROCUB               │% естественной убыли             │Double
+//    spsopr.CPERSONS             │Сотрудник, выполняющий услугу    │Comp
+//    spsopr.MANUALTAX            │Ручные налоги                    │Word
+    spsopr.CGRNAL :=katmc.cgrnal //               │сылка на группу налогов          │Comp
+//    spsopr.CCELLVAL             │ед.подвижного состава MoveCell   │Comp
+//    spsopr.CTRANSP              │ссылка на транспорт              │Comp
+    spsopr.NVAGON:='ZAK' ;//               │Номер ед.подв.состава            │String
+//    spsopr.NKVIT                │Номер ж/д квитанции              │String
+//    spsopr.NSERTIF              │Сертификат качества              │String
+//    spsopr.SUMAVT               │сумма ж/д тарифа                 │Double
+//    spsopr.CVALAVT              │валюта 2                         │Comp
+//    spsopr.CMASED               │единица веса KatED               │Comp
+//    spsopr.CMASVID              │способ определения веса          │Comp
+//    spsopr.NETTO                │вес нетто                        │Double
+//    spsopr.MTARA                │вес тары                         │Double
+//    spsopr.CRESOTGR             │ресурс отгрузки                  │Comp
+//    spsopr.CSPDOCS              │сылка на вышестоящию спецификацию│Comp
+    spsopr.CSOPR:=katsopr.nrec ;//                │код ТТН                          │Comp
+    spsopr.DSOPR:=katsopr.dsopr;//                │копия из ТТН                     │Date
+    spsopr.DOPRTTN:=date(0,0,0) ;//              │копия из ТТН                     │Date
+    spsopr.VIDSOPR:=katsopr.vidsopr ;//              │копия из ТТН                     │Word
+    spsopr.KOL2:=spsopr.kol;//                 │количество2(базовое кач-во)      │Double
+//    spsopr.VPRICE               │VPRICE                           │Double
+    spsopr.KOLFACT:=spsopr.kol;//              │количество фактическое           │Double
+    spsopr.KOLFACT2:=spsopr.kol;//             │количество фактическое2          │Double
+    spsopr.KOLNORMA:=spsopr.kol;//             │количество по норме              │Double
+//    spsopr.OILPLOT              │плотность топлива                │Double
+//    spsopr.OILTEMPER            │температура топлива              │Double
+//    spsopr.CSPORDER             │Ссылка на специф. ордера по кот. │Comp
+//    spsopr.PROCNAC              │Процент наценки для розн. торг.  │Double
+//    spsopr.CSPSTEP              │Ссылка на позицию ДО             │Comp
+//    spsopr.SUMNDS               │Сумма нал. НДЕ к контр. по       │Double
+//    spsopr.SUMVNDS              │Сумма нал. вал. к контр. по      │Double
+    spsopr.RPRICE:=round(spsopr.PRICE,2);//               │округленная цена за единицу      │Double
+//    spsopr.RVPRICE              │округленная цена в вал. за       │Double
+//    spsopr.CSPNZAKAZ            │Сылка на позицию заказа          │Comp
+//    spsopr.CSPSCHF              │Ссылка на спецификацию СФ        │Comp
+//    spsopr.WADOCSP              │Дескриминатор абстрактного       │Word
+//    spsopr.CADOCSP              │Ссылка на абстрактный документ   │Comp
+//    spsopr.CZAKVOL              │Сылка на позицию производ.заказа │Comp
+//    spsopr.KOLGRM               │количество грузовых мест         │Double
+//    spsopr.COTPEDGRM            │отпускная ед для кол-ва грузовых │Comp
+//    spsopr.CNMOVECELL           │Номер ед.подв. состава           │Comp
+//    spsopr.COWNER               │Ссылка на Спецификация накладных │Comp
+//    spsopr.PRVOZ                │PRVOZ                            │Word
+//    spsopr.KOLPOV               │Кол-во поврежденной тары         │Double
+//    spsopr.CGPSOPR              │ссылка на накладн с Гот.Продукт  │Comp
+//    spsopr.KOLDOP               │кол-во в доп.ед.изм.             │Double
+//    spsopr.CUKS                 │Ссылка на объект строительства   │Comp
+//    spsopr.WMCPROP              │Доп. св-во товара/услуги         │Word
+    spsopr.PRICEN:=spsopr.price ;//               │цена для нал.учета               │Double
+//    spsopr.VPRICEN              │цена для нал.учета в вал.        │Double
+//    spsopr.MANUALNALUCH         │расч./ручн. цена для нал.уч.     │Word
+    spsopr.CPODR:=katsopr.cpodrto ;//                │ссылка на подр.                  │Comp
+    spsopr.CMOL :=katsopr.cmolto ;//               │ссылка на МОЛ                    │Comp
+//    spsopr.LASTDATE             │дата замера топлива              │Date
+//    spsopr.LASTTIME             │время замера топлива             │Time
+//    spsopr.RESERVE              │кол-во резерва                   │Double
+    update current spsopr ;
+
+//    SetAttr(cospsopr,'ХарактеристикаНоменклатуры',spsopr.nrec,tmp_excel.dmcell[9])
+//    SetAttr(cospsopr,'Организация',spsopr.nrec,tmp_excel.dmcell[7])
+
+      kk:=0 ;
+    }
+    end ;
+  }
+  Imp_Sklad:=true ;
+}  //Imp_Sklad
+//============================
+// импорт СФО новый  1 - остатки, 2 - выдано
+//=============================
+Function Imp_SFO1(wtp :word) :boolean ;
+var wnom   :string ;
+    wdt :date ;
+    w_progon :word ;
+    wklerr : boolean ;
+    wstr:string ;
+{
+/*
+ delete all mbpin ;
+ delete all mbpout ;
+ delete all perssfo ;
+*/
+//=КодНоменклатуры -2	V
+//Номенклатура-3	    V
+//Подразделение-4
+//СчетУчета-5
+//НазначениеИспользования-6	V
+//ФизЛицоКод-7	N
+//ФизЛицо-8	  V
+//Количество-9
+//Стоимость-10
+//ПогашеннаяСтоимость-11
+//СпособПогашенияСтоимости-12	V
+//СрокПолезногоИспользования-13
+//ДатаВводаВЭксплуатацию-14
+//ДатаПередачи-15
+//СпособОтраженияРасходов-16	V
+//ОбщееКолво10-17
+//ОбщаяСумма10-18
+//ОбщееКолво11-19
+//ОбщаяСумма11-20
+//==========================
+// 20081121
+//	КодНоменклатуры	2 - совпадает
+//Номенклатура	    3
+//Подразделение	    4
+//СчетУчета	 5
+//Качество	 6   НазначениеИспользования
+//ФизЛицоКод 7
+//Физлицо 8
+//КоличествоОстаток 9
+//	Сумма 10
+//Погашенная стоимость 11
+//Способ	   12
+//Срок годности	 13
+//ДатаВвода	    14
+//ДатаВвода	    15
+//СпособОтраженияРасходов	16
+//ОбщаяСуммаНоменклатуры	17  - до сюда вроде совпадает
+//ОбщееКоличествоНомонклатуры 18 -
+//Код группы	              19
+//Группа	                  20
+//МОЛ	                      21
+//Рост	                      22
+//Одежды	                  23
+//Обуви	                      24
+//Головного убора	          25
+//Размер перчаток	          26
+//Ср.в. Индивидуальной защиты 27
+//КодСклад	                  28 -
+//Склад	                      29 -
+//Разность                    30 -
+  Imp_SFO1:=false ;
+  /*
+  if getfirst mbpin=0
+  { message('Очистите mbpin, mbpout , perssfo')
+    exit ;
+  }
+  */
+ for(w_progon:=1;w_progon<=2;w_progon:=w_progon+1)
+ {wklerr:=false ;
+  delete all tmp_nmgroup ;
+  inextvisual('Обработка СФО '+if(w_progon=1,'Проверка','Запись'))
+  ClearGroup ;
+  wexrow:=0
+  _loop tmp_excel
+  { if wexrow=0
+    {
+      wexrow:=wexrow+1 ;
+      continue ;
+    }
+    chet:=chet+1 ;
+    if chet mod 100=0 if not nextvisual then exit ;
+    if tmp_excel.dmcell[4]+tmp_excel.dmcell[2]+tmp_excel.dmcell[3]='' then continue ;
+     // проверим подразделения, группы
+    if getfirst katpodr where ((  tmp_excel.dmcell[4] == katpodr.name )) <>0
+       { wklerr:=true ;
+         wstr:='Не нашли подразделение='+tmp_excel.dmcell[4] ;
+         if AddNmGroup(wstr) LogMy(wstr );
+       }
+       if getfirst GROUPSFO where ((tmp_excel.dmcell[20] == GROUPSFO.NAME ))<>0
+       { wklerr:=true ;
+         wstr:='Не нашли группу СФО='+tmp_excel.dmcell[20]+'/'+tmp_excel.dmcell[19] ;
+         if AddNmGroup(wstr) LogMy(wstr );
+       }
+       else
+       {
+        if wtp=1
+        {
+         if tmp_excel.dmcell[22]<>'' and tmp_excel.dmcell[22]<>'0'  and (trim(groupsfo.POSITIONS[1])='' or groupsfo.POSITIONS[1]='0')
+         { wstr:='У группы СФО='+tmp_excel.dmcell[20]+'= не задан размер=рост' ;
+           if AddNmGroup(wstr) LogMy(wstr );
+           wklerr:=true ;
+         }
+         if tmp_excel.dmcell[23]<>'' and tmp_excel.dmcell[23]<>'0'  and trim(groupsfo.POSITIONS[2])=''
+         { wstr:='У группы СФО='+tmp_excel.dmcell[20]+'= не задан размер=рaзмер 1' ;
+           if AddNmGroup(wstr) LogMy(wstr );
+           wklerr:=true ;
+         }
+         if tmp_excel.dmcell[24]<>'' and tmp_excel.dmcell[24]<>'0'  and trim(groupsfo.POSITIONS[4])=''
+         { wstr:='У группы СФО='+tmp_excel.dmcell[20]+'= не задан размер=обувь' ;
+           if AddNmGroup(wstr) LogMy(wstr );
+           wklerr:=true ;
+         }
+         if tmp_excel.dmcell[25]<>'' and tmp_excel.dmcell[25]<>'0'  and trim(groupsfo.POSITIONS[5])=''
+         { wstr:='У группы СФО='+tmp_excel.dmcell[20]+'= не задан размер=головной убор' ;
+           if AddNmGroup(wstr) LogMy(wstr );
+           wklerr:=true ;
+         }
+         if tmp_excel.dmcell[26]<>'' and tmp_excel.dmcell[26]<>'0'  and trim(groupsfo.POSITIONS[6])=''
+         { wstr:='У группы СФО='+tmp_excel.dmcell[20]+'= не задан размер=перчатки' ;
+           if AddNmGroup(wstr) LogMy(wstr );
+           wklerr:=true ;
+         }
+         if tmp_excel.dmcell[27]<>'' and tmp_excel.dmcell[27]<>'0'  and trim(groupsfo.POSITIONS[7])=''
+         { wstr:='У группы СФО='+tmp_excel.dmcell[20]+'= не задан размер=ИЗС' ;
+           if AddNmGroup(wstr) LogMy(wstr );
+           wklerr:=true ;
+         }
+        }
+       }
+       if getfirst GROUPMC where ((tmp_excel.dmcell[20] == GROUPMC.NAME ))<>0
+       { wklerr:=true ;
+         wstr:='Не нашли группу МЦ='+tmp_excel.dmcell[20]+'/'+tmp_excel.dmcell[19] ;
+         if AddNmGroup(wstr) LogMy(wstr );
+       }
+       if getfirst katmc where (( tmp_excel.dmcell[2] == KATMC.BARkod
+       and tmp_excel.dmcell[3] == KATMC.NAME )) <>0
+       { wklerr:=true ;
+         wstr:='Не нашли МЦ='+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[20] ;
+         if AddNmGroup(wstr) LogMy(wstr );
+       }
+       if wtp=2 and tmp_excel.dmcell[8]<>''
+       { if getfirst persons where ((  'С' == PERSONS.ISEMPLOYEE
+          and tmp_excel.dmcell[8] == persons.fio ))<>0
+         { wklerr:=true ;
+           wstr:='Не нашли ФИО='+tmp_excel.dmcell[8];
+           if AddNmGroup(wstr) LogMy(wstr+'/'+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[4]  );
+         }
+       }
+    // на первом прогоне далее не смотрим
+    if w_progon=1         continue ;
+    // создаем карточку
+    if getfirst katmbp where (( tmp_excel.dmcell[2] == KATMBP.NNUMBER
+     and tmp_excel.dmcell[3] == KATMBP.NAME )) <>0
+    { insert into katmbp set KATMBP.NNUMBER:=tmp_excel.dmcell[2]
+                            ,KATMBP.NAME :=tmp_excel.dmcell[3]
+                            ,KATMBP.MBPKIND :=0
+                            ,KATMBP.cmc :=Katmc.nrec
+                            ;
+    }
+    KATMBP.MBPKIND :=1 ;
+    Katmbp.ced:=iKatalog_GetValue.GetKatEDNrecByName('штука');
+    if Katmbp.cmc=0
+    { Katmbp.cmc:=iKatalog_GetValue.GetKatMcNrecByName(KATMBP.NAME);
+      if Katmbp.cmc>0
+      { if getfirst katmc where ((Katmbp.cmc == katmc.nrec))=0
+        { katmbp.cgroupmc:=katmc.cgroupmc ;
+          katmbp.KODGR:=katmc.kgroupmc ;
+        }
+      }
+    }
+    katmbp.cgroupmc:=groupmc.nrec ; katmbp.KODGR:=groupmc.kod  ;
+    //===============================
+    katmbp.desgr:='SFO' // без это карточка не видна в модуле !
+    //===============================
+    katmbp.CWRITEOFF:= iKatalog_GetValue.GetMBPWRITENrec(tmp_excel.dmcell[12]) //СпособПогашенияСтоимости
+    katmbp.DOPINFO:=tmp_excel.dmcell[5]+'_'+tmp_excel.dmcell[6] // СчетУчета	Качество
+    update current katmbp ;
+    SetAttr(cokatmbp,'Счет учета',katmbp.nrec,tmp_excel.dmcell[5])
+    SetAttr(cokatmbp,'СпособОтраженияРасходов',katmbp.nrec,tmp_excel.dmcell[16])
+//20080220
+    if wtp=2   // заливаем персональные данные
+    { var wklpers :boolean ;
+      wklpers:=false ;
+      if getfirst persons where ((  'С' == PERSONS.ISEMPLOYEE
+      and tmp_excel.dmcell[8] == persons.fio ))=0
+      { wklpers:=true ;
+      }
+      else
+      { if GetDolgByIn(tmp_excel.dmcell[8])<>'_'
+        { tmp_excel.dmcell[8]:=persons.fio ;
+          wklpers:=true ;
+        }
+      }
+      if wklpers
+      { if getfirst lschet where (( persons.nrec == lschet.tperson ))<>0
+        { OpenLsch ;
+        }
+      // заполняем карточку
+      if getfirst perscard where (( lschet.nrec == perscard.clschet))<>0
+      { wnom:='000001'
+        insert into perscard set
+          perscard.CARDNOM:=doubletostr(lschet.tabn,'77777777')
+         ,perscard.clschet:=lschet.nrec
+         ,perscard.descr :='ZAK'
+         ,perscard.desgr :='ZAK'
+         ,PERSCARD.CPODR :=lschet.cex
+         ,PERSCARD.CPOST :=Persons.cBaseProf
+         ,PERSCARD.ATTDATE:=date(1,1,2008) ;
+
+         ;
+      }
+//20080214
+      PERSCARD.cmol:=iKatalog_GetValue.GetKatMolNrecByNameSKL(tmp_excel.dmcell[21],katpodr.nrec)
+      PERSCARD.CPOST :=Persons.cBaseProf
+//Рост	                      22
+//Одежды	                  23
+//Обуви	                      24
+//Головного убора	          25
+//Размер перчаток	          26
+//Ср.в. Индивидуальной защиты 27
+
+      if tmp_excel.dmcell[22]<>'' and tmp_excel.dmcell[22]<>'0' and trim(PERSCARD.SIZES[1])=''
+        PERSCARD.SIZES[1]:=tmp_excel.dmcell[22]
+      if tmp_excel.dmcell[23]<>'' and tmp_excel.dmcell[23]<>'0' and trim(PERSCARD.SIZES[2])=''
+        PERSCARD.SIZES[2]:=tmp_excel.dmcell[23]
+      if tmp_excel.dmcell[24]<>'' and tmp_excel.dmcell[24]<>'0' and trim(PERSCARD.SIZES[4])=''
+        PERSCARD.SIZES[4]:=tmp_excel.dmcell[24]
+      if tmp_excel.dmcell[25]<>'' and tmp_excel.dmcell[25]<>'0' and trim(PERSCARD.SIZES[5])=''
+        PERSCARD.SIZES[5]:=tmp_excel.dmcell[25]
+      if tmp_excel.dmcell[26]<>'' and tmp_excel.dmcell[26]<>'0' and trim(PERSCARD.SIZES[6])=''
+        PERSCARD.SIZES[6]:=tmp_excel.dmcell[26]
+      if tmp_excel.dmcell[27]<>'' and tmp_excel.dmcell[27]<>'0' and trim(PERSCARD.SIZES[7])=''
+        PERSCARD.SIZES[7]:=tmp_excel.dmcell[27]
+
+      } //if getfirst persons where ((  'С' == PERSONS.ISEMPLOYEE
+      else
+      { logmy('Ошибка поиска карточки!!залили на 00000000 '+tmp_excel.dmcell[2]+'/'+tmp_excel.dmcell[3]+'/'+tmp_excel.dmcell[8])
+        if getfirst perscard where ((katpodr.nrec == perscard.cpodr and '00000000' == perscard.CARDNOM(noindex) ))<>0
+        { insert into perscard set
+            perscard.CARDNOM:='00000000'
+           ,perscard.clschet:=0
+           ,perscard.cpodr := katpodr.nrec
+           ,perscard.descr :='ZAK'
+           ,perscard.desgr :='ZAK'
+
+         ;
+        }
+      }
+      perscard.cpodr:=iKatalog_GetValue.GetKatpodrNrecByName(tmp_excel.dmcell[4])
+      PERSCARD.cmol:=iKatalog_GetValue.GetKatMolNrecByNameSKL(tmp_excel.dmcell[21],perscard.cpodr)
+      perscard.status:=1 ;
+      update current PERSCARD ;
+    } // if wtp=2
+    wdt:=strtodate(tmp_excel.dmcell[14],datemsk)
+ /*   20080221
+    if getfirst mbpin where ((
+        PERSCARD.NREC ==mbpin.cpers
+       and wdt == MBPIN.DIN
+       and katmbp.nrec == mbpin.cmbp(noindex)
+     )) <>0
+*/
+     if true
+     { clearbuffer(#mbpin)
+       mbpin.din:=wdt ;
+       if wtp=2
+       { mbpin.cpers:=PERSCARD.NREC ;
+       }
+       mbpin.cmbp:=katmbp.nrec ;
+       insert current mbpin ;
+     }
+//20080214
+     mbpin.cpodr:=iKatalog_GetValue.GetKatpodrNrecByName(tmp_excel.dmcell[4])
+     mbpin.cmol:=iKatalog_GetValue.GetKatMolNrecByNameSKL(tmp_excel.dmcell[21],mbpin.cpodr)
+     if mbpin.cmol=0
+     {  if getfirst katmol where (( mbpin.cpodr == katmol.cskl))=0
+        { mbpin.cmol:=katmol.nrec ;
+        }
+     }
+     mbpin.CPODRF:=mbpin.cpodr ;
+     mbpin.DATEEKSP:=strtodate(tmp_excel.dmcell[15],datemsk)
+     mbpin.NOM:='ZAKACHKA' ;
+     if mydouble(tmp_excel.dmcell[9])>0
+     { mbpin.KOLFACT:=mydouble(tmp_excel.dmcell[9])
+       MBPIN.KOLDOC :=mydouble(tmp_excel.dmcell[9])
+       MBPIN.PRICE:=mydouble(tmp_excel.dmcell[10])/mbpin.KOLFACT ;
+       MBPIN.SUMMAISNN:=mydouble(tmp_excel.dmcell[11]) ;
+       MBPIN.SUMISNF:=MBPIN.SUMMAISNN ;
+       MBPIN.SUMMA:=mydouble(tmp_excel.dmcell[10]) ;
+       MBPIN.SUMFACT:=MBPIN.SUMMA ;
+     }
+     else
+     { mbpin.KOLFACT:=0
+       MBPIN.KOLDOC :=0
+       MBPIN.PRICE:=0 ;
+       MBPIN.SUMMAISNN:=0 ;
+       MBPIN.SUMISNF:=0 ;
+       MBPIN.SUMMA:=0 ;
+       MBPIN.SUMFACT:=0 ;
+     }
+
+ //    MBPIN.INEKSPL:=1 ;
+     MBPIN.INEKSPL:=if(wtp=2,1,0) ;
+     MBPIN.INSTATE:=1 ;
+     mbpin.status:=1 ;
+     MBPIN.DOPINFO :=replace('/',tmp_excel.dmcell[5]+'_'+tmp_excel.dmcell[6],'=') ;
+     // размеры
+     if groupsfo.POSITIONS[1]>0 MBPIN.DOPINFO:=MBPIN.DOPINFO+'/'+tmp_excel.dmcell[22]
+     if groupsfo.POSITIONS[2]>0 MBPIN.DOPINFO:=MBPIN.DOPINFO+'/'+tmp_excel.dmcell[23]
+     if groupsfo.POSITIONS[4]>0 MBPIN.DOPINFO:=MBPIN.DOPINFO+'/'+tmp_excel.dmcell[24]
+     if groupsfo.POSITIONS[5]>0 MBPIN.DOPINFO:=MBPIN.DOPINFO+'/'+tmp_excel.dmcell[25]
+     if groupsfo.POSITIONS[6]>0 MBPIN.DOPINFO:=MBPIN.DOPINFO+'/'+tmp_excel.dmcell[26]
+     if groupsfo.POSITIONS[7]>0 MBPIN.DOPINFO:=MBPIN.DOPINFO+'/'+tmp_excel.dmcell[27]
+     mbpin.dateend:=add_months(mbpin.DATEEKSP,integer(tmp_excel.dmcell[13]))
+     MBPIN.TPERCENT:=100*MBPIN.SUMMAISNN/MBPIN.SUMMA;
+     MBPIN.PERCNACH:=MBPIN.TPERCENT ;
+     update current mbpin ;
+
+ /*   20080221
+  if getfirst perssfo where (( perscard.nrec == perssfo.cperscard
+   and katmbp.nrec == perssfo.CKATMBP(noindex)
+      and wdt == perssfo.GIVEDATE(noindex)
+   ))<>0
+*/
+  if wtp=2
+   { insert into perssfo set
+       perssfo.cperscard:=perscard.nrec
+       ,perssfo.CKATMBP:=katmbp.nrec
+       ,perssfo.GIVEDATE:=wdt ;
+/*
+  CPERSCARD	Ссылка на ЛК	Созданная карточка по табельному номеру
+CPERSSPEC	Ссылка на специф. в истории	0
+CSPREQSFO	Ссылка на спец. треб. по котор. выдано	0
+CDOCMBPIN	Ссылка на приход по выдаче в МБП	0
+CCURMBPIN	Ссылка на текущий приход в МБП	0
+CMBPOUT	Ссылка на запись списания, резервная	0
+CMBPMOVE	Ссылка на групп документ МБП/СФО	Созданный документ
+CGROUPSFO	Ссылка на группу СФО	????
+CKATMBP	Ссылка на КУ МБП - что выдано	Созданная карточка СФО по номенклатурному номеру
+CPERSSFO	Ссылка на выдачу-родителя	0
+GIVEDATE	Дата выдачи	!!!
+OPERDATE	Дата операции списания/перевода СФО
+GIVENOM	Номер документа на выдачу
+EXPLDATE	Дата отсчета срока эксплуат.	!!!
+SROK	Срок службы предметов	!!!
+DOCKOL	Выдано реально	!!!
+CURKOL	Осталось после всех операций
+ENDDATE	Дата окончания срока службы	!!!
+SPISDATE	Дата списания в ЛК
+SPISNOM	Номер документа на списание
+SPECFLAG	Форменная 0 / специальная 1	!!!
+STATUS	Носится0/Возвр1./Утер2./Спис.3(перев)	0
+ZEROKOL	Для отбора выдач с ненулевым колич-вом	1
+CDOPREC	Для разных документов	0
+PRICES[1]	Цена при вводе вручную и расч удерж[1]	0
+PRICES[2]	Цена при вводе вручную и расч удерж[2]	0
+DOPATTR	Доп. аттрибут - до износа и т.д.	0
+EXTMOD	Из какого модуля предметы	0
+CEXTOPER	Ссылка на операцию в другом модуле	0
+*/
+        perssfo.SPECFLAG:=1; perssfo.ZEROKOL:=1 ;
+        perssfo.GIVENOM:='ZAK' ;
+        perssfo.EXPLDATE:=strtodate(tmp_excel.dmcell[15],datemsk) ;
+        perssfo.SROK:=integer(tmp_excel.dmcell[13]) ;
+        perssfo.DOCKOL:=integer(mbpin.KOLFACT) ;
+        perssfo.CURKOL:=perssfo.DOCKOL ;
+        perssfo.CCURMBPIN:=mbpin.nrec ;
+        update current perssfo ;
+      }
+  } //_loop tmp_excel
+    if wklerr then
+    { message('Ошибка проверки СФО '+string(wtp))
+      break ;
+    }
+  } //
+  Imp_SFO1:=not wklerr ;
+}//Function Imp_SFO :boolean ;
+

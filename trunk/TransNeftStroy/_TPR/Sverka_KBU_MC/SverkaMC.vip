@@ -1,0 +1,1432 @@
+
+#include BuhRep.vih
+#include PickBuh.vih
+#include PickBuhNew.vih
+#include PSManager.vih
+#include SaldoFuncs.vih
+#include xlReport.vih
+#include GetMol.vih
+
+#include SverkaMC.vpp
+#include BuhRep.vpp
+
+Type TSaldoRec = record as table SaldMoun;
+
+Interface SverkaSklBuh 'Сверка остатков ТМЦ по складскому и бухгалтерскому учёту', Gray, EscClose, DoAccept;
+show at(,,60,29);
+
+var
+  ItogSum : array [1..6] of double;
+  PasParams: TPasReportParams;
+  iPickBuh: PickBuh;
+  iPickBuhNew: PickBuhNew;
+
+#include SaldoFuncs.var
+
+create view
+var
+  _RepOnDateB  : date;
+  _Sch         : string;
+  _SSch        : string;
+  _cPlanSch    : comp;
+   lEntity     : longint;
+  _sMol        : string;
+  _sSklad      : string;
+  _sMc         : string;
+  _sMcGroup    : string;
+  _sParty      : string;
+  _wFilt       : word;
+  _wGroup      : word;
+  _iBuhRep     : BuhRep;
+  _iPlan       : PSManager;
+  _sPlan       : string;
+  _wParam      : longint;
+  _wParam2     : longint;
+  _SaldoSource : word;
+  cNode        : comp;
+  _cCU         : comp;
+  _sCU         : string;
+  xlRep        : XLSRepBuilder;
+  _wKauCU      : word;            // таблица КАУ целевого учета
+  _wKauCULevel : word;
+  SumPrecision : double;
+  KolPrecision : double;
+  RepID        : string;
+  sXLTFileName : string;
+  sXLSFileName : string;
+
+as select
+  BuhSchet.*,
+  SaldMoun.*,
+  SaldRab.*
+
+from
+  PickBuh,
+  BuhSchet,
+  Pick,
+  KatMol,
+  KatPodr,
+  KatMc,
+  GroupMC,
+  KatParty,
+  KatMc     KatMc2,
+  SaldMoun,
+  SaldRab,
+  TmpSaldo1,
+
+  tmpBuhData,
+  tmpSkladData,
+
+  KatMc KatMcR,
+  KatMol KatMolR,
+  KatPodr KatPodrR,
+
+  KatMol KatMolIer,
+  KatPodr KatPodrIer,
+
+  KatMol RepKatMol,
+  KatPodr RepKatPodr,
+  KatMc RepKatMc,
+  KatEd,
+
+  RepData,
+  RepData RepDataTmp,
+  RepData RepDataList,
+
+  RepData RepDataNode,
+  RepData RepDataParent,
+
+  KatEd KatEdR
+
+where
+((
+
+// для дерева
+      RepDataNode.nRec == RepDataParent.cParent
+
+and    RepDataNode.cMc == KatMcR.nRec
+and   RepDataNode.cSkl == KatPodrR.nRec
+and   RepDataNode.cMol == KatMolR.nRec
+and           KatMcR.cEd == KatEd.nRec
+
+// для отчета
+and    RepDataList.cMc == RepKatMc.nRec
+and   RepDataList.cSkl == RepKatPodr.nRec
+and   RepDataList.cMol == RepKatMol.nRec
+and         RepKatMc.cEd == KatEdR.nRec
+
+and   TmpSaldo1.cMC == KatMC2.Nrec
+))
+
+bounds byName   = cNode == RepDataNode.cParent ordered by RepDataNode.Name
+bounds byBarKod = cNode == RepDataNode.cParent ordered by RepDataNode.BarKod
+;
+
+const
+  // node type
+  ntMOL  = 1;
+  ntPodr = 2;
+end;
+
+//-----------------------------------------------------------------------------
+// проверка : выбран ли счет
+function _SchetIsPick : boolean;
+{
+  _SchetIsPick := iPickBuh.FoundInPick(cgPick_Schet);
+}
+//-----------------------------------------------------------------------------
+
+screen scParams 'Основные' (,,sci1Esc)
+show (,,,);
+table BuhSchet
+  bevel b1 {1,  0, 60,  5, bsLowered, bsFrame};
+  bevel b1 {1,  5, 60, 16, bsLowered, bsFrame};
+  bevel b1 {1, 16, 60, 23, bsLowered, bsFrame};
+  bevel b1 {1, 23, 60, 27, bsLowered, bsFrame};
+fields
+  'Тип остатков МЦ ' (,,): skip, {font = {color = ColorMark; bold = true}};
+  _wParam     : NoProtect;
+
+  'Параметры отчета ' (,,): skip, {font = {color = ColorMark; bold = true}};
+  _RepOnDateB ('На дату',,) : [10,'DD/MM/YYYY'], NoProtect;
+  _sPlan      ('План счетов',,sci13Esc) : Protect, PickButton;
+  _Sch        ('Счёт',,sci13EnEsc): {font = {backColor = if (_SchetIsPick, ColorSysWhite, ColorNeed)}}, Protect, QuickChoice, PickButton;
+  _SSch       ('Субсчёт',,sci13Esc): Protect, PickButton;
+  _SaldoSource('Расчет бухгалтерского сальдо'): [List 'с начала отчетного периода','ближайшее на дату формирования отчета'], Protect;
+  _sCU        ('Аналитика объекта ЦУ',,sci13Esc) : Protect, PickButton;
+  _wGroup     ('Группировка данных',,): [List 0 'без группировки', 1 'МОЛ', 2 'Склад'], Protect;
+  _wParam2    : NoProtect;
+
+  'Фильтры ' (,,): skip, {font = {color = ColorMark; bold = true}};
+  _wFilt      ('Фильтр',,) : NoProtect;
+  _sMol       ('Фильтр по МОЛ',,sci13Esc): Protect, PickButton;
+  _sSklad     ('Фильтр по складу',,sci13Esc): Protect, PickButton;
+  _sMc        ('Фильтр по МЦ',,sci13Esc): Protect, PickButton;
+  _sMcGroup   ('Фильтр по группе МЦ',,sci13Esc): Protect, PickButton;
+  _sParty     ('Фильтр по партии',,sci13Esc): Protect, PickButton;
+
+  'Точность сравнения ' (,,): skip, {font = {color = ColorMark; bold = true}};
+  SumPrecision: [13.8, '\2p[|-]36`666`666`666`666.88'], NoProtect;
+  KolPrecision: [13.8, '\2p[|-]36`666`666`666`666.88'], NoProtect;
+
+buttons
+  cmOk,Default,,'Сформировать';
+  cmCancel,,,'Отмена';
+  cmValue1,,,'Настройка excel-шаблона для формирования отчета';
+<<
+   .@@@@@@@@@@@@@@@
+   [.] Складские         `
+   [.] Производственные  `
+   [.] Остатки УКС       `
+
+   .@@@@@@@@@@@@@@@@@
+   На дату              .@@@@@@@@@@
+   План счетов          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Счёт                 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Субсчёт              .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Входящее сальдо      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Аналитика объекта ЦУ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   Группировка          .@@@@@@@@@@@@@@@@
+   [.] Выводить в отчет только расхождения   `
+   [.] Включать записи с нулевым количеством `
+
+   .@@@@@@@@
+   [.] МОЛ      ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Склад    ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] МЦ       ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Группа МЦ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   [.] Партия   ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   .@@@@@@@@@@@@@@@@@@@
+   Суммы      .@@@@@@@@@@@@@@@@@@@
+   Количество .@@@@@@@@@@@@@@@@@@@
+
+   <. С~формировать .> <. О~тмена .> <. Шаблон Excel .>
+>>
+end; // screen
+
+procedure SaveSchetFilter;
+var
+  Cnt: longint;
+{
+  SaveMyDsk(iPickBuh.GetCountItem(cgPick_Schet), 'SverkaMC_SchetCount');
+  Cnt := 0;
+  _loop PickBuh where (( cgPick_Schet == PickBuh.KodTable ))
+  {
+    Cnt++;
+    SaveMyDsk(PickBuh.PickRec, 'SverkaMC_Schet'+String(Cnt));
+  }
+
+  SaveMyDsk(iPickBuh.GetCountItem(cgPick_SubSch), 'SverkaMC_SubSchetCount');
+  Cnt := 0;
+  _loop PickBuh where (( cgPick_SubSch == PickBuh.KodTable ))
+  {
+    Cnt++;
+    SaveMyDsk(PickBuh.PickRec, 'SverkaMC_SubSchet'+String(Cnt));
+  }
+}
+
+procedure LoadSchetFilter;
+var
+  Cnt, i: longint;
+  cRec: comp;
+{
+  if not ReadMyDsk(Cnt, 'SverkaMC_SchetCount', false)
+    Exit;
+  iPickBuh.DeleteItem(cgPick_Schet);
+  for (i:=1; i<=Cnt; i++)
+  {
+    if ReadMyDsk(cRec, 'SverkaMC_Schet'+String(i), false)
+      iPickBuh.InsertAnRecord(cgPick_Schet, cRec, '', '', i)
+  }
+
+  if not ReadMyDsk(Cnt, 'SverkaMC_SubSchetCount', false)
+    Exit;
+  iPickBuh.DeleteItem(cgPick_SubSch);
+  for (i:=1; i<=Cnt; i++)
+  {
+    if ReadMyDsk(cRec, 'SverkaMC_SubSchet'+String(i), false)
+      iPickBuh.InsertAnRecord(cgPick_SubSch, cRec, '', '', i)
+  }
+}
+
+//-----------------------------------------------------------------------------
+// строка фильтра для счёта/субсчёта
+function _GetFiltSchStr(wType, wTab : word) : string;
+{
+var cSchet : comp;
+
+  if (iPickBuh.GetCountItem(wTab)) = 0
+    _GetFiltSchStr := '<не определён>';
+
+  if (iPickBuh.GetCountItem(wTab)) = 1
+  {
+    cSchet := iPickBuh.FoundInPick_GetRec(wTab);
+    if GetFirst BuhSchet where ((cSchet == BuhSchet.nRec)) = tsOk
+      _GetFiltSchStr := if (wType = 1, #GetDbSch(BuhSchet.Schet), BuhSchet.SubSch) + ' ' + BuhSchet.Name;
+  }
+
+  if (iPickBuh.GetCountItem(wTab)) > 1
+    _GetFiltSchStr := 'множественный выбор (' + String(iPickBuh.GetCountItem(wTab)) + ')';
+}
+//-----------------------------------------------------------------------------
+// выбор счёта/субсчёта
+procedure _PickSchet;
+{
+  if (QuickChoiceName <> '')
+    QuickChoiceName := 'qcBuh_SchetAndSub';
+  if RunInterface ('F_BUHSCHET::GetBuhSchet', (cgiPick or cgiMulti), _cPlanSch, '','') <> cmCancel
+  {
+    set _Sch  := _GetFiltSchStr(1, cgPick_Schet);
+    set _SSch := _GetFiltSchStr(2, cgPick_SubSch);
+
+    // Создать PickBuhNew из старого PickBuh
+    iPickBuhNew.GetPickBuh(lEntity);
+    SaveSchetFilter;
+  }
+}
+//-----------------------------------------------------------------------------
+//поиск данных в установленном фильтре
+function _FindInPick(_wKau: word; _cRec: comp) : boolean;
+var
+  _wList : word;
+{
+  Result := False;
+  _wList      := 0;
+
+  case _wKau of
+    cgKau_KatMOL  : _wList := word(8);  // МОЛ
+    cgKau_KatPodr : _wList := word(11); // Склад
+    cgKau_KatMC   : _wList := word(7);  // МЦ
+    cgKau_GroupMC : _wList := word(2);  // Группа МЦ
+    cgKau_KatParty: _wList := word(10); // Партия
+  end;
+
+  if GetFirst Pick where (( _wList == Pick.wList
+                        and _cRec  == Pick.cRec )) = tsOk
+    Result := True;
+}
+
+//-----------------------------------------------------------------------------
+// Кол-во записей в pick в зависимости от wList
+function GetPickCount(_wList : word) : integer;
+{
+  Result := 0;
+  _loop Pick where ((_wList == Pick.wList))
+    Inc(Result);
+}
+
+//-----------------------------------------------------------------------------
+// Макроопределения для Всех фильтров работающих через Pick.wList
+#declare _PickTab_(_Tab_)
+{
+  if GetFirst Pick where ((_wList == Pick.wList)) = tsOk
+    if GetFirst #_Tab_ where ((Pick.cRec == #_Tab_.nRec)) = tsOk
+      GetPickFiltStr := #_Tab_.Name;
+}
+#end
+
+//-----------------------------------------------------------------------------
+function GetPickFiltStr(_wList : word) : string;
+{
+  if GetPickCount(_wList) = 0
+    GetPickFiltStr := '<не установлен>';
+
+  if GetPickCount(_wList) = 1
+  {
+    case _wList of
+      8  : #_PickTab_(KatMol)
+      11 : #_PickTab_(KatPodr)
+      7  : #_PickTab_(KatMc)
+      2  : #_PickTab_(GroupMC)
+      10 : #_PickTab_(KatParty)
+    end;
+  }
+  if GetPickCount(_wList) > 1
+    GetPickFiltStr := 'множественный выбор (' + String(GetPickCount(_wList)) + ')';
+}
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// фильтр по аналитике объекта ЦУ
+function _GetAnalitikStr(_wKau: word) : string;
+{
+  Result := '<не установлен>';
+  if _wKau <> 0
+    Result := GetAnalitikName(_wKau);
+}
+
+//-----------------------------------------------------------------------------
+// сбор данных по БУ
+function InsertBuhSaldo(_Sch: tSchet3; _SSch: tSubSch; cMc, cSkl, cMol, cKau: comp; dKol, dSum: double): boolean;
+{
+  if GetFirst tmpBuhData where (( cMc   == tmpBuhData.cMc
+                              and cSkl  == tmpBuhData.cSkl
+                              and cMol  == tmpBuhData.cMol
+                              and cKau  == tmpBuhData.cKau
+                              and _Sch  == tmpBuhData.Sch
+                              and _SSch == tmpBuhData.SSch )) <> tsOk
+  {
+    ClearBuffer(#tmpBuhData);
+    tmpBuhData.Sch  := _Sch;
+    tmpBuhData.SSch := _SSch;
+    tmpBuhData.cMc  := cMc;
+    tmpBuhData.cSkl := cSkl;
+    tmpBuhData.cMol := cMol;
+    tmpBuhData.cKau := cKau;
+    tmpBuhData.Kol  := dKol;
+    tmpBuhData.Summ := dSum;
+    Result  := insert current tmpBuhData = tsOk;
+  }
+  else
+  {
+    tmpBuhData.Kol  := tmpBuhData.Kol  + dKol;
+    tmpBuhData.Summ := tmpBuhData.Summ + dSum;
+    Result := update current tmpBuhData = tsOk;
+  }
+}
+//-----------------------------------------------------------------------------
+// сбор данных по складам
+function InsertOperSaldo(cMc, cSkl, cMol, cKau: comp; dKol, dSum: double): boolean;
+{
+  if GetFirst tmpSkladData where (( cMc  == tmpSkladData.cMc
+                                and cSkl == tmpSkladData.cSkl
+                                and cMol == tmpSkladData.cMol
+                                and cKau == tmpSkladData.cKau )) <> tsOk
+  {
+    ClearBuffer(#tmpSkladData);
+    tmpSkladData.cMc  := cMc;
+    tmpSkladData.cSkl := cSkl;
+    tmpSkladData.cMol := cMol;
+    tmpSkladData.cKau := cKau;
+    tmpSkladData.Kol  := dKol;
+    tmpSkladData.Summ := dSum;
+    Result := insert current tmpSkladData = tsOk;
+  }
+  else
+  {
+    tmpSkladData.Kol  := tmpSkladData.Kol  + dKol;
+    tmpSkladData.Summ := tmpSkladData.Summ + dSum;
+    Result := update current tmpSkladData = tsOk;
+  }
+}
+//-----------------------------------------------------------------------------
+// расчет остатков по бух. учету
+
+procedure ExtractBuhKau(TblOs: tTabKau; KauOs: tGetKau; var _cMc, _cGroupMC, _cParty, _cMol, _cKau: comp);
+var
+  i: integer;
+{
+  _cMc := 0;
+  _cGroupMc := 0;
+  _cMol := 0;
+  _cKau := 0;
+  _cParty := 0;
+
+  for (i := cFirstKAU; i <= cLastKAU; i := i+1)
+  {
+    case TblOs[i] of
+      cgKau_KatMC: _cMC := KauOs[i];
+      cgKau_GroupMC: _cGroupMC := KauOs[i];
+      cgKau_KatMol: _cMol := KauOs[i];
+      cgKau_KatParty: _cParty := KauOs[i];
+    end;
+
+    if (_wKauCU > 0) and (TblOs[i] = _wKauCU)
+      _cKau := KauOs[i];
+  }
+}
+
+function CheckFilters(_cMc, _cGroupMC, _cParty, _cSklad, _cMol: comp): boolean;
+{
+  Result := false;
+
+  // МОЛ
+  if (_wFilt and 1) > 0
+    if GetPickCount(8) > 0
+      if not _FindInPick(cgKau_KatMOL, _cMol)
+        exit;
+
+  // Склад
+  if (_wFilt and 2) > 0
+    if GetPickCount(11) > 0
+      if not _FindInPick(cgKau_KatPodr, _cSklad)
+        exit;
+
+  // МЦ
+  if (_wFilt and 4) > 0
+    if GetPickCount(7) > 0
+      if not _FindInPick(cgKau_KatMC, _cMC)
+        exit;
+
+  // Группа МЦ
+  if (_wFilt and 8) > 0
+    if GetPickCount(2) > 0
+      if not _FindInPick(cgKau_GroupMC, _cGroupMC)
+        exit;
+
+  // Партия
+  if (_wFilt and 16) > 0
+    if GetPickCount(10) > 0
+      if not _FindInPick(cgKau_KatParty, _cParty)
+        exit;
+
+  Result := true;
+}
+
+procedure _ProcessBuhSaldoRecord(SaldoRec: TSaldoRec);
+var
+  _cMc, _cGroupMC, _cParty, _cSklad, _cMol, _cKau: comp;
+{
+  _cSklad := SaldoRec.KodSPO;
+  ExtractBuhKau(SaldoRec.TblOs, SaldoRec.KauOs, _cMc, _cGroupMC, _cParty, _cMol, _cKau);
+
+  if not CheckFilters(_cMc, _cGroupMC, _cParty, _cSklad, _cMol)
+    exit;
+
+  InsertBuhSaldo(SaldoRec.DBSchetO, SaldoRec.SubOsSch, _cMc, _cSklad, _cMol, _cKau,
+                 if(SaldoRec.ViOb = 1, SaldoRec.Kol, -SaldoRec.Kol),
+                 if(SaldoRec.ViOb = 1, SaldoRec.Sums, -SaldoRec.Sums));
+}
+
+procedure _CalcBuhSaldo;
+{
+  PasParams.cPlansSch    := _cPlanSch;
+  PasParams.BegDate      := _RepOnDateB;
+  PasParams.EndDate      := _RepOnDateB;
+  PasParams._SaldoSource := _SaldoSource;
+
+  case GetVhodSaldo(PasParams) of
+    coSaldMoun:
+    {
+      StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm, 'Расчет бухгалтерского сальдо...', 0);
+      _loop PickBuh
+      {
+        // если субсчета у счёта указаны
+        if iPickBuh.FoundSubForSchet(PickBuh.Schet)
+        {
+          _loop SaldMoun where ((
+                 _cPlanSch     == SaldMoun.cPlansSch
+            and  _RepOnDateB   == SaldMoun.DateSal
+            and PickBuh.Schet  == SaldMoun.SchetO
+            and PickBuh.SubKau == SaldMoun.SubOsSch
+          ))
+          {
+            if (PickBuh.SubKau = cgDefSch)
+              continue;
+
+            SetVisualHeader('Расчет сальдо по счету: ' + SaldMoun.DBSchetO + if (SaldMoun.SubOsSch <> '', '.' + SaldMoun.SubOsSch, ''));
+            _ProcessBuhSaldoRecord(TSaldoRec(SaldMoun.Buffer));
+          }
+        }
+        else  // если субсчета не указаны
+        {
+          _loop SaldMoun where ((
+                 _cPlanSch    == SaldMoun.cPlansSch
+            and  _RepOnDateB  == SaldMoun.DateSal
+            and PickBuh.Schet == SaldMoun.SchetO
+          ))
+          {
+            SetVisualHeader('Расчет сальдо по счету: ' + SaldMoun.DBSchetO + if (SaldMoun.SubOsSch <> '', '.' + SaldMoun.SubOsSch, ''));
+            _ProcessBuhSaldoRecord(TSaldoRec(SaldMoun.Buffer));
+          }
+        }
+
+        if not NextVisual
+          break; // PickBuh
+      }
+      StopVisual('', 0);
+    }
+
+    coSaldRab:
+    {
+      StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm,
+                    'Расчет бухгалтерского сальдо...', 0);
+      _loop SaldRab
+      {
+        SetVisualHeader('Расчет сальдо по счету : ' + SaldRab.DBSchetO + if (SaldRab.SubOsSch <> '', '.' + SaldRab.SubOsSch, ''));
+        _ProcessBuhSaldoRecord(TSaldoRec(SaldRab.Buffer));
+
+        if not NextVisual
+          break; // SaldRab
+      }
+      StopVisual('', 0);
+    }
+  end;
+}
+
+function _GetPickedItem(_wList: word): comp;
+{
+  Result := 0;
+  if GetFirst Pick where (( _wList == Pick.wList )) = tsOk
+    Result := Pick.cRec;
+}
+
+procedure _CalcOperSaldoType(_SaldoType: byte);
+var
+  lMCcnt: longint;
+  lMOLcnt: longint;
+  lPodrcnt: longint;
+  lParty: longint;
+  cMC, cPodr, cMOL, cParty: comp;
+  cKau: comp;
+{
+  if (_wFilt and 4) > 0
+    lMCcnt := GetPickCount(7);
+  else
+    lMCcnt := 0;
+
+  if (_wFilt and 1) > 0
+    lMOLcnt := GetPickCount(8);
+  else
+    lMOLcnt := 0;
+
+  if (_wFilt and 2) > 0
+    lPodrcnt := GetPickCount(11);
+  else
+    lPodrcnt := 0;
+
+  if (_wFilt and 18) > 0
+    lParty := GetPickCount(10);
+  else
+    lParty := 0;
+
+  if lMCcnt = 0
+    cMC := 0
+  else if lMCcnt = 1
+    cMC := _GetPickedItem(7);
+  else
+    cMC := -2;
+
+  if lMOLcnt = 0
+    cMOL := 0
+  else if lMOLcnt = 1
+    cMOL := _GetPickedItem(8);
+  else
+    cMOL := -2;
+
+  if lPodrcnt = 0
+    cPodr := 0
+  else if lPodrcnt = 1
+    cPodr := _GetPickedItem(11);
+  else
+    cPodr := -2;
+
+  if lParty = 0
+    cParty := 0
+  else if lParty = 1
+    cParty := _GetPickedItem(10);
+  else
+    cParty := -2;
+
+  if (_wParam2 and 2) > 0
+    SaveMyDsk(true, 'SaldoMC_DontCheckKol');
+
+  // при одновременной выгрузке остатков с разным типом, если остатки ведутся на одном складе и без партии
+  // то функция их неправильно суммирует (берется цена от первого найденного остатка)
+  // будем выгружать остатки раздельно
+  oSaldoFun.Store_run_new(
+                Sub_Day(_RepOnDateB, 1) // входящие остатки
+              , if(_SaldoType = 1, true, false)      // складские остатки
+              , if(_SaldoType = 2, true, false)      // производство
+              , false                                // ремонтные остатки (не используются)
+              , if(_SaldoType = 3, true, false)      // УКС остатки
+
+              , cMC      // фильтр по МЦ
+              , cPodr    // фильтр по складу
+              , cMol     // фильтр по МОЛ
+              , cParty   // фильтр по партии
+              , if (_cCU > 0, true, false)   // выгружать остатки по МТР
+              , _cCU     // фильтр по ЦУ
+              , 0        // фильтр по объекту
+              , true     // группировать по складам
+              , true     // группировать по МОЛ
+              , true);
+
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Обработка остатков МЦ', 0);
+  _loop tmpSaldo1
+  {
+    cKau := 0;
+
+    if isValid(#KatMC2)
+      // Фильтр по группе МЦ
+      if (_wFilt and 8) > 0
+        if not _FindInPick(cgKau_GroupMC, KatMC2.cGroupMC)
+          continue;
+
+    if _wKauCULevel = 1
+      cKau := tmpSaldo1.cObj;
+    else if _wKauCULevel > 0
+      cKau := tmpSaldo1.cKau[_wKauCULevel - 1];
+
+    InsertOperSaldo(tmpSaldo1.cMc, tmpSaldo1.cPodr, tmpSaldo1.cMol, cKau, tmpSaldo1.Kol,
+                    if(tmpSaldo1.Kol > 0, tmpSaldo1.Price * tmpSaldo1.Kol, tmpSaldo1.Price));
+  }
+  StopVisual('', 0);
+}
+
+procedure _CalcOperSaldo;
+{
+  // складские остатки
+  if (_wParam and 1) > 0
+    _CalcOperSaldoType(1);
+
+  // производство
+  if (_wParam and 2) > 0
+    _CalcOperSaldoType(2);
+
+  // УКС
+  if (_wParam and 4) > 0
+    _CalcOperSaldoType(3);
+}
+
+//-----------------------------------------------------------------------------
+// формирование итогов
+function _InsertRepData(_wTab : word; _SSch : string; _cMc,_cSkl, _cMol, _cKau: comp; dKol, dSumm: double): boolean;
+{
+  if GetFirst RepData where (( _cMc == RepData.cMc
+                            and _cSkl == RepData.cSkl
+                            and _cMol == RepData.cMol
+                            and _cKau == RepData.cKau )) <> tsOk
+  {
+     ClearBuffer(#RepData);
+     RepData.cMc  := _cMc;
+     RepData.cSkl := _cSkl;
+     RepData.cMol := _cMol;
+     RepData.cKau := _cKau;
+
+     case _wGroup of
+       1 : RepData.cParent := _cMol;
+       2 : RepData.cParent := _cSkl;
+     end;
+
+     if GetFirst KatMc where ((_cMc == KatMc.nRec)) = tsOk
+     {
+        RepData.Name   := KatMc.Name;
+        RepData.BarKod := KatMc.BarKod;
+     }
+
+     if _wTab = 1 // бух.
+     {
+
+       RepData.SchSubSch := _SSch;
+       RepData.bKol      := dKol;
+       RepData.bSum      := dSumm;
+     }
+     else // скл.
+     {
+       RepData.sKol := dKol;
+       RepData.sSum := dSumm;
+     }
+
+     Result := insert current RepData = tsOk;
+  }
+  else
+  {
+    if _wTab = 1 // бух
+    {
+      RepData.bKol := RepData.bKol + dKol;
+      RepData.bSum := RepData.bSum + dSumm;
+      if InStr(_SSch, RepData.SchSubSch) = 0
+        RepData.SchSubSch := RepData.SchSubSch + ',' + _SSch;
+    }
+    else // скл
+    {
+      RepData.sKol := RepData.sKol + dKol;
+      RepData.sSum := RepData.sSum + dSumm;
+    }
+    Result := update current RepData = tsOk;
+  }
+}
+//-----------------------------------------------------------------------------
+// стыковка данных
+procedure _ConnectDataBuhSkl;
+{
+  StartNewVisual(vtIndicatorVisual, vfTimer + vfBreak + vfConfirm
+                ,'Выгрузка данных...', RecordsInTable(#tmpBuhData));
+  _loop tmpBuhData
+  {
+    _InsertRepData(1, tmpBuhData.Sch + if (tmpBuhData.SSch <> '', '.' + tmpBuhData.SSch, ''),
+                   tmpBuhData.cMc, tmpBuhData.cSkl, tmpBuhData.cMol, tmpBuhData.cKau, tmpBuhData.Kol, tmpBuhData.Summ)
+  }
+  StopVisual('', 0);
+  StartNewVisual(vtIndicatorVisual, vfTimer + vfBreak + vfConfirm
+                ,'Выгрузка данных...', RecordsInTable(#tmpSkladData));
+  _loop tmpSkladData
+  {
+    _InsertRepData(2, '', tmpSkladData.cMc, tmpSkladData.cSkl, tmpSkladData.cMol, tmpSkladData.cKau, tmpSkladData.Kol, tmpSkladData.Summ)
+  }
+  StopVisual('', 0);
+}
+//-----------------------------------------------------------------------------
+// макроопределения для сумм
+#declare _SumsCalc_(_Var_, _Tab_)
+  #_Var_[1] := #_Var_[1] + #_Tab_.sKol;
+  #_Var_[2] := #_Var_[2] + #_Tab_.sSum;
+  #_Var_[3] := #_Var_[3] + #_Tab_.bKol;
+  #_Var_[4] := #_Var_[4] + #_Tab_.bSum;
+#end
+
+#declare _SumsUpdate_(_Var_)
+  RepData.sKol := #_Var_[1];
+  RepData.sSum := #_Var_[2];
+  RepData.bKol := #_Var_[3];
+  RepData.bSum := #_Var_[4];
+  update current RepData;
+#end
+
+
+function _FindNode(_wGroup: byte; _cRec: comp): comp;
+{
+  Result := 0;
+
+  if GetFirst RepDataTmp where(( _cRec == RepDataTmp.cRec and true == RepDataTmp.isGroup )) = tsOk
+  {
+    Result := RepDataTmp.Nrec;
+  }
+  else
+  {
+    ClearBuffer(#RepDataTmp);
+    RepDataTmp.isGroup := true;
+    RepDataTmp.cRec    := _cRec;
+    RepDataTmp.cParent := comp(0);
+
+    if _cRec = 0
+    {
+      case _wGroup of
+        ntMOL:  RepDataTmp.Name := '<МОЛ не определён>';
+        ntPodr: RepDataTmp.Name := '<Склад не определён>';
+      end;
+      insert current RepDataTmp;
+      Result := RepDataTmp.Nrec;
+      Exit;
+    }
+
+    case _wGroup of
+      ntMOL:
+      {
+        if GetFirst KatMolIer where (( _cRec == KatMolIer.nRec)) = tsOk
+        {
+          RepDataTmp.Name := KatMolIer.Kod + '-' + KatMolIer.Name;
+          insert current RepDataTmp;
+          Result := RepDataTmp.Nrec;
+        }
+      }
+
+      ntPodr:
+      {
+        if GetFirst KatPodrIer where (( _cRec == KatPodrIer.nRec)) = tsOk
+        {
+          RepDataTmp.Name := KatPodrIer.Kod + '-' + KatPodrIer.Name;
+          insert current RepDataTmp;
+          Result := RepDataTmp.Nrec;
+        }
+      }
+    end;
+  }
+}
+
+//-----------------------------------------------------------------------------
+// построение иерархии
+procedure _BuildIerr;
+var
+  Sums    : array[1..4] of double;
+  SumNull : array[1..4] of double;
+  cnt     : integer;
+  cRec: comp;
+{
+  StartNewVisual(vtIndicatorVisual, vfTimer + vfBreak + vfConfirm, 'Построение иерархии...', RecordsInTable(#RepData));
+
+  for (cnt := 1; cnt <= 4; Inc(cnt))
+    SumNull[cnt] := double(0);
+
+  if _wGroup > 0
+  {
+    _loop RepData where (( false == RepData.isGroup ))
+    {
+      cRec := RepData.cParent;
+      case _wGroup of
+        ntMOL:  RepData.cParent := _FindNode(ntMOL, RepData.cMol);
+        ntPodr: RepData.cParent := _FindNode(ntPodr, RepData.cSkl);
+      end;
+
+      update current RepData;
+    }
+
+    _loop RepData where (( 0 == RepData.cParent ))
+    {
+      for (cnt := 1; cnt <= 4; Inc(cnt))
+        Sums[cnt]    := double(0);
+
+      _loop RepDataList where (( RepData.NRec == RepDataList.cParent ))
+      {
+        #_SumsCalc_(Sums, RepDataList)
+      }
+      #_SumsUpdate_(Sums)
+
+      if not NextVisual
+        break;
+    }
+  }
+  StopVisual('', 0);
+}
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// вставка данных
+procedure _InsertToXlt;
+{
+  xlRep.ClearTblBuffer;
+  xlRep.SetTblNumberFldValue('cParent', 0);
+  if GetFirst RepKatMol = tsOk
+  {
+    xlRep.SetTblStringFldValue('MolKod', RepKatMol.Kod);
+    xlRep.SetTblStringFldValue('MolName', RepKatMol.Name);
+  }
+  if GetFirst RepKatPodr = tsOk
+    xlRep.SetTblStringFldValue('PodrKod', RepKatPodr.Name);
+    xlRep.SetTblStringFldValue('PodrKodReal', RepKatPodr.Kod);
+  if GetFirst RepKatMc = tsOk
+  {
+    xlRep.SetTblStringFldValue('McKod', RepKatMc.BarKod);
+    xlRep.SetTblStringFldValue('McName', RepKatMc.Name);
+    if GetFirst KatEdR = tsOk
+      xlRep.SetTblStringFldValue('EdIzm', KatEdR.Name);
+  }
+  xlRep.SetTblNumberFldValue('SaldSKol', RepDataList.sKol);
+  xlRep.SetTblNumberFldValue('SaldSSum', RepDataList.sSum);
+  xlRep.SetTblStringFldValue('SchSub', RepDataList.SchSubSch);
+  xlRep.SetTblNumberFldValue('SaldBKol', RepDataList.bKol);
+  xlRep.SetTblNumberFldValue('SaldBSum', RepDataList.bSum);
+  xlRep.SetTblNumberFldValue('OtklKol', RepDataList.sKol - RepDataList.bKol);
+  xlRep.SetTblNumberFldValue('OtklSum', RepDataList.sSum - RepDataList.bSum);
+  xlRep.SetTblStringFldValue('ObjectCU', if (RepDataList.cKau = 0, '', ShowKau(_wKauCU, RepDataList.cKau)));
+  xlRep.InsTblRow;
+  ItogSum[1] := ItogSum[1] + RepDataList.sKol;
+  ItogSum[2] := ItogSum[2] + RepDataList.sSum;
+  ItogSum[3] := ItogSum[3] + RepDataList.bKol;
+  ItogSum[4] := ItogSum[4] + RepDataList.bSum;
+  ItogSum[5] := ItogSum[5] + (RepDataList.sKol - RepDataList.bKol);
+  ItogSum[6] := ItogSum[6] + (RepDataList.sSum - RepDataList.bSum);
+}
+//-----------------------------------------------------------------------------
+#declare _OrderBy_(_Field_)
+{
+  _loop RepData where ((0 == RepData.cParent))
+                 ordered by RepData.#_Field_
+  {
+    xlRep.ClearTblBuffer;
+    xlRep.SetTblNumberFldValue('cParent', 1);
+    xlRep.SetTblStringFldValue('MolKod', RepData.Name);
+    xlRep.InsTblRow;
+    _loop RepDataList where ((RepData.nRec == RepDataList.cParent))
+                        ordered by RepDataList.#_Field_
+      _InsertToXlt;
+    xlRep.ClearTblBuffer;
+    xlRep.SetTblNumberFldValue('cParent', 1);
+    xlRep.SetTblStringFldValue('MolKod', 'Итого по ' + RepData.Name);
+    xlRep.SetTblNumberFldValue('SaldSKol', RepData.sKol);
+    xlRep.SetTblNumberFldValue('SaldSSum', RepData.sSum);
+    xlRep.SetTblNumberFldValue('SaldBKol', RepData.bKol);
+    xlRep.SetTblNumberFldValue('SaldBSum', RepData.bSum);
+    xlRep.SetTblNumberFldValue('OtklKol', RepData.sKol - RepData.bKol);
+    xlRep.SetTblNumberFldValue('OtklSum', RepData.sSum - RepData.bSum);
+    xlRep.InsTblRow;
+  }
+}
+#end
+//-----------------------------------------------------------------------------
+// процедуры для выгрузки в xlt
+procedure _IfGroup;
+{
+  if BoundActive(tbByName)
+    #_OrderBy_(Name)
+  else
+    #_OrderBy_(BarKod)
+
+  xlRep.ClearTblBuffer;
+  xlRep.SetTblNumberFldValue('cParent', 1);
+  xlRep.SetTblStringFldValue('MolKod', 'Итого по отчету');
+  xlRep.SetTblNumberFldValue('SaldSKol', ItogSum[1]);
+  xlRep.SetTblNumberFldValue('SaldSSum', ItogSum[2]);
+  xlRep.SetTblNumberFldValue('SaldBKol', ItogSum[3]);
+  xlRep.SetTblNumberFldValue('SaldBSum', ItogSum[4]);
+  xlRep.SetTblNumberFldValue('OtklKol', ItogSum[5]);
+  xlRep.SetTblNumberFldValue('OtklSum', ItogSum[6]);
+  xlRep.InsTblRow;
+}
+//-----------------------------------------------------------------------------
+procedure _IfNotGroup;
+{
+  if BoundActive(tbByName)
+  {
+    _loop RepDataList ordered by RepDataList.Name
+      _InsertToXlt;
+  }
+  else
+  {
+    _loop RepDataList ordered by RepDataList.BarKod
+      _InsertToXlt;
+  }
+  xlRep.ClearTblBuffer;
+  xlRep.SetTblNumberFldValue('cParent', 1);
+  xlRep.SetTblStringFldValue('MolKod', 'Итого по отчету: ');
+  xlRep.SetTblNumberFldValue('SaldSKol', ItogSum[1]);
+  xlRep.SetTblNumberFldValue('SaldSSum', ItogSum[2]);
+  xlRep.SetTblNumberFldValue('SaldBKol', ItogSum[3]);
+  xlRep.SetTblNumberFldValue('SaldBSum', ItogSum[4]);
+  xlRep.SetTblNumberFldValue('OtklKol', ItogSum[5]);
+  xlRep.SetTblNumberFldValue('OtklSum', ItogSum[6]);
+  xlRep.InsTblRow;
+}
+//-----------------------------------------------------------------------------
+// построение XLT - отчета
+procedure _PrintXLTReport;
+var
+  i: integer;
+{
+  StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, 'Выгрузка данных в Excel', 0);
+  sXLSFileName := XlRep.CreateReport(sXLTFileName, true);
+  xlRep.CreateTbls(sXLSFileName);
+  xlRep.CreateTbl('PickBuh');
+  xlRep.CreateTblFld('Schet');
+
+  _loop PickBuh ordered by index PickBuhPck
+  {
+    xlRep.SetTblStringFldValue('Schet', #GetDbSch(PickBuh.Schet) + if (PickBuh.SubKau = '', '', '.' + PickBuh.SubKau) + ' - ' + PickBuh.Name);
+    xlRep.InsTblRow;
+  }
+
+  xlRep.PublishTbl('PickBuh');
+
+  xlRep.CreateTbl('BuhSkladData');
+  xlRep.CreateTblFld('cParent');
+  xlRep.CreateTblFld('MolKod');
+  xlRep.CreateTblFld('MolName');
+  xlRep.CreateTblFld('PodrKod');
+  xlRep.CreateTblFld('McKod');
+  xlRep.CreateTblFld('McName');
+  xlRep.CreateTblFld('EdIzm');
+  xlRep.CreateTblFld('SaldSKol');
+  xlRep.CreateTblFld('SaldSSum');
+  xlRep.CreateTblFld('SchSub');
+  xlRep.CreateTblFld('SaldBKol');
+  xlRep.CreateTblFld('SaldBSum');
+  xlRep.CreateTblFld('OtklKol');
+  xlRep.CreateTblFld('OtklSum');
+  xlRep.CreateTblFld('ObjectCU');
+
+  xlRep.CreateTblFld('PodrKodReal');
+
+  for (i := 1; i <= 6; Inc(i))
+    ItogSum[i] := double(0);
+
+  if _wGroup = 1 or _wGroup = 2
+    _IfGroup;
+  else
+    _IfNotGroup;
+
+  xlRep.PublishTbl('BuhSkladData');
+
+  xlRep.CreateVar(sXLSFileName);
+  xlRep.SetStringVar('Исп_ЦУ', _cCU);
+  xlRep.SetStringVar('На_дату', DateToStr(_RepOnDateB, 'DD mon YYYY'));
+
+  xlRep.PublishVar;
+
+  StopVisual('', 0);
+
+  xlRep.LoadReport(sXLSFileName);
+  xlRep.DisConnectExcel;
+}
+
+//-----------------------------------------------------------------------------
+// Окно с результатами сверки
+//-----------------------------------------------------------------------------
+window wItogWin '' (,,sci1EscTree), Blue, EscClose;
+  show at(,,100,100);
+
+tree trItog;
+  table RepDataNode;
+fields {font = {color =
+  if ((abs(RepDataNode.sKol - RepDataNode.bKol) > KolPrecision
+    or abs(RepDataNode.sSum - RepDataNode.bSum) > SumPrecision), ColorSysRed, ColorSysBlack);
+      Bold = IsValid(#RepDataParent)}};
+
+  RepDataNode.Name       #3'Наименование МЦ/Группы': [30], Protect;
+  RepDataNode.BarKod     #3'Код МЦ': [10], Protect;
+  KatMolR.Kod              #3'Код МОЛ': [8], Protect;
+  KatMolR.Name             #3'Имя МОЛ': [25], Protect;
+  KatPodrR.Name            #3'Подразделение': [25], Protect;
+  [KauCU] (if (RepDataNode.cKau = 0, '', ShowKau(_wKauCU, RepDataNode.cKau)))
+                           #3'Аналитика ЦУ': [25], Protect;
+  KatEd.Abbr               #3'Ед. изм.': [7], Protect;
+  RepDataNode.sKol       #3'Сальдо склад', #3'кол-во': [10.2], Protect;
+  RepDataNode.sSum       #3'Сальдо склад', #3'сумма': [13.2, '\2p[|-]36`666`666`666`666.88'], Protect;
+  RepDataNode.SchSubSch  #3'Счёт/субсчёт': [10], Protect;
+  RepDataNode.bKol       #3'Сальдо бух.', #3'кол-во': [10.2], Protect;
+  RepDataNode.bSum       #3'Сальдо бух.', #3'сумма': [13.2, '\2p[|-]36`666`666`666`666.88'], Protect;
+  (abs(RepDataNode.sKol - RepDataNode.bKol))
+                           #3'Разность', #3'кол-во':  [10.2], Protect;
+  (abs(RepDataNode.sSum - RepDataNode.bSum))
+                           #3'Разность', #3'сумма':  [13.2, '\2p[|-]36`666`666`666`666.88'], Protect;
+end; // tree
+
+TableEvent Table RepDataNode
+
+  cmTreeTop       : cNode := 0;
+  cmTreeUp        : cNode := RepDataNode.cParent;
+  cmTreeDown      : cNode := RepDataNode.nRec;
+  cmTreeNodeType  :
+  {
+    if not IsValid(#RepDataParent)
+      TreeSetNodeType(trItog, ntfText);
+  }
+  cmTreeNeedOwner : TreeJumpToRecord (trItog, RepDataNode.cParent);
+end;
+
+HandleEvent
+  cmInit :
+  {
+    SetWindowTitle(wItogWin, 'Остатки МЦ на ' + DateToStr(_RepOnDateB, 'DD/MM/YYYY'));
+  }
+
+  cmColumnClicked :
+  {
+    case Target of
+       #RepDataNode.Name :
+        {
+          PushBounds(tbByName);
+          SetColumnSorting(trItog, #RepDataNode.Name, - 1);
+        }
+
+        #RepDataNode.BarKod :
+        {
+          PushBounds(tbByBarKod);
+          SetColumnSorting(trItog, #RepDataNode.BarKod, - 1);
+        }
+    end;
+    ReScanPanel(#RepDataNode);
+  }
+  cmPrintDoc :
+  {
+    _PrintXLTReport;
+  }
+end;
+
+end; // window
+
+procedure ClearAllData;
+{
+  delete all tmpBuhData;   // очистка данных БУ
+  delete all tmpSkladData; // очистка Складских данных
+  delete all RepData;      // очистка отчета
+  delete all TmpSaldo1;
+}
+
+HandleEvent
+  cmInit:
+  {
+    lEntity := LongInt(625016);
+    if _iPlan.GetTunePlansSch(_cPlanSch)  // план счетов
+      set _sPlan := _iPlan.GetName(_cPlanSch);
+
+    if not ReadMyDsk(_RepOnDateB, 'SverkaMC_RepOnDateB', false)
+      _RepOnDateB := dGetTune('DAT_M_OT');
+
+    iPickBuh.DeletePickBuh;
+    LoadSchetFilter;
+    iPickBuhNew.GetPickBuh(lEntity);
+
+    _Sch  := _GetFiltSchStr(1, cgPick_Schet); //фильтр по счету
+    _SSch := _GetFiltSchStr(2, cgPick_SubSch); //фильтр по субсчету
+
+    if not ReadMyDsk(_wGroup, 'SverkaMC_wGroup', false)
+      _wGroup := 0;
+
+    if not ReadMyDsk(_wParam, 'SverkaMC_wParam', false)
+      _wParam := 1;
+
+    if not ReadMyDsk(_wParam2, 'SverkaMC_wParam2', false)
+      _wParam := 0;
+
+    if not ReadMyDsk(_SaldoSource, 'SverkaMC_SaldoSource', false)
+      _SaldoSource := 0;
+
+    _sCU := '<без учета ЦУ>';
+
+    if not ReadMyDsk(_wFilt, 'SverkaMC_wFilt', false)
+      _wFilt := 0;
+
+    _sMol := GetPickFiltStr(8);     // фильтр по МОЛ
+    _sSklad := GetPickFiltStr(11);  // фильтр по складу
+    _sMc := GetPickFiltStr(7);      // фильтр по МЦ
+    _sMcGroup := GetPickFiltStr(2); // фильтр по Группе МЦ
+    _sParty := GetPickFiltStr(10);  // фильтр по Партии
+    SumPrecision := 0.01;
+    ReadMyDsk(SumPrecision, 'SverkaMC_SumPrecision', false);
+    KolPrecision := 0.00001;
+    ReadMyDsk(KolPrecision, 'SverkaMC_KolPrecision', false);
+    RepID := 'F_BuhRep\SverkaMC';
+    sXLTFileName := TranslatePath('%ClientStartPath%') + 'XLS\' + RepID + '.xlt';
+    ReadMyDsk(sXLSFileName, 'SverkaMC_xltFileName', True);
+  }
+
+  cmOpenSearch:
+  {
+    ProcessCommand(cmPick);
+  }
+
+  cmPick:
+  {
+    case CurField of
+      #_sPlan :
+      {
+        if _iPlan.PickPlansSch(_cPlanSch)
+        {
+          set _sPlan := _iPlan.GetName(_cPlanSch);
+          iPickBuh.DeletePickBuh;
+          set _Sch   := '<не определён>';
+          set _SSch  := '<не определён>';
+        }
+      }
+      #_Sch  : _PickSchet;
+      #_SSch : _PickSchet;
+      #_sCU  :
+      {
+        if RunInterface ('L_SALDOMTR::GETSALDTUNE', _cCU, word(0)) <> cmCancel
+        {
+          if RunInterface ('F_BUHREP::CuAnalitikPick', _cCU, _wKauCU, _wKauCULevel) <> cmCancel
+            set _sCU := _GetAnalitikStr(_wKauCU);
+          else
+          {
+            _cCU := 0;
+            _wKauCU := 0;
+            _sCU := '<не используется>';
+          }
+        }
+      }
+      #_sMol :
+      {
+        if RunInterface('L_MOL::GETSOMEMOL') <> cmCancel
+          set _sMol := GetPickFiltStr(8);
+      }
+      #_sSklad :
+      {
+        if RunInterface('Z_KATPODR::GETANYPODR', comp(0), (1 or 10)) <> cmCancel
+          set _sSklad := GetPickFiltStr(11);
+      }
+      #_sMc :
+      {
+        if RunInterface('L_MCU::GETSOMEMC', comp(-12345)) <> cmCancel
+          set _sMc := GetPickFiltStr(7);
+      }
+
+      #_sMcGroup:
+      {
+        if RunInterface('L_MCU::GetGrMCS', comp(0), '', true) <> cmCancel
+          set _sMcGroup := GetPickFiltStr(2);
+      }
+      #_sParty:
+      {
+        if RunInterface('L_KATPARTY::GetSomeParty', 0) <> cmCancel
+          set _sParty := GetPickFiltStr(10);
+      }
+    end;
+  }
+
+  cmCheckField:
+  {
+    case CurField of
+      #_RepOnDateB:
+      {
+        if (_RepOnDateB >= Add_Months(dGetTune('Dat_M_Ot'), 1))
+          SetFieldOption(#_SaldoSource, ofSelectable);
+        else
+        {
+          set _SaldoSource := 0;
+          ClearFieldOption(#_SaldoSource, ofSelectable);
+        }
+      }
+    end;
+  }
+
+  cmOk:
+  {
+    if _wParam = 0
+    {
+      Message('Выберите тип остатков МЦ.');
+      Exit;
+    }
+
+    if (longint(_RepOnDateB) = 0)
+    {
+      Message('Укажите дату для формирования отчета');
+      Exit;
+    }
+
+    if GetFirst PickBuh <> tsOk
+    {
+      Message('Выберите счет, пожалуйста.');
+      Exit;
+    }
+
+    ClearAllData;
+    //Создать старый PickBuh из нового PickBuhNew
+    iPickBuhNew.MakePickBuh(lEntity);
+    _CalcBuhSaldo;           // расчёт остатков по бух. учёту
+    _CalcOperSaldo;          // расчёт остатков по складу
+    _ConnectDataBuhSkl;      // соединение данных
+
+    // удаление ненужной информации
+    if (_wParam2 and 1) > 0
+    {
+        delete RepData where (abs(RepData.sKol - RepData.bKol) < KolPrecision
+                            and abs(RepData.sSum - RepData.bSum) < SumPrecision);
+    }
+
+    _BuildIerr;              // построение иерархии
+
+    if (_wKauCU = 0)
+      ClearFieldState(#KauCU, sfVisible);
+    else
+      SetFieldState(#KauCU, sfVisible);
+
+    SetColumnSorting(trItog, #RepDataNode.Name, - 1);
+
+    if not BoundActive(tbByName)
+      PushBounds(tbByName);
+
+    if GetFirst RepData = tsOk
+    {
+      if GetFirst RepDataNode = tsOk {};
+      TreeGetFirst(trItog);
+      RunWindowModal(wItogWin);
+    }
+    else
+      Message('Нет данных для отображения!', Information);
+  }
+
+  cmDelOnProtect :
+  {
+    case CurField of
+      #_Sch :
+      {
+        iPickBuh.DeletePickBuh;
+        set _Sch := '<не определён>';
+        set _SSch := '<не определён>';
+      }
+
+      #_sCU :
+      {
+        _cCU := 0;
+        _wKauCU := 0;
+        set _sCU  := '<без учета ЦУ>';
+      }
+    end;
+  }
+
+  cmValue1:
+  {
+    if RunInterface('F_XLSREP::xlRepSetup', 1, RepID, sXLTFileName) <> cmOk
+      exit;
+    SaveMyDsk(sXLTFileName, 'SverkaMC_xltFileName');
+  }
+
+  cmDone:
+  {
+    SaveMyDsk(_RepOnDateB, 'SverkaMC_RepOnDateB');
+    SaveMyDsk(_wGroup, 'SverkaMC_wGroup');
+    SaveMyDsk(_wFilt, 'SverkaMC_wFilt');
+    SaveMyDsk(_wParam, 'SverkaMC_wParam');
+    SaveMyDsk(_wParam2, 'SverkaMC_wParam2');
+    SaveMyDsk(_SaldoSource, 'SverkaMC_SaldoSource');
+    SaveMyDsk(SumPrecision, 'SverkaMC_SumPrecision');
+    SaveMyDsk(KolPrecision, 'SverkaMC_KolPrecision');
+    delete all TmpSaldo1;
+  }
+end; // HandleEvent
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//------------------------------------------------------------------------------
+// подключение в меню отчетов
+//------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_SverkaSklBuh Implements IUserReport;
+
+Interface UserReport_SverkaSklBuh;
+Create View;
+
+//------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+begin
+  RunInterface('F_BUHREP::SverkaSklBuh');
+end;
+
+//------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'Сверка остатков ТМЦ складского и бухгалтерского учета';
+end;
+
+//------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+!    1 : GetGroupName := '';
+  end;
+end;
+
+//------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+//------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := 'B_Finans';
+  end;
+end;
+
+End.

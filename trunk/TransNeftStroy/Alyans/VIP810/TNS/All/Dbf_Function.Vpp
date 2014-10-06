@@ -1,0 +1,92 @@
+// заменить мусор на чего нибудь
+Function CheckStringForGal(const wwval:string) :string ;
+var wwstr :string ;
+ w:char ;
+ wwii:word ;
+{ wwstr:='' ;
+  for(wwii:=1;wwii<=length(wwval);inc(wwii))
+  { w:=substr(wwval,wwii,1)
+    if ord(w)>=241 then w:='-' ;
+    if ord(w)<32 then w:='-' ;
+    wwstr:=wwstr+w ;
+  }
+  CheckStringForGal:=wwstr ;
+}
+// прочитать строковое поле из dbf
+Function DBF_ReadField(const wHandler :longint;const nmfield :string;var field_val :string):word ;
+{ DBF_ReadField:=0
+  if whandler<=0 
+  { DBF_ReadField:=1 ;
+    exit ;
+  
+  }
+  field_val:=trim(DBFGetFieldValue(WHandler, nmfield))
+  if field_val='ERROR'
+  {  DBF_ReadField:=2 ;
+     field_val:='' ;
+  }
+} // DBF_ReadField
+Function DBF_ReadField1(const wHandler :longint;const nmfield :string;var field_val :string):word ;
+{ field_val:='' ;
+  DBF_ReadField1:=DBF_ReadField(wHandler,nmfield,field_val)
+  if pos('.',field_val)>0
+   field_val:=substr(field_val,1,pos('.',field_val)-1)
+}
+// прочитать поле типа date из dbf
+Function DBF_ReadFieldDate(const wHandler :longint;const nmfield :string;var field_val :date):word ;
+var w :string ;
+{ w:='' ;
+  DBF_ReadFieldDate:=DBF_ReadField(wHandler,nmfield,w)
+  if w<>''
+  { field_val:=StrToDate(w,'YYYYMMDD') ;
+  }
+  else field_val:=date(0,0,0) ;
+}
+// прочитать поле типа double из dbf
+Function DBF_ReadFieldDouble(const wHandler :longint;const nmfield :string;var field_val :double):word ;
+var w :string ;
+{ w:='' ;
+  DBF_ReadFieldDouble:=DBF_ReadField(wHandler,nmfield,w)
+  if w<>''
+  { field_val:=double(w) ;
+  }
+  else field_val:=0 ;
+}
+// прочитать поле типа longint из dbf
+Function DBF_ReadFieldLInt(const wHandler :longint;const nmfield :string;var field_val :longint):word ;
+var w :string ;
+{ w:='' ;
+  DBF_ReadFieldLInt:=DBF_ReadField(wHandler,nmfield,w)
+  if w<>''
+  { field_val:=longint(w) ;
+  }
+  else field_val:=0 ;
+}
+// прочитать поле типа word из dbf
+Function DBF_ReadFieldWord(const wHandler :longint;const nmfield :string;var field_val :word):word ;
+var w :string ;
+{ w:='' ;
+  DBF_ReadFieldWord:=DBF_ReadField(wHandler,nmfield,w)
+  if w<>''
+  { field_val:=word(w) ;
+  }
+  else field_val:=0 ;
+}
+Function Dbf_OpenFile( wnmpath:string;wnmdbf:string) :Longint ;
+var WHandler:longint ;
+{ Dbf_OpenFile:=0 ; 
+  wnmdbf:=wnmdbf+'.dbf'
+  if wnmdbf='' then exit ;
+  if not fileexist(wnmpath+'\'+wnmdbf) then
+  { //logstrtofile(wlogfilenm,'нет файла '+nmpath+'\'+nmdbf)
+    Dbf_OpenFile:=-1 ; 
+    exit
+  }
+  WHandler     := DBFOpen(wnmpath+'\'+wnmdbf, stOpen);
+  if WHandler=0
+  { //logstrtofile(wlogfilenm,'Ошибка открытия '+nmpath+'\'+nmdbf)
+    Dbf_OpenFile:=-2 ; 
+    exit ;
+  }
+  Dbf_OpenFile:=WHandler ;
+}

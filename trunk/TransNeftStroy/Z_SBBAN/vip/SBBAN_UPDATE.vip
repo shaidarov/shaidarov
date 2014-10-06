@@ -1,0 +1,119 @@
+Interface SBBAN_Update 'Проставить подразделения в реестрах на перечисление' (,), DoAccept;
+create view
+var
+ vNrec: comp;
+as
+ select * from sbban;
+
+Parameters vNrec;
+
+//Parameters iNrec_nenach,iNrec_Brigade;
+/*
+Procedure Insert_OtpDop;
+  {
+    ClearBuffer(#OtpDop);
+   OtpDop.ATL_ORIGINOFFICE  := 318;
+    Insert current OtpDop;
+    vNrec_OtpDop:= OtpDop.NREC;     // Nrec OtpDop
+   } // Конец Procedure Insert_OtpDop
+
+Procedure Update_nenach;
+ {
+//---------------UpDate current OtpDop----------------------
+     IF GetFirst OtpDop
+         where
+            ((vNrec_OtpDop == OtpDop.Nrec)) =tsok
+            {
+        OtpDop.ATL_ORIGINOFFICE  := 318;
+        OtpDop.cKaud[1]          := iNrec_Brigade;
+        OtpDop.Tbld[1]           := 2;
+            UpDate current OtpDop;
+            }
+//---------------UpDate current Perexod----------------------
+
+     IF GetFirst nenach
+         where
+            ((iNrec_nenach == nenach.NREC)) =tsok
+            {
+                  nenach.OLDCLSCH := vNrec_OtpDop;
+                  UpDate current nenach;
+            }
+
+ } // Конец Procedure
+*/
+HandleEvent
+   cmInit:
+    {
+     StartNewVisual(vtNumericVisual, vfTimer, 'Корректировка подразделений',1);
+     IF GetFirst SBBAN
+         where
+            ((vNrec == SBBAN.Nrec)) =tsok
+            {
+          IF (sbban.ATL_OWNER = 0001000000000011h) and (SBBAN.CEX = 0)   {SBBAN.CEX := 000100000001BBDFh;UpDate current OtpDop;}
+          IF (sbban.ATL_OWNER = 000100000000004Dh) and (SBBAN.CEX = 0)  {SBBAN.CEX := 000100000001E047h;UpDate current OtpDop;}
+     }
+     StopVisual('',0);
+    }  // cmOk
+  end; // HandleEvent
+end.   // Interface
+
+.Form 'SBBAN_UPDATE'
+.ard
+.group 'Корректировка данных З/П'
+.NameInList 'Проставить подразделения в реестрах на перечисления'
+.F 'Update.Out'
+.DEFO PortRait
+.var
+  N : Integer;
+  Num:String;
+  Podr:string;
+  Owner:comp;
+  SbbanNrec:comp;
+
+!=====================================================================================
+.endvar
+.Create view v_sbban
+as
+ select *
+ from sbban
+ where cex=0000000000000000h;
+
+/////////////////////////   Начало отчета!!!!!  //////////////////////////////
+.Begin
+   N := 0;
+end.
+.fields
+.endfields
+
+                              СПИСОК  РЕЕСТРОВ
+                 у которых скорректировано подразделение
+┌─────┬────────────┬─────────────────┐
+│ №   │ № реестра  │  Подразделение  │
+│п/п  │            │                 │
+├─────┼────────────┼─────────────────┤
+.{table 'v_sbban'
+.Begin
+   N := N+1;
+! if N=2 {break;Exit;}
+   Owner     := v_sbban.sbban.ATL_OWNER;
+   Num       := v_sbban.sbban.LASTUSER;
+   SbbanNrec := v_sbban.sbban.Nrec;
+   IF Owner = 0001000000000011h   {Podr := 'Томск';}
+   IF Owner = 000100000000004Dh   {Podr := 'Москва';}
+// RunInterface(SBBAN_Update,v_sbban.sbban.Nrec);
+End.
+.fields
+  N
+  Num
+  Podr
+.endfields
+│&&&&&│@@@@@@@@@@@@│@@@@@@@@@@@@@@@@@│
+├─────┼────────────┼─────────────────┤
+.} // Конец {table 'v_Perexod'
+.Begin
+ update sbban where cex=0 and ATL_OWNER=0001000000000011h set cex=000100000001BBDFh;
+ update sbban where cex=0 and ATL_OWNER=000100000000004Dh set cex=000100000001E047h;
+  message ('Подразделения проставлены');
+  Exit;
+End.
+.endform

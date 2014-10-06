@@ -1,0 +1,56 @@
+#doc
+  Проставление партии (при её отсутствии) из ОС ЦУ при формировании Приходных оредеров
+#end
+
+#include MakeOrder.vih
+
+alter interface MakeOrder;
+
+Create view
+#include UpDate_Party.var
+;
+
+
+  overload
+    function objMakeOrder.MakePrihOrder (pKatSopr: comp; showMess: boolean; var firstRozn: boolean; var prRozn: boolean;
+                                         wSkPr, wMode, wParam: word): boolean;
+  end;
+
+#include UpDate_Party.vpp
+
+  function objMakeOrder.MakePrihOrder (pKatSopr: comp; showMess: boolean; var firstRozn: boolean; var prRozn: boolean;
+                                     wSkPr, wMode, wParam: word): boolean;
+
+  {
+
+/* Делать перебор типов документа бесполезно - MakePrihOrder не вызывается в Актах на перемещение ЦУ и в Пересортице
+  if GetFirst KatSopr_Alt where (( pKatSopr == KatSopr_Alt.nRec )) = tsOK {
+
+      Case KatSopr_Alt.VidSopr of
+      632 : {                                                                     // Акт перемещения между Объектами
+        _loop SpSopr2_Alt where (( KatSopr_Alt.nRec == SpSopr2_Alt.cSopr
+                               and 0                == SpSopr2_Alt.cSpSopr (noIndex) )) {
+          if GetFirst SpSopr_Alt where (( SpSopr2_Alt.nRec == SpSopr_Alt.cSpSopr)) = tsOK {
+          UpDate_Party;
+          }
+        }
+      }
+      else {
+        _loop SpSopr_Alt where (( KatSopr_Alt.nRec == SpSopr_Alt.cSopr)) {
+          UpDate_Party;
+          }
+      }
+     end;
+
+  } // if GetFirst KatSopr_Alt
+*/
+
+    _loop SpSopr_Alt where (( pKatSopr == SpSopr_Alt.cSopr)) {
+      UpDate_Party;
+    }
+
+    result := inherited :: MakePrihOrder (pKatSopr, showMess, firstRozn, prRozn
+                                        , wSkPr, wMode, wParam);
+  }
+
+end.

@@ -1,0 +1,40 @@
+/*
+перенести фильтр из топлива на каталог МЦ
+
+
+*/
+create view vFltGsm2MC
+as select toplivo.ckatmc
+from toplivo, katmc,katmc katmc1
+where ((
+ 19874 == Pick.wList
+and Pick.crec == Toplivo.nrec
+and Toplivo.ckatmc == katmc.nrec
+and katmc.cmaskmc == katmc1.cmaskmc
+)); 
+//=========================
+Function Filtr_Gsm2Mc : boolean;
+{ Filtr_Gsm2Mc:=false
+  delete all pick where (( 7 == wlist ));
+  RereadRecord( vFltGsm2MC.tnPick)
+  vFltGsm2MC._loop pick
+  { vFltGsm2MC._loop toplivo
+      vFltGsm2MC._loop katmc
+        vFltGsm2MC._loop katmc1
+        { clearbuffer(#pick)
+          pick.wlist:=7
+          pick.crec:=vFltGsm2MC.katmc1.nrec
+          insert current pick;
+                              
+        }
+  } //Filtr_Gsm2Mc:=false
+  Filtr_Gsm2Mc:=true
+} //Filtr_Gsm2Mc:=
+
+//=========================
+Function CheckFltGsm(ww_ctoplivo:comp) :boolean;
+{  CheckFltGsm:=False;
+   if vFltGsm2MC.getfirst pick where  ((  19874 == Pick.wList and ww_ctoplivo == Pick.crec ))=0
+   then  CheckFltGsm:=true;
+
+}

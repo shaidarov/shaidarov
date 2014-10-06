@@ -1,0 +1,176 @@
+/*
+//#include notes.vih
+//#include statlog.vih
+//
+//#include KatSopr.vih
+
+#component "L_SoprDoc"
+
+Interface UpDate_KatMC 'UpDate_KatMC' EscClose DoAccept;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, _NameMC
+, _KodMC
+               : string;
+  _cEd
+, _CGRNAL
+               : comp;
+
+as select * from
+  KatMC
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\10.12.196.10\GalSrv\TopSoft\_UnionData\Step_1\KatMC\Tumen\KatMC_tumen.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка UpDate_KatMC', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            _NameMC  := string( DBFGetFieldValue(Handle,'Name')   );
+            _KodMC   := string( DBFGetFieldValue(Handle,'BARKOD') );
+            _cEd     := comp( DBFGetFieldValue(Handle,'CED')    );
+            _cGRNAL  := comp( DBFGetFieldValue(Handle,'CGRNAL') );
+
+            if (GetFirst KatMC   where (( _NameMC     == KatMC.Name
+                                      and _KodMC      == KatMC.BarKod  )) = tsOK) {
+
+                if (KatMC.cEd = 0) {
+                  KatMC.cEd     := _cEd;
+                }
+                if (KatMC.cGRNAL = 0 ) {
+                  KatMC.cGRNAL  := _cGRNAL;
+                }
+
+                UpDate current KatMC;
+              }  else {
+   LogStrToFile('C:\2.txt', _NameMC + ' ' + _KodMC + ' ' + _cEd);
+                }
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.
+
+.Form 'Закачка UpDate_KatMC'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_SoprDoc::UpDate_KatMC');
+end.
+.endform
+*/
+
+
+
+//#component "L_SoprDoc"
+
+Interface UpDate_KatMC_KaElem 'UpDate_KatMC_KaElem' EscClose DoAccept;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, _NameMC
+, _KodMC
+, _KaElem_CODE
+, _KaElem_KOD
+, _KaElem_Name
+               : string;
+  _cEd
+, _CGRNAL
+               : comp;
+
+as select * from
+  KatMC
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\10.12.196.10\GalSrv\TopSoft\_UnionData\Step_1\KatMC\Tumen\KatMC_KaElem.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка UpDate_KatMC_KaElem', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            _NameMC       := string( DBFGetFieldValue(Handle,'KATMC_NAME')       );
+            _KodMC        := string( DBFGetFieldValue(Handle,'BARKOD')     );
+            _KaElem_CODE  := string( DBFGetFieldValue(Handle,'CODE')       );
+            _KaElem_KOD   := string( DBFGetFieldValue(Handle,'KOD')        );
+            _KaElem_Name  := string( DBFGetFieldValue(Handle,'KAELEM_NAM') );
+
+            if (GetFirst KatMC   where (( _NameMC     == KatMC.Name
+                                      and _KodMC      == KatMC.BarKod  )) = tsOK) {
+
+                if (GetFirst KaElem where ((  _KaElem_CODE == KaElem.CODE
+                                          and _KaElem_KOD  == KaElem.KOD   (noIndex)
+                                          )) <> tsOK )
+                   {
+LogStrToFile('C:\1.txt', _NameMC + '~' + _KodMC + '~' + _KaElem_CODE + '~' + _KaElem_KOD + '~' + _KaElem_Name);
+                   Continue;
+                   }
+
+
+                if (KatMC.cKaElem = 0) {
+                  KatMC.cKaElem     := KaElem.nRec;
+                }
+                UpDate current KatMC;
+              }  else {
+LogStrToFile('C:\2.txt', _NameMC + '~' + _KodMC + '~' + _KaElem_CODE + '~' + _KaElem_KOD + '~' + _KaElem_Name);
+                }
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.
+
+.Form 'Закачка UpDate_KatMC_KaElem'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('L_SoprDoc::UpDate_KatMC_KaElem');
+end.
+
+.endform

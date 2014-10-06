@@ -1,0 +1,135 @@
+.var
+ wpodrname :string ;
+ WCPODRNAME :COMP ;
+ shot_name :boolean ;
+.endvar
+.create view vkatpodr
+var
+  wwwkod :longint ;
+  wwwnrec:comp ;
+  wwwpodr :string ;
+  podr_hist : boolean ;
+  podr_histdate :date ;
+from katpodr,tmp_podrier(tmp_podrier01) , katpodr katpodr_dop , fpco
+where
+((  wwwnrec == katpodr.nrec
+and wwwnrec == tmp_podrier.crec
+and wwwpodr == katpodr_dop.name
+AND 0 == FPCO.CMAIN
+and wwwpodr == fpco.name 
+)) ;
+! вернем код и наименование на заданном уровне
+.var
+  katpodr_dmnm : array [1..10] of string ;
+  wdmc_podr:array [1..10] of comp ;
+.endvar
+.Procedure SetShot_Name(w : boolean ) ;
+begin
+ shot_name:=w ;
+ end.
+!________________________________
+.Function GetKatpodrName :string ;
+var wstr:string ;
+begin
+ wstr:='' ;
+  if shot_name
+  { wstr:=sTXOGetExtAttr('KATPODR','Краткое наименование',vkatpodr.katpodr.nrec) 
+  }
+  if wstr='' then wstr:=vkatpodr.katpodr.name
+  GetKatpodrName:=pad(vkatpodr.katpodr.kod,20)+wstr ;
+end.
+!________________________________
+.Function katpodrGetLevel(wwpodr:string;wcnrec : comp ;wlev :word ) :string ;
+var 
+  kkk:word ;
+  wstr:string ;
+  wtmpnrec :comp ;
+  katpodrlev_errchet :longint ;
+{ if wlev=0
+  { katpodrGetLevel:=pad('0000',20)+'Все предприятие' ;
+    exit ;
+  }
+  katpodrGetLevel:=wwpodr
+  set vkatpodr.wwwpodr :=wwpodr
+  set vkatpodr.wwwnrec:=wcnrec
+  if wwpodr<>''
+  { if vkatpodr.getfirst katpodr_dop=0
+    { set vkatpodr.wwwnrec := vkatpodr.katpodr_dop.nrec ;
+    }
+  } 
+  if vkatpodr.getfirst fastfirstrow tmp_podrier=0
+  { 
+    for(kkk:=1 ; kkk<=wlev ;kkk:=kkk+1)
+     katpodr_dmnm[kkk] :=vkatpodr.tmp_podrier.dmpodrnm[kkk] ;
+    if logfilekl mylogwrite('!!!! '+katpodr_dmnm[wlev]+'=/='+wstr) ; 
+  }
+  else
+  { 
+    if (vkatpodr.Getfirst fastfirstrow katpodr<>0)
+    { katpodrGetLevel:=string(vkatpodr.wwwnrec)+wwpodr ;
+      exit ;
+    }
+    wstr:=GetKatpodrName ; //pad(vkatpodr.katpodr.kod,20)+vkatpodr.katpodr.name ;
+    if (wlev>10) 
+    { 
+//      katpodrGetLevel:=pad(vkatpodr.katpodr.kod,20)+vkatpodr.katpodr.name ;
+      katpodrGetLevel:=wstr ;
+      exit ;
+    }
+
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    { //katpodr_dmnm[kkk] :=pad(vkatpodr.katpodr.kod,20)+vkatpodr.katpodr.name ;
+      katpodr_dmnm[kkk] :=wstr ;
+      wdmc_podr[kkk] :=wcnrec ;
+    }
+    katpodrlev_errchet:=0 ;  
+    do {
+      inc(katpodrlev_errchet) ;  // 100 уровней по дереву маловероятно
+      if katpodrlev_errchet>100 
+      { exit ;
+      } ;  
+
+      wtmpnrec:=vkatpodr.katpodr.cpodr
+      set vkatpodr.wwwnrec:=wtmpnrec ;
+      if vkatpodr.wwwnrec=0 then break ; // дошли до ручки
+      if (vkatpodr.wwwnrec<>0)
+      { if (vkatpodr.getfirst katpodr<>0) then break ;
+        for(kkk:=10 ; kkk>=2 ;kkk:=kkk-1)
+        {  katpodr_dmnm[kkk] := katpodr_dmnm[kkk-1]
+           wdmc_podr[kkk] :=wdmc_podr[kkk-1]
+        }
+        katpodr_dmnm[1]:=GetKatpodrName ;// pad(vkatpodr.katpodr.kod,20)+vkatpodr.katpodr.name ;
+
+      } else break ;
+//      mylogwrite(pad(vkatpodr.katpodr.kod,10)+vkatpodr.katpodr.name) ;
+    } while true ;
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    {  vkatpodr.tmp_podrier.dmpodrnm[kkk]:=katpodr_dmnm[kkk]
+       vkatpodr.tmp_podrier.dmpodr_c[kkk]:=wdmc_podr[kkk]
+    }
+    vkatpodr.tmp_podrier.crec:=wcnrec  ;
+    vkatpodr.insert current tmp_podrier ;
+  }  
+  katpodrGetLevel:=katpodr_dmnm[wlev] ;
+  if logfilekl
+  { wstr:='' ;
+    for(kkk:=1 ; kkk<=wlev ;inc(kkk)) wstr:=wstr+katpodr_dmnm[kkk]+'/'
+//    mylogwrite(vkatpodr.katpodr.name+'/'+katpodr_dmnm[wlev]+'=/='+wstr) ; 
+  
+  }
+ end.
+.Procedure katpodrGetLevelInit ;
+begin
+ vkatpodr.resetbounds(vkatpodr.tntmp_podrier)
+ vkatpodr.delete all tmp_podrier ;
+ vkatpodr.setbounds(vkatpodr.tntmp_podrier)
+ shot_name:=false ;
+ end. 
+.function FindKatPodrByFpco(wwpodr :string ) :comp ;
+begin
+  FindKatPodrByFpco:=0 
+  set vkatpodr.wwwpodr :=wwpodr
+  if vkatpodr.getfirst fpco=0
+  { FindKatPodrByFpco:=vkatpodr.FPCO.CMEAN
+  }
+ end. 

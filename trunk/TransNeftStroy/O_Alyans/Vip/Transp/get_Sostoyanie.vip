@@ -1,0 +1,97 @@
+Interface My_GetSostoyanie 'Выбор состояний ТС'
+! (,,sci178InsPM)
+! (,,sci178EnEscIns)
+ cyan;
+ var
+  i:integer     ;
+  Get_Marker_Sostoyanie_lap: longInt;
+  Name_Get_Marker_Sostoyanie_lap:String;
+Parameters Get_Marker_Sostoyanie_lap, Name_Get_Marker_Sostoyanie_lap
+create view
+var
+    indxClass : longint;
+    nameClass : string;
+  (IsGet_Marker_Sostoyanie_lap)
+as select
+SearchMarker(Get_Marker_Sostoyanie_lap, Morale.nrec, indxClass),
+  Morale.Nrec ,
+  Morale.Name ,
+  Morale.TipTC
+  from Morale
+  where
+      MORALE.CBACK<>0h and
+      WhatIs = 0 //ТС
+  ;
+Browse Get_Sostoyanie  (,,sci178EnEscIns)
+show at (,1,,);
+Table Morale;
+fields
+  Morale.Name 'Состояние' : [10], Protect,
+   {font = {Bold = IsGet_Marker_Sostoyanie_lap; Italic = IsGet_Marker_Sostoyanie_lap; Color = if(IsGet_Marker_Sostoyanie_lap,ColorMark,1)}};
+  Morale.TipTC 'КОД' : [3], Protect,
+   {font = {Bold = IsGet_Marker_Sostoyanie_lap; Italic = IsGet_Marker_Sostoyanie_lap; Color = if(IsGet_Marker_Sostoyanie_lap,ColorMark,1)}};
+end;
+HandleEvent
+cmInit:
+{
+  Get_Marker_Sostoyanie_lap := InitMarker(Name_Get_Marker_Sostoyanie_lap, 8, 10, 10); // инициализация маркера
+!  ClearMarker(Get_Marker_Sostoyanie_lap);
+!StopVisual('', 0);
+}
+cmCheckField:
+{
+}
+cmMarkUnmark:
+{
+ case CurTable of
+  #Morale:
+  {
+   InvertMarker(Get_Marker_Sostoyanie_lap, Morale.nrec);
+   if (GetNext Morale = tsOk ) {};
+  }
+  end;
+  RescanPanel(tnMorale);
+}
+cmSelectAll:
+{
+   StartNewVisual( vtRotateVisual, vfTimer, 'Помечаю все', 1);
+    case CurTable of
+    #Morale:
+    {
+        If (GetFirst Morale = tsOk)
+        Do If (not IsGet_Marker_Sostoyanie_lap)
+                InvertMarker(Get_Marker_Sostoyanie_lap, Morale.nrec);
+        While (GetNext Morale = tsOk);
+    }
+    end;
+    RescanPanel(#Morale);
+    StopVisual('', 0);
+}
+cmUnselectAll:
+{
+ StartNewVisual( vtRotateVisual, vfTimer, 'Снимаю пометку со всех', 1);
+ ClearMarKer(Get_Marker_Sostoyanie_lap)
+ RescanPanel(#Morale);
+ StopVisual('', 0);
+}
+cmDone:
+{
+ DoneMarker (Get_Marker_Sostoyanie_lap,Name_Get_Marker_Sostoyanie_lap);
+}
+cmDefault:
+{
+ IF GetMarkerCount(Get_Marker_Sostoyanie_lap) = 0
+  then
+   {
+    case CurTable of
+     #Morale:
+     {
+      InvertMarker(Get_Marker_Sostoyanie_lap, Morale.nrec);
+     }
+  end;
+  RescanPanel(tnMorale);
+   }
+ CloseInterface(-1);
+}
+end;
+end.

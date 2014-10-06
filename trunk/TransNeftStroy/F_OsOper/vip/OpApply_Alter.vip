@@ -1,0 +1,156 @@
+#include OpApply.vih
+#include KatOSValidator.vih
+
+#doc
+Проведение и отмена операций ОС/НМА
+Доработка, чтобы при внутреннем перемещении менялась также группа дескрипторов
+#end
+Alter Interface OperApply;
+  var
+    pKatOSValidator : iKatOSValidator;
+
+  overload
+    procedure oOperApply.DoSpMove( pcSpMove : comp; pbSilent : boolean );
+    procedure oOperApply.UndoSpMove( pcSpMove : comp );
+    // procedure oOperApply.RedoMoveOs( pcMoveOs : comp; pbSilent : boolean );
+  end;
+
+  function GetGrDescr(_cPodr : comp) : string;
+  {
+    result := '';
+    if getfirst KatPodr where (( _cPodr  == KatPodr.NRec )) = tsOk
+    {
+      Case SubStr (KatPodr.Kod, 1, 1) of
+        '1' :
+              {
+                Case SubStr (KatPodr.Kod, 1, 4) of
+                  '1.06' : result :=  'ХАБ';
+                  '1.07' : result :=  'НБР';
+                  '1.08' : result :=  'АСТ';
+                  // Группа дескриптора для обособленного подразделения в Астрахани
+                  // Added: 11.03.2013
+                  // Addedby: KudriavtsevMA
+                  '1.66' : result :=  'АСТ';
+                  else
+                    result :=  'МСК';
+                end;
+              }
+
+        '2' : result :=  'ТНС';
+        '3' : result :=  'ТМН';
+        '4' : result :=  'ОМК';
+        '5' : result :=  'БРН';
+      end;
+    }
+  }
+
+  procedure oOperApply.DoSpMove( pcSpMove : comp; pbSilent : boolean );
+  {
+    var _Descr : string;
+    var _SysOper : word;
+
+    _SysOper := 0;
+    pKatOSValidator.BatchMode := true;
+    pKatOSValidator.ClearBatchLog;
+
+    // message ('oOperApply.DoSpMove');
+    inherited :: DoSpMove(pcSpMove, pbSilent);
+
+    loSpMove.cSpMoveNRec := pcSpMove;
+    loSpMove.FixRelations(loSpMove.cSpMoveNRec);
+    loSpMove._loop SpMoveOs
+    {
+      cSpMoveOsNRec := loSpMove.SpMoveOs.NRec;
+      FixRelations(cSpMoveOsNRec);
+
+      // проводим изменение группы дескрипторов
+      if getfirst SpMoveOS = tsOk
+        if getfirst KatOS = tsOk
+          if getfirst SpKatOS = tsOk
+            if getfirst MoveOS = tsOk
+            {
+              _Descr := GetGrDescr(KatOS.cPodr);
+              if _Descr <> KatOS.DesGr
+              {
+                KatOS.DesGr := _Descr;
+                update current KatOS;
+              }
+              // message ('update ' + KatOS.InNum + ' ' + KatOS.DesGr);
+            }
+
+      // проводим проверку ОС
+      if getfirst SpMoveOS = tsOk
+        if getfirst KatOS = tsOk
+          if getfirst SpKatOS = tsOk
+            if getfirst MoveOS = tsOk
+            {
+              if MoveOS.SysOper = cgOs_1_Post and KatOS.TiDk = 15
+              {
+                _SysOper := cgOs_1_Post;
+                pKatOSValidator.ValidateKatOS (KatOS.NRec);
+              }
+            }
+
+    }
+
+    if _SysOper = cgOs_1_Post
+    {
+      if not pbSilent
+        pKatOSValidator.ShowBatchLog;
+    }
+    pKatOSValidator.BatchMode := false;
+  }
+
+  procedure oOperApply.UndoSpMove( pcSpMove : comp );
+  {
+    var _Descr : string;
+
+    // message ('oOperApply.UndoSpMove');
+    inherited :: UndoSpMove(pcSpMove);
+
+    loSpMove.cSpMoveNRec := pcSpMove;
+    loSpMove.FixRelations(loSpMove.cSpMoveNRec);
+    loSpMove._loop SpMoveOs
+    {
+      cSpMoveOsNRec := loSpMove.SpMoveOs.NRec;
+      FixRelations(cSpMoveOsNRec);
+
+      if getfirst SpMoveOS = tsOk
+        if getfirst KatOS = tsOk
+          if getfirst SpKatOS = tsOk
+            if getfirst MoveOS = tsOk
+            {
+              _Descr := GetGrDescr(KatOS.cPodr);
+              if _Descr <> KatOS.DesGr
+              {
+                KatOS.DesGr := _Descr;
+                update current KatOS;
+              }
+              // message ('update ' + KatOS.InNum + ' ' + KatOS.DesGr);
+            }
+    }
+
+
+  }
+
+  /*
+  procedure oOperApply.RedoMoveOs( pcMoveOs : comp; pbSilent : boolean );
+  {
+    message ('oOperApply.RedoMoveOs');
+    inherited :: RedoMoveOs(pcSpMove, pbSilent);
+
+    cSpMoveOsNRec := pcSpMove;
+    if getfirst SpMoveOS = tsOk
+      if getfirst KatOS = tsOk
+        if getfirst SpKatOS = tsOk
+          if getfirst MoveOS = tsOk
+          {
+            KatOS.DesGr := GetGrDescr(MoveOs.cNewPodr);
+            // update current KatOS;
+            message ('update ' + KatOS.InNum + ' ' + KatOS.DesGr);
+          }
+
+  }
+  */
+
+end.

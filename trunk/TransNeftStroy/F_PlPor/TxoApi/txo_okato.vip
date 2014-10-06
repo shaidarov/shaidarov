@@ -1,0 +1,61 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_OKATO implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_OKATO;
+var
+  CurSoprDoc : comp  ;
+  CurSoprHoz : comp  ;
+  kod_okato  : string ;
+
+create view
+as select
+  *
+from
+     plpor    (ReadOnly)
+where
+((
+   CurSoprDoc  == plpor.nRec    and
+   CurSoprHoz  == soprhoz.nrec  and
+   0064000000000005h == sterr.crec  and
+   kod_okato == sterr.SCODE
+))
+;
+
+function GetInfo : string;
+{
+   GetInfo := 'В платежных документах по коду ОКАТО, возвращает Nrec ОКАТО в режим 1';
+}
+
+function ParamMaster : string;
+{
+   ParamMaster := '' ;
+}
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   CurSoprDoc := buf.cSoprDoc;
+   CurSoprHoz := buf.cSoprHoz;
+
+   if GetFirst soprhoz = tsOK
+   if GetFirst plpor = tsOK
+    {
+     kod_okato := trim(substr(plpor.tax,instr(';',plpor.tax)+1,200));
+     kod_okato := trim(substr(kod_okato,instr(';',kod_okato)+1,200));
+     kod_okato := substr(kod_okato,1,instr(';',kod_okato)-1);
+
+     TxoBodyClear    (hTxo);
+
+    if GetFirst sterr = tsOK
+     {
+      TxoHeadAddKau   (hTxo, wflkau_mode1, 72, sterr.nrec);
+     }
+
+      TxoBodyInsert   (hTxo);
+    }
+}
+
+handleevent
+end;
+
+end.

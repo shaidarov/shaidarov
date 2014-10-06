@@ -1,0 +1,140 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2004 корпорация ГАЛАКТИКА                    ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : ARD - отчёт                                               ║
+ ║ Версия        : 5.85                                                      ║
+ ║ Назначение    : Подготовка к объединению МЦ (поиск по чертежу)            ║
+ ║ Ответственный : Марченко Владимир Федорович, ПНР marchenko@galaktika.by   ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+interface "Join_MC";
+
+var
+
+k,i,l              : integer;
+nrec_mc, nrec_mc_1,nrec_join : comp   ;
+name, name_1, yes, analog  : string ;
+part, part_1, gr_mc_1, bar2, bar_1    : string ;
+y                  : boolean;
+
+
+
+  create view
+  as select
+  *
+  from
+  katmc, katmc katmc1,katmc katmc2, joihead, spjoi
+  where
+  ((
+!       katmc.name   == katmc1.name
+      0            == KatMc.cType
+  and katmc.BarKod == katmc1.BarKod
+  ))
+  and katmc.nrec  <> katmc1.nrec
+  ;
+
+
+
+HandleEvent
+  cmInit :
+  {
+  k:=0;
+  i:=0;
+  l:=0;
+     StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Просмотрено: 0',70000);
+
+
+     if (GetFirst katmc = tsok)
+
+           do
+   {
+                inc(k);
+                y:=true;
+             NextVisual();
+             SetVisualHeader(' Просмотрено: ' + String(k));
+
+             nrec_mc := string(katmc.nrec);
+             bar2    := string(katmc.name);
+
+      if (GetFirst katmc1 = tsok)
+
+           do
+   {
+
+             nrec_mc_1 := string(katmc1.nrec);
+             yes       := string(katmc1.okdp);
+             bar_1     := string(katmc1.name);
+
+
+          if (yes<>'yes')
+
+           {
+
+           if y
+            {
+           y:=false;
+           joihead.nrec:=0;
+           ClearBuffer(#joihead);
+           joihead.typeevent := word(1);
+           joihead.crec := nrec_mc;
+           joihead.ddate := cur_date;
+           joihead.username := 'ShaidarovIA';              // ввести имя пользователя
+           joihead.atl_lastuser :=0001000000000065h; // ввести нрек пользователя
+            if (insert current joihead = tsok) {inc(i);}
+            if (update current joihead <> tsok)
+             {message('Не смогли вставить результат: '+name);}
+             else {nrec_join:=joihead.nrec;}
+            }
+           ClearBuffer(#spjoi);
+           spjoi.cjoihead := nrec_join;
+           spjoi.crec := nrec_mc_1;
+           spjoi.isdel:= byte(1);
+           spjoi.atl_lastuser :=0001000000000065h;   // ввести нрек пользователя
+            if (insert current spjoi = tsok)
+            if (update current spjoi <> tsok)
+             {message('Не смогли вставить источник: '+name_1);}
+             else
+               {
+                 katmc1.okdp:='yes';
+                 if (update current katmc1 =tsok) {inc(l);}
+               }
+
+
+           }
+
+   }     while (GetNext katmc1 = tsok)
+
+   }     while (GetNext katmc = tsok)
+
+      if (GetFirst katmc2 = tsok)
+    do
+    {
+      if katmc2.okdp='yes'
+    {
+      katmc2.okdp:='no';
+      if (update current katmc2 =tsok) {}
+    }
+    }     while (GetNext katmc2 = tsok)
+
+
+    StopVisual('',0);
+    CloseInterFace(cmDefault);
+    message('Просмотрено: ' + String(k)+'; результат='+string(i)+'; источник='+string(l));
+  }
+  end;
+
+end.
+
+
+.Form 'Подготовка к объединению МЦ'
+.Ard
+.F 'Nul'
+
+
+.begin
+        RunInterface ('Join_MC');
+end.
+
+.endform

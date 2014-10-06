@@ -1,0 +1,1369 @@
+#define ImportToDB
+#define Principal
+
+#include ExtAttr.Vih
+#include notes.vih
+#include statlog.vih
+#include Sklad.vih
+#include MtrFuncs.vih
+#include docs2obj.vih
+#include Make_Ord.vih
+#include SDfuns.vih
+#include CheckPer.vih
+
+Interface DB_UnionDogFromDbf;
+
+#include integratorConst.inc
+#include Sklad.var
+#include Imp_tbl.vpp
+#include mtrfuncs.var
+#include SDfuns.var
+var oDocToObj : DocToObj;
+//временная таблица для записи имен файлов для импорта
+table struct tmp_impfile
+(
+  wCode : word,
+  name :string,
+  sDate : string,
+  sFullName : string
+)
+with index
+(
+  tmp_impfile01 = wCode + sDate + name
+);
+
+table struct tmpGrNalMy
+(
+  NREC   : comp,
+  Kod : string
+)
+with index
+(
+  tmpGrNalMy01 = nRec,
+  tmpGrNalMy02 = Kod
+);
+
+table struct tmpKlValMy
+(
+  NREC : comp,
+  ISO  : string
+)
+with index
+(
+  tmpKlValMy01 = nRec,
+  tmpKlValMy02 = ISO
+);
+
+table struct tmpDogovorMy
+(
+  NREC : comp,
+  NODOC_EXT : string,
+  dDoc : date,
+  cOrg : comp,
+  vidDog : word
+)
+with index
+(
+  tmpDogovorMy01 = nRec,
+  tmpDogovorMy02 = NODOC_EXT + dDoc + cOrg + vidDog
+);
+
+table struct tmpSootvetstvie
+(
+  NREC : comp,
+  coTable : word,
+  cNewNrec : comp,
+  cOldNrec : comp,
+  cRefParent : comp
+)
+with index
+(
+  tmpSootvetstvie00 =  NRec(Unique, Surrogate, Journal),
+  tmpSootvetstvie01 = coTable + cNewNrec,
+  tmpSootvetstvie02 = coTable + cOldNrec,
+  tmpSootvetstvie03 = coTable + cRefParent
+);
+
+table struct tmpKatNotesMy//11
+(
+  NREC : comp,
+  NAME : string,
+  CODE : string,
+  STATUS : word,
+  VIDDOC : word
+)
+with index
+(
+  tmpKatNotes1 = nRec,
+  tmpKatNotes2 = STATUS + VIDDOC + NAME
+);
+Create view
+var
+  m_wRunType : word;
+  m_wTidkGal : word;
+  m_sDate    : string;
+  m_bErrorFile : boolean;
+  m_cStateOfImportRec : comp;
+  m_kAnalitikPid : word;
+as select
+  *
+from
+  tmpKatSopr,
+  tmpKatSoprRef,
+  tmpKatSopr tmpKatSoprSyn,
+  tmpKatStroy,
+  tmpSpSopr,
+  tmpKatOrg,
+  tmpKatBank,
+  tmpKatPodr,
+  tmpKatMc,
+  tmpKatUsl,
+  tmpKatOtpEd,
+  tmpKlVal,
+  tmpFpCO,
+  tmpKatNotes,
+  tmpKatMol,
+  tmpKatParty,
+  tmpSaldTune
+  , tmpDogovorMy
+  , tmpSootvetstvie
+  , MySaldTune
+  , tmpSpecMTR2
+  , tmp_SpKau,
+  tmp_Dogovor,
+  tmp_CalPlan,
+  tmp_GrNal,
+  tmpSchFact,
+  tmpSpSchF,
+  tmpUsersDoc,
+  tmpBaseDoc,
+  tmpSpStep,
+  tmpStepDoc,
+  tmp_AttrVal,
+  tmpSpecMTR,
+  SpecMTR,
+  tmpSpecMTR2 tmpSpecMTRSchF,
+
+  // для вставки или изменений в БД
+  GoodDoc,
+  tmp_impfile,
+  tmpKatSopr KatSoprForDB,
+  tmpSpSopr  SpSoprForBD,
+  tmpSchFact SchFactForDB,
+  tmpSpSchF  SpSchFForDB,
+  tmpStepDoc StepDocForDB,
+  tmpBaseDoc BaseDocForDB,
+  tmpSpStep  SpStepForDB,
+  tmpSklOrder SklOrderForDB,
+  tmpSpOrder  SpOrderForDB,
+  tmp_AttrVal AttrValForDB,
+  tmpBaseDoc BaseDocSchForDB,
+  tmpStepDoc StepDocSchForDB,
+  tmpSpStep  SpStepSchForDB,
+
+  tmpStepDoc StepDocSch,
+  tmpBaseDoc BaseDocSch,
+  tmpSpStep  SpStepSch ,
+
+  SpecMTR SpecMTR_SpSchF,
+
+//  tmpSpecMTR2 SpecMTRForDB,
+  tmpDogovorDoc,
+  tmpCalPlanDoc,
+  tmpSpDocsDoc,
+  tmpPaySchem,
+  tmpPlanPays,
+  PlanPays,
+  PaySchem,
+
+  tmpPlanPays PlanPaysPay,
+  tmpPaySchem SchemePay,
+  tmpPlanPays PlanPaysAvan,
+  tmpPaySchem SchemeAvan,
+  tmpPlanPays PlanPaysAdd,
+  tmpPaySchem SchemeAdd,
+
+  KatSopr,
+  SpSopr,
+  SchFact,
+  SpSchF,
+  BaseDoc,
+  StepDoc,
+  SpStep,
+  AttrVal,
+
+  dogovor,
+
+  CalPlan,
+  tmpIerDog,
+  tmpIerDog tmpIerDogUp,
+
+  SpecMtr SpecMTR_Order,
+  SPORDER,
+  SKLORDER,
+  TMPSPORDER,
+  IERDOG,
+  SPDOCS,
+  TMPSKLORDER,
+  tmpSoprHoz,
+  DocMemo,
+  //налоги
+  tmpSpDocNal,
+  SpDocNal,
+  tmpSpecZatr
+  // таблицы по которым идет определение ссылки по коду и доп. полям
+  // делается их закачка в память
+  , tmpGrNalMy
+  , tmpKlValMy
+  , tmpKatNotesMy
+  , tmpSootvetstvie tmpSootvetstvieDogovor
+  , tmpSootvetstvie tmpSootvetstvieAll
+  , tmpSootvetstvie tmpSootvetstvieSpDocsWork
+  , tmpCalPlanDoc tmpCalPlanBr
+  , tmpDogovorDoc tmpDogovorBr
+  , tmpSpDocsDoc tmpSpDocsBr
+  , tmpSpDocsDoc tmpSpDocsPlanBr
+  , Dogovor DogovorDB
+  , tmpSootvetstvie tmpSootvetstvieSpDocs
+  , SpDocs SpDocsDB
+  , SpDocs SpDocsPlanDB
+  , tmpSootvetstvie tmpSootvetstvieSpDocsPlan
+  , tmpSootvetstvie tmpSootvetstvieCalPlan
+  , CalPlan CalPlanDB
+  , SPSCHEM
+  , EXCLASSVAL
+  , IERCALPL
+where
+((
+  //Хорошие документы
+      GoodDoc.nRec          == KatSoprForDB.nRec
+  and GoodDoc.nRec          == SpSoprForBD.cSopr
+  and GoodDoc.nRec          == SklOrderForDB.cSopr
+  and SklOrderForDB.nRec    == SpOrderForDB.cSklOrder
+
+  and KatSoprForDB.cStepDoc   == StepDocForDB.nRec
+  and StepDocForDB.cBaseDoc   == BaseDocForDB.nRec // формирующее ДО
+  and StepDocForDB.nRec       == SpStepForDB.cStepDoc
+
+//  and tmpSchfact.cBaseDoc  == BaseDocSch.nRec по идее нона лишняя
+
+  and KatSoprForDB.CSCHFACT == SchFactForDB.nRec
+  and SchFactForDB.nRec     == SpSchFForDB.CSCHFACT
+  and SchFactForDB.cBaseDoc == BaseDocSchForDB.nRec
+  and BaseDocSchForDB.nRec  == StepDocSchForDB.cBaseDoc
+  and StepDocSchForDB.nRec  == SpStepSchForDB.cStepDoc
+
+  and coSpSchF                 == tmpSpecMTRSchF.COTABLE
+  and SpSchFForDB.nRec            == tmpSpecMTRSchF.cSpec
+
+  and tmpKatSopr.CORG       == tmpKatOrg.nRec
+  and tmpKatSopr.cPodrFrom == tmpKatPodr.nRec//подразделение - отправитель
+  and tmpSpSopr.cMCUSL     == tmpKatUsl.nRec
+
+
+  and KatSoprForDB.nRec    == AttrValForDB.cRec
+
+  and GoodDoc.nRec      == KatSopr.nRec
+  and KatSopr.nRec      == SpSopr.cSopr
+  and SpSopr.nRec       == SpecMTR.cSpec
+  and coSpSopr          == SpecMTR.coTable
+  and KatSopr.cStepDoc  == StepDoc.nRec
+  and StepDoc.cBaseDoc  == BaseDoc.nRec // формирующее ДО
+  and StepDoc.nRec      == SpStep.cStepDoc
+  and KatSopr.CSCHFACT  == SchFact.nRec
+  and SchFact.cBaseDoc  == BaseDocSch.nRec
+  and BaseDocSch.nRec   == StepDocSch.cBaseDoc
+  and StepDocSch.nRec   == SpStepSch.cStepDoc
+  and SchFact.nRec      == SpSchF.CSCHFACT
+  and SpSchF.nRec       == SpecMTR_SpSchF.cSpec
+  and coSpSchF          == SpecMTR_SpSchF.coTable
+
+  and  coSpOrder               == SpecMTR_Order.coTable
+  and  SpOrder.nRec            == SpecMTR_Order.cSpec
+  //для финансовых ПКП
+  and tmpCalPlanDoc.nRec == PlanPaysPay.cCalPlan    // Основные платежи по пункту плана
+  and word(0)            == PlanPaysPay.VidPlat     // --/--
+  and tmpCalPlanDoc.nRec == PlanPaysAvan.cCalPlan    // Авансовые платежи по пункту плана
+  and word(1)            == PlanPaysAvan.VidPlat     // --/--
+  and tmpCalPlanDoc.nRec == PlanPaysAdd.cCalPlan     // Дополнительные платежи по пункту плана
+  and word(2)            == PlanPaysAdd.VidPlat      // --/--
+  and PlanPaysPay.nRec   == SchemePay.cPlanPays
+  and word(2)            == SchemePay.PayType
+  and PlanPaysAvan.nRec  == SchemeAvan.cPlanPays
+  and word(1)            == SchemeAvan.PayType
+  and PlanPaysAdd.nRec   == SchemeAdd.cPlanPays
+  and word(3)            == SchemeAdd.PayType
+
+  and coDogovor          == tmpSootvetstvieDogovor.coTable
+  and tmpSootvetstvieDogovor.cNewNrec == tmpDogovorBr.Nrec
+  and tmpSootvetstvieDogovor.cOldNrec == DogovorDB.Nrec
+  and coSpDocs                        == tmpSootvetstvieSpDocs.coTable
+  and tmpSootvetstvieDogovor.cNewNrec == tmpSootvetstvieSpDocs.cRefParent
+  and tmpSootvetstvieSpDocs.cNewNrec  == tmpSpDocsBr.Nrec
+  and tmpSootvetstvieSpDocs.cOldNrec  == SpDocsDB.Nrec
+
+  and coCalPlan                       == tmpSootvetstvieCalPlan.coTable
+  and tmpSootvetstvieDogovor.cNewNrec == tmpSootvetstvieCalPlan.cRefParent
+  and tmpSootvetstvieCalPlan.cNewNrec == tmpCalPlanBr.Nrec
+  and tmpSootvetstvieCalPlan.cOldNrec == CalPlanDB.Nrec
+
+  and coSpDocs + 1                    == tmpSootvetstvieSpDocsPlan.coTable
+  and tmpSootvetstvieCalPlan.cNewNrec == tmpSootvetstvieSpDocsPlan.cRefParent
+  and tmpSootvetstvieSpDocsPlan.cNewNrec  == tmpSpDocsPlanBr.Nrec
+  and tmpSootvetstvieSpDocsPlan.cOldNrec  == SpDocsPlanDB.Nrec
+));
+
+parameters
+  m_wRunType, m_wTidkGal;
+
+create view vCheckCatalogs
+select *
+from
+    KatStroy
+  , AddSumTune
+  , KatOrg
+  , KatBank
+  , KatPodr
+  , KatParty
+  , KatMol
+  , KatMC
+  , KatUsl
+  , SpKau
+  , ATTRNAM
+  , KatOtpEd
+  , FPCO
+  , dogovor
+  , CalPlan
+  , KatSopr
+  , KatVidD
+  , GroupUsl
+  , GroupMC
+  , GroupParty
+  , TypeMC
+  , Persons
+  , Dogovor Dogovor1
+  , Schfact Schfact1
+  , KatSopr KatSopr1
+  , KatNalog
+  , tmpGrNalMy
+  , tmpKlValMy
+  , tmpKatNotesMy
+;
+
+create view vKatDocList select Name from KatDoc;
+
+create view vViewKatSopr select KatSopr.Nrec, Dogovor.Nrec, SklOrder.Nrec from KatSopr, Dogovor, SklOrder;
+
+create view vImp
+as select name from tmp_impfile ( tmp_impfile01);
+
+var sDbfName, sLogFile : string;
+var
+    hMarkOrg
+  , hMarkBank
+  , hMarkPodr
+  , hMarkMc
+  , hMarkUsl
+  , hMarkOtpEd
+  , hMarkKlVal
+  , hMarkFPCO
+  , hMarkNotes
+  , hMarkMol
+  , hMarkParty
+  , hMarkHozOper
+  , hMarkSaldtune
+  , hMarkDogovor
+  , hMarkCalPlan
+  , hMarkUsersDoc
+  , hMarkSpecMTr
+  , hMarkGrNal
+  , hMarkShtraf
+  , hMarkSpKau: longint;
+var
+    DBFDogovorDoc
+  , DBFCalPlanDoc
+  , DBFSpDocs
+  , DBFBADDOC
+  , DBFKatSopr
+  , DBFSpSopr
+  , DBFKatOrg
+  , DBFKatBank
+  , DBFKatPodr
+  , DBFKatMc
+  , DBFKatUsl
+  , DBFKatOtpEd
+  , DBFKlVal
+  , DBFFPCO
+  , DBFKatNotes
+  , DBFKatMol
+  , DBFKatParty
+  , DBFHozOper
+  , DBFSaldTune
+  , DBFSpecMTR
+  , DBFDogovor
+  , DBFCalPlan
+  , DBFSchFact
+  , DBFSpSchF
+  , DBFUsersDoc
+  , DBFBaseDoc
+  , DBFSpStep
+  , DBFAttrVal
+  , DBFGrNal
+  , DBFStepDoc
+  , DBFSpKAu
+  , DBFSklOrder
+  , DBFSpOrder
+  , DBFSoprHoz
+  , DBFKatSoprRef
+  , DBFKatStroy
+  , DBFPlanPays
+  , DBFPaySchem
+  , DBFSpDocNal
+  , DBFSpecZatr : longint;
+var
+  bErrorDogovor,
+  bErrorCalPlan,
+  bErrorSpDocs : boolean;
+
+var m_cAttrNum : comp; // нрек внешнего атрибута для статуса интегратора
+var m_cPlanSch : comp; // ссылка на плансчетов
+var m_sKodPlanSch : string;// код плансчетов
+
+#include ExtAttr.var
+#include notes.var
+#include statlog.var
+#include CheckPer.var
+
+#include CommonFuncIntegr.vpp
+
+#include IerDog.vpp     // Функции по формированию иерархии договоров
+
+//временные таблицы
+#include InsTmpTbl.vpp
+//функции установки ссылок
+#include define.vpp
+//наличие документа в БД
+#declare SearchDoc (cRec, sTable)
+  result := GetFirst #sTable where ((#cRec == #sTable.nRec )) = tsOk;
+#end
+
+browse brDogovor;
+  show at (,,,6);
+  table tmpSootvetstvieDogovor;
+  fields
+    ShowKau(1, DogovorDB.cOrg) #3'Контрагент' : [10], Protect, NoAutoSize, Centered;
+    DogovorDB.dDoc #3'Дата' : [10], Protect, NoAutoSize, Centered;
+    DogovorDB.NoDoc #3'Номер' : [10], protect;
+    tmpSootvetstvieDogovor.cOldNrec #3'Договор Нрек из БД '  : [16], noprotect;
+    tmpSootvetstvieDogovor.cNewNrec #3'Нрек из dbf' : [16], protect;
+    tmpDogovorBr.NoDoc #3'Номер' : [10], protect;
+    tmpDogovorBr.dDoc #3'Дата' : [10], Protect, NoAutoSize, Centered;
+    ShowKau(1, tmpDogovorBr.cOrg) #3'Контрагент' : [10], Protect, NoAutoSize, Centered;
+end;
+
+browse brSpDocs;
+  show at (,7,,11);
+  table tmpSootvetstvieSpDocs;
+  fields
+    if (tmpSpDocsBr.PrMc = 1, ShowKau(4, SpDocsDB.cMcUsl), ShowKau(5, SpDocsDB.cMcUsl))
+    #3'МЦ/Услуга' : [10], protect;
+    tmpSootvetstvieSpDocs.cOldNrec #3'Спец. договора Нрек из БД '  : [16], noprotect;
+    tmpSootvetstvieSpDocs.cNewNrec #3'Нрек из dbf' : [16], protect;
+    if (tmpSpDocsBr.PrMc = 1, ShowKau(4, tmpSpDocsBr.cMcUsl), ShowKau(5, tmpSpDocsBr.cMcUsl))
+    #3'МЦ/Услуга' : [10], protect;
+end;
+
+browse brCalPlan;
+  show at (,12,,16);
+  table tmpSootvetstvieCalPlan;
+  fields
+    if (CalPlanDB.DirectMC = 0, 'фин', 'товар') #3'Направление' : [10], Protect, NoAutoSize, Centered;
+    ShowKau(1, CalPlanDB.cOrg) #3'Контрагент' : [10], Protect, NoAutoSize, Centered;
+    CalPlanDB.NoDoc #3'Номер' : [10], protect;
+    tmpSootvetstvieCalPlan.cOldNrec #3'ПКП Нрек из БД '  : [16], noprotect;
+    tmpSootvetstvieCalPlan.cNewNrec #3'Нрек из dbf' : [16], protect;
+    tmpCalPlanBr.NoDoc #3'Номер' : [10], protect;
+    tmpCalPlanBr.DINPUT #3'Дата' : [10], Protect, NoAutoSize, Centered;
+    ShowKau(1, tmpCalPlanBr.cOrg) #3'Контрагент' : [10], Protect, NoAutoSize, Centered;
+    if (tmpCalPlanBr.DirectMC = 0, 'фин', 'товар') #3'Направление' : [10], Protect, NoAutoSize, Centered;
+end;
+
+browse brSpDocsPlan;
+  show at (,17,,21);
+  table tmpSootvetstvieSpDocsPlan;
+  fields
+    if (tmpSpDocsPlanBr.PrMc = 1, ShowKau(4, SpDocsPlanDB.cMcUsl), ShowKau(5, SpDocsPlanDB.cMcUsl))
+    #3'МЦ/Услуга' : [10], protect;
+    tmpSootvetstvieSpDocsPlan.cOldNrec #3'Спец. ПКП Нрек из БД '  : [16], noprotect;
+    tmpSootvetstvieSpDocsPlan.cNewNrec #3'Нрек из dbf' : [16], protect;
+    if (tmpSpDocsPlanBr.PrMc = 1, ShowKau(4, tmpSpDocsPlanBr.cMcUsl), ShowKau(5, tmpSpDocsPlanBr.cMcUsl))
+    #3'МЦ/Услуга' : [10], protect;
+end;
+
+screen scrButton;
+  show at (,22,,);
+  Buttons
+    cmValue1;
+    cmValue2;
+<<
+    <.Замена для текущей.>     <.Замена всех.>
+>>
+end;
+
+tableEvent table tmpSootvetstvieDogovor;
+cmUpdateRecord : update current tmpSootvetstvieDogovor;
+end;
+
+tableEvent table tmpSootvetstvieSpDocs;
+cmUpdateRecord : update current tmpSootvetstvieSpDocs;
+end;
+
+tableEvent table tmpSootvetstvieCalPlan;
+cmUpdateRecord : update current tmpSootvetstvieCalPlan;
+end;
+
+tableEvent table tmpSootvetstvieSpDocsPlan;
+cmUpdateRecord : update current tmpSootvetstvieSpDocsPlan;
+end;
+
+Window winAnalitikPID 'Ввод кода аналитики PID' ('Ввод кода аналитики PID',,) DoAccept,EscClose, gray;
+  Show at (1,1,62,5);
+Screen srcAnalitikPID;
+  Fields
+    m_kAnalitikPid : , noprotect;
+  Buttons
+  cmOk, Default,, 'Подтверждение ввода';
+  cmCancel,,, 'Отказ от выбора';
+<<
+   Введите код пользовательской аналитики,
+   по которым нужно делать соответствие .@@@@@@@@@@
+
+                  <.~П~родолжить.>   <. Отмена .>
+>>
+
+end; //Screen
+
+HandleEvent
+cmOk : PutCommand(cmDefault);
+
+End;
+end;
+// вставка или изменение SpecMTP
+procedure ChangeSpecMTR(Buf : type$p_tmpSpecMTR2);
+{
+  var oRec : TSpecMtr;
+  oRec.NREC       := Buf.nRec;
+  oRec.COTABLE    := Buf.coTable;
+  oRec.CSPEC      := Buf.cSpec;
+  oRec.CSALDTUNE  := Buf.cSaldTune;
+  oRec.COBJ       := Buf.cObj;
+  oRec.CKAU[1]    := Buf.CKAU1;
+  oRec.CKAU[2]    := Buf.CKAU2;
+  oRec.CKAU[3]    := Buf.CKAU3;
+  oRec.CKAU[4]    := Buf.CKAU4;
+  oRec.CKAU[5]    := Buf.CKAU5;
+  oRec.CKAU[6]    := Buf.CKAU6;
+  oRec.CKAU[7]    := Buf.CKAU7;
+  oRec.CKAU[8]    := Buf.CKAU8;
+  oRec.CKAU[9]    := Buf.CKAU9;
+  oMTRFun.InsUpdRec(oRec);
+}
+#include UpdateFields.vpp
+
+#declare DefPlanPays(coTable,sTable,sDescrPlan,sPKP)
+  if (IsValid(tnPlanPays#sTable))
+  {
+    sDetailInfo := '#sDescrPlan платеж для ПКП #sPKP';
+    result := result or IsValidKlVal(coPlanPays + #coTable, PlanPays#sTable.cVal, 'Поле: Валюта. ' + sDetailInfo);
+    if (IsValid(tnScheme#sTable))
+    {
+      sDetailInfo := 'Схема оплаты по #sDescrPlan платежу для ПКП #sPKP';
+      result := result or IsValidKlVal(coPaySchem + #coTable, Scheme#sTable.cVal, 'Поле: Валюта. ' + sDetailInfo);
+      result := result or IsValidKatOrg(Scheme#sTable.CPOL, 'Поле: Плательщик.' + sDetailInfo);
+      result := result or IsValidKatOrg(Scheme#sTable.CPLAT, 'Поле: Получатель.' + sDetailInfo);
+      result := result or IsValidKatBank(Scheme#sTable.CPOLBANK, 'Поле: Банк плательщика.' + sDetailInfo);
+      result := result or IsValidKatBank(Scheme#sTable.CPLATBANK, 'Поле: Банк получателя.' + sDetailInfo);
+    }
+  }
+#end
+
+function ValidKauFull2(cRec : comp; coTable : word; sDetailInfo : string) : boolean;
+var
+  bDocumentError : boolean;
+  bExistSpecMtr, bExistSaldTune, bExistSaldTuneTmp : boolean;
+{
+  bDocumentError := false;
+  bExistSpecMtr := (GetFirst tmpSpecMTR where ((coTable == tmpSpecMTR.coTable
+                                            and cRec    == tmpSpecMTR.cSpec)) = tsOk);
+  NextVisual;
+  if (bExistSpecMtr)
+
+  {
+    bExistSaldTuneTmp := (GetFirst tmpSaldTune where ((tmpSpecMTR.cSaldTune == tmpSaldTune.nRec)) = tsOk);
+    if (not bExistSaldTuneTmp)
+    {
+      bDocumentError := true;
+      GenerateLogFile(m_wTidkGal, '  Настройка ЦУ. ' +
+                                'Не найдена настройка объектов цу. Невозможно прочитать данные из dbf файла. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(tmpSpecMTR.cSaldTune), cg_ImportError);
+    }
+    else
+    {
+      if (not ((tmpSaldtune.WOBJ = cgKau_FpCO) or (tmpSaldtune.WOBJ = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WOBJ , tmpSpecMTR.cObj , tmpSpecMTR.COBJNAME , tmpSpecMTR.COBJKOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU1 = cgKau_FpCO) or (tmpSaldtune.WKAU1 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU1, tmpSpecMTR.CKAU1, tmpSpecMTR.CKAU1NAME, tmpSpecMTR.CKAU1KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU2 = cgKau_FpCO) or (tmpSaldtune.WKAU2 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU2, tmpSpecMTR.CKAU2, tmpSpecMTR.CKAU2NAME, tmpSpecMTR.CKAU2KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU3 = cgKau_FpCO) or (tmpSaldtune.WKAU3 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU3, tmpSpecMTR.CKAU3, tmpSpecMTR.CKAU3NAME, tmpSpecMTR.CKAU3KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU4 = cgKau_FpCO) or (tmpSaldtune.WKAU4 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU4, tmpSpecMTR.CKAU4, tmpSpecMTR.CKAU4NAME, tmpSpecMTR.CKAU4KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU5 = cgKau_FpCO) or (tmpSaldtune.WKAU5 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU5, tmpSpecMTR.CKAU5, tmpSpecMTR.CKAU5NAME, tmpSpecMTR.CKAU5KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU6 = cgKau_FpCO) or (tmpSaldtune.WKAU6 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU6, tmpSpecMTR.CKAU6, tmpSpecMTR.CKAU6NAME, tmpSpecMTR.CKAU6KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU7 = cgKau_FpCO) or (tmpSaldtune.WKAU7 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU7, tmpSpecMTR.CKAU7, tmpSpecMTR.CKAU7NAME, tmpSpecMTR.CKAU7KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU8 = cgKau_FpCO) or (tmpSaldtune.WKAU8 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU8, tmpSpecMTR.CKAU8, tmpSpecMTR.CKAU8NAME, tmpSpecMTR.CKAU8KOD, sDetailInfo);
+      if (not ((tmpSaldtune.WKAU9 = cgKau_FpCO) or (tmpSaldtune.WKAU9 = cgKau_StZatr)))
+        bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU9, tmpSpecMTR.CKAU9, tmpSpecMTR.CKAU9NAME, tmpSpecMTR.CKAU9KOD, sDetailInfo);
+      if (not bDocumentError)
+      {
+         // решили определять по Тип настройки и коду
+         bExistSaldTune    := (GetFirst MySaldTune where ((tmpSaldTune.WTYPE == MySaldTune.WTYPE
+                                                       and tmpSaldTune.Code  == MySaldTune.Code   )) = tsOk);
+         if (not bExistSaldTune)
+         {
+           bDocumentError := true;
+           GenerateLogFile(m_wTidkGal, '  Настройка ЦУ. ' +
+                                      'Не найдена настройка по коду ' + tmpSaldTune.Code + '. '  +
+                                      sDetailInfo + '. ' +
+                                     'Nrec: ' + string(tmpSpecMTR.cSaldTune), cg_ImportError);
+         }
+         else
+           InsertTmpSpecMTR2(tmpSaldTune.buffer, tmpSpecMTR.buffer, MySaldTune.buffer);
+      }
+    }
+  }
+  result := bDocumentError;
+}
+
+function CheckDogovorBeforeImportDB(cRec : comp; bMainParent : boolean) : boolean;
+var
+  sDetailInfo : string;
+{
+  result := false;
+  if (GetFirst tmpDogovorDoc where ((cRec == tmpDogovorDoc.Nrec)) <> tsOk)
+  {
+    result := true;
+    m_dDocument := date(0,0,0);
+    m_NumbDocument := '';
+    m_cDocument := tmpDogovorDoc.Nrec;
+
+    GenerateLogFile(m_wTidkGal, '  не найден договор. Невозможно прочитать данные из dbf файла. Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+
+  m_dDocument := tmpDogovorDoc.DDOC;
+  m_NumbDocument := tmpDogovorDoc.NODOC_EXT;
+  m_cDocument := tmpDogovorDoc.Nrec;
+
+  sDetailInfo := 'Договор № ' + m_NumbDocument + ' от ' + datetostr(m_dDocument, 'DD.MM.YYYY');
+  result := result or IsValidKatNotes(coDogovor, tmpDogovorDoc.cNote, 'Поле: Статус. ' + sDetailInfo);
+  result := result or IsValidKlVal(coDogovor, tmpDogovorDoc.cVal, 'Поле: Валюта. ' + sDetailInfo);
+  result := result or IsValidKatOrg(tmpDogovorDoc.cMyOrg, 'Поле: Собственная организация. ' + sDetailInfo);
+  result := result or IsValidKatOrg(tmpDogovorDoc.cOrg, 'Поле: Контрагент. ' + sDetailInfo);
+  result := result or IsValidKatOrg(tmpDogovorDoc.CPLAT, 'Поле: Плательщик. ' + sDetailInfo);
+  result := result or IsValidKatOrg(tmpDogovorDoc.CPOL, 'Поле: Получатель платежа. ' + sDetailInfo);
+  //result := result or IsValidKatPodr(tmpDogovorDoc.cCurPodr, 'Поле: Курирующее подразделение. ' + sDetailInfo);
+  //вид договора
+  result := result or IsValidKATVIDD(tmpDogovorDoc.CVIDDOG, sDetailInfo);
+
+  sDetailInfo := 'Спецификация договора № ' + m_NumbDocument + ' от ' + datetostr(m_dDocument, 'DD.MM.YYYY');
+  _loop tmpSpDocsDoc where ((tmpDogovorDoc.TiDk == tmpSpDocsDoc.TiDk and tmpDogovorDoc.nRec == tmpSpDocsDoc.cDoc))
+  {
+    NextVisual;
+    if (tmpSpDocsDoc.PrMC = word(1))
+      result := result or IsValidKatMC(tmpSpDocsDoc.cMCUSL, 'Поле: МЦ. ' + sDetailInfo);
+    else
+      result := result or IsValidKatUsl(tmpSpDocsDoc.cMCUSL, 'Поле: Услуга. ' + sDetailInfo);
+    result := result or IsValidKatOtpEd(tmpSpDocsDoc.cOtpEd, 'Поле: Отп.ед. ' + sDetailInfo);
+    result := result or ValidKauFull2(tmpSpDocsDoc.nRec, coSpDocs, 'Поле: ЦУ ' + sDetailInfo);
+  }
+
+  sDetailInfo := 'Налог к спецификации договора № ' + m_NumbDocument + ' от ' + datetostr(m_dDocument, 'DD.MM.YYYY');
+  _loop tmpSpDocNal where ((tmpDogovorDoc.nRec == tmpSpDocNal.cDoc
+                        and tmpDogovorDoc.TiDk == tmpSpDocNal.TIPDOC ))
+  {
+    NextVisual;
+    m_bDocumentError := m_bDocumentError or IsValidKatOrg(tmpSpDocNal.CORG, 'Поле: Получатель налога. ' + sDetailInfo);
+    m_bDocumentError := m_bDocumentError or IsValidKlVal(coSpDocNal, tmpSpDocNal.cVal, 'Поле: Валюта. ' + sDetailInfo);
+    m_bDocumentError := m_bDocumentError or IsValidGrNal(coSpDocNal, tmpSpDocNal.cGrNal, 'Поле: Группа налогов. ' + sDetailInfo);
+  }
+
+  _loop tmpCalPlanDoc where ((tmpDogovorDoc.nRec ==  tmpCalPlanDoc.cDogovor))
+  {
+    NextVisual;
+    var sPKP : string; sPKP := '№ ' + tmpCalPlanDoc.NODOC_EXT + ' от ' + datetostr(tmpCalPlanDoc.DINPUT, 'DD.MM.YYYY');
+    result := result or IsValidKatNotes(coCalPlan,tmpCalPlanDoc.cNote, 'Поле: Статус. ' + sDetailInfo);
+    result := result or IsValidKlVal(coCalPlan, tmpCalPlanDoc.cVal, 'Поле: Валюта. ' + sPKP);
+    result := result or IsValidFPCO(tmpCalPlanDoc.cPlatPodr, 'Поле: ЦО. ' + sPKP);
+    //авансовые ПКП внимательно если здесь править то и в KlVal и DefPlanPays надо смотреть по табл. PlanPays и Scheme и их синонимам
+    #DefPlanPays(0,Avan,основному,sPKP)
+    #DefPlanPays(1,Pay,авансовому,sPKP)
+    #DefPlanPays(2,Add,дополнительному,sPKP)
+    sDetailInfo := 'Спецификация ПКП ' + sPKP;
+    _loop tmpSpDocsDoc where ((cgDoc_0403 == tmpSpDocsDoc.TiDK and tmpCalPlanDoc.nRec == tmpSpDocsDoc.cDoc))
+    {
+      NextVisual;
+      if (tmpSpDocsDoc.PrMC = word(1))
+        result := result or IsValidKatMC(tmpSpDocsDoc.cMCUSL, 'Поле: МЦ. ' + sDetailInfo);
+      else
+        result := result or IsValidKatUsl(tmpSpDocsDoc.cMCUSL, 'Поле: Услуга. ' + sDetailInfo);
+      result := result or IsValidKatOtpEd(tmpSpDocsDoc.cOtpEd, 'Поле: Отп.ед. ' + sDetailInfo);
+      result := result or ValidKauFull2(tmpSpDocsDoc.nRec, coSpDocs, 'Поле: ЦУ ' + sDetailInfo);
+    }
+
+    sDetailInfo := 'Налог к спецификации ПКП ' + sPKP;
+    _loop tmpSpDocNal where ((tmpCalPlanDoc.nRec == tmpSpDocNal.cDoc
+                                  and cgDoc_0403 == tmpSpDocNal.TIPDOC ))
+    {
+      NextVisual;
+      m_bDocumentError := m_bDocumentError or IsValidKatOrg(tmpSpDocNal.CORG, 'Поле: Получатель налога. ' + sDetailInfo);
+      m_bDocumentError := m_bDocumentError or IsValidKlVal(coSpDocNal, tmpSpDocNal.cVal, 'Поле: Валюта. ' + sDetailInfo);
+      m_bDocumentError := m_bDocumentError or IsValidGrNal(coSpDocNal, tmpSpDocNal.cGrNal, 'Поле: Группа налогов. ' + sDetailInfo);
+    }
+  }
+}
+
+procedure ClearTmpTblDogovor;
+{
+  delete all tmpIerDog;
+  delete all tmpDogovorDoc;
+  delete all tmpCalPlanDoc;
+  delete all tmpSpDocsDoc;
+  delete all tmpKatOrg;
+  delete all tmpKatPodr;
+  delete all tmpKatUsl;
+  delete all tmpKatMC;
+  delete all tmpKatOtpEd;
+  delete all tmpKlVal;
+  delete all tmpKatNotes;
+  delete all tmpFpCO;
+  delete all tmpKatNotes;
+  delete all tmpSaldTune;
+  delete all tmpSpecMtr;
+  delete all tmpKatBank;
+  delete all tmpPaySchem;
+  delete all tmpPlanPays;
+  delete all tmpSpDocNal;
+  delete all tmp_GrNal;
+}
+
+procedure LinkSpDocs(wTidk : word; cNewRec : comp; cOldRec : comp; coTable : word);
+{
+  _loop tmpSpDocsDoc where ((wTidk == tmpSpDocsDoc.TiDk
+                            and cNewRec               == tmpSpDocsDoc.cDoc))
+  {
+    var cOldNrec, cPid1, cPid2 : comp; cOldNrec := 0;
+    var wCount : word;
+    wCount := 0;
+    _loop SpDocs where ((cOldRec  == SpDocs.cDoc
+                     and wTidk == SpDocs.TiDk))
+    {
+      var wInd : integer; wInd := -1;
+      if (    (tmpSpDocsDoc.PrMc = SpDocs.PrMc)
+          and (tmpSpDocsDoc.cMcUsl = SpDocs.cMcUsl))
+      {
+        cPid1 := cPid2 := 0;
+        if (GetFirst tmpSpecMtr2 where ((coSpDocs         == tmpSpecMtr2.coTable
+                                     and tmpSpDocsDoc.Nrec == tmpSpecMtr2.cSpec)) = tsOk)
+          if (GetFirst MySaldTune where ((tmpSpecMtr2.cSaldTune == MySaldTune.nRec)) = tsOk)
+          {
+            if (MySaldTune.wObj = m_kAnalitikPid)
+            {
+              wInd := 0;
+              cPid1 := tmpSpecMtr2.cObj;
+            }
+            else
+            {
+              for (wInd := 1; wInd <= 9; wInd++)
+                if (MySaldTune.wKau[wInd] = m_kAnalitikPid)
+                {
+                  case wInd of
+                  1 : {cPid1 := tmpSpecMtr2.cKau1; break}
+                  2 : {cPid1 := tmpSpecMtr2.cKau2; break}
+                  3 : {cPid1 := tmpSpecMtr2.cKau3; break}
+                  4 : {cPid1 := tmpSpecMtr2.cKau4; break}
+                  5 : {cPid1 := tmpSpecMtr2.cKau5; break}
+                  6 : {cPid1 := tmpSpecMtr2.cKau6; break}
+                  7 : {cPid1 := tmpSpecMtr2.cKau7; break}
+                  8 : {cPid1 := tmpSpecMtr2.cKau8; break}
+                  9 : {cPid1 := tmpSpecMtr2.cKau9; break}
+                  end;
+
+                  break;
+                }
+            }
+          }
+
+        if (wInd <> -1) and (wInd <> 10)
+          if (GetFirst SpecMtr where ((coSpDocs    == SpecMtr.coTable
+                                   and SpDocs.Nrec == SpecMtr.cSpec)) = tsOk)
+          {
+            if (wInd = 0)
+              cPid2 := SpecMtr.cObj;
+            else
+              cPid2 := SpecMtr.cKau[wInd];
+          }
+
+        if    (wInd <> -1)
+          and (wInd <> 10)
+          and (cPid1 <> cPid2)
+          continue;
+        wCount := wCount + 1;
+        cOldNrec := SpDocs.Nrec;
+      }
+    }
+
+    if (wCount <> 1) cOldNrec := 0;
+    clearbuffer(#tmpSootvetstvie);
+    tmpSootvetstvie.coTable := coTable;
+    tmpSootvetstvie.cNewNrec := tmpSpDocsDoc.Nrec;
+    tmpSootvetstvie.cOldNrec := cOldNrec;
+    tmpSootvetstvie.cRefParent := cNewRec;
+    insert current tmpSootvetstvie;
+  }
+}
+
+procedure FindSootvetstvie(cRec : comp);
+{
+  NextVisual;
+  if (GetFirst tmpDogovorDoc where ((cRec == tmpDogovorDoc.Nrec)) <> tsOk)
+    exit;
+
+  if (GetFirst tmpDogovorMy where ((tmpDogovorDoc.NODOC_EXT == tmpDogovorMy.NODOC_EXT
+                                and tmpDogovorDoc.dDoc  == tmpDogovorMy.dDoc
+                                and tmpDogovorDoc.cOrg  == tmpDogovorMy.cOrg
+                                /*and tmpDogovorDoc.vidDog  == tmpDogovorMy.vidDog*/)) <> tsOk)
+  {
+    clearbuffer(#tmpSootvetstvie);
+    tmpSootvetstvie.coTable := coDogovor;
+    tmpSootvetstvie.cNewNrec := tmpDogovorDoc.Nrec;
+    tmpSootvetstvie.cOldNrec := 0;
+    insert current tmpSootvetstvie;
+    _loop tmpSpDocsDoc where ((tmpDogovorDoc.Tidk == tmpSpDocsDoc.TiDk
+                           and cRec               == tmpSpDocsDoc.cDoc))
+    {
+      clearbuffer(#tmpSootvetstvie);
+      tmpSootvetstvie.coTable := coSpDocs;
+      tmpSootvetstvie.cNewNrec := tmpSpDocsDoc.Nrec;
+      tmpSootvetstvie.cOldNrec := 0;
+      tmpSootvetstvie.cRefParent := tmpDogovorDoc.Nrec;
+      insert current tmpSootvetstvie;
+    }
+
+    _loop tmpCalPlanDoc where ((cRec == tmpCalPlanDoc.cDOgovor))
+    {
+      clearbuffer(#tmpSootvetstvie);
+      tmpSootvetstvie.coTable := coCalPlan;
+      tmpSootvetstvie.cNewNrec := tmpCalPlanDoc.Nrec;
+      tmpSootvetstvie.cOldNrec := 0;
+      tmpSootvetstvie.cRefParent := tmpDogovorDoc.Nrec;
+      insert current tmpSootvetstvie;
+      _loop tmpSpDocsDoc where ((cgDoc_0403 == tmpSpDocsDoc.TiDK and tmpCalPlanDoc.nRec == tmpSpDocsDoc.cDoc))
+      {
+        clearbuffer(#tmpSootvetstvie);
+        tmpSootvetstvie.coTable := coSpDocs + 1;
+        tmpSootvetstvie.cNewNrec := tmpSpDocsDoc.Nrec;
+        tmpSootvetstvie.cOldNrec := 0;
+        tmpSootvetstvie.cRefParent := tmpCalPlanDoc.Nrec;
+        insert current tmpSootvetstvie;
+      }
+    }
+    exit;
+  }
+
+  clearbuffer(#tmpSootvetstvie);
+  tmpSootvetstvie.coTable := coDogovor;
+  tmpSootvetstvie.cNewNrec := tmpDogovorDoc.Nrec;
+  tmpSootvetstvie.cOldNrec := tmpDogovorMy.Nrec;
+  insert current tmpSootvetstvie;
+  NextVisual;
+  // спецификации
+  LinkSpDocs(tmpDogovorDoc.Tidk, cRec, tmpDogovorMy.Nrec, coSpDocs);
+  NextVisual;
+  _loop tmpCalPlanDoc where ((tmpDogovorDoc.Nrec == tmpCalPlanDoc.cDogovor))
+  {
+    var cOldNrec, cPid1, cPid2 : comp; cOldNrec := 0;
+    var wCount : word;
+    wCount := 0;
+
+    _loop CalPlan where ((tmpDogovorMy.Nrec  == CalPlan.cDogovor))
+    {
+      if (   (CALPLAN.NODOC_EXT  = tmpCalPlanDoc.NODOC_EXT)
+         and (CALPLAN.DINPUT = tmpCalPlanDoc.DINPUT)
+         and (CALPLAN.cOrg = tmpCalPlanDoc.cOrg)
+         and (CALPLAN.DirectMC = tmpCalPlanDoc.DirectMC))
+      {
+        wCount := wCount + 1;
+        cOldNrec := CalPlan.Nrec;
+        if (wCount > 1)
+         break;
+      }
+    }
+
+    if (wCount <> 1) cOldNrec := 0;
+
+    clearbuffer(#tmpSootvetstvie);
+    tmpSootvetstvie.coTable := coCalPlan;
+    tmpSootvetstvie.cNewNrec := tmpCalPlanDoc.Nrec;
+    tmpSootvetstvie.cOldNrec := cOldNrec;
+    tmpSootvetstvie.cRefParent := cRec;
+    insert current tmpSootvetstvie;
+
+    if (cOldNrec <> 0)
+      LinkSpDocs(cgDoc_0403, tmpCalPlanDoc.Nrec, cOldNrec, coSpDocs + 1);
+    else
+      _loop tmpSpDocsDoc where ((cgDoc_0403 == tmpSpDocsDoc.TiDK and tmpCalPlanDoc.nRec == tmpSpDocsDoc.cDoc))
+      {
+        clearbuffer(#tmpSootvetstvie);
+        tmpSootvetstvie.coTable := coSpDocs + 1;
+        tmpSootvetstvie.cNewNrec := tmpSpDocsDoc.Nrec;
+        tmpSootvetstvie.cOldNrec := 0;
+        tmpSootvetstvie.cRefParent := tmpCalPlanDoc.Nrec;
+        insert current tmpSootvetstvie;
+      }
+  }
+}
+
+function ImportDogovor : boolean;
+var
+  wTidkGal : word;
+{
+  delete all tmpSootvetstvie;
+  result := false;
+  wTidkGal := cgDoc_0400;
+  m_sDate := datetostr(cur_date,'YYYY_MM_DD') + timetostr(cur_time, '_HH_MM_SS_SSS');
+  if (vKatDocList.GetFirst KatDoc where ((wTidkGal == KatDoc.TIDKGAL)) <> tsOk)
+  {
+    GenerateLogFile(wTidkGal, 'Не удалось найти тип документа ' + string(wTidkGal) + '. Импорт прекращен.', cg_ImportError);
+    SendMailExpImp(GetFileProtokol(wTidkGal), 'Интегратор. Ошибка при импорте в ' + GetNameDB, m_bError);
+    exit;
+  }
+
+  AddFileToTMP;// добавление имен файлов dbf для импорта в таблицу в памяти для сортировки
+
+  StartNewVisual(vtIndicatorVisual, vfTimer, 'Контроль файлов импорта по документу "' + vKatDocList.KatDoc.Name + '"', RecordsInTable(#tmp_impfile));
+  delete all MySaldTune;
+  insert into MySaldTune (Nrec, WATTR, WTYPE, CODE, WOBJ, WKAU[1], WKAU[2], WKAU[3], WKAU[4], WKAU[5], WKAU[6], WKAU[7], WKAU[8], WKAU[9])
+  select Nrec, WATTR, WTYPE, CODE, WOBJ, WKAU[1], WKAU[2], WKAU[3], WKAU[4], WKAU[5], WKAU[6], WKAU[7], WKAU[8], WKAU[9]
+  from SaldTune;
+
+  vImp._loop tmp_impfile
+  {
+    NextVisual;
+    SetVisualHeader('Контроль файлов импорта по документу "' + vKatDocList.KatDoc.Name + '".' + chr(13) +
+                    'Файл ' + vImp.tmp_impfile.sFullName + '.');
+    m_bGenerateLogFile := false;
+    m_sDate := datetostr(cur_date,'YYYY_MM_DD') + timetostr(cur_time,'_HH_MM_SS_SSS');
+    ClearTmpTblDogovor;// очистка временных таблиц
+
+    m_bError := false;
+    if (  (not InsertDogToTMP(0, vImp.tmp_impfile.sFullName))
+        or(not InsertCalPlanDoc(0 , GetDbfName(cgDoc_0400, 'CalPlan',  vImp.tmp_impfile.sDate)))
+        or(not InsertSpDocsDoc(0, GetDbfName(cgDoc_0400, 'SpDocs', vImp.tmp_impfile.sDate)))
+        or(not InsertKatOrg(0 , GetDbfName(cgDoc_0400, 'KatOrg',  vImp.tmp_impfile.sDate)))
+        or(not InsertKatPodr(0, GetDbfName(cgDoc_0400, 'KatPodr', vImp.tmp_impfile.sDate)))
+        or(not InsertKatUsl(0, GetDbfName(cgDoc_0400, 'KatUsl', vImp.tmp_impfile.sDate)))
+        or(not InsertKatMC(0, GetDbfName(cgDoc_0400, 'KatMC', vImp.tmp_impfile.sDate)))
+        or(not InsertKatOtpEd(0, GetDbfName(cgDoc_0400, 'KatOtpEd', vImp.tmp_impfile.sDate)))
+        or(not InsertKlVal(0, GetDbfName(cgDoc_0400, 'KlVal', vImp.tmp_impfile.sDate)))
+        or(not InsertFpCO(0, GetDbfName(cgDoc_0400, 'FpCo', vImp.tmp_impfile.sDate)))
+        or(not InsertKatNotes(0, GetDbfName(cgDoc_0400, 'KatNotes', vImp.tmp_impfile.sDate)))
+        or(not InsertSaldTune(0, GetDbfName(cgDoc_0400, 'SaldTune', vImp.tmp_impfile.sDate)))
+        or(not InsertAttrVal(0, GetDbfName(cgDoc_0400, 'AttrVal', vImp.tmp_impfile.sDate)))
+        or(not InsertSpecMtr(0, GetDbfName(cgDoc_0400, 'SpecMtr', vImp.tmp_impfile.sDate)))
+        or(not InsertPaySchem(0, GetDbfName(cgDoc_0400, 'PaySchem', vImp.tmp_impfile.sDate)))
+        or(not InsertPlanPays(0, GetDbfName(cgDoc_0400, 'PlanPays', vImp.tmp_impfile.sDate)))
+        or(not InsertKatBank(0 , GetDbfName(cgDoc_0400, 'KatBank',  vImp.tmp_impfile.sDate)))
+        or(not InsertSpDocNal(0, GetDbfName(wTidkGal, 'SpDocNal', vImp.tmp_impfile.sDate)))
+        or(not InsertGrNal(0, GetDbfName(wTidkGal, 'GrNal', vImp.tmp_impfile.sDate))))
+    {
+      m_bError := true;
+      GenerateLogFile(wTidkGal, 'Не удалось прочитать данные из файла ' + vImp.tmp_impfile.sFullName + '. Импорт прекращен.', cg_ImportError);
+      SendMailExpImp(GetFileProtokol(wTidkGal), 'Интегратор. Ошибка при импорте в ' + GetNameDB, m_bError);
+      break;
+    }
+
+    delete all GoodDoc;
+    StartNewVisual(vtIndicatorVisual, vfTimer + vfScreenBottom, 'Контроль корректности данных',
+                   RecordsInTable(#tmpIerDog) +
+                   RecordsInTable(#tmpSpDocsDoc) +
+                   RecordsInTable(#tmpCalPlanDoc) +
+                   RecordsInTable(#tmpSaldTune) +
+                   RecordsInTable(#tmpSpecMtr));
+    var nCountDoc : longint; nCountDoc := 0;
+    _loop tmpIerDog where ((comp(0) == tmpIerDog.CUPREC))
+    {
+      NextVisual;
+      m_bDocumentError := false;
+      var cNRec : comp; cNRec := tmpIerDog.Nrec;
+      if (GetFirst tmpDogovorDoc where ((cNRec == tmpDogovorDoc.Nrec)) <> tsOk)
+      {
+        m_dDocument := tmpDogovorDoc.DDOC;
+        m_NumbDocument := tmpDogovorDoc.NODOC_EXT;
+        m_cDocument := tmpDogovorDoc.Nrec;
+      }
+      nCountDoc := nCountDoc + 1;
+
+      m_bDocumentError := m_bDocumentError or CheckDogovorBeforeImportDB(tmpIerDog.Nrec, true);
+      _loop tmpIerDogUp where ((tmpIerDog.nRec == tmpIerDogUp.CUPREC))
+        m_bDocumentError := m_bDocumentError or CheckDogovorBeforeImportDB(tmpIerDogUp.Nrec, false);
+
+      if ( not m_bDocumentError)
+      {
+        clearbuffer(#GoodDoc);
+        GoodDoc.nRec := tmpIerDog.nRec;
+        insert current GoodDoc;
+      }
+    }
+    StopVisual('', 0);
+    CloseMark_DbfDogovor;
+
+
+    StartNewVisual(vtIndicatorVisual, vfTimer, 'Поиск соответствия договоров, соглашений, ПКП', 3 * (RecordsInTable(#GoodDoc) + RecordsInTable(#tmpIerDog)));
+    _loop GoodDoc
+    {
+      FindSootvetstvie(GoodDoc.Nrec);
+      _loop tmpIerDogUp where ((GoodDoc.Nrec == tmpIerDogUp.CUPREC))
+       FindSootvetstvie(tmpIerDogUp.Nrec);
+    }
+    StopVisual('', 0);
+
+//    GenerateLogFile(wTidkGal, 'Импортировано ' + string(RecordsInTable(#GoodDoc)) + ' записей.', cg_ImportCount);
+//    GenerateLogFile(wTidkGal, 'Не импортировано ' + string(nCountDoc - RecordsInTable(#GoodDoc)) + ' записей.', cg_ImportCount);
+    IsDelFileImport(boGetTune('Integrator.DelFile'), GetDirImport(m_wTidkGal), string(m_wTidkGal) + '_' + vImp.tmp_impfile.sDate);
+    SendMailExpImp(GetFileProtokol(wTidkGal), 'Интегратор. Лог импорта в ' + GetNameDB, m_bError);
+  }
+  StopVisual('', 0);
+//  if (RecordsInTable(#tmpDogovorDoc) = 0)
+//  {
+//    GenerateLogFile(wTidkGal, 'Импортировано 0 записей.', cg_ImportCount);
+//    GenerateLogFile(wTidkGal, 'Не импортировано 0 записей.', cg_ImportCount);
+//  }
+
+  result := not m_bError;
+}
+
+function InitParams : boolean;
+{
+  result := false;
+
+  m_sImportDir := ADDSLASHTOPATH(sGetTune('INTEGRATOR.IMPORTFOLDER')) + 'temp\';;
+  if (m_sImportDir = '')
+  {
+    if (m_wRunType <> cg_RunAuto)
+      Message('Не задана директория импорта.' + chr(13) +
+              'Операция импорта из ' + GetNameDB + ' прекращена.');
+    GenerateLogFileSys('Не задана директория импорта.', '', cg_Imp);
+    SendMailExpImp(GetStringParameter('Files', 'OutputFilesDirectory', 0) + NameImportSysLog,
+                   'Интегратор. Ошибка при импорте в ' + GetNameDB, m_bError);
+    exit;
+  }
+
+  if (boGetTune('Integrator.TypeStatus'))
+  {
+    if (vCheckCatalogs.GetFirst ATTRNAM where ((cg_StatusIntegrator == ATTRNAM.NAME
+                                            and coDogovor           == ATTRNAM.WTABLE
+                                            and cgAttrType_Comp     == ATTRNAM.ATTRTYPE)) <> tsOk)
+    {
+      m_bError := true;
+      if (m_wRunType <> cg_RunAuto)
+        Message('Не найден атрибут "' + cg_StatusIntegrator + '" для определения состояния интеграции документа в интеграторе.' + chr(13) +
+                'Операция импорта в ' + GetNameDB + ' прекращена.');
+      GenerateLogFile(m_wTidkGal, 'Не найден атрибут "' + cg_StatusIntegrator + '" для определения состояния интеграции документа в интеграторе.', cg_ImportError);
+      SendMailExpImp(GetFileProtokol(m_wTidkGal), 'Интегратор. Ошибка при импорте в ' + GetNameDB, m_bError);
+      exit;
+    }
+    m_cAttrNum := vCheckCatalogs.ATTRNAM.Nrec;
+  }
+
+  result := true;
+}
+
+procedure ChangeSpDocs(wTidk : word; cNew : comp; cOld : comp; coTable : word);
+{
+  _Loop tmpSootvetstvieSpDocsWork where ((cNew    == tmpSootvetstvieSpDocsWork.cRefParent
+                                      and coTable == tmpSootvetstvieSpDocsWork.coTable
+                              ))
+  {
+    var cNewSpDocs : comp; cNewSpDocs := tmpSootvetstvieSpDocsWork.cNewNrec;
+    var cOldSpDocs : comp; cOldSpDocs := tmpSootvetstvieSpDocsWork.cOldNrec;
+    if ((cNewSpDocs <> cOldSpDocs) and (cOldSpDocs <> 0))
+    {
+      if ((update SpStep where ((cOldSpDocs == SpStep.CSPDOCS))
+           set SpStep.CSPDOCS := cNewSpDocs) = tsOk) {}
+      if ((update SpSopr where ((cOldSpDocs == SpSopr.CSPDOCS))
+           set SpSopr.CSPDOCS := cNewSpDocs) = tsOk) {}
+      if ((update AttrVal where ((coSpDocs   == AttrVal.wTable
+                              and cOldSpDocs == AttrVal.cRec))
+           set AttrVal.cRec := cNewSpDocs) = tsOk) {}
+      if ((update EXCLASSVAL where ((coSpDocs   == EXCLASSVAL.wTable
+                                 and cOldSpDocs == EXCLASSVAL.cRec))
+           set EXCLASSVAL.cRec := cNewSpDocs) = tsOk) {}
+      if ((update SpDocNal where ((wTidk      == SpDocNal.TIPDOC
+                               and cOldSpDocs == SpDocNal.CSPDOC))
+           set SpDocNal.CSPDOC := cNewSpDocs) = tsOk) {}
+    }
+
+    if (GetFirst tmpSpDocsDoc where ((cNewSpDocs == tmpSpDocsDoc.Nrec)) = tsOk)
+    {
+      if (cNewSpDocs <> 0)
+      {
+        if (GetFirst SpDocs where ((cOldSpDocs == SpDocs.Nrec)) = tsOk)
+        {
+          // UpdateSpDocs(SpDocs.Bufferp, tmpSpDocsDoc.Bufferp);пока решили заменяем только ссылки
+          SpDocs.Nrec := cNewSpDocs;
+          if (update current SpDocs = tsOk) {};
+        }
+      }
+      else
+      {
+/*
+        ClearBuffer(#SpDocs);
+        SpDocs.Buffer   := type$SpDocs(tmpSpDocsDoc.Buffer);
+        if (insert current SpDocs = tsOk) {};
+
+        if (GetFirst tmpSpDocNal where ((wTidk     == tmpSpDocNal.TIPDOC
+                                    and cNew       == tmpSpDocNal.CDOC
+                                    and cNewSpDocs == tmpSpDocNal.CSPDOC)) = tsOk)
+        {
+          ClearBuffer(#SpDocNal);
+          UpdateSpDocNal(SpDocNal.bufferp, tmpSpDocNal.Bufferp);
+          if (insert current SpDocNal = tsOk) {};
+        }*/
+      }
+    }
+/* // пока решили ЦУ не заменять
+    if (getFirst SpecMTRForDb where ((coSpDocs   == SpecMTRForDb.coTable
+                                  and cNewSpDocs == SpecMTRForDb.cSpec)) = tsOk)
+    {
+      ChangeSpecMTR(SpecMTRForDb.bufferp);
+    }*/
+  }
+}
+
+procedure JoinDog(cRecSootvetstvie : comp);
+{
+  if (GetFirst tmpSootvetstvieDogovor where ((cRecSootvetstvie == tmpSootvetstvieDogovor.Nrec)) <> tsOk)
+    exit;
+  var cNew : comp; cNew := tmpSootvetstvieDogovor.cNewNrec;
+  var cOld : comp; cOld := tmpSootvetstvieDogovor.cOldNrec;
+  if (cOld = 0) exit;
+
+  if (    (tmpSootvetstvieDogovor.cNewNrec <> tmpSootvetstvieDogovor.cOldNrec)
+      and (tmpSootvetstvieDogovor.cNewNrec <> 0))
+  {
+    NextVisual;//1
+    //удаляем перед созданием
+    NextVisual;//2
+    if ((update Dogovor where ((cOld == Dogovor.cDogovor))
+         set Dogovor.cDogovor := cNew) = tsOk) {}
+    NextVisual;//3
+    if ((update CalPlan where ((cOld == CalPlan.cDogovor))
+         set CalPlan.cDogovor := cNew) = tsOk) {}
+    NextVisual;//4
+    if ((update BaseDoc where ((cOld == BaseDoc.cDogovor))
+         set BaseDoc.cDogovor := cNew) = tsOk) {}
+    NextVisual;//5
+    if ((update BaseDoc where ((cOld == BaseDoc.CAPPDOGOVOR))
+         set BaseDoc.CAPPDOGOVOR := cNew) = tsOk) {}
+    NextVisual;//6
+    if ((update KatSopr where ((cOld == KatSopr.cDogovor))
+         set KatSopr.cDogovor := cNew) = tsOk) {}
+    NextVisual;//7
+    if ((update KatSopr where ((cOld == KatSopr.CAPPDOGOVOR))
+         set KatSopr.CAPPDOGOVOR := cNew) = tsOk) {}
+    NextVisual;//8
+    // спецификация
+    if ((update SpDocs where ((Dogovor.Tidk == SpDocs.TiDk
+                           and cOld         == SpDocs.cDoc))
+         set SpDocs.cDoc := cNew) = tsOk) {}
+    NextVisual;//9
+    if ((update SpDocNal where ((Dogovor.Tidk == SpDocNal.TIPDOC
+                             and cOld         == SpDocNal.cDoc))
+         set SpDocNal.cDoc := cNew) = tsOk) {}
+    NextVisual;//10
+    if ((update SPSCHEM where ((Dogovor.Tidk == SPSCHEM.TiDk
+                           and cOld         == SPSCHEM.cDoc))
+         set SPSCHEM.cDoc := cNew) = tsOk) {}
+    NextVisual;//11
+    if ((update SPSCHEM where ((Dogovor.Tidk == SPSCHEM.TIDKBASE(noindex)
+                           and cOld         == SPSCHEM.CBASEDOC(noindex)))
+         set SPSCHEM.CBASEDOC := cNew) = tsOk) {}
+    NextVisual;//12
+    if ((update AttrVal where ((coDogovor == AttrVal.wTable
+                            and cOld      == AttrVal.cRec))
+         set AttrVal.cRec := cNew) = tsOk) {}
+    NextVisual;//13
+    if ((update EXCLASSVAL where ((coDogovor == EXCLASSVAL.wTable
+                               and cOld      == EXCLASSVAL.cRec))
+         set EXCLASSVAL.cRec := cNew) = tsOk) {}
+
+    if ((update IERDOG where ((cOld == IERDOG.cDogovor))
+         set IERDOG.cDogovor := cNew) = tsOk) {}
+    if ((update IERDOG where ((cOld == IERDOG.CUPREC))
+         set IERDOG.CUPREC := cNew) = tsOk) {}
+    if ((update IERDOG where ((cOld == IERDOG.CREC))
+         set IERDOG.CREC := cNew) = tsOk) {}
+    if ((update IERCALPL where ((cOld == IERCALPL.CDOGOVOR))
+         set IERCALPL.CDOGOVOR := cNew) = tsOk) {}
+  }
+
+  if (    (GetFirst Dogovor where ((cOld == Dogovor.Nrec)) = tsOk)
+      and (GetFirst tmpDogovorDoc where ((cNew == tmpDogovorDoc.Nrec)) = tsOk))
+  {
+    //UpdateDogovor(Dogovor.Bufferp, tmpDogovorDoc.Bufferp);// пока решили заменяем только ссылки
+    Dogovor.Nrec := cNew;
+    if (update current Dogovor = tsOk) {}
+    // пересчет таблиц DocZatr
+    oDocToObj.AddDog(Dogovor.Nrec, false, cgDoc_0400);
+    oDocToObj.DelDog(Dogovor.Nrec, false, cgDoc_0400);
+  }
+  NextVisual;//14
+  // спецификация
+  ChangeSpDocs(tmpDogovorDoc.Tidk, cNew, cOld, coSpDocs);
+  NextVisual;//15
+  // ПКП
+  _Loop tmpSootvetstvie where ((cNew       == tmpSootvetstvie.cRefParent
+                             and coCalPlan == tmpSootvetstvie.coTable
+                              ))
+  {
+    var cNewCalPlan : comp; cNewCalPlan := tmpSootvetstvie.cNewNrec;
+    var cOldCalPlan : comp; cOldCalPlan := tmpSootvetstvie.cOldNrec;
+    if ((cNewCalPlan <> cOldCalPlan) and (cOldCalPlan <> 0))
+    {
+      if ((update BaseDoc where ((cOldCalPlan == BaseDoc.CCALPLAN))
+           set BaseDoc.CCALPLAN := cNewCalPlan) = tsOk) {}
+      NextVisual;//16
+      if ((update KatSopr where ((cOldCalPlan == KatSopr.CCALPLAN))
+           set KatSopr.CCALPLAN := cNewCalPlan) = tsOk) {}
+      NextVisual;//17
+      if ((update AttrVal where ((coCalPlan == AttrVal.wTable
+                              and cOldCalPlan      == AttrVal.cRec))
+           set AttrVal.cRec := cNewCalPlan) = tsOk) {}
+      NextVisual;//18
+      if ((update EXCLASSVAL where ((coCalPlan == EXCLASSVAL.wTable
+                                 and cOldCalPlan      == EXCLASSVAL.cRec))
+           set EXCLASSVAL.cRec := cNewCalPlan) = tsOk) {}
+      NextVisual;//19
+      if ((update PlanPays where ((cOldCalPlan == PlanPays.CCALPLAN))
+           set PlanPays.CCALPLAN := cNewCalPlan) = tsOk) {}
+
+    if ((update IERCALPL where ((cNew        == IERCALPL.CDOGOVOR
+                             and cOldCalPlan == IERCALPL.CUPREC))
+         set IERCALPL.CUPREC := cNewCalPlan) = tsOk) {}
+    if ((update IERCALPL where ((cNew        == IERCALPL.CDOGOVOR
+                             and cOldCalPlan == IERCALPL.CREC))
+         set IERCALPL.CREC := cNewCalPlan) = tsOk) {}
+
+
+      NextVisual;//20
+      if (    (GetFirst CalPlan where ((cOldCalPlan == CalPlan.Nrec)) = tsOk)
+          and (GetFirst tmpCalPlanDoc where ((cNewCalPlan == tmpCalPlanDoc.Nrec)) = tsOk))
+      {
+        //UpdateCalPlan(CalPlan.Bufferp, tmpCalPlanDoc.Bufferp);
+        if (cOldCalPlan <> cNewCalPlan)
+        {
+          CalPlan.Nrec := cNewCalPlan;
+          if (update current CalPlan = tsOk) {}
+        }
+      }
+    }
+    NextVisual;//21
+    if (cOldCalPlan <> 0)
+      // спецификация
+      ChangeSpDocs(cgDoc_0403, cNewCalPlan, cOldCalPlan, coSpDocs + 1);
+  }
+}
+
+HandleEvent
+
+cmInit:
+{
+  if (RunWindowModal(winAnalitikPID) = cmCancel)
+  {
+    abort;
+    closeinterface(cmCancel);
+  }
+  //дата файлов
+  m_sDate := datetostr(cur_date,'YYYY_MM_DD') + timetostr(cur_time,'_HH_MM_SS_SSS');
+  m_bGenerateLogFileSys := m_bError := m_bGenerateLogFile := false;
+  if (not InitParams)
+  {
+    abort;
+    exit;
+  }
+  if (boGetTune('Integrator.TypeStatus'))
+    m_wAnalitik := lGetTune('Integrator.KodUserAnalitikStatus');
+  else
+    m_wAnalitik := 0;
+
+  delete all tmpGrNalMy;
+  insert into tmpGrNalMy (Nrec, Kod) select Nrec, Kod from GrNal;
+  //валюта
+  delete all tmpKlValMy;
+  insert into tmpKlValMy (Nrec, ISO) select Nrec, ISO from KlVal;
+  // статусы
+  delete all tmpKatNotesMy;
+  insert into tmpKatNotesMy (Nrec, Name, Code, Status, VidDoc)
+  select Nrec, Name, Code, Status, VidDoc from KatNotes;
+
+  delete all tmpDogovorMy;
+  insert into tmpDogovorMy (Nrec, NODOC_EXT, dDoc, cOrg, vidDog)
+  select Nrec, NODOC_EXT, dDoc, cOrg, vidDog from Dogovor;
+
+  var bResult : boolean;
+  m_wTidkGal := cgDoc_0400;
+  bResult := ImportDogovor;
+
+  if (not bResult)
+  {
+    if (m_wRunType <> cg_RunAuto)
+      Message('Возникли ошибки при импорте.' + chr(13) +
+              'Операция импорта в ' + GetNameDB + ' прекращена.');
+    abort;
+    exit;
+  }
+
+  //CloseInterface(cmOk);
+}
+
+cmValue1 :
+{
+  StartNewVisual(vtIndicatorVisual, vfTimer, 'замена ссылок на договор', 21);
+  JoinDog(tmpSootvetstvieDogovor.Nrec);
+  StopVisual('', 0);
+  Message('Замена ссылок завершена.');
+}
+
+cmValue2 :
+{
+  var i : word; i := 0;
+  _loop tmpSootvetstvieAll where ((coDogovor == tmpSootvetstvieAll.coTable))
+   i := i + 1;
+  StartNewVisual(vtIndicatorVisual, vfTimer, 'замена ссылок на договора', 21 * i);
+  _loop tmpSootvetstvieAll where ((coDogovor == tmpSootvetstvieAll.coTable))
+    JoinDog(tmpSootvetstvieAll.Nrec);
+  StopVisual('', 0);
+  Message('Замена ссылок завершена.');
+}
+
+end;
+
+
+end.

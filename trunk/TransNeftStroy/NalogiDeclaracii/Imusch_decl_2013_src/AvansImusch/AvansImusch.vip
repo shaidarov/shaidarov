@@ -1,0 +1,2917 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2009 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Модуль        : Бухгалтерская отчётность                                  ║
+ ║ Версия        : 8.10                                                      ║
+ ║ Клиент        : ООО "ТрансНефть-Финанс"                                   ║
+ ║ Назначение    : Авансовый расчет по налогу на Имущество [XML+FR3]         ║
+ ║ Ответственный : Прокофьев Игорь Александрович [ДТП] Стамп                 ║
+ ║═══════════════════════════════════════════════════════════════════════════║
+ ║ ИЗМЕНЕНИЯ                                                                 ║
+ ║___________________________________________________________________________║
+ ║  Дата      : МАЙ 2009                                                     ║
+ ║  Описание  : Изменена методология расчета для КВИ2 и КВИ3                 ║
+ ║___________________________________________________________________________║
+ ║  Дата      : ИЮНЬ 2009                                                    ║
+ ║  Описание  : Оптимизация расчетной части - уход от бух.калькулятора       ║
+ ║___________________________________________________________________________║
+ ║  Дата      : АПРЕЛЬ 2010                                                  ║
+ ║  Описание  : Добавлено формирование отдельных листов по КВИ3 для кода     ║
+ ║              льготы - 2012000 <Дополнительные льготы по налогу на         ║
+ ║              имущество организаций, устанавливаемые законами субъектов РФ>║
+ ║___________________________________________________________________________║
+ ║  Дата      : ИЮНЬ 2012                                                    ║
+ ║  Описание  : Реализован полный учёт корректирующих проводок по счёту 801  ║
+ ║              для КВИ2 и КВИ3 по всем настроенным кодам льготы             ║
+ ║___________________________________________________________________________║
+ ║  Дата      : НОЯБРЬ 2012                                                  ║
+ ║  Описание  : Доработан учёт корректирующих проводок по счёту 801          ║
+ ║              Новый формат XML                                             ║
+ ║              Группировка по вышестоящему ОКАТО (аккумулирование)          ║
+ ║___________________________________________________________________________║
+ ║  Дата      : ЯНВАРЬ-МАРТ 2013                                             ║
+ ║  Описание  : Доработка в части формирования укрупненной декларации        ║
+ ║              Добавлено заполнение списка ОКАТО по фильтру                 ║
+ ║___________________________________________________________________________║
+ ║  Дата      : АПРЕЛЬ 2013                                                  ║
+ ║  Описание  : Изменение методологии: новая ставка 0.4 формируется отдельным║
+ ║              листом - коды льгот 001001001, 001001003                     ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include strfunc.vih
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Interface AvansImusch_2013_new;
+
+table Struct _AttrVal
+(
+  cRec    : comp,
+  vComp   : comp,
+  cKatOS  : comp
+)
+with index
+(
+  Key00 = cRec  + vComp,
+  key01 = vComp + cKatOS
+);
+
+table Struct TurboSaldMoun
+(
+  SchetO   : string,
+  SubOsSch : string,
+  ViOb     : word,   // 1 - деб. 2 - кред.
+  DateSal  : date,
+  SumS     : double,
+  cKatOS   : comp,
+  cOKATO   : comp,
+  cL       : comp,
+  code     : string  // код льготы
+)
+with index
+(
+  Turbo00 = SchetO + DateSal + ViOb + cKatOs + cL + SubOsSch,
+  Turbo01 = SchetO + DateSal + ViOb + cOKATO + cL + SubOsSch
+);
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+table struct Oborot_801 = Oborot;
+table struct _STerr2 = STerr;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+create view
+
+var
+  iStrFunc : StringFunctions;
+
+  dSal
+, dFrom801
+, dTo801
+, dFrom
+, dTo
+, dOtch       : date;
+
+  t1
+, t2          : time;
+
+  i
+, j
+, etap
+, AllEtap     : longint;
+
+
+  bKVI2
+, bKVI3
+, bNash
+, bOper
+, bDeb
+, bMinus      : boolean;
+
+  sData
+, sStolb
+, sOS
+, sKVI
+, sFormula
+, sFormula1
+, sFormula2
+, sFormula3
+, sFind
+  // коды для фильтров по аналитике
+, L_OS   // Льготируемое, расположенное на территории одного субъекта РФ
+, L_NS   // Льготируемое, расположенное на территории нескольких субъектов РФ
+, L_NM   // Льготируемое, расположенное на территории нескольких муниципальных образованиях
+
+, NL_OS  // НеЛьготируемое, расположенное на территории одного субъекта РФ
+, NL_NS  // НеЛьготируемое, расположенное на территории нескольких субъектов РФ
+, NL_NM  // НеЛьготируемое, расположенное на территории нескольких муниципальных образованиях
+
+, L_KVI3M  // Для формирования отдельных листов с кодом 2012000
+
+, INN
+, OrgName
+, KPP
+, InsName
+, InsKod
+, fFile
+, fFileXML
+, period
+, fio
+, fam
+, name
+, sYear
+, shag
+, Schet
+, SubSchet
+, Kod_Nal_130
+, Kod_Nal_160
+, Kod_Nal_190
+, Nal_stav
+, Nal_stav2
+, SelKPP      // выбранный КПП - будет сделан выбор по ОКАТО
+, telefon
+, FIO_Pred
+, DOK_PRED
+, sBigOKATO
+, lastname    : string;
+
+  OtchPer
+, nomer
+, TotStr
+, DebKred
+, Mesto
+, Vers
+, f068
+, fNULL
+, fXML        : word;
+
+  RezSum
+, RezSumBV
+, RezSumKol
+, ResNDE
+, ResBV
+, ResKol
+, chislBig    // числитель для доли ОС в ОКАТО (укрупнённый)
+, chisl       // числитель для доли ОС в ОКАТО
+, znam        // знаменатель для доли ОС в ОКАТО
+, SumTmp      : double;
+
+
+  c001001001
+, c001001002
+, c001001003
+
+, c001002001  // отдельный лист по коду 2012000
+, c001002002
+, c001002003
+
+, c002001
+, c002002
+, c002003
+
+, nRecPlPor
+, NrecKPP
+, NrecGNI
+
+, cBigOKATO      : comp;
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+from
+  TabOkato
+, TabOkato_KVI
+, Okato_Razdel1
+, _STerr2 // СДЕЛАЛ ТАБЛИЦУ В ПАМЯТИ, ЧАСТИЧНОЕ ЗАПОЛНЕНИЕ С УЧЁТОМ УКРУПНЕНИЯ
+, Sterr
+, Sterr Sterr1        // для сбора доли по ИК ОС для КВИ2
+, Sterr Sterr3        // для КВИ3
+, Sterr Sterr4        // для прохода по всем ИК ОС
+, SpKau
+, SpKau SpKau5        // Льгота по налогу на имущество
+, KatOS
+, KatOS KatOS2
+, KatOS KatOS_All
+, KatOrg
+, PlPor
+, Oborot
+, BuhSchet
+, PlansSch
+, KatKOD
+, KatKOD KatKodGNI
+, Formuly
+, PatDefs
+, KauReff             // КАУ для ОКАТО (72)
+, KauReff KauReff4    // КАУ для ОКАТО (72) для прохода по всем ИК ОС
+, KauReff KauReff5    // КАУ Льгота по налогу на имущество
+, AttrNam
+, AttrVal // (Memory, AutoLoad)
+, _AttrVal // таблица в памяти
+, AttrVal AttrVal1    // для сбора доли по ИК ОС для КВИ2
+, UserDeskRep                  (USERDESKREP04)
+, UserDeskRep UserDeskRepBIG   (USERDESKREP04)
+, UserDeskRep UserDeskRepBIG1  (USERDESKREP04)
+, UserDeskRep UserDeskRepBIG2  (USERDESKREP04)
+, UserDeskRep UserDeskRepBIG8  (USERDESKREP04)
+, StoimStruct
+, StoimStruct StoimStruct1  // для сбора доли по ИК ОС для КВИ2
+, StoimStruct StoimStruct2
+, SaldMoun
+, TurboSaldMoun // (memory)
+!, TurboSaldMoun2
+, Oborot_801
+
+where
+((
+           TabOkato._NrecOkato  ==  STerr.sCode
+     and   NrecGNI              ==  KatOrg.nRec
+
+     and   nomer                        ==  UserDeskRep.nRep
+     and   Mesto+'-'+SelKPP+'-'+InsKod  ==  UserDeskRep.RepName (length = 20)
+
+     and   nomer                        ==  UserDeskRepBIG.nRep
+     and   Mesto+'-'+SelKPP+'-'+InsKod  ==  UserDeskRepBIG.RepName (length = 20)
+     and   AttrVal.vComp                ==  UserDeskRepBIG.ResComp[1] (NoIndex)
+
+     and   nomer                        ==  UserDeskRepBIG1.nRep
+     and   Mesto+'-'+SelKPP+'-'+InsKod  ==  UserDeskRepBIG1.RepName (length = 20)
+     and   AttrVal1.vComp               ==  UserDeskRepBIG1.ResComp[1] (NoIndex)
+
+     and   nomer                        ==  UserDeskRepBIG2.nRep
+     and   Mesto+'-'+SelKPP+'-'+InsKod  ==  UserDeskRepBIG2.RepName (length = 20)
+     and   TurboSaldMoun.cOKATO         ==  UserDeskRepBIG2.ResComp[1] (NoIndex)
+
+     and   nomer                        ==  UserDeskRepBIG8.nRep
+     and   Mesto+'-'+SelKPP+'-'+InsKod  ==  UserDeskRepBIG8.RepName (length = 20)
+     and   Oborot_801.KAUOS[3]          ==  UserDeskRepBIG8.ResComp[1] (NoIndex)
+
+     and   word(10)                          ==  PlPor.TiDK    // бух.справка
+     and   add_day(dTo,1)                    ==  PlPor.DatVip
+     and   'И_'+Mesto+'-'+SelKPP+'-'+InsKod  ==  PlPor.NoDok
+
+     and   KatOS_All.nRec       ==  KauReff4.cRec
+     and   word(3000)           ==  KauReff4.coTable
+     and   word(72)             ==  KauReff4.wKau    // ОКАТО
+     and   KauReff4.cKau        ==  Sterr4.nRec
+
+     and   word(3108)           ==  AttrNam.wTable
+     and   'ОКАТО'              ==  AttrNam.name
+
+     and   AttrNam.nRec         ==  AttrVal.cAttrNam
+
+     and   _AttrVal.cRec        ==  StoimStruct.nRec
+     and   _AttrVal.vComp       ==  _STerr2.nRec
+     and   StoimStruct.cDoc     ==  KatOS.nRec
+
+     and   word(15)             ==  StoimStruct1.wType
+     and   KatOS.nRec           ==  StoimStruct1.cDoc
+
+     and   word(3108)           ==  AttrVal1.wTable
+     and   StoimStruct1.nRec    ==  AttrVal1.cRec
+     and   AttrNam.nRec         ==  AttrVal1.cAttrNam
+
+     and   AttrVal1.vComp       ==  Sterr1.nRec
+
+
+     and   KatOS.nRec           ==  KauReff.cRec
+     and   word(3000)           ==  KauReff.coTable
+     and   word(72)             ==  KauReff.wKau    // ОКАТО
+     and   KauReff.cKau         ==  Sterr3.nRec
+
+     and   KatOS.nRec           ==  KauReff5.cRec
+     and   word(3000)           ==  KauReff5.coTable
+     and   word(20034)          ==  KauReff5.wKau    // Льгота по налогу на имущество
+     and   KauReff5.cKau        ==  SpKau5.nRec
+
+     and   word(15)             ==  NastrOS.tidk
+     and   'Бухгалтерский учет' ==  NastrOS.name
+
+     and   KatOS.nRec           ==  SpKatOS.cKatOS
+     and   NastrOS.nRec         ==  SpKatOS.cNastrOS
+
+     and   word(6)              ==  KatKOD.wType
+     and   SelKPP               ==  KatKOD.KOD
+
+     and   KatKOD.cOrg1         ==  KatKodGNI.nRec
+
+     and   Schet                ==  SaldMoun.SchetO
+     and   SubSchet             ==  SaldMoun.SubOsSch
+     and   dFrom               <<=  SaldMoun.DateSal
+     and   Add_Months(dTo,1)   >>=  SaldMoun.DateSal
+
+     and   'N'                  ==  PlansSch.kod   // налоговый план счетов
+
+     // фильтр на ключи типовых алгоритмов и констант
+     and   '&ДНИ_020-140_00'   <<=  PatDefs.key
+     and   '&ДНИ_020-140_99'   >>=  PatDefs.key
+
+     and   Oborot_801.KAUOS[2]  ==  FpPeriod.nRec
+))
+;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+FILE f_XML;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+datastream DocDataStream
+(
+    [YEAR]         sYear;
+    [OTCHPER]      OtchPer;
+    [Vers]         if ( trim(string(Vers,0,0))='0','',trim(string(Vers,0,0)) );
+    [INN]          if ( GetFirst KatOrg where (( coGetTune('MYORG') == KatOrg.nRec )) = tsOk, KatOrg.UNN , '' );
+    [OrgName]      UpCase( if ( GetFirst KatOrg where (( coGetTune('MYORG') == KatOrg.nRec )) = tsOk, KatOrg.ShortName, '' ) );
+    [Tel]          telefon;
+    [Mesto]        string(Mesto);
+    [Period]       Period;
+    [KPP]          SelKPP;
+    [InsKod]       InsKod;
+    [InsName]      InsName;
+    [Rukovod1]     trim( iStrFunc.GetFirstName(FIO_Pred));   // фамилия
+    [Rukovod2]     trim(  iStrFunc.GetLastName(FIO_Pred));   // имя
+    [Rukovod3]     trim(iStrFunc.GetPatronymic(FIO_Pred));   // отчество руководителя
+    [OKVED]        sGetTune('ETAXRU.TUNEOKVED');
+!    [Predstavit]   sGetTune('ETAXRU.PRESENTPERS');
+    [Dokum]        trim(DOK_PRED);
+    [PRED]         if( trim(DOK_PRED) = '', '1', '2');
+    [dOtch]        DateToStr(dOtch,'DD.MM.YYYY');
+    [Kod_Nal_130]  trim(Kod_Nal_130);
+    [Kod_Nal_160]  trim(Kod_Nal_160);
+    [Kod_Nal_190]  trim(Kod_Nal_190);
+    [Nal_stav]     replace(Nal_stav,'.','');
+    [Nal_stav2]    replace(Nal_stav2,'.','');
+
+    table Okato_Razdel1
+    (
+      [_sCode]        Okato_Razdel1._sCode;
+      [_Kod]          Okato_Razdel1._Kod;
+      [_Summ]         trim(string(Okato_Razdel1._Summ,0,0));
+    );
+
+    table TabOkato_KVI       //элемент уровня table
+    (
+      [_Sum]          trim(string(TabOkato_KVI._Sum,0,0));
+
+      // КВИ
+      [_KVI]          TabOkato_KVI._KVI;
+
+      TabOkato_KVI._sCode;  // ОКАТО
+      TabOkato_KVI._INN;    // карточка ОС
+
+      // 3-тья колонка
+      [_k3_020]       trim(string(TabOkato_KVI._k3_020,0,0));
+      [_k3_030]       trim(string(TabOkato_KVI._k3_030,0,0));
+      [_k3_040]       trim(string(TabOkato_KVI._k3_040,0,0));
+      [_k3_050]       trim(string(TabOkato_KVI._k3_050,0,0));
+      [_k3_060]       trim(string(TabOkato_KVI._k3_060,0,0));
+      [_k3_070]       trim(string(TabOkato_KVI._k3_070,0,0));
+      [_k3_080]       trim(string(TabOkato_KVI._k3_080,0,0));
+      [_k3_090]       trim(string(TabOkato_KVI._k3_090,0,0));
+      [_k3_100]       trim(string(TabOkato_KVI._k3_100,0,0));
+      [_k3_110]       trim(string(TabOkato_KVI._k3_110,0,0));
+      // 4-ая колонка
+      [_k4_020]       trim(string(TabOkato_KVI._k4_020,0,0));
+      [_k4_030]       trim(string(TabOkato_KVI._k4_030,0,0));
+      [_k4_040]       trim(string(TabOkato_KVI._k4_040,0,0));
+      [_k4_050]       trim(string(TabOkato_KVI._k4_050,0,0));
+      [_k4_060]       trim(string(TabOkato_KVI._k4_060,0,0));
+      [_k4_070]       trim(string(TabOkato_KVI._k4_070,0,0));
+      [_k4_080]       trim(string(TabOkato_KVI._k4_080,0,0));
+      [_k4_090]       trim(string(TabOkato_KVI._k4_090,0,0));
+      [_k4_100]       trim(string(TabOkato_KVI._k4_100,0,0));
+      [_k4_110]       trim(string(TabOkato_KVI._k4_110,0,0));
+
+      [_120]          trim(string(TabOkato_KVI._120,0,0));
+      [_130]          trim(string(TabOkato_KVI._130,0,0));
+      [_140]          trim(string(TabOkato_KVI._140,0,0));
+      [_150_ch]       trim(if (TabOkato_KVI._150_ch > 0, trim(string(TabOkato_KVI._150_ch,0,0)), ''));
+      [_150_zn]       trim(if (TabOkato_KVI._150_zn > 0, trim(string(TabOkato_KVI._150_zn,0,0)), ''));
+      [_160]          trim(string(TabOkato_KVI._160,0,0));
+      [_170]          trim(replace(string(TabOkato_KVI._170),'.',''));     // нал.ставка
+      [_180]          trim(string(TabOkato_KVI._180,0,0));
+      [_190]          trim(string(TabOkato_KVI._190,0,0));
+      [_200]          trim(string(TabOkato_KVI._200,0,0));
+    );
+
+)
+end;
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+procedure shapka;
+{
+   xlAddSheet;
+   xlSetSheetName( 1, 'Протокол_'+j );
+
+   xlSetCellStringValue( 'Проверочный протокол по налогу на Имущество (Авансовый)' , 2, 2, 2, 2 );
+   xlSetCellStringValue( 'за период: с '+DateToStr(dFrom,'DD.MM.YYYY')+' по '+DateToStr(dTo,'DD.MM.YYYY'), 3, 2, 3, 2 );
+
+   xlSetCellStringValue( 'КВИ'            , 5, 1, 5, 1 );
+   xlSetCellStringValue( 'колонка'        , 5, 2, 5, 2 );
+   xlSetCellStringValue( 'На дату'        , 5, 3, 5, 3 );
+   xlSetCellStringValue( 'Счет / Субсчет' , 5, 4, 5, 4 );
+   xlSetCellStringValue( 'ОКАТО'          , 5, 5, 5, 5 );
+   xlSetCellStringValue( 'ОС'             , 5, 6, 5, 6 );
+   xlSetCellStringValue( 'Сальдо'         , 5, 7, 5, 7 );
+   xlSetCellStringValue( 'Доля'           , 5, 8, 5, 8 );
+   xlSetCellStringValue( 'Сумма доли'     , 5, 9, 5, 9 );
+
+
+   xlFrameCells(xlBorderL or xlBorderR or xlBorderT or xlBorderB or xlInsideV or
+                xlInsideH or xlInsideHorizontal or xlInsideVertical, xlThin, 0, 0, 5, 1, 5, 9);
+
+   xlSetColumnWidth(  6, 1, 1, 1, 1);
+   xlSetColumnWidth(  6, 1, 2, 1, 2);
+   xlSetColumnWidth( 14, 1, 3, 1, 3);
+   xlSetColumnWidth( 36, 1, 4, 1, 4);
+   xlSetColumnWidth( 14, 1, 5, 1, 5);
+   xlSetColumnWidth( 26, 1, 6, 1, 7);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Function GetPole (_s_ : string; n : integer):string;  // получаем значение поля по порядковому номеру
+{
+  var jj : integer;
+  _s_ := ';' + _s_; // lj,fdkztv
+  for ( jj := 1; jj <= n; jj := jj + 1 )
+  {
+    _s_ := SubStr(_s_, InStr(';',_s_) + 1, length(_s_) - InStr(';',_s_));
+  }
+  _s_ := subStr(_s_, 1, InStr(';',_s_)-1);
+  GetPole := _s_;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Procedure GenFormula; // генерирую формулу
+{
+  sFormula := replace( sFormula, ' ', '' );
+  sFormula := replace( sFormula, '-', '' );
+  sFormula := replace( sFormula, '+', '' );
+  sFormula := replace( sFormula, chr(39), '' ); // убиваю одиночные кавычки '
+
+  // для 3-го кода вид а имущества не используется аналитика по ОС
+  sFormula := replace( sFormula, '[В]', ''  );
+  sFormula := replace( sFormula, '[НМ]', '' );
+
+  sFormula := replace( sFormula, '[1:Л]', '' );
+  sFormula := replace( sFormula, '[2:Л]', '' );
+  sFormula := replace( sFormula, '[3:Л]', '' );
+  sFormula := replace( sFormula, '[4:Л]', '' );
+  sFormula := replace( sFormula, '[5:Л]', '' );
+  sFormula := replace( sFormula, '[6:Л]', '' );
+
+  sFormula := replace( sFormula, '[1:ОС]', '' );
+  sFormula := replace( sFormula, '[2:ОС]', '' );
+  sFormula := replace( sFormula, '[3:ОС]', '' );
+  sFormula := replace( sFormula, '[4:ОС]', '' );
+  sFormula := replace( sFormula, '[5:ОС]', '' );
+  sFormula := replace( sFormula, '[6:ОС]', '' );
+
+  sFormula := replace( sFormula, '[1:ОКАТО]', '' );
+  sFormula := replace( sFormula, '[2:ОКАТО]', '' );
+  sFormula := replace( sFormula, '[3:ОКАТО]', '' );
+  sFormula := replace( sFormula, '[4:ОКАТО]', '' );
+  sFormula := replace( sFormula, '[5:ОКАТО]', '' );
+  sFormula := replace( sFormula, '[6:ОКАТО]', '' );
+
+  sFormula := replace( sFormula, 'С', ''); // раньше не следует, только после вырезки всего
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+procedure Protokol;
+{
+  ClearBuffer(#Formuly);
+   Formuly.formulja := if(DebKred = 2,'К ','Д ') + replace(Schet,'T','') + '_' + SubSchet;
+   Formuly.KVI      := sKVI;
+   Formuly.kolonka  := sStolb;
+   Formuly.data     := sData;
+   Formuly.INNOS    := sOS;
+   Formuly.OKATO    := TabOkato._sCode;
+   Formuly.summ     := RezSum;
+   Formuly.ch       := chisl;
+   Formuly.zn       := znam;
+  insert current Formuly;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+procedure Protokol_KVI;
+{
+  ClearBuffer(#Formuly);
+   Formuly.formulja := if(DebKred = 2,'К ','Д ') + replace(Schet,'T','') + '_' + SubSchet;
+   Formuly.KVI      := sKVI;
+   Formuly.kolonka  := sStolb;
+   Formuly.data     := sData;
+   Formuly.INNOS    := sOS;
+   Formuly.OKATO    := TabOkato_KVI._sCode;
+   Formuly.summ     := RezSum;
+   Formuly.ch       := chisl;
+   Formuly.zn       := znam;
+  insert current Formuly;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Procedure SaldoInTurbo;
+{
+  ClearBuffer(#TurboSaldMoun);
+
+  TurboSaldMoun.SchetO   := SaldMoun.SchetO  ;
+  TurboSaldMoun.SubOsSch := SaldMoun.SubOsSch;
+  TurboSaldMoun.ViOb     := SaldMoun.ViOb    ;
+  TurboSaldMoun.DateSal  := SaldMoun.DateSal ;
+  TurboSaldMoun.SumS     := SaldMoun.SumS    ;
+
+  case SaldMoun.TblOS[1] of
+   word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[1];
+   word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[1];
+   word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[1];
+  end;
+
+  case SaldMoun.TblOS[2] of
+   word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[2];
+   word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[2];
+   word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[2];
+  end;
+
+  case SaldMoun.TblOS[3] of
+   word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[3];
+   word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[3];
+   word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[3];
+  end;
+
+  case SaldMoun.TblOS[4] of
+   word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[4];
+   word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[4];
+   word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[4];
+  end;
+
+  case SaldMoun.TblOS[5] of
+   word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[5];
+   word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[5];
+   word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[5];
+  end;
+
+  case SaldMoun.TblOS[6] of
+   word(15)   : TurboSaldMoun.cKatOS := SaldMoun.KauOS[6];
+   word(72)   : TurboSaldMoun.cOKATO := SaldMoun.KauOS[6];
+   word(20034): TurboSaldMoun.cL     := SaldMoun.KauOS[6];
+  end;
+
+  if ( GetFirst fastfirstrow SpKau where (( TurboSaldMoun.cL == SpKau.nRec )) = tsOk )
+   TurboSaldMoun.code := SpKau.code;
+
+  // укрупнение
+  if ( cBigOKATO <> comp(0) )
+   if ( GetFirst fastfirstrow UserDeskRepBIG2 = tsOk )
+    TurboSaldMoun.cOKATO := cBigOKATO;
+
+  insert current TurboSaldMoun;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+HandleEvent  // обработчик интерфейса
+cmInit:
+{
+  InsName := InsKod := L_NS := L_NM := L_OS := NL_OS := NL_NS := NL_NM := L_KVI3M := '';
+
+  c001001001 := c001001002 := c001001003 := c001002001 := c001002002 := c001002003 := comp(0);
+  c002001 := c002002 := c002003 := comp(0);
+
+  cBigOKATO := comp(0);
+
+
+  nomer := 15115; // номер отчета - делаем одинаково и для декларации и для авансового расчета, т.к. настройки одинаковы
+
+  // чистим таблицы в памяти
+  delete all Formuly;
+  delete all TabOkato;
+  delete all TabOkato_KVI;
+  delete all TurboSaldMoun;
+
+  if ( GetFirst AttrNam <> tsOk )
+  {
+    message('Не заведен внешний атрибут "ОКАТО" для элементов стоимости объектов'
+             +chr(13)+'(раздел финансирования карточки ОС)' );
+    exit;
+  }
+
+  if ( GetFirst NastrOS <> tsOk )
+  {
+    message('Ошибка определения метода учета "Бухгалтерский учет" для ОС');
+    exit;
+  }
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // настройка отчета
+  if ( RunInterface(   Filter
+                     , InsName
+                     , InsKod
+                     , dOtch
+                     , dFrom
+                     , dTo
+                     , f068
+                     , fXML
+                     , fFile
+                     , fFileXML
+                     , nomer
+                     , Mesto
+                     , SelKPP
+                     , Kod_Nal_130
+                     , Kod_Nal_160
+                     , Kod_Nal_190
+                     , Nal_stav
+                     , Nal_stav2
+                     , Vers
+                     , telefon
+                     , FIO_Pred
+                     , DOK_PRED
+                     , cBigOKATO
+                     , dFrom801
+                     , dTo801
+                     , fNULL
+                   )  <> cmDefault )
+  {
+    exit;
+  }
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  if ( GetFirst fastfirstrow STerr where (( cBigOKATO == STerr.nRec )) = tsOk )
+   sBigOKATO := STerr.sCode;
+
+  if ( cBigOKATO <> comp(0) )
+   cBigOKATO := comp(-1);  // чтобы не путать с имеющимися в базе записями по укр.ОКАТО
+
+  // выгружаем все внешние атрибуты ОКАТО в память
+  if ( GetFirst fastfirstrow AttrNam = tsOk )
+   _loop AttrVal
+   {
+     if ( cBigOKATO = comp(0) ) // не укрупняем
+     {
+       ClearBuffer(#_AttrVal);
+       _AttrVal.cRec  := AttrVal.cRec;
+       _AttrVal.vComp := AttrVal.vComp;
+       insert current _AttrVal;
+
+       if ( GetFirst STerr where (( AttrVal.vComp == STerr.nRec )) = tsOk )
+       {
+         ClearBuffer(#_STerr2);
+          _STerr2.buffer := type$_STerr2(STerr.buffer);
+
+         if ( GetFirst _STerr2 where (( STerr.nRec == _STerr2.nRec )) <> tsOk )
+          insert current _STerr2;
+       }
+     }
+     else // укрупнение
+     {
+       if ( GetFirst fastfirstrow UserDeskRepBIG <> tsOk )  // если нет в списке ОКАТО для укрупнения, просто добавляем, чтобы учесть общую протяженность
+       {
+         ClearBuffer(#_AttrVal);
+         _AttrVal.cRec  := AttrVal.cRec;
+         _AttrVal.vComp := AttrVal.vComp;
+         insert current _AttrVal;
+
+         if ( GetFirst STerr where (( AttrVal.vComp == STerr.nRec )) = tsOk )
+         {
+           ClearBuffer(#_STerr2);
+            _STerr2.buffer := type$_STerr2(STerr.buffer);
+
+           if ( GetFirst _STerr2 where (( STerr.nRec == _STerr2.nRec )) <> tsOk )
+            insert current _STerr2;
+         }
+       }
+       else
+       {
+         if ( GetFirst StoimStruct2 where (( AttrVal.cRec == StoimStruct2.nRec )) = tsOk )
+          if ( GetFirst KatOS2 where (( StoimStruct2.cDoc == KatOS2.nRec )) = tsOk )
+           if ( GetFirst _AttrVal where (( cBigOKATO == _AttrVal.vComp and KatOS2.nRec == _AttrVal.cKatOS )) = tsOk )
+           {
+             ClearBuffer(#_AttrVal);
+             _AttrVal.cRec  := AttrVal.cRec;
+             _AttrVal.vComp := AttrVal.vComp;
+             insert current _AttrVal;
+
+             if ( GetFirst STerr where (( AttrVal.vComp == STerr.nRec )) = tsOk )
+             {
+               ClearBuffer(#_STerr2);
+                _STerr2.buffer := type$_STerr2(STerr.buffer);
+
+               if ( GetFirst _STerr2 where (( STerr.nRec == _STerr2.nRec )) <> tsOk )
+                insert current _STerr2;
+             }
+
+             continue;
+           }
+
+         ClearBuffer(#_AttrVal);
+         _AttrVal.cRec   := AttrVal.cRec;
+         _AttrVal.vComp  := cBigOKATO;
+         _AttrVal.cKatOS := KatOS2.nRec;
+         insert current _AttrVal;
+
+         if ( GetFirst STerr where (( AttrVal.vComp == STerr.nRec )) = tsOk )
+         {
+           ClearBuffer(#_STerr2);
+            _STerr2.buffer := type$_STerr2(STerr.buffer);
+
+            _STerr2.nRec      := cBigOKATO;
+            _STerr2.sCode     := sBigOKATO;
+            _STerr2.sGNI_Code := sBigOKATO;
+
+           if ( GetFirst _STerr2 where (( cBigOKATO == _STerr2.nRec )) <> tsOk )
+            insert current _STerr2;
+         }
+       }
+     }
+   }
+
+  // забиваем в поток ОКАТО, определённые пользователем для текущей декларации
+  if ( cBigOKATO = comp(0) ) // не аккумулируем по укрупнённому ОКАТО
+  {
+    _loop UserDeskRep
+    {
+      // основная временная таблица для расчета остаточной стоимости
+      ClearBuffer(#TabOkato);
+       TabOkato._sCode     := UserDeskRep.ResCode[1];
+       TabOkato._NrecOkato := UserDeskRep.ResComp[1];
+       TabOkato._KVI3_200  := UserDeskRep.ResDouble[1]; // отдельные листы по коду 2012000
+
+       if ( UserDeskRep.ResDouble[1] <> 0 )
+        TabOkato._KVI3_190 := '2012000';
+
+      insert current TabOkato;
+    }
+  }
+  else
+  {
+    // укрупнённое ОКАТО
+    ClearBuffer(#TabOkato);
+
+    TabOkato._sCode     := sBigOKATO;
+    TabOkato._NrecOkato := cBigOKATO;
+
+    _loop UserDeskRep // собрали все 2012000
+     TabOkato._KVI3_200 := TabOkato._KVI3_200 + UserDeskRep.ResDouble[1];
+
+    if ( TabOkato._KVI3_200 <> 0 )
+     TabOkato._KVI3_190 := '2012000';
+
+    insert current TabOkato;
+  }
+
+  _loop Oborot where (( 'N801' == Oborot.SchetO and dFrom801 <<= Oborot.DatOb and dTo801 >>= Oborot.DatOb ))
+  {
+    ClearBuffer(#Oborot_801);
+     Oborot_801.buffer := type$Oborot_801(Oborot.buffer);
+
+     if ( cBigOKATO <> comp(0) )
+      if ( GetFirst fastfirstrow UserDeskRepBIG8 = tsOk )
+       Oborot_801.KAUOS[3] := cBigOKATO;
+
+    insert current Oborot_801;
+  }
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+  if ( trim(telefon) = '' )
+   if ( GetFirst fastfirstrow KatOrg where (( coGetTune('MYORG') == KatOrg.nRec )) = tsOk )
+    telefon := KatOrg.tel;
+
+  if ( trim(FIO_Pred) = '' )
+   FIO_Pred := sGetTune('BOSS');
+
+  t1 := Cur_Time;
+
+
+  sYear := string(year(dFrom));
+
+  period := '';
+
+  if ( dTo > date(01,03,YEAR(dTo)) )
+    period := '21';
+
+  if ( dTo > date(01,06,YEAR(dTo)) )
+    period := '31';
+
+  if ( dTo > date(01,09,YEAR(dTo)) )
+    period := '33';
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // забивает значения nRec для аналитик по льготированию
+
+  // Не Льготируемое - только колонка 3    КВИ 3     СТАВКА 0.4
+  c001001001 := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '001001001' == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+  // Не Льготируемое - только колонка 3    КВИ 2     СТАВКА 0.4
+  c001001002 := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '001001002' == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+  // Не Льготируемое - только колонка 3    КВИ 3     СТАВКА 0.4
+  c001001003 := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '001001003' == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+
+  // льготируемое колонка 3 = 4 -- отдельный лист по коду 2012000     КВИ 3
+  c001002001 := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '001002001' == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+  // льготируемое      КВИ 2
+  c001002002 := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '001002002' == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+  // льготируемое      КВИ 3
+  c001002003 := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '001002003' == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+
+  // не льготируемое КВИ 3
+  c002001    := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '002001'    == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+  // не льготируемое КВИ 2
+  c002002    := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '002002'    == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+  // не льготируемое КВИ 3
+  c002003    := if ( GetFirst fastfirstrow SpKau where (( word(20034) == SpKau.KODGRKAU and '002003'    == SpKau.code )) = tsOk, SpKau.nRec, comp(0) );
+
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  etap := AllEtap := 0;
+
+  // подсчет общего количества настроенных счетов, по которым будем вести расчёт
+  _loop PatDefs
+   ++AllEtap; // общее количество этапов берём за количество формул
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  StartNewVisual(vtNumericVisual, vfTimer+vfBreak+vfConfirm, 'Подготовка данных для отчета '
+                 +Chr(13)+'Отбор сальдовых остатков', 1);
+
+  SetVisualTitle( 'Предварительный этап');
+
+  i := 0;
+
+  // выбираем сальдовые остатки по счетам 01, 02, 03, 010 поочередно - настроено в типовых алгоритмах и конст.
+  _loop PatDefs
+  {
+    sFormula := PatDefs.formula;
+
+    GenFormula; // ген.модификация формулы 1-го уровня
+
+    DebKred := 1;
+
+    if ( SubStr(sFormula,1,1) = 'К' )
+     DebKred := 2;
+
+    sFormula := replace(sFormula, 'Д', '');
+    sFormula := replace(sFormula, 'К', '');
+    // осталось в строке только счет / субсчет
+
+    if ( InStr('_',sFormula) = 0 )
+    {
+      Schet    := 'T'+sFormula;
+      SubSchet := '';
+    }
+    else
+    {
+      Schet    := 'T'+SubStr(sFormula, 1, InStr('_',sFormula)-1 );
+      SubSchet := Replace(sFormula, SubStr( sFormula, 1, InStr('_',sFormula) ), '');
+    }
+
+    SetVisualHeader ('Подготовка данных для авансового расчета по налогу на имущество.'
+                      +chr(13)+'Отбор сальдо по счету: '+Schet+'/'+SubSchet
+                      +' за период с '+DateToStr(dFrom,'DD.MM.YYYY')+' по '+DateToStr(dTo,'DD.MM.YYYY') );
+
+    if ( Schet = 'T02' or Schet = 'T010' )
+     _loop SaldMoun where ((       Schet               ==  SaldMoun.SchetO
+                             and   dFrom              <<=  SaldMoun.DateSal
+                             and   Add_Months(dTo,1)  >>=  SaldMoun.DateSal
+                          ))
+     {
+       ++i;
+
+       if not (NextVisual)
+       {
+         message('Формирование отчета остановлено пользователем');
+         StopVisual('', 0);
+         CloseInterface(cmCancel);
+         exit;
+       }
+
+       SaldoInTurbo;
+     }
+    else
+     _loop SaldMoun
+     {
+       ++i;
+
+       if not (NextVisual)
+       {
+         message('Формирование отчета остановлено пользователем');
+         StopVisual('', 0);
+         CloseInterface(cmCancel);
+         exit;
+       }
+
+       SaldoInTurbo;
+     } // сбор сальдовых
+
+  } // PatDefs
+
+  ///////////////////////////////////////////////////////////////////
+  // СРАЗУ ПОДСЧЕТ ДЛЯ КВИ3, т.к. в КВИ2 добавляются записи для ИК ОС
+  // может повлиять на дублирование сумм в КВИ3 при расчете по ОКАТО
+  // т.к. будут повторные проходы по ОКАТО с несколькими ИК ОС
+
+  // считаем данные по всем формулам типа '&ДНИ_020-110'
+
+  shag := '1';
+  sKVI := '3';
+
+  _loop PatDefs // обход для расчета остаточной стоимости
+  {
+    /////////////////////////////////////////////////////////////
+    //                         III                             //
+    // режем формулы для 2-го раздела (код вида имущества = 3) //
+    /////////////////////////////////////////////////////////////
+    ++etap;
+
+    SetVisualTitle( 'Шаг '+shag+'/2  Этап '+etap+'/'+AllEtap);
+
+    sOS := '';
+
+    chisl := 1; // числитель для доли ОС в ОКАТО
+    znam  := 1; // знаменатель для доли ОС в ОКАТО
+
+    sFormula := sFormula1 := sFormula2 := sFormula3 := '';
+    bMinus   := false;
+
+    sFormula := PatDefs.formula;
+
+    if ( SubStr(sFormula,2,1) = '-' )
+     bMinus := true;
+
+    GenFormula; // ген.модификация формулы 1-го уровня
+
+    sFormula1 := sFormula; // сохранили формулу после 1-ой ген.модификации
+
+    DebKred := 1;
+
+    if ( SubStr(sFormula1,1,1) = 'К' )
+     DebKred := 2;
+
+    sFormula1 := replace(sFormula1, 'Д', '');
+    sFormula1 := replace(sFormula1, 'К', '');
+    // осталось в строке только счет / субсчет
+
+    if ( InStr('_',sFormula1) = 0 )
+    {
+      Schet    := 'T'+sFormula1;
+      SubSchet := '';
+    }
+    else
+    {
+      Schet    := 'T'+SubStr(sFormula1, 1, InStr('_',sFormula1)-1 );
+      SubSchet := Replace(sFormula1, SubStr( sFormula1, 1, InStr('_',sFormula1) ), '');
+    }
+
+    _loop TabOkato // проход по всем ОКАТО текущей декларации
+    {
+      for ( i := 1; i <= 10; ++i )
+      {
+        chisl := 1; // числитель для доли ОС в ОКАТО
+        znam  := 1; // знаменатель для доли ОС в ОКАТО
+        sOS := '';
+
+        SetVisualHeader ('Подготовка данных для авансового расчета по налогу на имущество.'
+                          +chr(13)+'Раздел 2. Код вида имущества '+sKVI+'. Шаг '+shag+'. Этап '+etap+'/'+AllEtap+' :'+Schet+'/'+SubSchet
+                          +chr(13)+'Расчет по ОКАТО: '+TabOkato._sCode   );
+
+        if not (NextVisual)
+        {
+          message('Формирование отчета остановлено пользователем');
+          StopVisual('', 0);
+          CloseInterface( cmCancel );
+          exit;
+        }
+
+        if ( (Month(dTo)+1) < i ) // проверяем заданный период для расчета
+         continue;                // чтобы не шел расчет данных позднее указанного периода
+
+        dSal := Date( 01, byte(i), word(sYear) );
+
+        sData := DateToStr(dSal, 'DD.MM.YYYY');
+
+        // Собираем сальдо
+
+        // КОД 001001001 кви3 столбец 3
+        sStolb := '001001001';
+        RezSum := 0;
+
+        // собираем сальдо, выбираем лучший индекс, ориентация на ОКАТО
+        if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+        { // собираем сальдо только в разрезе текущего ОКАТО
+          _loop TurboSaldMoun where ((
+                                           Schet               == TurboSaldMoun.SchetO
+                                      and  dSal                == TurboSaldMoun.DateSal
+                                      and  DebKred             == TurboSaldMoun.ViOb
+                                      and  TabOkato._NrecOkato == TurboSaldMoun.cOKATO
+                                      and  c001001001          == TurboSaldMoun.cL
+                                    ))
+          {
+            NextVisual;
+            RezSum := RezSum + TurboSaldMoun.SumS;
+          }
+        }
+        else // остальные счета в разрезе субсчетов
+        { // собираем сальдо только в разрезе текущего ОКАТО
+          _loop TurboSaldMoun where ((
+                                           Schet               == TurboSaldMoun.SchetO
+                                      and  dSal                == TurboSaldMoun.DateSal
+                                      and  DebKred             == TurboSaldMoun.ViOb
+                                      and  TabOkato._NrecOkato == TurboSaldMoun.cOKATO
+                                      and  c001001001          == TurboSaldMoun.cL
+                                      and  SubSchet            == TurboSaldMoun.SubOsSch
+                                    ))
+          {
+            NextVisual;
+            RezSum := RezSum + TurboSaldMoun.SumS;
+          }
+        }
+
+!        RezSum := round(RezSum);
+
+        if ( bMinus )
+         RezSum := (-1) * RezSum;
+
+        Protokol;
+
+        /////////////////////////////////////////////////////////////
+        // отдельные листы для 001001001
+        if ( RezSum <> 0 )
+        {
+          bKVI3 := FALSE; // есть лист
+
+          // есть ли данного ОКАТО такая страничка
+          if ( GetFirst fastfirstrow TabOkato_KVI where ((      '3'                  ==  TabOkato_KVI._KVI
+                                                           and  TabOkato._NrecOkato  ==  TabOkato_KVI._NrecOkato
+                                                           and  '0.4-001001001'      ==  TabOkato_KVI._INN
+                                                        )) = tsOk )
+          {
+            bKVI3 := TRUE; // есть лист
+          }
+
+          if not bKVI3 // вставка новой записи
+          {
+            ClearBuffer(#TabOkato_KVI);
+            TabOkato_KVI._KVI       :=  '3';                    // КВИ
+            TabOkato_KVI._INN       :=  '0.4-001001001';        // отдельные листы для льготы 001001001
+            TabOkato_KVI._sCode     :=  TabOkato._sCode;        // ОКАТО
+            TabOkato_KVI._NrecOkato :=  TabOkato._NrecOkato;
+            TabOkato_KVI._130       :=  kod_nal_130;
+            TabOkato_KVI._170       :=  Nal_stav2;              // 0.4
+          }
+
+          case i of
+            1 :  TabOkato_KVI._k3_020 += RezSum;
+            2 :  TabOkato_KVI._k3_030 += RezSum;
+            3 :  TabOkato_KVI._k3_040 += RezSum;
+            4 :  TabOkato_KVI._k3_050 += RezSum;
+            5 :  TabOkato_KVI._k3_060 += RezSum;
+            6 :  TabOkato_KVI._k3_070 += RezSum;
+            7 :  TabOkato_KVI._k3_080 += RezSum;
+            8 :  TabOkato_KVI._k3_090 += RezSum;
+            9 :  TabOkato_KVI._k3_100 += RezSum;
+           10 :  TabOkato_KVI._k3_110 += RezSum;
+          end;
+
+
+          if ( dTo > date(01,03,YEAR(dTo)) and dTo < date(01,06,YEAR(dTo)) )
+          {
+            TabOkato_KVI._120 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                 + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 ) / 4;
+          }
+
+          if ( dTo > date(01,06,YEAR(dTo)) and dTo < date(01,09,YEAR(dTo)) )
+          {
+            TabOkato_KVI._120 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                 + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                 + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 ) / 7;
+          }
+
+          if ( dTo > date(01,09,YEAR(dTo)) )
+          {
+            TabOkato_KVI._120 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                 + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                 + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 + TabOkato_KVI._k3_090
+                                 + TabOkato_KVI._k3_100 + TabOkato_KVI._k3_110 ) / 10;
+          }
+
+          TabOkato_KVI._180 := round((round(TabOkato_KVI._120)-round(TabOkato_KVI._140))*TabOkato_KVI._170/100/4);
+
+          if bKVI3
+           UpDate current TabOkato_KVI;
+          else
+           insert current TabOkato_KVI;
+
+        }
+
+        //////////////////////////////////////////////////////////////////////
+        RezSum := 0;
+
+        sStolb := '3';
+
+        // собираем сальдо, выбираем лучший индекс, ориентация на ОКАТО
+        if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+        { // собираем сальдо только в разрезе текущего ОКАТО
+          _loop TurboSaldMoun where ((
+                                           Schet               == TurboSaldMoun.SchetO
+                                      and  dSal                == TurboSaldMoun.DateSal
+                                      and  DebKred             == TurboSaldMoun.ViOb
+                                      and  TabOkato._NrecOkato == TurboSaldMoun.cOKATO
+                                      and  c002001             == TurboSaldMoun.cL
+                                    ))
+          {
+            NextVisual;
+            RezSum := RezSum + TurboSaldMoun.SumS;
+          }
+        }
+        else // остальные счета в разрезе субсчетов
+        { // собираем сальдо только в разрезе текущего ОКАТО
+          _loop TurboSaldMoun where ((
+                                           Schet               == TurboSaldMoun.SchetO
+                                      and  dSal                == TurboSaldMoun.DateSal
+                                      and  DebKred             == TurboSaldMoun.ViOb
+                                      and  TabOkato._NrecOkato == TurboSaldMoun.cOKATO
+                                      and  c002001             == TurboSaldMoun.cL
+                                      and  SubSchet            == TurboSaldMoun.SubOsSch
+                                    ))
+          {
+            NextVisual;
+            RezSum := RezSum + TurboSaldMoun.SumS;
+          }
+        }
+
+!        RezSum := round(RezSum);
+
+        if ( bMinus )
+         RezSum := (-1) * RezSum;
+
+        Protokol;
+
+        case i of
+          1 :  TabOkato._KVI3_k3_020 += RezSum;
+          2 :  TabOkato._KVI3_k3_030 += RezSum;
+          3 :  TabOkato._KVI3_k3_040 += RezSum;
+          4 :  TabOkato._KVI3_k3_050 += RezSum;
+          5 :  TabOkato._KVI3_k3_060 += RezSum;
+          6 :  TabOkato._KVI3_k3_070 += RezSum;
+          7 :  TabOkato._KVI3_k3_080 += RezSum;
+          8 :  TabOkato._KVI3_k3_090 += RezSum;
+          9 :  TabOkato._KVI3_k3_100 += RezSum;
+         10 :  TabOkato._KVI3_k3_110 += RezSum;
+        end;
+
+        UpDate current TabOkato;
+
+        //////////////////////////////////////////////////////////////////////////////////////////////////////
+        //  добавляем отдельные листы для КВИ 3 код льготы 2012000 <Дополнительные льготы по налогу ...
+        //  КАУ > Льготируемое по региональному законодательству     L_KVI3M
+        //        001002001 - Имущество, расположенное на территории одного субъекта РФ (одно м/о)
+        if ( c001002001 <> comp(0) )
+        {
+          RezSum := 0;
+          sStolb := '3=4';
+          bKVI3  := FALSE;
+
+          // собираем сальдо, выбираем лучший индекс, ориентация на ОКАТО
+          if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+          { // собираем сальдо только в разрезе текущего ОКАТО
+            _loop TurboSaldMoun where ((
+                                             Schet               == TurboSaldMoun.SchetO
+                                        and  dSal                == TurboSaldMoun.DateSal
+                                        and  DebKred             == TurboSaldMoun.ViOb
+                                        and  TabOkato._NrecOkato == TurboSaldMoun.cOKATO
+                                        and  c001002001            == TurboSaldMoun.cL
+                                      ))
+            {
+              NextVisual;
+              RezSum := RezSum + TurboSaldMoun.SumS;
+            }
+          }
+          else // остальные счета в разрезе субсчетов
+          { // собираем сальдо только в разрезе текущего ОКАТО
+            _loop TurboSaldMoun where ((
+                                             Schet               == TurboSaldMoun.SchetO
+                                        and  dSal                == TurboSaldMoun.DateSal
+                                        and  DebKred             == TurboSaldMoun.ViOb
+                                        and  TabOkato._NrecOkato == TurboSaldMoun.cOKATO
+                                        and  c001002001            == TurboSaldMoun.cL
+                                        and  SubSchet            == TurboSaldMoun.SubOsSch
+                                      ))
+            {
+              NextVisual;
+              RezSum := RezSum + TurboSaldMoun.SumS;
+            }
+          }
+
+!        RezSum := round(RezSum);
+
+          if ( bMinus )
+           RezSum := (-1) * RezSum;
+
+          Protokol;
+
+          if ( RezSum <> 0 )
+          {
+            bKVI3 := FALSE;
+
+            // есть ли данного ОКАТО такая страничка
+            if ( GetFirst TabOkato_KVI where ((      '3'                  ==  TabOkato_KVI._KVI
+                                                and  TabOkato._NrecOkato  ==  TabOkato_KVI._NrecOkato
+                                                and  '2012000'            ==  TabOkato_KVI._INN    (NoIndex)
+                                             )) = tsOk )
+            {
+              bKVI3 := TRUE; // есть лист
+            }
+
+            if not bKVI3 // вставка новой записи
+            {
+              ClearBuffer(#TabOkato_KVI);
+              TabOkato_KVI._KVI       :=  '3';                    // КВИ
+              TabOkato_KVI._INN       :=  '2012000';              // отдельные листы для льготы 001002001
+              TabOkato_KVI._sCode     :=  TabOkato._sCode;        // ОКАТО
+              TabOkato_KVI._NrecOkato :=  TabOkato._NrecOkato;
+              TabOkato_KVI._130       :=  '2012000';
+            }
+
+            case i of
+              1 :  TabOkato_KVI._k3_020 += RezSum;
+              2 :  TabOkato_KVI._k3_030 += RezSum;
+              3 :  TabOkato_KVI._k3_040 += RezSum;
+              4 :  TabOkato_KVI._k3_050 += RezSum;
+              5 :  TabOkato_KVI._k3_060 += RezSum;
+              6 :  TabOkato_KVI._k3_070 += RezSum;
+              7 :  TabOkato_KVI._k3_080 += RezSum;
+              8 :  TabOkato_KVI._k3_090 += RezSum;
+              9 :  TabOkato_KVI._k3_100 += RezSum;
+             10 :  TabOkato_KVI._k3_110 += RezSum;
+            end;
+
+            // колонка 4 равно третьей - только льготируемое
+            TabOkato_KVI._k4_020 := TabOkato_KVI._k3_020;
+            TabOkato_KVI._k4_030 := TabOkato_KVI._k3_030;
+            TabOkato_KVI._k4_040 := TabOkato_KVI._k3_040;
+            TabOkato_KVI._k4_050 := TabOkato_KVI._k3_050;
+            TabOkato_KVI._k4_060 := TabOkato_KVI._k3_060;
+            TabOkato_KVI._k4_070 := TabOkato_KVI._k3_070;
+            TabOkato_KVI._k4_080 := TabOkato_KVI._k3_080;
+            TabOkato_KVI._k4_090 := TabOkato_KVI._k3_090;
+            TabOkato_KVI._k4_100 := TabOkato_KVI._k3_100;
+            TabOkato_KVI._k4_110 := TabOkato_KVI._k3_110;
+
+            if ( dTo > date(01,03,YEAR(dTo)) and dTo < date(01,06,YEAR(dTo)) )
+            {
+              TabOkato_KVI._120 := TabOkato_KVI._140 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                 + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 ) / 4;
+            }
+
+            if ( dTo > date(01,06,YEAR(dTo)) and dTo < date(01,09,YEAR(dTo)) )
+            {
+              TabOkato_KVI._120 := TabOkato_KVI._140 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                 + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                 + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 ) / 7;
+            }
+
+            if ( dTo > date(01,09,YEAR(dTo)) )
+            {
+              TabOkato_KVI._120 := TabOkato_KVI._140 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                 + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                 + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 + TabOkato_KVI._k3_090
+                                 + TabOkato_KVI._k3_100 + TabOkato_KVI._k3_110 ) / 10;
+            }
+
+            // для 2012000 180 строка нулевая - не считаем
+
+            if bKVI3
+             UpDate current TabOkato_KVI;
+            else
+             insert current TabOkato_KVI;
+
+            if ( TabOkato_KVI._120 = 0 )  // пустышки не нужны // раньше проверять бессмысленно
+             delete current TabOkato_KVI; // расчет остаточной идёт накопительно, 02 счет заминусует в последнюю очередь
+          }
+        }
+        // отдельные листы для КВИ 3 код льготы 2012000
+        //////////////////////////////////////////////////////////////////////////////////////////////////////
+
+      } // for периоды
+
+      /////////////////////////////////////////////////////////////////////////////////////
+      //  УЧЕТ ДЛЯ КВИ3 ОБЪЕКТОВ РАСПОЛОЖЕННЫХ НА НЕСКОЛЬКИХ МУНИЦИПАЛЬНЫХ ОБРАЗОВАНИЯХ  //
+      /////////////////////////////////////////////////////////////////////////////////////
+      // расчет остаточной стоимости по ОС к которым в разделе финансирования привязан ОКАТО субъекта РФ / муниципального образования
+      _loop _AttrVal
+       if ( GetFirst StoimStruct = tsOk and GetFirst _STerr2 = tsOk and GetFirst KatOS = tsOk )
+        if ( StoimStruct.SumRes2 > double(0) and _STerr2.nRec = TabOkato._NrecOkato )
+        {
+          chisl := StoimStruct.SumRes2; // числитель для доли ОС в ОКАТО
+          chislBig := znam := 0;        // знаменатель для доли ОС в ОКАТО
+
+          _loop StoimStruct1
+           if ( GetFirst fastfirstrow AttrVal1 = tsOk and GetFirst fastfirstrow Sterr1 = tsOk )
+           {
+             znam += StoimStruct1.SumRes2;
+
+             if ( cBigOKATO <> comp(0) )
+              if ( GetFirst UserDeskRepBIG1 = tsOk )
+               chislBig += StoimStruct1.SumRes2;
+           }
+
+          if ( chisl < 1 ) // если числитель меньше 1 - переводим в метры (подразумеваются километры )
+          {
+            chisl *= 1000;
+            znam  *= 1000;
+            chislBig *= 1000;
+          }
+
+          if ( cBigOKATO <> comp(0) )
+           chisl := chislBig;
+
+          sOS := KatOS.InNum + ' - ' + KatOS.NameOS;
+
+          for ( i := 1; i <= 10; ++i )
+          {
+
+            SetVisualHeader('Подготовка данных для авансового расчета по налогу на имущество.'
+                             +chr(13)+'Раздел 2. Код вида имущества '+sKVI+'. Шаг '+shag+'. Этап '+etap+'/'+AllEtap+' :'+Schet+'/'+SubSchet
+                             +chr(13)+'Расчет по ОКАТО: '+TabOkato._sCode   );
+
+            if not (NextVisual)
+            {
+              message('Формирование отчета остановлено пользователем');
+              StopVisual('', 0);
+              CloseInterface(cmCancel);
+              exit;
+            }
+
+            if ( (Month(dTo)+1) < i ) // проверяем заданный период для расчета
+             continue;                // чтобы не шел расчет данных позднее указанного периода
+
+            dSal := Date( 01, byte(i), word(sYear) );
+
+            sData  := DateToStr(dSal, 'DD.MM.YYYY');
+
+            // КОД 001001003 кви3 столбец 3
+            sStolb := '001001003';
+            RezSum := 0;
+
+            // собираем сальдо, выбираем лучший индекс, ориентация на ОС
+            if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+            { // собираем сальдо только в разрезе текущего ОКАТО
+              _loop TurboSaldMoun where ((
+                                               Schet      == TurboSaldMoun.SchetO
+                                          and  dSal       == TurboSaldMoun.DateSal
+                                          and  DebKred    == TurboSaldMoun.ViOb
+                                          and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                          and  c001001003 == TurboSaldMoun.cL
+                                        ))
+              {
+                NextVisual;
+                RezSum := RezSum + TurboSaldMoun.SumS;
+              }
+            }
+            else // остальные счета в разрезе субсчетов
+            { // собираем сальдо только в разрезе текущего ОКАТО
+              _loop TurboSaldMoun where ((
+                                               Schet      == TurboSaldMoun.SchetO
+                                          and  dSal       == TurboSaldMoun.DateSal
+                                          and  DebKred    == TurboSaldMoun.ViOb
+                                          and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                          and  c001001003 == TurboSaldMoun.cL
+                                          and  SubSchet   == TurboSaldMoun.SubOsSch
+                                        ))
+              {
+                NextVisual;
+                RezSum := RezSum + TurboSaldMoun.SumS;
+              }
+            }
+
+!            RezSum := round(RezSum);
+
+            if ( bMinus )
+             RezSum := (-1) * RezSum;
+
+            Protokol;
+
+            /////////////////////////////////////////////////////////////
+            // отдельные листы для 001001003
+            if ( RezSum <> 0 )
+            {
+              bKVI3 := FALSE;
+
+              // есть ли данного ОКАТО такая страничка
+              if ( GetFirst fastfirstrow TabOkato_KVI where ((      '3'                  ==  TabOkato_KVI._KVI
+                                                               and  TabOkato._NrecOkato  ==  TabOkato_KVI._NrecOkato
+                                                               and  '0.4-001001001'      ==  TabOkato_KVI._INN
+                                                            )) = tsOk )
+              {
+                bKVI3 := TRUE; // есть лист
+              }
+
+              if not bKVI3 // вставка новой записи
+              {
+                ClearBuffer(#TabOkato_KVI);
+                TabOkato_KVI._KVI       :=  '3';                    // КВИ
+                TabOkato_KVI._INN       :=  '0.4-001001001';        // отдельные листы для льготы 001001001
+                TabOkato_KVI._sCode     :=  TabOkato._sCode;        // ОКАТО                      001001003
+                TabOkato_KVI._NrecOkato :=  TabOkato._NrecOkato;
+                TabOkato_KVI._130       :=  kod_nal_130;
+                TabOkato_KVI._170       :=  Nal_stav2;              // 0.4
+              }
+
+              case i of
+                1 :  TabOkato_KVI._k3_020 += (RezSum*chisl/znam);
+                2 :  TabOkato_KVI._k3_030 += (RezSum*chisl/znam);
+                3 :  TabOkato_KVI._k3_040 += (RezSum*chisl/znam);
+                4 :  TabOkato_KVI._k3_050 += (RezSum*chisl/znam);
+                5 :  TabOkato_KVI._k3_060 += (RezSum*chisl/znam);
+                6 :  TabOkato_KVI._k3_070 += (RezSum*chisl/znam);
+                7 :  TabOkato_KVI._k3_080 += (RezSum*chisl/znam);
+                8 :  TabOkato_KVI._k3_090 += (RezSum*chisl/znam);
+                9 :  TabOkato_KVI._k3_100 += (RezSum*chisl/znam);
+               10 :  TabOkato_KVI._k3_110 += (RezSum*chisl/znam);
+              end;
+
+
+              if ( dTo > date(01,03,YEAR(dTo)) and dTo < date(01,06,YEAR(dTo)) )
+              {
+                TabOkato_KVI._120 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                     + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 ) / 4;
+              }
+
+              if ( dTo > date(01,06,YEAR(dTo)) and dTo < date(01,09,YEAR(dTo)) )
+              {
+                TabOkato_KVI._120 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                     + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                     + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 ) / 7;
+              }
+
+              if ( dTo > date(01,09,YEAR(dTo)) )
+              {
+                TabOkato_KVI._120 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                     + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                     + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 + TabOkato_KVI._k3_090
+                                     + TabOkato_KVI._k3_100 + TabOkato_KVI._k3_110 ) / 10;
+              }
+
+              TabOkato_KVI._180 := round((round(TabOkato_KVI._120)-round(TabOkato_KVI._140))*TabOkato_KVI._170/100/4);
+
+              if bKVI3
+               UpDate current TabOkato_KVI;
+              else
+               insert current TabOkato_KVI;
+
+            }
+            ///////////////////////////////////////////////////////////////////////
+
+            sStolb := '4';
+            RezSum := 0;
+
+            // собираем сальдо, выбираем лучший индекс, ориентация на ОС
+            if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+            { // собираем сальдо только в разрезе текущего ОКАТО
+              _loop TurboSaldMoun where ((
+                                               Schet      == TurboSaldMoun.SchetO
+                                          and  dSal       == TurboSaldMoun.DateSal
+                                          and  DebKred    == TurboSaldMoun.ViOb
+                                          and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                          and  c001002003 == TurboSaldMoun.cL
+                                        ))
+              {
+                NextVisual;
+                RezSum := RezSum + TurboSaldMoun.SumS;
+              }
+            }
+            else // остальные счета в разрезе субсчетов
+            { // собираем сальдо только в разрезе текущего ОКАТО
+              _loop TurboSaldMoun where ((
+                                               Schet      == TurboSaldMoun.SchetO
+                                          and  dSal       == TurboSaldMoun.DateSal
+                                          and  DebKred    == TurboSaldMoun.ViOb
+                                          and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                          and  c001002003 == TurboSaldMoun.cL
+                                          and  SubSchet   == TurboSaldMoun.SubOsSch
+                                        ))
+              {
+                NextVisual;
+                RezSum := RezSum + TurboSaldMoun.SumS;
+              }
+            }
+
+!            RezSum := round(RezSum);
+
+            if ( bMinus )
+             RezSum := (-1) * RezSum;
+
+            Protokol;
+
+            case i of
+              1 :  TabOkato._KVI3_k4_020 += (RezSum*chisl/znam);
+              2 :  TabOkato._KVI3_k4_030 += (RezSum*chisl/znam);
+              3 :  TabOkato._KVI3_k4_040 += (RezSum*chisl/znam);
+              4 :  TabOkato._KVI3_k4_050 += (RezSum*chisl/znam);
+              5 :  TabOkato._KVI3_k4_060 += (RezSum*chisl/znam);
+              6 :  TabOkato._KVI3_k4_070 += (RezSum*chisl/znam);
+              7 :  TabOkato._KVI3_k4_080 += (RezSum*chisl/znam);
+              8 :  TabOkato._KVI3_k4_090 += (RezSum*chisl/znam);
+              9 :  TabOkato._KVI3_k4_100 += (RezSum*chisl/znam);
+             10 :  TabOkato._KVI3_k4_110 += (RezSum*chisl/znam);
+            end;
+
+            //////////////////////////////////////////////////////////////////
+            if ( bMinus )
+             RezSum := (-1) * RezSum;
+
+            sStolb := '3'; // рассчитываем данные для 3-его столбца
+
+            // собираем сальдо, выбираем лучший индекс, ориентация на ОС
+            if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+            { // собираем сальдо только в разрезе текущего ОКАТО
+              _loop TurboSaldMoun where ((
+                                               Schet      == TurboSaldMoun.SchetO
+                                          and  dSal       == TurboSaldMoun.DateSal
+                                          and  DebKred    == TurboSaldMoun.ViOb
+                                          and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                          and  c002003    == TurboSaldMoun.cL
+                                        ))
+              {
+                NextVisual;
+                RezSum := RezSum + TurboSaldMoun.SumS;
+              }
+            }
+            else // остальные счета в разрезе субсчетов
+            { // собираем сальдо только в разрезе текущего ОКАТО
+              _loop TurboSaldMoun where ((
+                                               Schet      == TurboSaldMoun.SchetO
+                                          and  dSal       == TurboSaldMoun.DateSal
+                                          and  DebKred    == TurboSaldMoun.ViOb
+                                          and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                          and  c002003    == TurboSaldMoun.cL
+                                          and  SubSchet   == TurboSaldMoun.SubOsSch
+                                        ))
+              {
+                NextVisual;
+                RezSum := RezSum + TurboSaldMoun.SumS;
+              }
+            }
+
+!            RezSum := round(RezSum);
+
+            if ( bMinus )
+             RezSum := (-1) * RezSum;
+
+            Protokol;
+
+            case i of
+              1 :  TabOkato._KVI3_k3_020 += (RezSum*chisl/znam);
+              2 :  TabOkato._KVI3_k3_030 += (RezSum*chisl/znam);
+              3 :  TabOkato._KVI3_k3_040 += (RezSum*chisl/znam);
+              4 :  TabOkato._KVI3_k3_050 += (RezSum*chisl/znam);
+              5 :  TabOkato._KVI3_k3_060 += (RezSum*chisl/znam);
+              6 :  TabOkato._KVI3_k3_070 += (RezSum*chisl/znam);
+              7 :  TabOkato._KVI3_k3_080 += (RezSum*chisl/znam);
+              8 :  TabOkato._KVI3_k3_090 += (RezSum*chisl/znam);
+              9 :  TabOkato._KVI3_k3_100 += (RezSum*chisl/znam);
+             10 :  TabOkato._KVI3_k3_110 += (RezSum*chisl/znam);
+            end;
+
+            UpDate current TabOkato;
+          } // for
+        }
+
+      // loop AttrVal
+      // КВИ3 ФИНИШ
+      /////////////////////////////////////////////////////////////
+
+    } // TabOKATO
+
+  } // _loop PatDefs
+
+
+  /////////////////////////////////////////////////////////////
+  // учет корректировок по счету 801 для КВИ3                //
+  /////////////////////////////////////////////////////////////
+  // только для кода льготы TabOkato._INN = '2012000'        //
+  // остальные корректировки проверяем после обработки КВИ2  //
+  /////////////////////////////////////////////////////////////
+  sOS := '';
+  sStolb  := '3=4';
+  DebKred := chisl := znam := 1;
+  Schet := 801;
+  SubSchet := '';
+  sKVI := '3';
+
+  // КВИ3 с кодом льготы 2012000
+  _loop TabOkato_KVI where (( '3' == TabOkato_KVI._KVI and '2012000' == TabOkato_KVI._INN (NoIndex) ))
+   _loop Oborot_801 where ((
+                                  'N801'                   ==  Oborot_801.SchetO
+                             and  TabOkato_KVI._NrecOkato  ==  Oborot_801.KAUOS[3] (NoIndex)  // КАУ по ОКАТО
+                             and  c001002001               ==  Oborot_801.KAUOS[5] (NoIndex)  // КАУ только по коду льготы 2012000
+                          ))                                                                  // КАУ по ОС значения не имеют для КВИ3
+   {
+     if ( GetFirst fastfirstrow FpPeriod = tsOk )
+      for ( i := 1; i <= 10; ++i )
+      {
+        if ( (Month(dTo)+1) < i ) // проверяем заданный период для расчета
+         continue;                // чтобы не шел расчет данных позднее указанного периода
+
+        // дата сальдо для протокола (периоды отчетные)
+        if ( i = 13 ) // 13-ый период
+         dSal := Date( 01, 01, word(sYear)+1 );
+        else
+         dSal := Date( 01, byte(i), word(sYear) );
+
+        sData := DateToStr(dSal, 'DD.MM.YYYY');
+
+        // дата для определения периода планирования по проводке (на месяц раньше нежели расчетное сальдо)
+        if ( i = 1 ) // 1-ый период
+         dSal := Date( 01, 12, word(sYear)-1 );
+        else
+         dSal := Date( 01, byte(i)-1, word(sYear) );
+
+        if ( FpPeriod.dBeg <= dSal and dSal <= FpPeriod.dEnd )
+        {
+          RezSum := Oborot_801.SumOb; // и для протокола
+
+          case i of
+            1 :  TabOkato_KVI._k3_020 += RezSum;
+            2 :  TabOkato_KVI._k3_030 += RezSum;
+            3 :  TabOkato_KVI._k3_040 += RezSum;
+            4 :  TabOkato_KVI._k3_050 += RezSum;
+            5 :  TabOkato_KVI._k3_060 += RezSum;
+            6 :  TabOkato_KVI._k3_070 += RezSum;
+            7 :  TabOkato_KVI._k3_080 += RezSum;
+            8 :  TabOkato_KVI._k3_090 += RezSum;
+            9 :  TabOkato_KVI._k3_100 += RezSum;
+           10 :  TabOkato_KVI._k3_110 += RezSum;
+          end;
+
+          // колонка 4 равно третьей - только льготируемое
+          TabOkato_KVI._k4_020 := TabOkato_KVI._k3_020;
+          TabOkato_KVI._k4_030 := TabOkato_KVI._k3_030;
+          TabOkato_KVI._k4_040 := TabOkato_KVI._k3_040;
+          TabOkato_KVI._k4_050 := TabOkato_KVI._k3_050;
+          TabOkato_KVI._k4_060 := TabOkato_KVI._k3_060;
+          TabOkato_KVI._k4_070 := TabOkato_KVI._k3_070;
+          TabOkato_KVI._k4_080 := TabOkato_KVI._k3_080;
+          TabOkato_KVI._k4_090 := TabOkato_KVI._k3_090;
+          TabOkato_KVI._k4_100 := TabOkato_KVI._k3_100;
+          TabOkato_KVI._k4_110 := TabOkato_KVI._k3_110;
+
+          if ( dTo > date(01,03,YEAR(dTo)) and dTo < date(01,06,YEAR(dTo)) )
+          {
+            TabOkato_KVI._120 := TabOkato_KVI._140 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                               + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 ) / 4;
+          }
+
+          if ( dTo > date(01,06,YEAR(dTo)) and dTo < date(01,09,YEAR(dTo)) )
+          {
+            TabOkato_KVI._120 := TabOkato_KVI._140 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                               + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                               + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 ) / 7;
+          }
+
+          if ( dTo > date(01,09,YEAR(dTo)) )
+          {
+            TabOkato_KVI._120 := TabOkato_KVI._140 := ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                               + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                               + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 + TabOkato_KVI._k3_090
+                               + TabOkato_KVI._k3_100 + TabOkato_KVI._k3_110 ) / 10;
+          }
+
+          // для 2012000 180 будет пустая - не считаем
+          // TabOkato_KVI._180  :=  round((TabOkato_KVI._120-TabOkato_KVI._140)*double(Nal_stav)/100/4);
+
+          Protokol_KVI;
+        }
+
+        TabOkato_KVI._180 := round((round(TabOkato._KVI2_120)-round(TabOkato._KVI2_140))*TabOkato_KVI._170/100/4);
+
+        UpDate current TabOkato_KVI;
+      }
+   }
+  // _loop TabOkato_KVI
+  ///////////////////   801    ////////////////// по коду льготы 2012000
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    ////////////////////////////////////////////////////////////////////////////
+    //                                                                        //
+    //           ПОДГОТОВКА ДЛЯ ФОРМИРОВАНИЯ ДАННЫХ ПО КВИ2                   //
+    //                                                                        //
+    ////////////////////////////////////////////////////////////////////////////
+
+   sKVI := '2';
+
+   ///////////////////////////////////////////////////>>>>>>>>>>>>>>>>>>>>>>>>
+   // расчет долей для строки 180 по коду виду имущества 2  >>>>>>>>>>>>>>>>>>
+   // по необходимости будут созданы записи для ИК ОС       >>>>>>>>>>>>>>>>>>
+   _loop _AttrVal
+    if ( GetFirst StoimStruct = tsOk and GetFirst _STerr2 = tsOk and GetFirst KatOS = tsOk ) // нашли источник финансирования, ОКАТО, ИК ОС
+     if ( StoimStruct.SumRes2 > double(0) ) // доля не равна нулю
+      if ( GetFirst TabOkato where (( _STerr2.nRec == TabOkato._NrecOkato )) = tsOk ) // есть в потоке ОКАТО для данной декларации
+       if ( GetFirst KauReff5 = tsOk and GetFirst SpKau5 = tsOk ) // нам нужна внешняя аналитика для КВИ2 только Л_НС и НЛ_НС
+       {                                                          // по текущим настройкам это коды: "001001002;001002002" и "002002"
+!         bOper := false; // не удовлетворяет ОС
+
+         // расположенное на территории нескольких субъектов
+         if ( SpKau5.nRec <> c001001002 and SpKau5.nRec <> c001002002 and SpKau5.nRec <> c002002 )
+          continue;
+
+         SetVisualTitle( 'Шаг '+shag+'/2  Этап '+etap+'/'+AllEtap);
+
+         if not (NextVisual)
+         {
+           message('Формирование отчета остановлено пользователем');
+           StopVisual('', 0);
+           CloseInterface(cmCancel);
+           exit;
+         }
+
+         chisl := StoimStruct.SumRes2;
+         chislBig := znam  := 0;
+
+         _loop StoimStruct1
+          if ( GetFirst AttrVal1 = tsOk and GetFirst Sterr1 = tsOk )
+          {
+            znam += StoimStruct1.SumRes2;
+
+            if ( cBigOKATO <> comp(0) )
+             if ( GetFirst UserDeskRepBIG1 = tsOk )
+              chislBig += StoimStruct1.SumRes2;
+          }
+
+         if ( chisl < 1 and chisl <> 0 ) // если числитель меньше 1 - переводим в метры (подразумеваются километры )
+         {
+           chisl *= 1000;
+           znam  *= 1000;
+           chislBig *= 1000;
+         }
+
+         if ( GetFirst TabOkato where (( _STerr2.nRec == TabOkato._NrecOkato and KatOS.InNum == TabOkato._INN )) = tsOk ) // ищем ИК ОС для ОКАТО
+         {
+           if ( cBigOKATO = comp(0) )
+           {
+             TabOkato._KVI2_150_ch := chisl;
+             TabOkato._KVI2_150_zn := znam;
+             UpDate current TabOkato;
+           }
+         }
+         else
+         {  // если такой карточки еще нет в потоке - добавляем
+           ClearBuffer(#TabOkato);
+            TabOkato._sCode       := _STerr2.sGNI_Code;
+            TabOkato._NrecOkato   := _STerr2.nRec;
+            TabOkato._INN         := KatOS.InNum;
+            TabOkato._nRecKatOS   := KatOS.nRec;
+
+           if ( cBigOKATO = comp(0) )
+            TabOkato._KVI2_150_ch := chisl;
+           else
+            TabOkato._KVI2_150_ch := chislBig;
+
+            TabOkato._KVI2_150_zn := znam;
+
+           insert current TabOkato;
+         }
+       }
+    //                                                 <<<<<<<<<<<<<<<<<<<<<<<<
+    ///////////////////////  стр 150 для КВИ2          <<<<<<<<<<<<<<<<<<<<<<<<
+
+
+    /////////////////////////////////////////////////////////////
+    //                          II                             //
+    // режем формулы для 2-го раздела (код вида имущества = 2) //
+    /////////////////////////////////////////////////////////////
+
+    shag := '2';
+    sKVI := '2';
+    etap := 0;
+
+
+    // считаем данные по всем формулам типа '&ДНИ_020-110'
+    _loop PatDefs
+    {
+      sOS  := '';
+
+      sFormula := sFormula1 := sFormula2 := sFormula3 := '';
+      bMinus   := false;
+
+      ++etap;
+
+      SetVisualTitle( 'Шаг '+shag+'/2  Этап '+etap+'/'+AllEtap);
+
+      sFormula := PatDefs.formula;
+
+      if ( SubStr(sFormula,2,1) = '-' )
+       bMinus := true;
+
+      GenFormula; // ген.модификация формулы 1-го уровня
+      sFormula1 := sFormula; // сохранили формулу после 1-ой ген.модификации
+
+      DebKred := 1;
+
+      if ( SubStr(sFormula1,1,1) = 'К' )
+       DebKred := 2;
+
+      sFormula1 := replace(sFormula1, 'Д', '');
+      sFormula1 := replace(sFormula1, 'К', '');
+      // осталось в строке только счет / субсчет
+
+      if ( InStr('_',sFormula1) = 0 )
+      {
+        Schet    := 'T'+sFormula1;
+        SubSchet := '';
+      }
+      else
+      {
+        Schet    := 'T'+SubStr(sFormula1, 1, InStr('_',sFormula1)-1 );
+        SubSchet := Replace(sFormula1, SubStr( sFormula1, 1, InStr('_',sFormula1) ), '');
+      }
+
+      _loop TabOkato // для каждой записи расчетные значения остаточной стоимости, в зависимости от отношения ОКАТО - источники финансирования ОС
+      {              // в разрезе по ИК ОС
+        sOS  := '';
+
+        chisl := TabOkato._KVI2_150_ch;
+        znam  := TabOkato._KVI2_150_zn;
+
+       ////////////////////////////////////////////////////////////////////////////
+       // расчет остаточной стоимости по ОС к которым в разделе финансирования привязан ОКАТО субъекта РФ
+       _loop _AttrVal
+        if ( GetFirst StoimStruct = tsOk and GetFirst _STerr2 = tsOk and GetFirst KatOS = tsOk )
+         if ( StoimStruct.SumRes2 > double(0) )
+          if ( _STerr2.nRec = TabOkato._NrecOkato and KatOS.InNum = TabOkato._INN )
+          {
+             sOS := KatOS.InNum + ' - ' + KatOS.NameOS;
+
+             // цикл по месяцам
+             for ( i := 1; i <= 10; ++i )
+             {
+               SetVisualHeader ('Подготовка данных для авансового расчета по налогу на имущество.'
+                                 +chr(13)+'Раздел 2. Код вида имущества '+sKVI+'. Шаг '+shag+'. Этап '+etap+'/'+AllEtap+' :'+Schet+'/'+SubSchet
+                                 +chr(13)+'Расчет по ОКАТО: '+TabOkato._sCode   );
+
+               if not (NextVisual)
+               {
+                 message('Формирование отчета остановлено пользователем');
+                 StopVisual('', 0);
+                 CloseInterface(cmCancel);
+                 exit;
+               }
+
+               if ( (Month(dTo)+1) < i ) // проверяем заданный период для расчета
+                continue;
+
+               dSal := Date( 01, byte(i), word(sYear) );
+
+               sData  := DateToStr(dSal, 'DD.MM.YYYY');
+
+               // сразу считаем для столбца 4 - только льготируемое, после к этому добавим остальное для 3-го столбца
+               sStolb := '4';
+               RezSum := 0;
+
+               // собираем сальдо, выбираем лучший индекс, ориентация на ОКАТО
+               if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+               { // собираем сальдо только в разрезе текущего ОКАТО
+                 _loop TurboSaldMoun where ((
+                                                  Schet      == TurboSaldMoun.SchetO
+                                             and  dSal       == TurboSaldMoun.DateSal
+                                             and  DebKred    == TurboSaldMoun.ViOb
+                                             and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                             and  c001002002 == TurboSaldMoun.cL
+                                           ))
+                 {
+                   NextVisual;
+                   RezSum := RezSum + TurboSaldMoun.SumS;
+                 }
+               }
+               else // остальные счета в разрезе субсчетов
+               { // собираем сальдо только в разрезе текущего ОКАТО
+                 _loop TurboSaldMoun where ((
+                                                  Schet      == TurboSaldMoun.SchetO
+                                             and  dSal       == TurboSaldMoun.DateSal
+                                             and  DebKred    == TurboSaldMoun.ViOb
+                                             and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                             and  c001002002 == TurboSaldMoun.cL
+                                             and  SubSchet   == TurboSaldMoun.SubOsSch
+                                           ))
+                 {
+                   NextVisual;
+                   RezSum := RezSum + TurboSaldMoun.SumS;
+                 }
+               }
+
+!               RezSum := round(RezSum);
+
+               if ( bMinus )
+                RezSum := (-1) * RezSum;
+
+               Protokol;
+
+               case i of
+                 1 :  TabOkato._KVI2_k4_020 += RezSum;
+                 2 :  TabOkato._KVI2_k4_030 += RezSum;
+                 3 :  TabOkato._KVI2_k4_040 += RezSum;
+                 4 :  TabOkato._KVI2_k4_050 += RezSum;
+                 5 :  TabOkato._KVI2_k4_060 += RezSum;
+                 6 :  TabOkato._KVI2_k4_070 += RezSum;
+                 7 :  TabOkato._KVI2_k4_080 += RezSum;
+                 8 :  TabOkato._KVI2_k4_090 += RezSum;
+                 9 :  TabOkato._KVI2_k4_100 += RezSum;
+                10 :  TabOkato._KVI2_k4_110 += RezSum;
+               end;
+
+               // обратный минус, чтобы дальше добавлять значения
+               if ( bMinus )
+                RezSum := (-1) * RezSum;
+
+               ////////////////////////////////////////////////////////////////
+               sStolb := '3'; // рассчитываем данные для 3-его столбца
+
+               // собираем сальдо, выбираем лучший индекс, ориентация на ОКАТО
+               if ( Schet = 'T02' ) // для второго счета не проверяем субсчета
+               { // собираем сальдо только в разрезе текущего ОКАТО
+                 _loop TurboSaldMoun where ((
+                                                  Schet      == TurboSaldMoun.SchetO
+                                             and  dSal       == TurboSaldMoun.DateSal
+                                             and  DebKred    == TurboSaldMoun.ViOb
+                                             and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                             and  c001001002 == TurboSaldMoun.cL
+                                           ))
+                 {
+                   NextVisual;
+                   RezSum := RezSum + TurboSaldMoun.SumS;
+                   TabOkato._KVI2_170 := Nal_stav2;  // 0.4
+                 }
+
+                 _loop TurboSaldMoun where ((
+                                                  Schet      == TurboSaldMoun.SchetO
+                                             and  dSal       == TurboSaldMoun.DateSal
+                                             and  DebKred    == TurboSaldMoun.ViOb
+                                             and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                             and  c002002    == TurboSaldMoun.cL
+                                           ))
+                 {
+                   NextVisual;
+                   RezSum := RezSum + TurboSaldMoun.SumS;
+                 }
+               }
+               else // остальные счета в разрезе субсчетов
+               { // собираем сальдо только в разрезе текущего ОКАТО
+                 _loop TurboSaldMoun where ((
+                                                  Schet      == TurboSaldMoun.SchetO
+                                             and  dSal       == TurboSaldMoun.DateSal
+                                             and  DebKred    == TurboSaldMoun.ViOb
+                                             and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                             and  c001001002 == TurboSaldMoun.cL
+                                             and  SubSchet   == TurboSaldMoun.SubOsSch
+                                           ))
+                 {
+                   NextVisual;
+                   RezSum := RezSum + TurboSaldMoun.SumS;
+                   TabOkato._KVI2_170 := Nal_stav2;  // 0.4
+                 }
+
+                 _loop TurboSaldMoun where ((
+                                                  Schet      == TurboSaldMoun.SchetO
+                                             and  dSal       == TurboSaldMoun.DateSal
+                                             and  DebKred    == TurboSaldMoun.ViOb
+                                             and  KatOS.nRec == TurboSaldMoun.cKatOS
+                                             and  c002002    == TurboSaldMoun.cL
+                                             and  SubSchet   == TurboSaldMoun.SubOsSch
+                                           ))
+                 {
+                   NextVisual;
+                   RezSum := RezSum + TurboSaldMoun.SumS;
+                 }
+               }
+
+!               RezSum := round(RezSum);
+
+               if ( bMinus )
+                RezSum := (-1) * RezSum;
+
+               Protokol;
+
+               case i of
+                 1 :  TabOkato._KVI2_k3_020 += RezSum;
+                 2 :  TabOkato._KVI2_k3_030 += RezSum;
+                 3 :  TabOkato._KVI2_k3_040 += RezSum;
+                 4 :  TabOkato._KVI2_k3_050 += RezSum;
+                 5 :  TabOkato._KVI2_k3_060 += RezSum;
+                 6 :  TabOkato._KVI2_k3_070 += RezSum;
+                 7 :  TabOkato._KVI2_k3_080 += RezSum;
+                 8 :  TabOkato._KVI2_k3_090 += RezSum;
+                 9 :  TabOkato._KVI2_k3_100 += RezSum;
+                10 :  TabOkato._KVI2_k3_110 += RezSum;
+               end;
+
+               UpDate current TabOkato;
+             }
+          }
+      }
+      // КВИ2 ФИНИШ
+      ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    } // _loop PatDefs
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    _loop TabOkato // подсчет итогов по листам
+    {
+      if ( dTo > date(01,03,YEAR(dTo)) and dTo < date(01,06,YEAR(dTo)) )
+      {
+        TabOkato._KVI2_120 := TabOkato._KVI2_k3_020 + TabOkato._KVI2_k3_030 + TabOkato._KVI2_k3_040 + TabOkato._KVI2_k3_050;
+        TabOkato._KVI2_120 := TabOkato._KVI2_120 / 4;
+
+        TabOkato._KVI2_140 := TabOkato._KVI2_k4_020 + TabOkato._KVI2_k4_030 + TabOkato._KVI2_k4_040 + TabOkato._KVI2_k4_050;
+        TabOkato._KVI2_140 := TabOkato._KVI2_140 / 4;
+
+
+        TabOkato._KVI3_120 := TabOkato._KVI3_k3_020 + TabOkato._KVI3_k3_030 + TabOkato._KVI3_k3_040 + TabOkato._KVI3_k3_050;
+        TabOkato._KVI3_120 := TabOkato._KVI3_120 / 4;
+
+        TabOkato._KVI3_140 := TabOkato._KVI3_k4_020 + TabOkato._KVI3_k4_030 + TabOkato._KVI3_k4_040 + TabOkato._KVI3_k4_050;
+        TabOkato._KVI3_140 := TabOkato._KVI3_140 / 4;
+      }
+
+      if ( dTo > date(01,06,YEAR(dTo)) and dTo < date(01,09,YEAR(dTo)) )
+      {
+        TabOkato._KVI2_120 := TabOkato._KVI2_k3_020 + TabOkato._KVI2_k3_030 + TabOkato._KVI2_k3_040 + TabOkato._KVI2_k3_050 +
+                              TabOkato._KVI2_k3_060 + TabOkato._KVI2_k3_070 + TabOkato._KVI2_k3_080;
+        TabOkato._KVI2_120 := TabOkato._KVI2_120 / 7;
+
+        TabOkato._KVI2_140 := TabOkato._KVI2_k4_020 + TabOkato._KVI2_k4_030 + TabOkato._KVI2_k4_040 + TabOkato._KVI2_k4_050 +
+                              TabOkato._KVI2_k4_060 + TabOkato._KVI2_k4_070 + TabOkato._KVI2_k4_080;
+        TabOkato._KVI2_140 := TabOkato._KVI2_140 / 7;
+
+
+        TabOkato._KVI3_120 := TabOkato._KVI3_k3_020 + TabOkato._KVI3_k3_030 + TabOkato._KVI3_k3_040 + TabOkato._KVI3_k3_050 +
+                              TabOkato._KVI3_k3_060 + TabOkato._KVI3_k3_070 + TabOkato._KVI3_k3_080;
+        TabOkato._KVI3_120 := TabOkato._KVI3_120 / 7;
+
+        TabOkato._KVI3_140 := TabOkato._KVI3_k4_020 + TabOkato._KVI3_k4_030 + TabOkato._KVI3_k4_040 + TabOkato._KVI3_k4_050 +
+                              TabOkato._KVI3_k4_060 + TabOkato._KVI3_k4_070 + TabOkato._KVI3_k4_080;
+        TabOkato._KVI3_140 := TabOkato._KVI3_140 / 7;
+      }
+
+      if ( dTo > date(01,09,YEAR(dTo)) )
+      {
+        // КВИ 2
+        // столбец 3
+        TabOkato._KVI2_120 := TabOkato._KVI2_k3_020 + TabOkato._KVI2_k3_030 + TabOkato._KVI2_k3_040 + TabOkato._KVI2_k3_050 +
+                              TabOkato._KVI2_k3_060 + TabOkato._KVI2_k3_070 + TabOkato._KVI2_k3_080 +
+                              TabOkato._KVI2_k3_090 + TabOkato._KVI2_k3_100 + TabOkato._KVI2_k3_110;
+        TabOkato._KVI2_120 := TabOkato._KVI2_120 / 10;
+        // столбец 4
+        TabOkato._KVI2_140 := TabOkato._KVI2_k4_020 + TabOkato._KVI2_k4_030 + TabOkato._KVI2_k4_040 + TabOkato._KVI2_k4_050 +
+                              TabOkato._KVI2_k4_060 + TabOkato._KVI2_k4_070 + TabOkato._KVI2_k4_080 +
+                              TabOkato._KVI2_k4_090 + TabOkato._KVI2_k4_100 + TabOkato._KVI2_k4_110;
+        TabOkato._KVI2_140 := TabOkato._KVI2_140 / 10;
+
+        // КВИ 3
+        // столбец 3
+        TabOkato._KVI3_120 := TabOkato._KVI3_k3_020 + TabOkato._KVI3_k3_030 + TabOkato._KVI3_k3_040 + TabOkato._KVI3_k3_050 +
+                              TabOkato._KVI3_k3_060 + TabOkato._KVI3_k3_070 + TabOkato._KVI3_k3_080 +
+                              TabOkato._KVI3_k3_090 + TabOkato._KVI3_k3_100 + TabOkato._KVI3_k3_110;
+        TabOkato._KVI3_120 := TabOkato._KVI3_120 / 10;
+        // столбец 4
+        TabOkato._KVI3_140 := TabOkato._KVI3_k4_020 + TabOkato._KVI3_k4_030 + TabOkato._KVI3_k4_040 + TabOkato._KVI3_k4_050 +
+                              TabOkato._KVI3_k4_060 + TabOkato._KVI3_k4_070 + TabOkato._KVI3_k4_080 +
+                              TabOkato._KVI3_k4_090 + TabOkato._KVI3_k4_100 + TabOkato._KVI3_k4_110;
+        TabOkato._KVI3_140 := TabOkato._KVI3_140 / 10;
+      }
+
+!      if ( TabOkato._KVI2_150 > 98 ) // убираем эффект округления, за счет которого может вместо 100% получится 99 или 101
+!        TabOkato._KVI2_150 := 100;   // более 100 % быть не магёт
+
+      UpDate current TabOkato;
+    } // подсчет итогов по листам (строки)
+
+                          ////////////////////////////////////////////////
+////////////////////////////   перегнать во вторую временную таблицу    //////////////////////////////
+                          ////////////////////////////////////////////////
+
+    // проверка, есть ли ненулевые суммы, для вывода данных только непустых разделов
+    RezSum := 0; // для подсчета данных по коду вида имущества 2, если нулевые - не будем выводить раздел
+    ResNDE := 0; // для подсчета данных по коду вида имущества 3
+
+
+    if ( cBigOKATO = comp(0) )
+    {
+      _loop UserDeskRep // проход по ОКАТО
+      {
+        ResBV := 0; // подсчет итогов для каждого ОКАТО
+
+        _loop TabOkato where (( UserDeskRep.ResComp[1] == TabOkato._NrecOkato ))
+        {
+
+          RezSum += ( TabOkato._KVI2_k3_020 + TabOkato._KVI2_k3_030 + TabOkato._KVI2_k3_040 + TabOkato._KVI2_k3_050 + TabOkato._KVI2_k3_060 +
+                      TabOkato._KVI2_k3_070 + TabOkato._KVI2_k3_080 + TabOkato._KVI2_k3_090 + TabOkato._KVI2_k3_100 + TabOkato._KVI2_k3_110 +
+                      TabOkato._KVI2_k4_020 + TabOkato._KVI2_k4_030 + TabOkato._KVI2_k4_040 + TabOkato._KVI2_k4_050 + TabOkato._KVI2_k4_060 +
+                      TabOkato._KVI2_k4_070 + TabOkato._KVI2_k4_080 + TabOkato._KVI2_k4_090 + TabOkato._KVI2_k4_100 + TabOkato._KVI2_k4_110 );
+
+          ResNDE += ( TabOkato._KVI3_k3_020 + TabOkato._KVI3_k3_030 + TabOkato._KVI3_k3_040 + TabOkato._KVI3_k3_050 + TabOkato._KVI3_k3_060 +
+                      TabOkato._KVI3_k3_070 + TabOkato._KVI3_k3_080 + TabOkato._KVI3_k3_090 + TabOkato._KVI3_k3_100 + TabOkato._KVI3_k3_110 +
+                      TabOkato._KVI3_k4_020 + TabOkato._KVI3_k4_030 + TabOkato._KVI3_k4_040 + TabOkato._KVI3_k4_050 + TabOkato._KVI3_k4_060 +
+                      TabOkato._KVI3_k4_070 + TabOkato._KVI3_k4_080 + TabOkato._KVI3_k4_090 + TabOkato._KVI3_k4_100 + TabOkato._KVI3_k4_110 );
+        } // _loop TabOkato
+      } // _loop UserDeskRep // проход по ОКАТО
+    }
+    else
+    {
+      ResBV := 0; // подсчет итогов для каждого ОКАТО
+
+      _loop TabOkato where (( cBigOKATO == TabOkato._NrecOkato ))
+      {
+
+        RezSum := RezSum + TabOkato._KVI2_k3_020 + TabOkato._KVI2_k3_030 + TabOkato._KVI2_k3_040 + TabOkato._KVI2_k3_050 + TabOkato._KVI2_k3_060 +
+                           TabOkato._KVI2_k3_070 + TabOkato._KVI2_k3_080 + TabOkato._KVI2_k3_090 + TabOkato._KVI2_k3_100 + TabOkato._KVI2_k3_110 +
+                           TabOkato._KVI2_k4_020 + TabOkato._KVI2_k4_030 + TabOkato._KVI2_k4_040 + TabOkato._KVI2_k4_050 + TabOkato._KVI2_k4_060 +
+                           TabOkato._KVI2_k4_070 + TabOkato._KVI2_k4_080 + TabOkato._KVI2_k4_090 + TabOkato._KVI2_k4_100 + TabOkato._KVI2_k4_110;
+
+        ResNDE := ResNDE + TabOkato._KVI3_k3_020 + TabOkato._KVI3_k3_030 + TabOkato._KVI3_k3_040 + TabOkato._KVI3_k3_050 + TabOkato._KVI3_k3_060 +
+                           TabOkato._KVI3_k3_070 + TabOkato._KVI3_k3_080 + TabOkato._KVI3_k3_090 + TabOkato._KVI3_k3_100 + TabOkato._KVI3_k3_110 +
+                           TabOkato._KVI3_k4_020 + TabOkato._KVI3_k4_030 + TabOkato._KVI3_k4_040 + TabOkato._KVI3_k4_050 + TabOkato._KVI3_k4_060 +
+                           TabOkato._KVI3_k4_070 + TabOkato._KVI3_k4_080 + TabOkato._KVI3_k4_090 + TabOkato._KVI3_k4_100 + TabOkato._KVI3_k4_110;
+      } // _loop TabOkato
+
+    }
+
+    RezSum := round(RezSum);
+    ResNDE := round(ResNDE);
+
+    if ( RezSum <> 0 )
+      bKVI2 := true;
+    else
+      bKVI2 := false;
+
+    if ( ResNDE <> 0 )
+      bKVI3 := true;
+    else
+      bKVI3 := false;
+
+    // если для нужных кодов вида имущества есть данные, то ---->>
+    // сначала забиваем во временку КВИ-2, после 3-ий
+!    if ( bKVI2 ) // не проверяем, т.к. остаточная стоимость может быть нулевой
+     _loop TabOkato
+     {
+       if ( TabOkato._nRecKatOS = comp(0) ) // формируем только КВИ2, у оного должны быть заполнены данные в разрезе ОС
+        continue;
+
+       ClearBuffer(#TabOkato_KVI);
+
+       TabOkato_KVI._KVI     :=  '2';                    // КВИ
+
+       TabOkato_KVI._sCode   :=  TabOkato._sCode;        // ОКАТО
+       TabOkato_KVI._INN     :=  TabOkato._INN;          // Ин.№ ОС - объект, только для КВИ2, КВИ3 не заполняется
+
+       TabOkato_KVI._NrecOkato :=  TabOkato._NrecOkato;
+       TabOkato_KVI._nRecKatOS :=  TabOkato._nRecKatOS;
+
+       TabOkato_KVI._k3_020  :=  round(TabOkato._KVI2_k3_020);
+       TabOkato_KVI._k3_030  :=  round(TabOkato._KVI2_k3_030);
+       TabOkato_KVI._k3_040  :=  round(TabOkato._KVI2_k3_040);
+       TabOkato_KVI._k3_050  :=  round(TabOkato._KVI2_k3_050);
+       TabOkato_KVI._k3_060  :=  round(TabOkato._KVI2_k3_060);
+       TabOkato_KVI._k3_070  :=  round(TabOkato._KVI2_k3_070);
+       TabOkato_KVI._k3_080  :=  round(TabOkato._KVI2_k3_080);
+       TabOkato_KVI._k3_090  :=  round(TabOkato._KVI2_k3_090);
+       TabOkato_KVI._k3_100  :=  round(TabOkato._KVI2_k3_100);
+       TabOkato_KVI._k3_110  :=  round(TabOkato._KVI2_k3_110);
+
+       TabOkato_KVI._k4_020  :=  round(TabOkato._KVI2_k4_020);
+       TabOkato_KVI._k4_030  :=  round(TabOkato._KVI2_k4_030);
+       TabOkato_KVI._k4_040  :=  round(TabOkato._KVI2_k4_040);
+       TabOkato_KVI._k4_050  :=  round(TabOkato._KVI2_k4_050);
+       TabOkato_KVI._k4_060  :=  round(TabOkato._KVI2_k4_060);
+       TabOkato_KVI._k4_070  :=  round(TabOkato._KVI2_k4_070);
+       TabOkato_KVI._k4_080  :=  round(TabOkato._KVI2_k4_080);
+       TabOkato_KVI._k4_090  :=  round(TabOkato._KVI2_k4_090);
+       TabOkato_KVI._k4_100  :=  round(TabOkato._KVI2_k4_100);
+       TabOkato_KVI._k4_110  :=  round(TabOkato._KVI2_k4_110);
+
+       TabOkato_KVI._120     :=  round(TabOkato._KVI2_120);
+       TabOkato_KVI._130     :=  Kod_Nal_130;
+       TabOkato_KVI._140     :=  round(TabOkato._KVI2_140);
+       TabOkato_KVI._150_ch  :=  round(TabOkato._KVI2_150_ch);
+       TabOkato_KVI._150_zn  :=  round(TabOkato._KVI2_150_zn);
+       TabOkato_KVI._160     :=  Kod_Nal_160;
+       TabOkato_KVI._170     :=  if ( TabOkato._KVI2_170 = 0, Nal_stav, TabOkato._KVI2_170 );
+       TabOkato_KVI._180     :=  round((round(TabOkato_KVI._120)-round(TabOkato_KVI._140))*TabOkato_KVI._150_ch/TabOkato_KVI._150_zn*TabOkato_KVI._170/100/4); // такая же формула используется выше
+       TabOkato_KVI._190     :=  round(TabOkato._KVI2_190);
+
+       insert current TabOkato_KVI;
+     } // _loop TabOkato
+
+
+    if ( bKVI3 )
+     _loop TabOkato
+     {
+       if ( TabOkato._INN <> '' ) // ??
+         continue;
+
+       RezSum := 0;
+
+       RezSum := TabOkato._KVI3_k3_020 + TabOkato._KVI3_k3_030 + TabOkato._KVI3_k3_040 + TabOkato._KVI3_k3_050 + TabOkato._KVI3_k3_060 +
+                 TabOkato._KVI3_k3_070 + TabOkato._KVI3_k3_080 + TabOkato._KVI3_k3_090 + TabOkato._KVI3_k3_100 + TabOkato._KVI3_k3_110 +
+                 TabOkato._KVI3_k4_020 + TabOkato._KVI3_k4_030 + TabOkato._KVI3_k4_040 + TabOkato._KVI3_k4_050 + TabOkato._KVI3_k4_060 +
+                 TabOkato._KVI3_k4_070 + TabOkato._KVI3_k4_080 + TabOkato._KVI3_k4_090 + TabOkato._KVI3_k4_100 + TabOkato._KVI3_k4_110;
+
+!       if ( round(RezSum) = 0 )
+!         continue; // если для данного КВИ3 по данному ОКАТО нулевые суммы, то не выводим в отчет
+!                   // этим же отсекаются записи таблицы TabOkato относящиеся к КВИ2
+
+
+       ClearBuffer(#TabOkato_KVI);
+
+       TabOkato_KVI._KVI     :=  '3';                    // КВИ
+
+       TabOkato_KVI._sCode   :=  TabOkato._sCode;        // ОКАТО
+       TabOkato_KVI._NrecOkato :=  TabOkato._NrecOkato;
+
+       TabOkato_KVI._k3_020  :=  round(TabOkato._KVI3_k3_020);
+       TabOkato_KVI._k3_030  :=  round(TabOkato._KVI3_k3_030);
+       TabOkato_KVI._k3_040  :=  round(TabOkato._KVI3_k3_040);
+       TabOkato_KVI._k3_050  :=  round(TabOkato._KVI3_k3_050);
+       TabOkato_KVI._k3_060  :=  round(TabOkato._KVI3_k3_060);
+       TabOkato_KVI._k3_070  :=  round(TabOkato._KVI3_k3_070);
+       TabOkato_KVI._k3_080  :=  round(TabOkato._KVI3_k3_080);
+       TabOkato_KVI._k3_090  :=  round(TabOkato._KVI3_k3_090);
+       TabOkato_KVI._k3_100  :=  round(TabOkato._KVI3_k3_100);
+       TabOkato_KVI._k3_110  :=  round(TabOkato._KVI3_k3_110);
+
+       TabOkato_KVI._k4_020  :=  round(TabOkato._KVI3_k4_020);
+       TabOkato_KVI._k4_030  :=  round(TabOkato._KVI3_k4_030);
+       TabOkato_KVI._k4_040  :=  round(TabOkato._KVI3_k4_040);
+       TabOkato_KVI._k4_050  :=  round(TabOkato._KVI3_k4_050);
+       TabOkato_KVI._k4_060  :=  round(TabOkato._KVI3_k4_060);
+       TabOkato_KVI._k4_070  :=  round(TabOkato._KVI3_k4_070);
+       TabOkato_KVI._k4_080  :=  round(TabOkato._KVI3_k4_080);
+       TabOkato_KVI._k4_090  :=  round(TabOkato._KVI3_k4_090);
+       TabOkato_KVI._k4_100  :=  round(TabOkato._KVI3_k4_100);
+       TabOkato_KVI._k4_110  :=  round(TabOkato._KVI3_k4_110);
+
+       TabOkato_KVI._120  :=  round(TabOkato._KVI3_120);
+       TabOkato_KVI._130  :=  Kod_Nal_130;
+       TabOkato_KVI._140  :=  round(TabOkato._KVI3_140);
+
+       TabOkato_KVI._160  :=  Kod_Nal_160;
+       TabOkato_KVI._170  :=  if ( TabOkato._KVI3_170 = 0, Nal_stav, TabOkato._KVI3_170 );
+       TabOkato_KVI._180  :=  round((round(TabOkato_KVI._120)-round(TabOkato_KVI._140))*TabOkato_KVI._170/100/4); // такая же формула используется выше
+       TabOkato_KVI._190  :=  round(TabOkato._KVI3_190);
+       TabOkato_KVI._200  :=  round(TabOkato._KVI3_200);
+
+       insert current TabOkato_KVI;
+     }
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+   ////////////////////////////////////////////////////////////////////////////////
+   //                      учет корректировок по счету 801                       //
+   ////////////////////////////////////////////////////////////////////////////////
+   DebKred := chisl := znam := 1;
+   Schet := 801;
+   SubSchet := '';
+   sKVI := '2';
+
+   ///////////////////////////////////////   КВИ2  ////////////////////////////////
+   _loop TabOkato_KVI where (( '2' == TabOkato_KVI._KVI ))
+    _loop Oborot_801 where ((
+                                   'N801'                   ==  Oborot_801.SchetO
+                              and  TabOkato_KVI._NrecOkato  ==  Oborot_801.KAUOS[3] (NoIndex)  // КАУ по ОКАТО
+                              and  TabOkato_KVI._nRecKatOS  ==  Oborot_801.KAUOS[4] (NoIndex)  // КАУ по KatOS считаем, что указание ОС в проводках неважно
+                           ))
+    {
+      if ( GetFirst KatOS where (( TabOkato_KVI._nRecKatOS == KatOS.nRec )) = tsOk )
+       sOS := KatOS.InNum + ' - ' + KatOS.NameOS;
+
+      sStolb  := '';
+      
+      if ( Oborot_801.KAUOS[5] = c002002 or Oborot_801.KAUOS[5] = c001001002 )
+       sStolb  := '3';
+
+      if ( Oborot_801.KAUOS[5] = c001002002 )
+       sStolb  := '4';
+       
+      if ( sStolb = '' ) 
+       continue;
+
+      if ( GetFirst FpPeriod = tsOk )
+       for ( i := 1; i <= 10; ++i )
+       {
+         if ( (Month(dTo)+1) < i ) // проверяем заданный период для расчета
+          continue;                // чтобы не шел расчет данных позднее указанного периода
+
+         // дата сальдо для протокола (периоды отчетные)
+         if ( i = 13 ) // 13-ый период
+          dSal := Date( 01, 01, word(sYear)+1 );
+         else
+          dSal := Date( 01, byte(i), word(sYear) );
+
+         sData := DateToStr(dSal, 'DD.MM.YYYY');
+
+         // дата для определения периода планирования по проводке (на месяц раньше нежели расчетное сальдо)
+         if ( i = 1 ) // 1-ый период
+          dSal := Date( 01, 12, word(sYear)-1 );
+         else
+          dSal := Date( 01, byte(i)-1, word(sYear) );
+
+         if ( FpPeriod.dBeg <= dSal and dSal <= FpPeriod.dEnd )
+         {
+           RezSum := Oborot_801.SumOb; // и для протокола
+
+           if ( sStolb = '3' )
+           {
+             case i of
+               1 :  TabOkato_KVI._k3_020 += RezSum;
+               2 :  TabOkato_KVI._k3_030 += RezSum;
+               3 :  TabOkato_KVI._k3_040 += RezSum;
+               4 :  TabOkato_KVI._k3_050 += RezSum;
+               5 :  TabOkato_KVI._k3_060 += RezSum;
+               6 :  TabOkato_KVI._k3_070 += RezSum;
+               7 :  TabOkato_KVI._k3_080 += RezSum;
+               8 :  TabOkato_KVI._k3_090 += RezSum;
+               9 :  TabOkato_KVI._k3_100 += RezSum;
+              10 :  TabOkato_KVI._k3_110 += RezSum;
+             end;
+           }
+
+           if ( sStolb = '4' )
+           {
+             case i of
+               1 :  TabOkato_KVI._k3_020 += RezSum;
+               2 :  TabOkato_KVI._k3_030 += RezSum;
+               3 :  TabOkato_KVI._k3_040 += RezSum;
+               4 :  TabOkato_KVI._k3_050 += RezSum;
+               5 :  TabOkato_KVI._k3_060 += RezSum;
+               6 :  TabOkato_KVI._k3_070 += RezSum;
+               7 :  TabOkato_KVI._k3_080 += RezSum;
+               8 :  TabOkato_KVI._k3_090 += RezSum;
+               9 :  TabOkato_KVI._k3_100 += RezSum;
+              10 :  TabOkato_KVI._k3_110 += RezSum;
+             end;
+
+             case i of
+               1 :  TabOkato_KVI._k4_020 += RezSum;
+               2 :  TabOkato_KVI._k4_030 += RezSum;
+               3 :  TabOkato_KVI._k4_040 += RezSum;
+               4 :  TabOkato_KVI._k4_050 += RezSum;
+               5 :  TabOkato_KVI._k4_060 += RezSum;
+               6 :  TabOkato_KVI._k4_070 += RezSum;
+               7 :  TabOkato_KVI._k4_080 += RezSum;
+               8 :  TabOkato_KVI._k4_090 += RezSum;
+               9 :  TabOkato_KVI._k4_100 += RezSum;
+              10 :  TabOkato_KVI._k4_110 += RezSum;
+             end;
+           }
+
+           // обновить сумму
+           if ( dTo > date(01,03,YEAR(dTo)) and dTo < date(01,06,YEAR(dTo)) )
+           {
+             TabOkato_KVI._120 := round( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                  + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 ) / 4;
+
+             TabOkato_KVI._140 := round( TabOkato_KVI._k4_020 + TabOkato_KVI._k4_030
+                                  + TabOkato_KVI._k4_040 + TabOkato_KVI._k4_050 ) / 4;
+           }
+
+           if ( dTo > date(01,06,YEAR(dTo)) and dTo < date(01,09,YEAR(dTo)) )
+           {
+             TabOkato_KVI._120 := round( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                  + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                  + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 ) / 7;
+
+             TabOkato_KVI._140 := round( TabOkato_KVI._k4_020 + TabOkato_KVI._k4_030
+                                  + TabOkato_KVI._k4_040 + TabOkato_KVI._k4_050 + TabOkato_KVI._k4_060
+                                  + TabOkato_KVI._k4_070 + TabOkato_KVI._k4_080 ) / 7;
+           }
+
+           if ( dTo > date(01,09,YEAR(dTo)) )
+           {
+             TabOkato_KVI._120 := round( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                  + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                  + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 + TabOkato_KVI._k3_090
+                                  + TabOkato_KVI._k3_100 + TabOkato_KVI._k3_110 ) / 10;
+
+             TabOkato_KVI._140 := round( TabOkato_KVI._k4_020 + TabOkato_KVI._k4_030
+                                  + TabOkato_KVI._k4_040 + TabOkato_KVI._k4_050 + TabOkato_KVI._k4_060
+                                  + TabOkato_KVI._k4_070 + TabOkato_KVI._k4_080 + TabOkato_KVI._k4_090
+                                  + TabOkato_KVI._k4_100 + TabOkato_KVI._k4_110 ) / 10;
+           }
+
+           TabOkato_KVI._180 := round((round(TabOkato_KVI._120)-round(TabOkato_KVI._140))*TabOkato_KVI._150_ch/TabOkato_KVI._150_zn*double(TabOkato_KVI._170)/100/4); // такая же формула используется выше
+
+
+           Protokol_KVI;
+
+           if ( sStolb = '4' )
+           {
+             sStolb := '3';
+             Protokol_KVI;       // входит в столбец 3 (в том числе)
+             sStolb := '4';
+           }
+
+         }
+
+         UpDate current TabOkato_KVI;
+       }
+    }
+    ///////////////////   801  КВИ2   //////////////////
+
+   sKVI := '3';
+   sOS  := '';
+   Schet := 801;
+
+   ///////// вставка листов 0.4 по 001001001, 001001003 если не было но есть 801  ////////.
+   _loop Oborot_801 where (( 'N801' == Oborot_801.SchetO ))
+   {
+     if ( Oborot_801.KAUOS[5] = c001001001 or Oborot_801.KAUOS[5] = c001001003 )  // 0.4
+      if ( GetFirst fastfirstrow TabOkato_KVI where ((      '3'                  ==  TabOkato_KVI._KVI
+                                                       and  Oborot_801.KAUOS[3]  ==  TabOkato_KVI._NrecOkato
+                                                       and  '0.4-001001001'     /==  TabOkato_KVI._INN    (NoIndex)
+                                                    )) <> tsOk )
+       if ( GetFirst UserDeskRep where (( Oborot_801.KAUOS[3] == UserDeskRep.ResComp[1] (NoIndex) )) = tsOk )
+       {
+         ClearBuffer(#TabOkato_KVI);
+         TabOkato_KVI._KVI       :=  '3';                    // КВИ
+         TabOkato_KVI._INN       :=  '0.4-001001001';        // отдельные листы для льготы 001001001
+         TabOkato_KVI._sCode     :=  UserDeskRep.ResCode[1]; // ОКАТО
+         TabOkato_KVI._NrecOkato :=  UserDeskRep.ResComp[1];
+         TabOkato_KVI._130       :=  kod_nal_130;
+         TabOkato_KVI._170       :=  Nal_stav2;              // 0.4
+         insert current TabOkato;
+       }
+   }
+   //////////////////////////////////////////////////////////////////////////////////////
+
+   ///////////////////////////////////////   КВИ3  801   ////////////////////////////////
+   _loop TabOkato_KVI where (( '3' == TabOkato_KVI._KVI ))
+    _loop Oborot_801 where ((      'N801'                   ==  Oborot_801.SchetO
+                              and  TabOkato_KVI._NrecOkato  ==  Oborot_801.KAUOS[3] (NoIndex)  ))
+    {
+      sStolb  := '';
+
+      if ( TabOkato_KVI._INN <> '0.4-001001001' )  // 2.4
+       if ( Oborot_801.KAUOS[5] = c002001 or Oborot_801.KAUOS[5] = c002003 )
+        sStolb  := '3';
+
+      if ( TabOkato_KVI._INN <> '0.4-001001001' )  // 2.4
+       if ( Oborot_801.KAUOS[5] = c001002003 )
+        sStolb  := '4';
+
+      if ( TabOkato_KVI._INN = '0.4-001001001' )   // 0.4
+      {
+        if ( Oborot_801.KAUOS[5] = c001001001 )
+         sStolb  := '001001001';
+
+        if ( Oborot_801.KAUOS[5] = c001001003 )
+         sStolb  := '001001003';
+      }
+
+      if ( sStolb = '' )  // если нет такой льготы
+       continue;
+
+      if ( GetFirst FpPeriod = tsOk )
+       for ( i := 1; i <= 10; ++i )
+       {
+         if ( (Month(dTo)+1) < i ) // проверяем заданный период для расчета
+          continue;                // чтобы не шел расчет данных позднее указанного периода
+
+         // дата сальдо для протокола (периоды отчетные)
+         if ( i = 13 ) // 13-ый период
+          dSal := Date( 01, 01, word(sYear)+1 );
+         else
+          dSal := Date( 01, byte(i), word(sYear) );
+
+         sData := DateToStr(dSal, 'DD.MM.YYYY');
+
+         // дата для определения периода планирования по проводке (на месяц раньше нежели расчетное сальдо)
+         if ( i = 1 ) // 1-ый период
+          dSal := Date( 01, 12, word(sYear)-1 );
+         else
+          dSal := Date( 01, byte(i)-1, word(sYear) );
+
+         if ( FpPeriod.dBeg <= dSal and dSal <= FpPeriod.dEnd )
+         {
+           RezSum := Oborot_801.SumOb; // и для протокола
+
+           if ( sStolb = '3' or sStolb = '001001001' or sStolb = '001001003' )
+           {
+             case i of
+               1 :  TabOkato_KVI._k3_020 += RezSum;
+               2 :  TabOkato_KVI._k3_030 += RezSum;
+               3 :  TabOkato_KVI._k3_040 += RezSum;
+               4 :  TabOkato_KVI._k3_050 += RezSum;
+               5 :  TabOkato_KVI._k3_060 += RezSum;
+               6 :  TabOkato_KVI._k3_070 += RezSum;
+               7 :  TabOkato_KVI._k3_080 += RezSum;
+               8 :  TabOkato_KVI._k3_090 += RezSum;
+               9 :  TabOkato_KVI._k3_100 += RezSum;
+              10 :  TabOkato_KVI._k3_110 += RezSum;
+             end;
+           }
+
+           if ( sStolb = '4' ) // на такую же сумму увеличиваем колонку 3 - т.к. в том числе
+           {
+             case i of
+               1 :  TabOkato_KVI._k3_020 += RezSum;
+               2 :  TabOkato_KVI._k3_030 += RezSum;
+               3 :  TabOkato_KVI._k3_040 += RezSum;
+               4 :  TabOkato_KVI._k3_050 += RezSum;
+               5 :  TabOkato_KVI._k3_060 += RezSum;
+               6 :  TabOkato_KVI._k3_070 += RezSum;
+               7 :  TabOkato_KVI._k3_080 += RezSum;
+               8 :  TabOkato_KVI._k3_090 += RezSum;
+               9 :  TabOkato_KVI._k3_100 += RezSum;
+              10 :  TabOkato_KVI._k3_110 += RezSum;
+             end;
+
+             case i of
+               1 :  TabOkato_KVI._k4_020 += RezSum;
+               2 :  TabOkato_KVI._k4_030 += RezSum;
+               3 :  TabOkato_KVI._k4_040 += RezSum;
+               4 :  TabOkato_KVI._k4_050 += RezSum;
+               5 :  TabOkato_KVI._k4_060 += RezSum;
+               6 :  TabOkato_KVI._k4_070 += RezSum;
+               7 :  TabOkato_KVI._k4_080 += RezSum;
+               8 :  TabOkato_KVI._k4_090 += RezSum;
+               9 :  TabOkato_KVI._k4_100 += RezSum;
+              10 :  TabOkato_KVI._k4_110 += RezSum;
+             end;
+           }
+
+           // обновить сумму
+
+           if ( dTo > date(01,03,YEAR(dTo)) and dTo < date(01,06,YEAR(dTo)) )
+           {
+             TabOkato_KVI._120 := round( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                  + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 ) / 4;
+
+             TabOkato_KVI._140 := round( TabOkato_KVI._k4_020 + TabOkato_KVI._k4_030
+                                  + TabOkato_KVI._k4_040 + TabOkato_KVI._k4_050 ) / 4;
+           }
+
+           if ( dTo > date(01,06,YEAR(dTo)) and dTo < date(01,09,YEAR(dTo)) )
+           {
+             TabOkato_KVI._120 := round( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                  + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                  + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 ) / 7;
+
+             TabOkato_KVI._140 := round( TabOkato_KVI._k4_020 + TabOkato_KVI._k4_030
+                                  + TabOkato_KVI._k4_040 + TabOkato_KVI._k4_050 + TabOkato_KVI._k4_060
+                                  + TabOkato_KVI._k4_070 + TabOkato_KVI._k4_080 ) / 7;
+           }
+
+           if ( dTo > date(01,09,YEAR(dTo)) )
+           {
+             TabOkato_KVI._120 := round( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030
+                                  + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 + TabOkato_KVI._k3_060
+                                  + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 + TabOkato_KVI._k3_090
+                                  + TabOkato_KVI._k3_100 + TabOkato_KVI._k3_110 ) / 10;
+
+             TabOkato_KVI._140 := round( TabOkato_KVI._k4_020 + TabOkato_KVI._k4_030
+                                  + TabOkato_KVI._k4_040 + TabOkato_KVI._k4_050 + TabOkato_KVI._k4_060
+                                  + TabOkato_KVI._k4_070 + TabOkato_KVI._k4_080 + TabOkato_KVI._k4_090
+                                  + TabOkato_KVI._k4_100 + TabOkato_KVI._k4_110 ) / 10;
+           }
+
+           TabOkato_KVI._180  :=  round((round(TabOkato_KVI._120)-round(TabOkato_KVI._140))*double(TabOkato_KVI._170)/100/4); // такая же формула используется выше
+
+           Protokol_KVI;
+
+           if ( sStolb = '4' )
+           {
+             sStolb := '3';
+             Protokol_KVI;       // входит в столбец 3 (в том числе)
+             sStolb := '4';
+           }
+
+         }
+
+         UpDate current TabOkato_KVI;
+       }
+    }
+    ///////////////////   801    //////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  if ( cBigOKATO = comp(0) )
+  {
+    _loop UserDeskRep // проход по ОКАТО - формируем 1-ый раздел
+    {
+      ResBV := 0; // подсчет итогов для каждого ОКАТО
+
+     _loop TabOkato_KVI where (( '2' == TabOkato_KVI._KVI and UserDeskRep.ResComp[1] == TabOkato_KVI._NrecOkato ))
+       ResBV := ResBV + TabOkato_KVI._180 - TabOkato_KVI._200;
+
+     _loop TabOkato_KVI where (( '3' == TabOkato_KVI._KVI and UserDeskRep.ResComp[1] == TabOkato_KVI._NrecOkato ))
+       ResBV := ResBV + TabOkato_KVI._180 - TabOkato_KVI._200;
+
+      ClearBuffer(#Okato_Razdel1);
+       Okato_Razdel1._sCode      := UserDeskRep.ResCode[1];
+       Okato_Razdel1._NrecOkato  := UserDeskRep.ResComp[1];
+       Okato_Razdel1._Kod   := '18210602010021000110';
+       Okato_Razdel1._Summ  := ResBV;
+      insert current Okato_Razdel1;
+    } // _loop UserDeskRep // проход по ОКАТО
+  }
+  else
+  {
+      ResBV := 0; // подсчет итогов для каждого ОКАТО
+
+     _loop TabOkato_KVI where (( '2' == TabOkato_KVI._KVI and cBigOKATO == TabOkato_KVI._NrecOkato ))
+       ResBV := ResBV + TabOkato_KVI._180 - TabOkato_KVI._200;
+
+     _loop TabOkato_KVI where (( '3' == TabOkato_KVI._KVI and cBigOKATO == TabOkato_KVI._NrecOkato ))
+       ResBV := ResBV + TabOkato_KVI._180 - TabOkato_KVI._200;
+
+      ClearBuffer(#Okato_Razdel1);
+       Okato_Razdel1._sCode      := sBigOKATO;
+       Okato_Razdel1._NrecOkato  := cBigOKATO;
+       Okato_Razdel1._Kod   := '18210602010021000110';
+       Okato_Razdel1._Summ  := ResBV;
+      insert current Okato_Razdel1;
+  }
+////////////////////////////////////////////////////////////////////////////////
+  _loop TabOkato_KVI // удаляем листы без данных
+  {
+    if ( TabOkato_KVI._k3_020 + TabOkato_KVI._k3_030 + TabOkato_KVI._k3_040 + TabOkato_KVI._k3_050 +
+         TabOkato_KVI._k3_060 + TabOkato_KVI._k3_070 + TabOkato_KVI._k3_080 + TabOkato_KVI._k3_090 +
+         TabOkato_KVI._k3_100 + TabOkato_KVI._k3_110 = 0 )
+    delete current TabOkato_KVI;
+  }
+////////////////////////////////////////////////////////////////////////////////
+
+  t2 := Cur_time;
+
+  //////////////////////////////////////////////////////////
+  //     ФОРМИРОВАНИЕ ПРОВОДОК ПО ВНЕБАЛАНСОВОМУ 068/01   //
+  //////////////////////////////////////////////////////////
+
+  if ( GetFirst BuhSchet where (( 'N068' == BuhSchet.schet and '01' == BuhSchet.SubSch  )) <> tsOk )
+  {
+    message('Не заведен внебалансовый счет 068 (субсчет 01) "Налог на имущество" (Типовой налоговый план счетов ТНФ (рабочий))'
+             +chr(13)+'Бухгалтерская справка формироваться не будет');
+  }
+  else
+   if ( f068 = 1 )
+   {
+     if ( GetFirst PlPor = tsOk )
+     {
+        PlPor.DESCR   := sGetTune('USER.DESCR');
+        PlPor.DESGR   := sGetTune('USER.DESGR');
+        PlPor.NamePl1 := 'Налог на имущество за период с '+DateToStr(dFrom,'DD.MM.YYYY')+' по '+DateToStr(dTo,'DD.MM.YYYY');
+        PlPor.NamePl2 := 'по месту учета: '+Mesto+', КПП: '+SelKPP+', код налогового органа: '+InsKod;
+        PlPor.NamePl3 := if ( Vers <> 0, 'Версия корректировки: '+Vers, 'Первичное формирование авансового расчета по налогу на имущество.' );
+       UpDate current PlPor;
+
+       // убиваем все проводки к бух.справке
+       delete all Oborot where (( word(10) == Oborot.TiDK and PlPor.nRec == Oborot.cSoprDoc ));
+     }
+     else
+     {
+       ClearBuffer(#PlPor);
+        PlPor.TiDK    := word(10);
+        PlPor.TiDKGal := word(10);
+        PlPor.DatVip  := Add_day(dTo,1);
+        PlPor.NoDok   := 'И_'+Mesto+'-'+SelKPP+'-'+InsKod;
+        PlPor.DESCR   := sGetTune('USER.DESCR');
+        PlPor.DESGR   := sGetTune('USER.DESGR');
+        PlPor.NamePl1 := 'Налог на имущество за период с '+DateToStr(dFrom,'DD.MM.YYYY')+' по '+DateToStr(dTo,'DD.MM.YYYY');
+        PlPor.NamePl2 := 'по месту учета: '+Mesto+', КПП: '+SelKPP+', код налогового органа: '+InsKod;
+        PlPor.NamePl3 := if ( Vers <> 0, 'Версия корректировки: '+Vers, 'Первичное формирование авансового расчета по налогу на имущество.' );
+       insert current PlPor;
+     }
+
+     SumTmp := 0;
+     if ( GetFirst PlansSch = tsOk ) {};
+
+     _loop TabOkato_KVI
+      if ( TabOkato_KVI._180 > 0 )
+      {
+        ClearBuffer(#Oborot);
+         Oborot.TiDK      := word(10);
+         Oborot.TiDKGal   := word(10);
+         Oborot.cSoprDoc  := PlPor.nRec;
+         Oborot.cPlansSch := PlansSch.nRec;
+         Oborot.DatOb     := add_day(dTo,1);
+         Oborot.NoDok     := 'И_'+Mesto+'-'+SelKPP+'-'+InsKod;
+         Oborot.SchetO    := 'N068';
+         Oborot.SubOsSch  := '01';
+         Oborot.DBSCHETO  := '068';
+         Oborot.DESCR     := sGetTune('USER.DESCR');
+         Oborot.DESGR     := sGetTune('USER.DESGR');
+         Oborot.SumOb     := TabOkato_KVI._180;
+         Oborot.TBLOS[1]  := if ( TabOkato_KVI._NrecOkato <> 0, word(72), 0);
+         Oborot.KAUOS[1]  := TabOkato_KVI._NrecOkato;
+         Oborot.TBLOS[2]  := if ( TabOkato_KVI._nRecKatOS <> 0, word(15), 0);
+         Oborot.KAUOS[2]  := TabOkato_KVI._nRecKatOS;
+        insert current Oborot;
+
+        SumTmp := SumTmp + TabOkato_KVI._180;
+      }
+
+     PlPor.SumPlat := SumTmp;
+     UpDate current PlPor;
+   }
+   else
+   {
+     message('ВНИМАНИЕ !! БУХГАЛТЕРСКИЕ СПРАВКИ НЕ ФОРМИРОВАЛИСЬ'+chr(13)+
+             'ДАННЫЕ ДЛЯ ГОДОВОЙ ДЕКЛАРАЦИИ НЕ СОХРАНЕНЫ'+chr(13)+
+             '(включается в окне настроек расчёта)' );
+   }
+
+//*************************************************************************************************************************************************
+
+   //////////////////////////////////////////////////////////
+   //             ФОРМИРОВАНИЕ XML ФАЙЛА                   //
+   //////////////////////////////////////////////////////////
+
+   if ( fXML = 1 and fFileXML <> '' ) // формировать файл XML
+   {
+      fio := fam := name := lastname := '';
+
+!      KPP     := if ( GetFirst KatOrg where (( coGetTune('MYORG') == KatOrg.nRec )) = tsOk, KatOrg.KodPlatNDS, '' );
+      INN     := if ( GetFirst KatOrg where (( coGetTune('MYORG') == KatOrg.nRec )) = tsOk, KatOrg.UNN , '' );
+      OrgName := if ( GetFirst KatOrg where (( coGetTune('MYORG') == KatOrg.nRec )) = tsOk, KatOrg.name, '' );
+
+      fam      := trim( iStrFunc.GetFirstName(sGetTune('BOSS')));   // фамилия
+      name     := trim(  iStrFunc.GetLastName(sGetTune('BOSS')));   // имя
+      lastname := trim(iStrFunc.GetPatronymic(sGetTune('BOSS')));   // отчество руквадителя
+
+      if ( ExistFile(fFileXML) )
+        DeleteFile(fFileXML);
+
+      f_XML.OpenFile(fFileXML, stCreate);  // создаем новый/пустой файл выписки (со старым именем)
+
+      f_XML.WriteLn('<?xml version="1.0" encoding="windows-1251"?>');
+      // что нужно в айди файла рисовать ??
+      f_XML.WriteLine( DocBasFn866To1251('<Файл ИдФайл="'+Replace(fFile,'.xml','')+'"') );
+!      f_XML.WriteLine( DocBasFn866To1251(' ВерсФорм="5.01" ТипИнф="ИМУР" ВерсПрог="Галактика ERP 8.1"') );
+      f_XML.WriteLine( DocBasFn866To1251(' ВерсФорм="5.02" ТипИнф="ИМУР" ВерсПрог="Галактика ERP 8.1" xmlns:xsi="file://'+fFileXML+'"') );  //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251(' КолДок="1">') );
+
+      f_XML.WriteLn( DocBasFn866To1251('    <Документ КНД="1152028" ДатаДок="'+DateToStr(dOtch,'DD.MM.YYYY')+'" ОтчетГод="'+sYear+'" Период="'+Period+'" КодНО="'+InsKod+'" НомКорр="'+Vers+'" ПоМесту="'+Mesto+'">') );
+
+      f_XML.WriteLn( DocBasFn866To1251('        <СвНП ОКВЭД="'+sGetTune('ETAXRU.TUNEOKVED')+'" Тлф="'+if ( GetFirst KatOrg where (( coGetTune('MYORG') == KatOrg.nRec )) = tsOk, KatOrg.tel, '' )+'" >') );;
+      f_XML.WriteLn( DocBasFn866To1251('            <НПЮЛ НаимОрг="'+Replace(OrgName,'"','&quot;')+'" ИННЮЛ="'+INN+'" КПП="'+SelKPP+'"/>') );
+      f_XML.WriteLn( DocBasFn866To1251('        </СвНП>') );
+      f_XML.WriteLn( DocBasFn866To1251('        <Подписант ПрПодп="1">') );
+      f_XML.WriteLn( DocBasFn866To1251('          <ФИО Фамилия="'+fam+'" Имя="'+name+'" Отчество="'+lastname+'"/>') );
+      f_XML.WriteLn( DocBasFn866To1251('        </Подписант>') );
+      f_XML.WriteLn( DocBasFn866To1251('        <ИмущАв>') ); //Изменения в версии 5.02
+
+    _loop Okato_Razdel1
+    {
+      f_XML.WriteLn( DocBasFn866To1251('          <СумНалПУ КБК="'+Okato_Razdel1._Kod+'" ОКАТО="'+Okato_Razdel1._sCode+'" НалПУ="'+trim(string(Okato_Razdel1._Summ,0,0))+'" >') );
+      f_XML.WriteLn( DocBasFn866To1251('            <РасОбДеятРФ>') );
+
+
+      _loop TabOkato_KVI where (( '2' == TabOkato_KVI._KVI and Okato_Razdel1._NrecOkato == TabOkato_KVI._NrecOkato (NoIndex) ))
+      {
+       f_XML.WriteLn( DocBasFn866To1251('             <РасОб ВидИмущ="2">') );  // сразу вывод по коду вида имущества 2, после по 3
+
+       f_XML.WriteLn( DocBasFn866To1251('               <ДанРас СтИмущ="'+string(TabOkato_KVI._120,0,0)+'" КодНалЛьг="'+trim(Kod_Nal_130)+'" СтИмущНеобл="'+string(TabOkato_KVI._140,0,0)
+                                                                        +'" ДолСт="'+string(TabOkato_KVI._150_ch,0,0)+'/'+string(TabOkato_KVI._150_zn,0,0)+'" НалСтав="'+TabOkato_KVI._170+'">') );
+       f_XML.WriteLn( DocBasFn866To1251('                <СтоимМес>') );
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0101 '+if(TabOkato_KVI._k3_020 != 0, 'СтОст="'+string(TabOkato_KVI._k3_020,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_020,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0102 '+if(TabOkato_KVI._k3_030 != 0, 'СтОст="'+string(TabOkato_KVI._k3_030,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_030,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0103 '+if(TabOkato_KVI._k3_040 != 0, 'СтОст="'+string(TabOkato_KVI._k3_040,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_040,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0104 '+if(TabOkato_KVI._k3_050 != 0, 'СтОст="'+string(TabOkato_KVI._k3_050,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_050,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0105 '+if(TabOkato_KVI._k3_060 != 0, 'СтОст="'+string(TabOkato_KVI._k3_060,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_060,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0106 '+if(TabOkato_KVI._k3_070 != 0, 'СтОст="'+string(TabOkato_KVI._k3_070,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_070,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0107 '+if(TabOkato_KVI._k3_080 != 0, 'СтОст="'+string(TabOkato_KVI._k3_080,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_080,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0108 '+if(TabOkato_KVI._k3_090 != 0, 'СтОст="'+string(TabOkato_KVI._k3_090,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_090,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0109 '+if(TabOkato_KVI._k3_100 != 0, 'СтОст="'+string(TabOkato_KVI._k3_100,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_100,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0110 '+if(TabOkato_KVI._k3_110 != 0, 'СтОст="'+string(TabOkato_KVI._k3_110,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_110,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+       f_XML.WriteLn( DocBasFn866To1251('                </СтоимМес>') );
+       f_XML.WriteLn( DocBasFn866To1251('               </ДанРас>') );
+       f_XML.WriteLn( DocBasFn866To1251('               <ОтчПер СумАвИсчисл="'+string(TabOkato_KVI._180,0,0)+'" СумЛгУмен=""/>') );
+
+       f_XML.WriteLn( DocBasFn866To1251('             </РасОб>') );
+      }
+
+
+
+     _loop TabOkato_KVI where (( '3' == TabOkato_KVI._KVI and Okato_Razdel1._NrecOkato == TabOkato_KVI._NrecOkato (NoIndex) ))
+     {
+      f_XML.WriteLn( DocBasFn866To1251('             <РасОб ВидИмущ="3">') );
+      f_XML.WriteLn( DocBasFn866To1251('               <ДанРас СтИмущ="'+string(TabOkato_KVI._120,0,0)+'" КодНалЛьг="'+trim(Kod_Nal_130)+'" СтИмущНеобл="'+string(TabOkato_KVI._140,0,0)+'" НалСтав="'+TabOkato_KVI._170+'">') );
+      f_XML.WriteLn( DocBasFn866To1251('                <СтоимМес>') );
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0101 '+if(TabOkato_KVI._k3_020 != 0, 'СтОст="'+string(TabOkato_KVI._k3_020,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_020,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0102 '+if(TabOkato_KVI._k3_030 != 0, 'СтОст="'+string(TabOkato_KVI._k3_030,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_030,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0103 '+if(TabOkato_KVI._k3_040 != 0, 'СтОст="'+string(TabOkato_KVI._k3_040,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_040,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0104 '+if(TabOkato_KVI._k3_050 != 0, 'СтОст="'+string(TabOkato_KVI._k3_050,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_050,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0105 '+if(TabOkato_KVI._k3_060 != 0, 'СтОст="'+string(TabOkato_KVI._k3_060,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_060,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0106 '+if(TabOkato_KVI._k3_070 != 0, 'СтОст="'+string(TabOkato_KVI._k3_070,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_070,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0107 '+if(TabOkato_KVI._k3_080 != 0, 'СтОст="'+string(TabOkato_KVI._k3_080,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_080,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0108 '+if(TabOkato_KVI._k3_090 != 0, 'СтОст="'+string(TabOkato_KVI._k3_090,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_090,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0109 '+if(TabOkato_KVI._k3_100 != 0, 'СтОст="'+string(TabOkato_KVI._k3_100,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_100,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                   <ОстСтом0110 '+if(TabOkato_KVI._k3_110 != 0, 'СтОст="'+string(TabOkato_KVI._k3_110,0,0)+'" СтЛьгИмущ="'+string(TabOkato_KVI._k4_110,0,0)+'"', '')+'/>') ); //Изменения в версии 5.02
+      f_XML.WriteLn( DocBasFn866To1251('                </СтоимМес>') );
+      f_XML.WriteLn( DocBasFn866To1251('               </ДанРас>') );
+      f_XML.WriteLn( DocBasFn866To1251('               <ОтчПер СумАвИсчисл="'+string(TabOkato_KVI._180,0,0)+'" СумЛгУмен=""/>') );
+
+      f_XML.WriteLn( DocBasFn866To1251('             </РасОб>') );
+     }
+
+      f_XML.WriteLn( DocBasFn866To1251('            </РасОбДеятРФ>') );
+      f_XML.WriteLn( DocBasFn866To1251('          </СумНалПУ>') );
+   }
+
+      f_XML.WriteLn( DocBasFn866To1251('        </ИмущАв>') );
+      f_XML.WriteLn( DocBasFn866To1251('    </Документ>') );
+      f_XML.WriteLn( DocBasFn866To1251('</Файл>') );
+
+      f_XML.close;
+
+    } // формировать файл XML
+
+
+   ///////////////////////////////////////////////////////////////////////////////////////////////////////////
+   // формирование проверочного протокола
+   if ( ExistFile(startpathname + 'out\xls\Протокол по налогу на Имущество (аванс) '+' ('+DateToStr(dFrom,'DD_MM_YYYY')+'-'+DateToStr(dTo,'DD_MM_YYYY')+ ').xls') )
+    DeleteFile(startpathname + 'out\xls\Протокол по налогу на Имущество (аванс) '+' ('+DateToStr(dFrom,'DD_MM_YYYY')+'-'+DateToStr(dTo,'DD_MM_YYYY')+ ').xls');
+
+   xlCreateExcel((startpathname + 'out\xls\Протокол по налогу на Имущество (аванс) '+' ('+DateToStr(dFrom,'DD_MM_YYYY')+'-'+DateToStr(dTo,'DD_MM_YYYY')+ ').xls'), True);
+
+   if not xlIsExcelValid { message('Ошибка инициализации Excel'); exit; };
+
+   i := 0;
+   j := 1;
+
+   shapka;
+
+   xlCreateMatrix(60000, 10); // создали массив
+
+   _loop Formuly
+   {
+     if ( fNULL = 0 or ( fNULL = 1 and Formuly.summ <> 0 ) )
+      ++i;
+
+     if ( i > 50000 ) // формируем отдельный лист протокола // нужно для старых Excel
+     {
+       xlWriteMatrixToExcel( 6, 1 );
+       xlClearMatrix;
+
+       ++j;
+       i := 1;
+       shapka;
+     }
+
+     if ( fNULL = 0 or ( fNULL = 1 and Formuly.summ <> 0 ) )
+     {
+       xlStWriteToMatrix( i, 1, Formuly.KVI           );
+       xlStWriteToMatrix( i, 2, Formuly.kolonka       );
+       xlStWriteToMatrix( i, 3, Formuly.data          );
+       xlStWriteToMatrix( i, 4, Formuly.formulja      );
+       xlStWriteToMatrix( i, 5, chr(39)+Formuly.OKATO );
+       xlStWriteToMatrix( i, 6, Formuly.INNOS         );
+       xlStWriteToMatrix( i, 7, Formuly.summ          );
+       xlStWriteToMatrix( i, 8, chr(39)+string(Formuly.ch,0,0)+'/'+string(Formuly.zn,0,0) );
+       xlStWriteToMatrix( i, 9, Formuly.summ * Formuly.ch / Formuly.zn );
+     }
+   }
+
+   xlWriteMatrixToExcel( 6, 1 );
+
+   xlFreeMatrix;
+   xlKillExcel;
+
+   StopVisual('', 0);
+
+   RunFReport(DocDataStream, '', false);
+
+
+   if ( fXML = 1 and fFileXML <> '' ) // формировать файл XML
+   {
+     message('Сформирован XML файл '+chr(13)+fFileXML);
+
+     var aErrorCode : integer;
+     ExecProgram ('explorer.exe', fFileXML, 'XML', 0, aErrorCode);
+   }
+
+   message('Время начала формирования отчета: '+ TimeToStr(t1,'HH:MM:SS')   +chr(13)+
+           'Время окончания формирования: '+ TimeToStr(t2,'HH:MM:SS') +chr(13)+
+           'Отчет формировался :'+ TimeToStr(Sub_Time(t2,t1),'HH часов MM минут SS секунд') );
+
+}
+End;
+
+End.
+                                  ////////////////////////////////
+                                  //                            //
+                                  //         /\\\\\\\\\\\\\\\\  //
+                                  //    /\\  \////////////////  //
+                                  //   / //  (c) Стамп   / //   //
+                                  //  / //\\\\\\\\\\\\   \//    //
+                                  //  \///////////////          //
+                                  //                            //
+                                  ////////////////////////////////

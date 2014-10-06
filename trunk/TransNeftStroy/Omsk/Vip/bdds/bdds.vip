@@ -1,0 +1,337 @@
+.LinkForm 'TREEAN_01_NDEAAAAAA' Prototype is 'TREEAN'
+.NameInList 'Обороты по статьям БДДС'
+.var
+  s_d,s_s_d:Double
+  s_k,s_s_k:Double
+  T_temp,T_temp1:LongInt
+  x,x1:Integer
+  N1,N11 : word
+  N2,N21 : word
+  N3,N31 : word
+  N4,N41 : word
+  bdds_kod,bdds_kod_g  : string;
+  bdds_name : string;
+  pos_x,xx:Integer
+  FBasName,Fmacros:String
+
+.endvar
+.Create     view t1
+from PlPor, Oborot
+where ((
+        OborotNRec      == Oborot.nrec
+    and Oborot.csoprhoz == soprhoz.nrec
+    and soprhoz.csoprdoc == plpor.nrec
+    and word(50505) == spkau.KODGRKAU
+    and bdds_kod_g    == SPKAU.CODE
+    and plpor.tidkgal == KATDOC.TIDKGAL
+      ))
+;
+.fields
+.endfields
+.begin
+T_temp := TblInitNew(1,1);            // создаем таблицу
+N1     := TblNewField(T_temp, ftString);
+TblEndKey(T_temp);                      // строим индекс по полю
+N2     := TblNewField(T_temp, ftString);
+N3     := TblNewField(T_temp, ftDouble);
+N4     := TblNewField(T_temp, ftDouble);
+TblSetDuplicate(T_temp,False);        // допускать дублирование записей
+TblClearBuffer(T_temp);              // очищаем буфер таблицы
+
+T_temp1 := TblInitNew(1,1);            // создаем таблицу
+N31     := TblNewField(T_temp1, ftString);
+N11     := TblNewField(T_temp1, ftString);
+N21     := TblNewField(T_temp1, ftString);
+TblEndKey(T_temp1);                      // строим индекс по полю
+TblSetDuplicate(T_temp1,False);        // допускать дублирование записей
+TblClearBuffer(T_temp1);              // очищаем буфер таблицы
+
+
+FBasName :=GetStringParameter('Files','TmpFilesDirectory',0)+'ob_bdds.xls';
+fmacros := GetStringParameter('Files','TmpFilesDirectory',0)+'macros.bas';
+DeleteFile(FBasName);
+xlCreateExcel(FBasName,true);
+xlSetActiveWorkBookByName('ob_bdds');
+   xlGetSheetsCount(xx);
+   while xx > 1
+    do
+     {
+       xlSetActiveSheet(xx);
+       xlDeleteSheet(xx);
+       xlGetSheetsCount(xx);
+     }
+   xlSetSheetName(1,'Обороты по статьям БДДС');
+   xlSetActiveSheet(1);
+   pos_x:=1;
+
+   xlSetCellStringValue(CommonFormHeader , pos_x, 1, pos_x, 1);
+   xlSetFontSize(8, pos_x, 1, pos_x, 1);
+   xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+   pos_x:=pos_x+2;
+   xlSetCellStringValue('Обороты по статьям БДДС', pos_x, 1, pos_x, 1);
+   xlSetFontSize(12, pos_x, 1, pos_x, 4);
+   xlMergeCells( pos_x, 1, pos_x, 4);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 4);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 4);
+   pos_x:=pos_x+1;
+   xlSetCellStringValue(PeriodName , pos_x, 1, pos_x, 1);
+   xlSetFontSize(10, pos_x, 1, pos_x, 4);
+   xlMergeCells( pos_x, 1, pos_x, 4);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 4);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 4);
+   pos_x:=pos_x+2;
+
+   xlSetCellStringValue('Код'                  , pos_x, 1, pos_x, 1);
+   xlSetCellStringValue('Наименование'         , pos_x, 2, pos_x, 2);
+   xlSetCellStringValue('Дебет'                , pos_x, 3, pos_x, 3);
+   xlSetCellStringValue('Кредит'               , pos_x, 4, pos_x, 4);
+
+   xlSetFontSize (10, pos_x, 1, pos_x, 4);
+   xlSetFontStyle( 1, pos_x, 1, pos_x, 4);
+   xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 4);
+
+   xlSetColumnWidth(15,  pos_x, 1, pos_x, 1);
+   xlSetColumnWidth(40,  pos_x, 2, pos_x, 2);
+   xlSetColumnWidth(15,  pos_x, 3, pos_x, 3);
+   xlSetColumnWidth(15,  pos_x, 4, pos_x, 4);
+
+   xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+   xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+   xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+   xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+
+   xlWrapText(pos_x, 1, pos_x, 4);
+   pos_x:=pos_x+1;
+
+end.
+.if TREEAN_FILTER
+.{
+.{
+.}
+.}
+.else
+.end
+.{
+.{CheckEnter TREEAN_GROUPHEADER
+.}
+.{CheckEnter TREEAN_DATA
+.begin
+bdds_kod := '';
+bdds_kod_g := '';
+bdds_name:= '';
+s_d := 0;
+s_k := 0;
+
+if t1.getfirst oborot = tsok
+ {
+ if (t1.OBOROT.DBSCHETO = '50' or t1.OBOROT.DBSCHETO = '51')
+  {
+   s_d := t1.OBOROT.SUMOB;
+  }
+ if (t1.OBOROT.KRSCHETK = '50' or t1.OBOROT.KRSCHETK = '51')
+  {
+   s_k := t1.OBOROT.SUMOB;
+  }
+
+ if  (t1.OBOROT.DBSCHETO = '50' and t1.OBOROT.KRSCHETK = '51') or (t1.OBOROT.DBSCHETO = '51' and t1.OBOROT.KRSCHETK = '50')
+  {
+   s_d := 0;
+   s_k := 0;
+  }
+
+
+ }
+if t1.getfirst soprhoz = tsok
+if t1.getfirst plpor = tsok
+ {
+  bdds_kod := substr(trim(t1.plpor.tax),1,10);
+
+  bdds_kod_g := substr(bdds_kod,1,2)+'-'+substr(bdds_kod,3,2)+'-'+substr(bdds_kod,5,4)+'-'+substr(bdds_kod,9,2);
+
+  if t1.getfirst spkau = tsok
+    {
+     bdds_name := t1.spkau.name;
+     bdds_kod  := t1.spkau.code;
+    }
+
+if bdds_kod=''
+   {
+    bdds_kod:='Не заполнен код статьи';
+    TblSfString(T_temp1, N11, t1.plpor.NODOK);
+    TblSfString(T_temp1, N21, datetostr(t1.plpor.datob,'DD/MM/YYYY'));
+    if t1.getfirst katdoc  = tsok
+     {
+     TblSfString(T_temp1, N31, t1.KATdoc.NAME);
+     }
+    TblInsertCurrent(T_temp1);
+
+   }
+
+if bdds_name=''
+   {
+    bdds_name:='Не найдена статья';
+   }
+
+TblSfString(T_temp, N1, bdds_kod);
+if  TblGetEqual(T_temp)                         // Если запись есть
+    {
+TblSfDouble(T_temp, N3, TblGfDouble(T_temp,N3)+s_d);
+TblSfDouble(T_temp, N4, TblGfDouble(T_temp,N4)+s_k);
+TblUpDateCurrent(T_temp);
+    }
+else
+    {
+
+TblSfString(T_temp, N2, bdds_name);
+TblSfDouble(T_temp, N3, s_d);
+TblSfDouble(T_temp, N4, s_k);
+TblInsertCurrent(T_temp);
+    }
+ }
+
+end.
+.}
+.{CheckEnter TREEAN_GROUPFOOTER
+.if TREEAN_DIVIDER
+.else
+.end
+.}
+.}
+.{while (x<=(TblRecords(T_temp)-1))
+.begin
+if (TblGetIndex(T_temp,x))
+ {
+
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N1) , pos_x, 1, pos_x, 1);
+  xlSetFontSize(8, pos_x, 1, pos_x, 1);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp,N2) , pos_x, 2, pos_x, 2);
+  xlSetFontSize(8, pos_x, 2, pos_x, 2);
+  xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+  xlSetCellStringValue(TblGfDouble(T_temp,N3), pos_x, 3, pos_x, 3);
+  xlSetFontSize(8, pos_x, 3, pos_x, 3);
+  xlAlignCellsEx( 4, 2, pos_x, 3, pos_x, 3);
+  xlSetCellStringValue(TblGfDouble(T_temp,N4), pos_x, 4, pos_x, 4);
+  xlSetFontSize(8, pos_x, 4, pos_x, 4);
+  xlAlignCellsEx( 4, 2, pos_x, 4, pos_x, 4);
+
+  xlWrapText(pos_x, 1, pos_x, 2);
+
+  xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+  xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+  xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 3);
+  xlFrameCells(15,2,7,0,pos_x, 4, pos_x, 4);
+
+  pos_x:=pos_x+1;
+  s_s_d:=s_s_d+TblGfDouble(T_temp,N3);
+  s_s_k:=s_s_k+TblGfDouble(T_temp,N4);
+
+ x:=x+1;
+ }
+end.
+.}
+.begin
+  xlMergeCells( pos_x, 1, pos_x, 2);
+  xlSetCellStringValue('ИТОГО' , pos_x, 1, pos_x, 1);
+  xlSetFontSize(8, pos_x, 1, pos_x, 1);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+  xlSetCellStringValue(s_s_d, pos_x, 3, pos_x, 3);
+  xlSetFontSize(8, pos_x, 3, pos_x, 3);
+  xlAlignCellsEx( 4, 2, pos_x, 3, pos_x, 3);
+  xlSetCellStringValue(s_s_k, pos_x, 4, pos_x, 4);
+  xlSetFontSize(8, pos_x, 4, pos_x, 4);
+  xlAlignCellsEx( 4, 2, pos_x, 4, pos_x, 4);
+  xlSetFontStyle( 1, pos_x, 1, pos_x, 4);
+  pos_x:=pos_x+2;
+  xlMergeCells( pos_x, 1, pos_x, 4);
+  xlSetCellStringValue('Исполнитель     _______________________     '+FrmUserName, pos_x, 1, pos_x, 1);
+  xlSetFontSize(8, pos_x, 1, pos_x, 1);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+  xlSetFontStyle( 1, pos_x, 1, pos_x, 4);
+  pos_x:=pos_x+3;
+
+  if TblRecords(T_temp1)>0
+  {
+  xlMergeCells( pos_x, 1, pos_x, 4);
+  xlSetCellStringValue('Расшифровка строки "Не заполнен код статьи"' , pos_x, 1, pos_x, 1);
+  xlSetFontSize(10, pos_x, 1, pos_x, 1);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+  xlSetFontStyle( 1, pos_x, 1, pos_x, 4);
+  xlWrapText(pos_x, 1, pos_x, 3);
+
+  pos_x:=pos_x+1;
+
+  xlMergeCells( pos_x, 3, pos_x, 4);
+  xlSetCellStringValue('Номер документа'   , pos_x, 1, pos_x, 1);
+  xlSetCellStringValue('Дата документа'    , pos_x, 2, pos_x, 2);
+  xlSetCellStringValue('Вид документа'     , pos_x, 3, pos_x, 3);
+  xlSetFontSize (10, pos_x, 1, pos_x, 4);
+  xlSetFontStyle( 1, pos_x, 1, pos_x, 4);
+  xlAlignCellsEx( 3, 2, pos_x, 1, pos_x, 4);
+
+  xlWrapText(pos_x, 1, pos_x, 3);
+
+  xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+  xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+  xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 4);
+
+  pos_x:=pos_x+1;
+  }
+end.
+.{while (x1<=(TblRecords(T_temp1)-1))
+.begin
+if (TblGetIndex(T_temp1,x1))
+ {
+  xlMergeCells( pos_x, 3, pos_x, 4);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp1,N11) , pos_x, 1, pos_x, 1);
+  xlSetFontSize(8, pos_x, 1, pos_x, 1);
+  xlAlignCellsEx( 2, 2, pos_x, 1, pos_x, 1);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp1,N21) , pos_x, 2, pos_x, 2);
+  xlSetFontSize(8, pos_x, 2, pos_x, 2);
+  xlAlignCellsEx( 2, 2, pos_x, 2, pos_x, 2);
+  xlSetCellStringValue(chr(39)+TblGfString(T_temp1,N31) , pos_x, 3, pos_x, 3);
+  xlSetFontSize(8, pos_x, 3, pos_x, 3);
+  xlAlignCellsEx( 2, 2, pos_x, 3, pos_x, 3);
+
+  xlWrapText(pos_x, 1, pos_x, 3);
+
+  xlFrameCells(15,2,7,0,pos_x, 1, pos_x, 1);
+  xlFrameCells(15,2,7,0,pos_x, 2, pos_x, 2);
+  xlFrameCells(15,2,7,0,pos_x, 3, pos_x, 4);
+
+  pos_x:=pos_x+1;
+
+ x1:=x1+1;
+ }
+end.
+.}
+.begin
+DeleteFile(Fmacros);
+if not LogStrToFile(Fmacros, 'Sub macros()') message('Ошибка записи файла макроса '+fmacros);
+LogStrToFile(Fmacros, '    With ActiveSheet.PageSetup                                        ');
+LogStrToFile(Fmacros, '       .PrintTitleRows = "$6:$6"                                     ');
+LogStrToFile(Fmacros, '       .LeftMargin = Application.InchesToPoints(0.72)                ');   // левое поле
+LogStrToFile(Fmacros, '       .RightMargin = Application.InchesToPoints(0.1)                ');   // правое поле
+LogStrToFile(Fmacros, '       .TopMargin = Application.InchesToPoints(0.2)                  ');   // верхнее поле
+LogStrToFile(Fmacros, '       .BottomMargin = Application.InchesToPoints(0.2)               ');   // нижнее поле
+LogStrToFile(Fmacros, '       .HeaderMargin = Application.InchesToPoints(0.32)              ');   // верхний колонтитул
+LogStrToFile(Fmacros, '       .FooterMargin = Application.InchesToPoints(0.32)              ');   // нижний колонтитул
+LogStrToFile(Fmacros, '    Columns("C:D").Select                                             ');
+LogStrToFile(Fmacros, '    Selection.NumberFormat = "#,##0.00"                               ');
+LogStrToFile(Fmacros, '    End With                                                          ');
+LogStrToFile(Fmacros, 'End Sub                                                               ');
+if not xlImportModule(Fmacros) message ('Ошибка загрузки макроса');
+
+xlGetSheetsCount(xx);
+   while xx > 0
+    do
+     {
+       xlSetActiveSheet(xx);
+       if not xlRunMacro('macros') message('Ошибка запуска макроса');
+       DeleteFile(Fmacros);
+       xx:=xx-1;
+     }
+ xlKillExcel;
+ TREEAN.fexit;
+end.
+.endform

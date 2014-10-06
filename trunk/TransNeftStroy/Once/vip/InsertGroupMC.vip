@@ -1,0 +1,81 @@
+
+Interface InsertGroupMC 'InsertGroupMC' EscClose DoAccept;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, _Name
+, _Kod
+, _EdIzm
+, _Papa
+, _TipMC
+, _ElZatr
+               : string;
+
+as select * from
+  GroupMC
+, TypeMC          (ReadOnly)
+, KatEd           (ReadOnly)
+, KaElem          (ReadOnly)
+, synonym GroupMC GroupMC_Papa
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\gal01-tns\GalSrv\TopSoft\shaidarov\GroupMCnew.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка GroupMC', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+        _Name   := string( DBFGetFieldValue(Handle,'NAME')   );
+        _Kod    := string( DBFGetFieldValue(Handle,'NUM')    );
+        _EdIzm  := string( DBFGetFieldValue(Handle,'EdIzm')  );
+        _Papa   := string( DBFGetFieldValue(Handle,'Papa')   );
+        _TipMC  := string( DBFGetFieldValue(Handle,'TipMC')  );
+        _ElZatr := string( DBFGetFieldValue(Handle,'ElZatr') );
+
+        if (GetFirst GroupMC where (( _Name == GroupMC.Name
+                                  and _Kod  == GroupMC.Kod     (noIndex)
+                                   )) <> tsOK ) {
+          continue;
+          }
+
+    if (GetFirst KaElem where (( _ElZatr == KaElem.Kod )) = tsOK) {
+        GroupMC.cKaElem := KaElem.nRec;
+    }
+
+        UpDate current GroupMC;
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.
+
+.Form 'Закачка InsertGroupMC'
+.Ard
+.F 'Nul'
+.begin
+    RunInterface ('InsertGroupMC');
+end.
+.endform

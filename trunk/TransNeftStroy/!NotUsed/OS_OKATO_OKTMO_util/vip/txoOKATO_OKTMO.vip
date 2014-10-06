@@ -1,0 +1,62 @@
+#include TxoApi.vih
+#include ATDSERVICES.vih
+
+VipInterface Txo_OKATO_OKTMO
+  Implements ObjTxoIdentPlugin
+  #ifdef Atl51
+  Licensed(Free)
+  #end
+;
+
+Interface Txo_OKATO_OKTMO;
+
+  create view       //Логическая таблица, самая простая
+  var
+    curHTxo : longint; // ссылка на текущий сервис ТХО
+    pATDServices : IATDServices;
+    curDoc: comp;
+    curDog: string;
+;
+
+
+//Пояснение к алгоритму
+  function getInfo : string;
+  {
+    GetInfo := 'Возвращает ОКТМО если в закрываемом счете есть ОКАТО';
+  }
+
+//Параметры не используются
+  function ParamMaster : string;
+  {
+  }
+
+//Основная процедура формирования проводок
+  procedure storeCycles(hTxo: longint; buf: TTxoApiInfoDoc);
+  {
+    var bufCloSch : TTxoInfoCloSch;
+    var cOKTMO, cOKATO: comp;
+    TxoAllowRecallStoreCycles(hTxo);
+    TxoHeadClear(hTxo);
+    cOKATO := comp(0);
+    cOKTMO := comp(0);
+    if TxoGetInfoCloSch(hTxo, bufCloSch)
+    {
+     if bufCloSch.wKau_1 = cgKau_ATD cOKATO := bufCloSch.cKau_1;
+     if bufCloSch.wKau_2 = cgKau_ATD cOKATO := bufCloSch.cKau_2;
+     if bufCloSch.wKau_3 = cgKau_ATD cOKATO := bufCloSch.cKau_3;
+     if bufCloSch.wKau_4 = cgKau_ATD cOKATO := bufCloSch.cKau_4;
+     if bufCloSch.wKau_5 = cgKau_ATD cOKATO := bufCloSch.cKau_5;
+     if bufCloSch.wKau_6 = cgKau_ATD cOKATO := bufCloSch.cKau_6;
+     if cOKATO <> comp(0)
+      cOKTMO := pATDServices.GetOKTMOnRecbyOKATOnRec(cOKATO);
+     if cOKTMO <> comp(0)
+     {
+      TxoHeadAddKau(hTxo, wFlKau_Mode0, cgKau_ATD, cOKTMO);
+     }
+     else TxoDebugMsg(hTxo, 'Ошибка!', pATDServices.GetLastError);
+    }
+    else TxoDebugMsg(hTxo, 'Ошибка!', 'Данный идентификатор предназначен для закрытия счетов');
+    TxoBodySetSum(hTxo, 1, 0, 0);
+    TxoBodyInsert(hTxo);
+  }
+end.

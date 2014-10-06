@@ -1,0 +1,1857 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,2011 корпорация ГАЛАКТИКА                    ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+
+Procedure DeleteFromSaldo;
+{
+
+   delete saldo_del where (( True == Saldo_del.Flag_del));
+
+}
+
+
+Procedure InsertSaldo
+          ( loc_DataType : word;
+            loc_SaldoDat : date;
+            loc_SaldoType : word;
+
+            loc_T1      : word;
+            loc_T2      : word;
+            loc_T3      : word;
+            loc_T4      : word;
+            loc_T5      : word;
+            loc_T6      : word;
+
+            loc_Schet   : string;
+            loc_SubSchet: string;
+            loc_An1     : comp;
+            loc_An2     : comp;
+            loc_An3     : comp;
+            loc_An4     : comp;
+            loc_An5     : comp;
+            loc_An6     : comp;
+            loc_AnPodr  : comp;
+            loc_Val     : comp;
+
+            loc_DatOb   : date;
+            loc_StTypeInitDoc : string;
+            loc_NoInitDoc   : string;
+            loc_TypeInitDoc : word;
+            loc_cInitDoc  : comp;
+
+            loc_S1        : double;
+            loc_S2        : double;
+
+            loc_SchetKor  : string;
+            loc_SubSchKor : string;
+            loc_T1Kor     : word;
+            loc_T2Kor     : word;
+            loc_T3Kor     : word;
+            loc_T4Kor     : word;
+            loc_T5Kor     : word;
+            loc_T6Kor     : word;
+            loc_An1Kor    : comp;
+            loc_An2Kor    : comp;
+            loc_An3Kor    : comp;
+            loc_An4Kor    : comp;
+            loc_An5Kor    : comp;
+            loc_An6Kor    : comp;
+            loc_AnPodrKor : comp
+          );
+
+var
+  isOk              : boolean;
+  CurIerLevelsCount : byte;
+  i                 : byte;
+  OrgIerArray       : array[1..10] of string[151];
+
+{
+  if abs (loc_S1) >= SumCompare
+  {
+    // если уже есть такая запись, то увеличиваем в ней сумму
+    if getfirst Saldo_Ins where
+    ((
+       loc_DataType    == Saldo_Ins.DataType    and
+       loc_SaldoDat    == Saldo_Ins.SaldoDat    and
+       loc_SaldoType   == Saldo_Ins.SaldoType   and
+       loc_Schet       == Saldo_Ins.Schet       and
+       loc_SubSchet    == Saldo_Ins.SubSchet    and
+       loc_An1         == Saldo_Ins.An1         and
+       loc_An2         == Saldo_Ins.An2         and
+       loc_An3         == Saldo_Ins.An3         and
+       loc_An4         == Saldo_Ins.An4         and
+       loc_An5         == Saldo_Ins.An5         and
+       loc_An6         == Saldo_Ins.An6         and
+       loc_AnPodr      == Saldo_Ins.AnPodr      and
+       loc_DatOb       == Saldo_Ins.DolgDat     and
+       loc_Val         == Saldo_Ins.Val         and
+       loc_TypeInitDoc == Saldo_Ins.TypeInitDoc and
+       loc_cInitDoc    == Saldo_Ins.cInitDoc
+    )) = tsOk
+    {
+      update current Saldo_Ins set Saldo_Ins.S1 := Saldo_Ins.S1 + loc_S1, Saldo_Ins.S2 := Saldo_Ins.S2 + loc_S2;
+    }
+    //если такой записи еще нет, то добавляем ее
+    else
+    {
+       ClearBuffer(#Saldo);
+       Saldo.DataType  := loc_DataType;
+       Saldo.SaldoDat  := loc_SaldoDat;
+       Saldo.SaldoType := loc_SaldoType;
+       Saldo.T1        := loc_T1;
+       Saldo.T2        := loc_T2;
+       Saldo.T3        := loc_T3;
+       Saldo.T4        := loc_T4;
+       Saldo.T5        := loc_T5;
+       Saldo.T6        := loc_T6;
+
+       Saldo.Schet     := loc_Schet;
+       Saldo.SubSchet  := loc_SubSchet;
+       Saldo.An1       := loc_An1;
+       Saldo.An2       := loc_An2;
+       Saldo.An3       := loc_An3;
+       Saldo.An4       := loc_An4;
+       Saldo.An5       := loc_An5;
+       Saldo.An6       := loc_An6;
+       Saldo.AnPodr    := loc_AnPodr;
+       Saldo.Val       := loc_Val
+
+       Saldo.DolgDat   := loc_DatOb;
+       Saldo.S1        := loc_s1;
+       Saldo.S2        := loc_s2;
+
+       Saldo.SchetKor  := loc_SchetKor;
+       Saldo.SubSchKor := loc_SubSchKor;
+       Saldo.T1Kor     := loc_T1Kor;
+       Saldo.T2Kor     := loc_T2Kor;
+       Saldo.T3Kor     := loc_T3Kor;
+       Saldo.T4Kor     := loc_T4Kor;
+       Saldo.T5Kor     := loc_T5Kor;
+       Saldo.T6Kor     := loc_T6Kor;
+       Saldo.An1Kor    := loc_An1Kor;
+       Saldo.An2Kor    := loc_An2Kor;
+       Saldo.An3Kor    := loc_An3Kor;
+       Saldo.An4Kor    := loc_An4Kor;
+       Saldo.An5Kor    := loc_An5Kor;
+       Saldo.An6Kor    := loc_An6Kor;
+       Saldo.AnPodrKor := loc_AnPodrKor;
+
+
+       DogAnalit  := comp(0);
+       OrgAnalit  := comp(0);
+       PersAnalit := comp(0);
+       if loc_T1 <> 0
+          Saldo.St1  := #ShowKau(loc_T1, loc_An1);
+       if loc_T1 = cgKau_Dogovor DogAnalit  := loc_An1;
+       if loc_T1 = cgKau_KatOrg  OrgAnalit  := loc_An1;
+       if loc_T1 = cgKau_Persons PersAnalit := loc_An1;
+
+       if loc_T2 <> 0
+          Saldo.St2  := #ShowKau(loc_T2, loc_An2);
+       if loc_T2 = cgKau_Dogovor DogAnalit  := loc_An2;
+       if loc_T2 = cgKau_KatOrg  OrgAnalit  := loc_An2;
+       if loc_T2 = cgKau_Persons PersAnalit := loc_An2;
+
+       if loc_T3 <> 0
+          Saldo.St3  := #ShowKau(loc_T3, loc_An3);
+       if loc_T3 = cgKau_Dogovor DogAnalit  := loc_An3;
+       if loc_T3 = cgKau_KatOrg  OrgAnalit  := loc_An3;
+       if loc_T3 = cgKau_Persons PersAnalit := loc_An3;
+
+       if loc_T4 <> 0
+          Saldo.St4  := #ShowKau(loc_T4, loc_An4);
+       if loc_T4 = cgKau_Dogovor DogAnalit  := loc_An4;
+       if loc_T4 = cgKau_KatOrg  OrgAnalit  := loc_An4;
+       if loc_T4 = cgKau_Persons PersAnalit := loc_An4;
+
+       if loc_T5 <> 0
+          Saldo.St5  := #ShowKau(loc_T5, loc_An5);
+       if loc_T5 = cgKau_Dogovor DogAnalit  := loc_An5;
+       if loc_T5 = cgKau_KatOrg  OrgAnalit  := loc_An5;
+       if loc_T5 = cgKau_Persons PersAnalit := loc_An5;
+
+       if loc_T6 <> 0
+          Saldo.St6  := #ShowKau(loc_T6, loc_An6);
+       if loc_T6 = cgKau_Dogovor DogAnalit  := loc_An6;
+       if loc_T6 = cgKau_KatOrg  OrgAnalit  := loc_An6;
+       if loc_T6 = cgKau_Persons PersAnalit := loc_An6;
+
+
+      Saldo.St1Kor  := #ShowKau(loc_T1Kor, loc_An1Kor);
+      Saldo.St2Kor  := #ShowKau(loc_T2Kor, loc_An2Kor);
+      Saldo.St3Kor  := #ShowKau(loc_T3Kor, loc_An3Kor);
+      Saldo.St4Kor  := #ShowKau(loc_T4Kor, loc_An4Kor);
+      Saldo.St5Kor  := #ShowKau(loc_T5Kor, loc_An5Kor);
+      Saldo.St6Kor  := #ShowKau(loc_T6Kor, loc_An6Kor);
+
+       //выводим атрибуты договора (из аналитики)
+       if DogAnalit <> comp(0)
+        if getfirst Dogovor where ((DogAnalit == Dogovor.Nrec)) = tsOK
+        {
+          if getfirst KatVidd where ((Dogovor.cVidDog == KatVidd.Nrec)) = tsOk
+           Saldo.DogVid := KatVidd.Name;
+          if getfirst AttrDog where ((Dogovor.Nrec == AttrDog.cDogovor)) = tsOk
+          {
+           Saldo.DogSubj := AttrDog.Subject1 + ' ' + AttrDog.Subject2 + ' ' + AttrDog.Subject3;
+           Saldo.DogOtvFIO := AttrDog.Otv_My_FIO;
+          }
+          if getfirst KatPodr2 where ((Dogovor.cCurPodr == KatPodr2.nrec)) = tsOk
+            {Saldo.DogPodr := KatPodr2.Name;}
+
+          Saldo.DogDbeg   := Dogovor.dBeg      ;
+          Saldo.DogDend   := Dogovor.dEnd      ;
+          Saldo.DogSum    := Dogovor.Summa     ;
+          Saldo.DogSumNDS := Dogovor.SumNDS    ;
+          Saldo.DogNrec   := Dogovor.nRec      ;
+          Saldo.DogDesCr  := Dogovor.DesCr     ;
+          Saldo.DogDesGr  := Dogovor.DesGr     ;
+          Saldo.NoVnut    := Dogovor.NoDoc     ;
+          Saldo.NoVnesh   := Dogovor.NoDoc_Ext ;
+          Saldo.DogDdoc   := Dogovor.dDoc      ;
+
+            if GetFirst KatNotes where (( Dogovor.cNote == KatNotes.nRec )) = tsOK {
+          Saldo.DogStatus := KatNotes.Name     ;
+            }
+            if GetFirst KatOrg where (( Dogovor.cOrg == KatOrg.nRec )) = tsOK {
+          Saldo.DogOrgName := KatOrg.Name      ;
+          Saldo.DogOrgUNN  := KatOrg.UNN       ;
+              }
+
+        }
+
+       //выводим атрибуты Контрагента (из аналитики)
+       if OrgAnalit <> comp(0) {
+        if getfirst KatOrg where ((OrgAnalit == KatOrg.nRec)) = tsOK {
+          Saldo.OrgName   := KatOrg.Name ;
+          Saldo.OrgUNN    := KatOrg.UNN ;
+        }
+       }
+
+       //выводим атрибуты Работника (из аналитики)
+       if PersAnalit <> comp(0) {
+        if GetFirst Persons where ((PersAnalit == Persons.nRec)) = tsOK
+        {
+            if GetFirst KatPodrPers where ((Persons.GalDep == KatPodrPers.nRec)) = tsOK {
+          Saldo.PersPodrN := KatPodrPers.Name      ;
+          Saldo.PersPodrK := KatPodrPers.Kod       ;
+              }
+
+            if GetFirst Appointments where ((Persons.AppointCur  == Appointments.nRec)) = tsOK {
+              if GetFirst Catalogs where ((Appointments.Post        == Catalogs.nRec)) = tsOK {
+          Saldo.PersDolzh := Catalogs.Name     ;
+              }
+            }
+
+          Saldo.PersFIO   := Persons.FIO       ;
+          Saldo.PersTabN  := Persons.TabNmb    ;
+        }
+       }
+
+       Saldo.StPodr    := #ShowKau(2, loc_AnPodr);
+       Saldo.StPodrKor := #ShowKau(2, loc_AnPodrKor);
+
+       if loc_Val <> 0
+          { v_Val2 := loc_Val;
+            if getfirst KlVal = tsOk
+            Saldo.StVal := KlVal.SimvolV;
+          }
+        else Saldo.StVal := sGetTune('NDE.SIMVRUB');
+
+       Saldo.StSchet    := #GetDbSch(loc_Schet);
+       Saldo.StSubSchet := loc_SubSchet;
+       Saldo.StTypeInitDoc := loc_StTypeInitDoc;
+       Saldo.StNoInitDoc   := loc_NoInitDoc;
+       Saldo.TypeInitDoc   := loc_TypeInitDoc;
+       Saldo.cInitDoc      := loc_cInitDoc;
+
+          Case OrgAnNum of
+          1: { v_OborotcOrg := loc_An1}
+          2: { v_OborotcOrg := loc_An2}
+          3: { v_OborotcOrg := loc_An3}
+          4: { v_OborotcOrg := loc_An4}
+          5: { v_OborotcOrg := loc_An5}
+          6: { v_OborotcOrg := loc_An6}
+          end;
+
+        // развертывание иерархии по орг 1
+        if (v_OrgHier = True)
+        {
+          isOk    := false;
+          CurIerLevelsCount := 0;
+          _loop sKatOrgDescrGetIer1
+          {
+            if getfirst sKontrHierGetIer1 = tsOk
+              { isOk := true;
+                break; }
+          }
+          if isOk and v_OborotcOrg<>0
+          {
+              v_CurOrg := sKatOrgDescrGetIer1.cGroup;
+              do
+              {
+                if getfirst sKatOrgDescrGetIer12 = tsOk
+                { // write level
+                CurIerLevelsCount := CurIerLevelsCount + 1;
+                if MaxIerLevels < CurIerLevelsCount
+                   MaxIerLevels := CurIerLevelsCount;
+                if CurIerLevelsCount > 10
+                  { for (i:=2;i<=10;i:=i+1)
+                    { OrgIerArray[i-1]  := OrgIerArray[i];}
+                    OrgIerArray[10] := sKatOrgDescrGetIer12.Name;
+                  }
+                  else
+                    OrgIerArray[CurIerLevelsCount] := sKatOrgDescrGetIer12.Name;
+                }
+                else break;
+                v_CurOrg := sKatOrgDescrGetIer12.cGroup;
+              } while v_OrgHierComp1 <> sKatOrgDescrGetIer12.Nrec
+
+              if CurIerLevelsCount > 10
+                CurIerLevelsCount := 10;
+
+              if CurIerLevelsCount - 0 > 0 Saldo.KatOrgIer1_01 := OrgIerArray[CurIerLevelsCount - 0];
+              if CurIerLevelsCount - 1 > 0 Saldo.KatOrgIer1_02 := OrgIerArray[CurIerLevelsCount - 1];
+              if CurIerLevelsCount - 2 > 0 Saldo.KatOrgIer1_03 := OrgIerArray[CurIerLevelsCount - 2];
+              if CurIerLevelsCount - 3 > 0 Saldo.KatOrgIer1_04 := OrgIerArray[CurIerLevelsCount - 3];
+              if CurIerLevelsCount - 4 > 0 Saldo.KatOrgIer1_05 := OrgIerArray[CurIerLevelsCount - 4];
+              if CurIerLevelsCount - 5 > 0 Saldo.KatOrgIer1_06 := OrgIerArray[CurIerLevelsCount - 5];
+              if CurIerLevelsCount - 6 > 0 Saldo.KatOrgIer1_07 := OrgIerArray[CurIerLevelsCount - 6];
+              if CurIerLevelsCount - 7 > 0 Saldo.KatOrgIer1_08 := OrgIerArray[CurIerLevelsCount - 7];
+              if CurIerLevelsCount - 8 > 0 Saldo.KatOrgIer1_09 := OrgIerArray[CurIerLevelsCount - 8];
+              if CurIerLevelsCount - 9 > 0 Saldo.KatOrgIer1_10 := OrgIerArray[CurIerLevelsCount - 9];
+
+         }
+        }
+
+        // развертывание иерархии по орг 2
+        if (v_OrgHier = True)
+        {
+          isOk    := false;
+          CurIerLevelsCount := 0;
+          _loop sKatOrgDescrGetIer2
+          {
+            if getfirst sKontrHierGetIer2 = tsOk
+              { isOk := true;
+                break; }
+          }
+          if isOk and v_OborotcOrg<>0
+          {
+              v_CurOrg := sKatOrgDescrGetIer2.cGroup;
+              do
+              {
+                if getfirst sKatOrgDescrGetIer22 = tsOk
+                { // write level
+                CurIerLevelsCount := CurIerLevelsCount + 1;
+                if MaxIerLevels < CurIerLevelsCount
+                   MaxIerLevels := CurIerLevelsCount;
+                if CurIerLevelsCount > 10
+                  { for (i:=2;i<=10;i:=i+1)
+                    { OrgIerArray[i-1]  := OrgIerArray[i];}
+                    OrgIerArray[10] := sKatOrgDescrGetIer22.Name;
+                  }
+                  else
+                    OrgIerArray[CurIerLevelsCount] := sKatOrgDescrGetIer22.Name;
+                }
+                else break;
+                v_CurOrg := sKatOrgDescrGetIer22.cGroup;
+              } while v_OrgHierComp2 <> sKatOrgDescrGetIer22.Nrec
+
+              if CurIerLevelsCount > 10
+                CurIerLevelsCount := 10;
+
+              if CurIerLevelsCount - 0 > 0 Saldo.KatOrgIer2_01 := OrgIerArray[CurIerLevelsCount - 0];
+              if CurIerLevelsCount - 1 > 0 Saldo.KatOrgIer2_02 := OrgIerArray[CurIerLevelsCount - 1];
+              if CurIerLevelsCount - 2 > 0 Saldo.KatOrgIer2_03 := OrgIerArray[CurIerLevelsCount - 2];
+              if CurIerLevelsCount - 3 > 0 Saldo.KatOrgIer2_04 := OrgIerArray[CurIerLevelsCount - 3];
+              if CurIerLevelsCount - 4 > 0 Saldo.KatOrgIer2_05 := OrgIerArray[CurIerLevelsCount - 4];
+              if CurIerLevelsCount - 5 > 0 Saldo.KatOrgIer2_06 := OrgIerArray[CurIerLevelsCount - 5];
+              if CurIerLevelsCount - 6 > 0 Saldo.KatOrgIer2_07 := OrgIerArray[CurIerLevelsCount - 6];
+              if CurIerLevelsCount - 7 > 0 Saldo.KatOrgIer2_08 := OrgIerArray[CurIerLevelsCount - 7];
+              if CurIerLevelsCount - 8 > 0 Saldo.KatOrgIer2_09 := OrgIerArray[CurIerLevelsCount - 8];
+              if CurIerLevelsCount - 9 > 0 Saldo.KatOrgIer2_10 := OrgIerArray[CurIerLevelsCount - 9];
+         }
+        }
+
+         // развертывание иерархии по орг 3
+        if (v_OrgHier = True)
+        {
+          isOk    := false;
+          CurIerLevelsCount := 0;
+          _loop sKatOrgDescrGetIer3
+          {
+            if getfirst sKontrHierGetIer3 = tsOk
+              { isOk := true;
+                break; }
+          }
+          if isOk and v_OborotcOrg<>0
+          {
+            v_CurOrg := sKatOrgDescrGetIer3.cGroup;
+            do
+            {
+              if getfirst sKatOrgDescrGetIer32 = tsOk
+              { // write level
+              CurIerLevelsCount := CurIerLevelsCount + 1;
+              if MaxIerLevels < CurIerLevelsCount
+                 MaxIerLevels := CurIerLevelsCount;
+              if CurIerLevelsCount > 10
+                { for (i:=2;i<=10;i:=i+1)
+                  { OrgIerArray[i-1]  := OrgIerArray[i];}
+                  OrgIerArray[10] := sKatOrgDescrGetIer32.Name;
+                }
+                else
+                  OrgIerArray[CurIerLevelsCount] := sKatOrgDescrGetIer32.Name;
+              }
+              else break;
+              v_CurOrg := sKatOrgDescrGetIer32.cGroup;
+            } while v_OrgHierComp3 <> sKatOrgDescrGetIer32.Nrec
+
+            if CurIerLevelsCount > 10
+              CurIerLevelsCount := 10;
+
+            if CurIerLevelsCount - 0 > 0 Saldo.KatOrgIer3_01 := OrgIerArray[CurIerLevelsCount - 0];
+            if CurIerLevelsCount - 1 > 0 Saldo.KatOrgIer3_02 := OrgIerArray[CurIerLevelsCount - 1];
+            if CurIerLevelsCount - 2 > 0 Saldo.KatOrgIer3_03 := OrgIerArray[CurIerLevelsCount - 2];
+            if CurIerLevelsCount - 3 > 0 Saldo.KatOrgIer3_04 := OrgIerArray[CurIerLevelsCount - 3];
+            if CurIerLevelsCount - 4 > 0 Saldo.KatOrgIer3_05 := OrgIerArray[CurIerLevelsCount - 4];
+            if CurIerLevelsCount - 5 > 0 Saldo.KatOrgIer3_06 := OrgIerArray[CurIerLevelsCount - 5];
+            if CurIerLevelsCount - 6 > 0 Saldo.KatOrgIer3_07 := OrgIerArray[CurIerLevelsCount - 6];
+            if CurIerLevelsCount - 7 > 0 Saldo.KatOrgIer3_08 := OrgIerArray[CurIerLevelsCount - 7];
+            if CurIerLevelsCount - 8 > 0 Saldo.KatOrgIer3_09 := OrgIerArray[CurIerLevelsCount - 8];
+            if CurIerLevelsCount - 9 > 0 Saldo.KatOrgIer3_10 := OrgIerArray[CurIerLevelsCount - 9];
+
+          }
+        }
+
+        if (v_AddOptions and word(1)) = word(1)
+        {
+          Case DoAnNum of
+          1: { v_OborotcBaseDoc := loc_An1}
+          2: { v_OborotcBaseDoc := loc_An2}
+          3: { v_OborotcBaseDoc := loc_An3}
+          4: { v_OborotcBaseDoc := loc_An4}
+          5: { v_OborotcBaseDoc := loc_An5}
+          6: { v_OborotcBaseDoc := loc_An6}
+          end;
+
+          if getfirst BaseDoc = tsOk
+            if getfirst TTNDoc = tsOk
+              if getfirst MarPunkt = tsOk
+                Saldo.BaseDocRPunkt := MarPunkt.Name;
+        }
+
+         //выводим атрибут по организации
+         Saldo.Dogovor := '';
+         Saldo.AttrKontr := '';
+         Saldo.OrgAddr := '';
+         Saldo.OrgTel := '';
+         if getfirst KatOrg_An = tsOk
+         {
+
+             Saldo.OrgAddr := KatOrg_An.addr;
+             Saldo.OrgTel  := KatOrg_An.tel;
+             if getfirst AttrNam = tsOk
+             {
+                 if getfirst AttrVal = tsOk
+                 {
+                     Saldo.Attr := AttrVal.vdouble;
+                     Saldo.AttrKontr := DoubleToStr(AttrVal.vdouble,'6666666');
+                 }
+             }
+
+            if (getfirst AttrNamDog = tsOk and getfirst AttrValDog = tsOk)
+             Saldo.Dogovor := AttrValDog.vstring;
+
+         }
+
+        // выводим классификатор по организации
+         Saldo.OnlyWorkDaysFlag := False;
+         if getfirst KatOrg_An = tsOk
+             if getfirst ExClassName = tsOk
+                 if getfirst ExClassVal = tsOk
+                       if getfirst ExClassSeg = tsOk
+                  {
+                      Saldo.Class := ExClassSeg.Name;
+                            if (ExClassSeg.Name = 'Рабочие')
+                               Saldo.OnlyWorkDaysFlag := True;
+              }
+        Saldo.Flag_Del := False;
+
+        insert current Saldo;
+      }
+ }
+}
+
+
+Procedure ZachetSum(_DataType   :word;
+                    _SaldoDat   : date;
+                    _SaldoType  : word;
+
+                    _T1         : word;
+                    _T2         : word;
+                    _T3         : word;
+                    _T4         : word;
+                    _T5         : word;
+                    _T6         : word;
+
+                    _Schet      : string;
+                    _SubSchet   : string;
+                    _An1        : comp;
+                    _An2        : comp;
+                    _An3        : comp;
+                    _An4        : comp;
+                    _An5        : comp;
+                    _An6        : comp;
+                    _AnPodr     : comp;
+                    _Val        : comp;
+
+                    _DatOb      : date;
+                    _StTypeInitDoc : string;
+                    _NoInitDoc  : string;
+                    _TypeInitDoc: word;
+                    _cInitDoc   : comp;
+
+                    _S1         : double;
+                    _S2         : double;
+                    _ConvOb     : word;
+                    _ConvVal    : comp;
+
+                    _SchetKor   : string;
+                    _SubSchKor  : string;
+                    _T1Kor      : word;
+                    _T2Kor      : word;
+                    _T3Kor      : word;
+                    _T4Kor      : word;
+                    _T5Kor      : word;
+                    _T6Kor      : word;
+                    _An1Kor     : comp;
+                    _An2Kor     : comp;
+                    _An3Kor     : comp;
+                    _An4Kor     : comp;
+                    _An5Kor     : comp;
+                    _An6Kor     : comp;
+                    _AnPodrKor  : comp
+                   );
+var
+    DistrSum    : double;
+    DistrSumVal : double;
+    ZachSum     : double;
+    ZachSumVal  : double;
+    DeleteFlag  : boolean;
+    ResultFlag  : boolean;
+    IterationFlag : boolean;
+{
+
+    if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+    {
+
+        if (_SaldoType = cDebet and _ConvOb = 3) or (_SaldoType = cCredit and _ConvOb = 4)
+            _Valut    := _ConvVal
+        else
+            _Valut    := _Val;
+    }
+    else
+        _Valut := comp(0);
+
+    if _SaldoType = cCredit
+    {
+        if _S1 <= - SumCompare
+        {   _SaldoType  := cDebet;
+            _S1 := -_S1;
+            _s2 := -_S2;
+        };
+    }
+    else
+    {
+        if _S1 <= - SumCompare
+        {   _SaldoType  := cCredit;
+            _S1 := -_S1;
+            _S2 := -_S2;
+        };
+    };
+
+    bound_SaldoDat  := _SaldoDat;
+    DistrSum        := _S1;
+    DistrSumVal     := _S2;
+
+    if _SaldoType = cCredit
+        bound_SaldoType  := cDebet
+    else
+        bound_SaldoType  := cCredit;
+
+    bound_An1       := _An1;
+    bound_An2       := _An2;
+    bound_An3       := _An3;
+    bound_An4       := _An4;
+    bound_An5       := _An5;
+    bound_An6       := _An6;
+    bound_AnPodr    := _AnPodr;
+
+    bound_DolgDat   := date(1,1,2100);
+    DeleteFlag      := False;
+
+   _loop Saldo_Fill
+   {
+    if DistrSum >= SumCompare
+    {
+        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+        {
+            if Saldo_Fill.Val = _Valut
+                IterationFlag    := True
+            else
+                IterationFlag    := False;
+        }
+        else
+            IterationFlag := True;
+
+
+        if Saldo_Fill.S1 >= SumCompare and IterationFlag
+        {
+            // если есть противоположное сальдо, то погашаем его
+            if  (Saldo_Fill.S1 - DistrSum) >= SumCompare
+            {   ZachSum := DistrSum;
+                ZachSumVal := DistrSumVal;
+                Saldo_Fill.S1 := Saldo_Fill.S1 - ZachSum;
+                Saldo_Fill.S2 := Saldo_Fill.S2 - ZachSumVal;
+                update current Saldo_Fill;
+            }
+            else
+            {   ZachSum := Saldo_Fill.S1;
+                ZachSumVal := Saldo_Fill.S2;
+                Saldo_Fill.Flag_del := True;
+                update current Saldo_Fill;
+                DeleteFromSaldo;
+            }
+            DistrSum := DistrSum - ZachSum;
+            DistrSumVal := DistrSumVal - ZachSumVal;
+        }
+
+        vStopFlag := not NextVisual;
+        if vStopFlag
+            Exit;
+
+    }
+    else Exit;
+   }
+
+    if DistrSum >= SumCompare
+    {
+            InsertSaldo(    _DataType,
+                            _SaldoDat,
+                            _SaldoType,
+
+                            _T1,
+                            _T2,
+                            _T3,
+                            _T4,
+                            _T5,
+                            _T6,
+
+                            _Schet,
+                            _SubSchet,
+                            _An1,
+                            _An2,
+                            _An3,
+                            _An4,
+                            _An5,
+                            _An6,
+                            _AnPodr,
+                            _Valut,
+                            _DatOb,
+
+                            _StTypeInitDoc,
+                            _NoInitDoc,
+                            _TypeInitDoc,
+                            _cInitDoc,
+
+                            DistrSum,
+                            DistrSumVal
+
+                          , _SchetKor
+                          , _SubSchKor
+                          , _T1Kor
+                          , _T2Kor
+                          , _T3Kor
+                          , _T4Kor
+                          , _T5Kor
+                          , _T6Kor
+                          , _An1Kor
+                          , _An2Kor
+                          , _An3Kor
+                          , _An4Kor
+                          , _An5Kor
+                          , _An6Kor
+                          , _AnPodrKor
+                            );
+    }
+}
+
+Procedure FillDataInside(l_Schet: string; l_SubSchet: string);
+var
+    DistrSum    : double;
+    ZachSum     : double;
+    DistrSumVal : double;
+    ZachSumVal  : double;
+    CheckResult : boolean;
+{
+    if l_SubSchet <> '' VisualStringFirstLine :=  'Обрабатывается счет ' + #GetDbSch(l_Schet) + '.' + l_SubSchet + chr(13)
+      else VisualStringFirstLine :=  'Обрабатывается счет ' + #GetDbSch(l_Schet) + '.<субсчет не определен>' + chr(13)
+
+    SetVisualHeader (VisualStringFirstLine + 'Шаг 1/9 Учет стартового сальдо');
+    bound_DataType  := saldo_v;
+    if dGetTune ('DAT_M_OT') <= bound_DateBeg
+         bound_DateBeg_c := dGetTune ('DAT_M_OT');
+     else bound_DateBeg_c := bound_DateBeg;
+     bound_DatevAge  := sub_Day(bound_DateBeg_c,vAgeLimit);
+     bound_SDate     := bound_DateBeg_c;
+     if getfirst sOrgPickRep = tsOk {};
+     do
+     {
+       if v_OrgFilterWord > word(1) bound_Org := sOrgPickRep.crec;
+         else bound_Org := v_OrgFilterComp;
+       _loop SaldMoun
+       {
+                     if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                      _Valut := SaldMoun.KodValut
+                  else
+                      _Valut := comp(0);
+
+                   ZachetSum (saldo_v,
+                              bound_DateBeg,
+                              SaldMoun.ViOb,
+
+                              SaldMoun.TblOs[1],
+                              SaldMoun.TblOs[2],
+                              SaldMoun.TblOs[3],
+                              SaldMoun.TblOs[4],
+                              SaldMoun.TblOs[5],
+                              SaldMoun.TblOs[6],
+
+                              SaldMoun.SchetO,
+                              SaldMoun.SubOsSch,
+                              SaldMoun.KauOs[1],
+                              SaldMoun.KauOs[2],
+                              SaldMoun.KauOs[3],
+                              SaldMoun.KauOs[4],
+                              SaldMoun.KauOs[5],
+                              SaldMoun.KauOs[6],
+                              SaldMoun.kodSpo  ,
+                              _Valut,
+                              0,
+                              'Входящее сальдо',
+                              '',
+                              word(0),
+                              comp(0),
+                              SaldMoun.SumS,
+                              SaldMoun.SumValut,
+                              0,
+                              0
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                            , ''
+                              );
+
+                  vStopFlag := not NextVisual;
+                  if vStopFlag
+                  {
+                      StopVisual('',0);
+                      Exit;
+                  }
+          }
+    } while getnext sOrgPickRep = tsOk and v_OrgFilterWord > word(1);
+
+    SetVisualHeader (VisualStringFirstLine +  'Шаг 2/9 Учет кредитовых оборотов до наступления периода');
+    if getfirst sOrgPickRep = tsOk {};
+    do
+    {
+      if v_OrgFilterWord > word(1) bound_Org := sOrgPickRep.crec;
+         else bound_Org := v_OrgFilterComp;
+      _loop Oborot_before_K
+      {
+          ZachetSum  (saldo_v,
+                      bound_DateBeg,
+                      cCredit,
+
+                      Oborot_before_K.Tblks[1],
+                      Oborot_before_K.Tblks[2],
+                      Oborot_before_K.Tblks[3],
+                      Oborot_before_K.Tblks[4],
+                      Oborot_before_K.Tblks[5],
+                      Oborot_before_K.Tblks[6],
+
+                      Oborot_before_K.SchetK,
+                      Oborot_before_K.SubSchK,
+                      Oborot_before_K.KauKs[1],
+                      Oborot_before_K.KauKs[2],
+                      Oborot_before_K.KauKs[3],
+                      Oborot_before_K.KauKs[4],
+                      Oborot_before_K.KauKs[5],
+                      Oborot_before_K.KauKs[6],
+                      Oborot_before_K.kodSpk  ,
+
+                      Oborot_before_K.KodValut,
+                      Oborot_before_K.DatOb,
+                      GetTidkGalName(Oborot_before_K.TiDkGal),
+                      Oborot_before_K.NoDok,
+                      Oborot_before_K.TiDkGal,
+                      Oborot_before_K.cSoprDoc,
+
+                      Oborot_before_K.SumOb,
+                      Oborot_before_K.SumValut,
+                      Oborot_before_K.ConvOb,
+                      Oborot_before_K.ConvVal
+
+                    , Oborot_before_K.DbSchetO
+                    , Oborot_before_K.SubOsSch
+                    , Oborot_before_K.TblOs[1]
+                    , Oborot_before_K.TblOs[2]
+                    , Oborot_before_K.TblOs[3]
+                    , Oborot_before_K.TblOs[4]
+                    , Oborot_before_K.TblOs[5]
+                    , Oborot_before_K.TblOs[6]
+                    , Oborot_before_K.KauOs[1]
+                    , Oborot_before_K.KauOs[2]
+                    , Oborot_before_K.KauOs[3]
+                    , Oborot_before_K.KauOs[4]
+                    , Oborot_before_K.KauOs[5]
+                    , Oborot_before_K.KauOs[6]
+                    , Oborot_before_K.KodSpO
+                      );
+
+          vStopFlag := not NextVisual;
+          if vStopFlag
+          {
+              StopVisual('',0);
+              Exit;
+          }
+      }
+    } while getnext sOrgPickRep = tsOk and v_OrgFilterWord > word(1);
+
+
+    SetVisualHeader (VisualStringFirstLine + 'Шаг 3/9 Учет дебетовых оборотов до наступления периода');
+    if getfirst sOrgPickRep = tsOk {};
+    do
+    {
+      if v_OrgFilterWord > word(1) bound_Org := sOrgPickRep.crec;
+         else bound_Org := v_OrgFilterComp;
+      _loop Oborot_before_D
+      {
+          ZachetSum  (saldo_v,
+                      bound_DateBeg,
+                      cDebet,
+
+                      Oborot_before_D.TblOs[1],
+                      Oborot_before_D.TblOs[2],
+                      Oborot_before_D.TblOs[3],
+                      Oborot_before_D.TblOs[4],
+                      Oborot_before_D.TblOs[5],
+                      Oborot_before_D.TblOs[6],
+
+                      Oborot_before_D.SchetO,
+                      Oborot_before_D.SubOsSch,
+                      Oborot_before_D.KauOs[1],
+                      Oborot_before_D.KauOs[2],
+                      Oborot_before_D.KauOs[3],
+                      Oborot_before_D.KauOs[4],
+                      Oborot_before_D.KauOs[5],
+                      Oborot_before_D.KauOs[6],
+                      Oborot_before_D.KodSpo  ,
+                      Oborot_before_D.KodValut,
+                      Oborot_before_D.DatOb,
+                      GetTidkGalName(Oborot_before_D.TiDkGal),
+                      Oborot_before_D.NoDok,
+                      Oborot_before_D.TiDkGal,
+                      Oborot_before_D.cSoprDoc,
+
+                      Oborot_before_D.SumOb,
+                      Oborot_before_D.SumValut,
+                      Oborot_before_D.ConvOb,
+                      Oborot_before_D.ConvVal
+
+                    , Oborot_before_D.KrSchetK
+                    , Oborot_before_D.SubSchK
+                    , Oborot_before_D.TblKs[1]
+                    , Oborot_before_D.TblKs[2]
+                    , Oborot_before_D.TblKs[3]
+                    , Oborot_before_D.TblKs[4]
+                    , Oborot_before_D.TblKs[5]
+                    , Oborot_before_D.TblKs[6]
+                    , Oborot_before_D.KauKs[1]
+                    , Oborot_before_D.KauKs[2]
+                    , Oborot_before_D.KauKs[3]
+                    , Oborot_before_D.KauKs[4]
+                    , Oborot_before_D.KauKs[5]
+                    , Oborot_before_D.KauKs[6]
+                    , Oborot_before_D.KodSpK
+                      )
+
+          vStopFlag := not NextVisual;
+          if vStopFlag
+          {
+              StopVisual('',0);
+              Exit;
+          }
+
+      }
+    } while getnext sOrgPickRep = tsOk and v_OrgFilterWord > word(1);
+    SetVisualHeader (VisualStringFirstLine + 'Шаг 4/9 Доводка начального сальдо периода');
+    bound_SaldoDatZ := bound_DateBeg;
+    _loop Saldo_Z
+    {
+
+            DistrSum := Saldo_Z.S1;
+            DistrSumVal := Saldo_z.S2;
+
+            bound_SaldoDat  := Saldo_Z.SaldoDat;
+            bound_SaldoType := Saldo_Z.SaldoType;
+
+            bound_An1  := Saldo_Z.An1;
+            bound_An1  := Saldo_Z.An1;
+            bound_An2  := Saldo_Z.An2;
+            bound_An3  := Saldo_Z.An3;
+            bound_An4  := Saldo_Z.An4;
+            bound_An5  := Saldo_Z.An5;
+            bound_An6  := Saldo_Z.An6;
+            bound_AnPodr:= Saldo_Z.AnPodr;
+            bound_Val  := Saldo_Z.Val;
+            bound_DolgDat   := Saldo_Z.DolgDat;
+
+            case Saldo_Z.SaldoType of
+            cCredit:
+            {
+                Flag := getlast  Oborot_before_C_K = tsOk;
+
+                while Flag and DistrSum >= SumCompare
+                do
+                {
+                    // проверка по знаку суммы (должны быть только положительные суммы)
+                    if Oborot_before_C_K.SumOb >= SumCompare
+                        CheckResult := True
+                    else
+                        CheckResult := False;
+
+                    if CheckResult
+                    {
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if Oborot_before_C_K.ConvOb = 4
+                                _Valut    := Oborot_before_C_K.ConvVal
+                            else
+                                _Valut    := Oborot_before_C_K.KodValut;
+                        }
+                        else
+                            _Valut    := comp(0);
+
+                        // проверка по валютному разрезу
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if _Valut = bound_Val
+                                CheckResult    := True
+                            else
+                                CheckResult    := False;
+                        }
+                        else
+                            CheckResult := True;
+                    }
+
+                    if CheckResult
+                    {
+                        if (DistrSum - Oborot_before_C_K.SumOb) >= SumCompare
+                        {
+                            ZachSum     := Oborot_before_C_K.SumOb;
+                            ZachSumVal  := Oborot_before_C_K.SumValut;
+
+                        }
+                        else
+                        {
+                            ZachSum     := DistrSum;
+                            ZachSumVal  := DistrSumVal;
+                        }
+
+                    InsertSaldo(saldo_v,
+                                bound_DateBeg,
+                                cCredit,
+
+                                Oborot_before_c_K.Tblks[1],
+                                Oborot_before_c_K.Tblks[2],
+                                Oborot_before_c_K.Tblks[3],
+                                Oborot_before_c_K.Tblks[4],
+                                Oborot_before_c_K.Tblks[5],
+                                Oborot_before_c_K.Tblks[6],
+
+                                Oborot_before_c_K.SchetK,
+                                Oborot_before_c_K.SubSchK,
+                                Oborot_before_c_K.KauKs[1],
+                                Oborot_before_c_K.KauKs[2],
+                                Oborot_before_c_K.KauKs[3],
+                                Oborot_before_c_K.KauKs[4],
+                                Oborot_before_c_K.KauKs[5],
+                                Oborot_before_c_K.KauKs[6],
+                                Oborot_before_c_K.kodSpk  ,
+                                _Valut,
+                                Oborot_before_c_K.DatOb,
+
+                                GetTidkGalName(Oborot_before_c_K.TiDkGal),
+                                Oborot_before_c_K.NoDok,
+                                Oborot_before_c_K.TiDkGal,
+                                Oborot_before_c_K.cSoprDoc,
+
+                                ZachSum,
+                                ZachSumVal
+
+                              , Oborot_before_c_K.DbSchetO
+                              , Oborot_before_c_K.SubOsSch
+                              , Oborot_before_c_K.TblOs[1]
+                              , Oborot_before_c_K.TblOs[2]
+                              , Oborot_before_c_K.TblOs[3]
+                              , Oborot_before_c_K.TblOs[4]
+                              , Oborot_before_c_K.TblOs[5]
+                              , Oborot_before_c_K.TblOs[6]
+                              , Oborot_before_c_K.KauOs[1]
+                              , Oborot_before_c_K.KauOs[2]
+                              , Oborot_before_c_K.KauOs[3]
+                              , Oborot_before_c_K.KauOs[4]
+                              , Oborot_before_c_K.KauOs[5]
+                              , Oborot_before_c_K.KauOs[6]
+                              , Oborot_before_c_K.KodSpo
+                                  )
+                        DistrSum    := DistrSum - ZachSum;
+                        DistrSumVal := DistrSumVal - ZachSumVal;
+
+                    }
+
+                    Flag := getprev  Oborot_before_c_K = tsOk;
+
+                    if not (Flag and (double (Saldo_Z.SaldoDat) - vAgeLimit < double (Oborot_before_c_K.DatOb) ))
+                        Flag := False;
+
+                    vStopFlag := not NextVisual;
+                    if vStopFlag
+                    {
+                        StopVisual('',0);
+                        Exit;
+                    }
+                }
+
+                if abs(DistrSum) < SumCompare
+                  {
+                  Saldo_Z.Flag_del := True;
+                  update current Saldo_Z;
+//                  DeleteFromSaldo;
+                  }
+                else
+                  {
+                    Saldo_Z.S1 := DistrSum;
+                    Saldo_z.S2 := DistrSumVal;
+                    update current Saldo_Z;
+                  }
+
+                // произведем коррекцию в случае, если есть отрицательные обороты на противоположной корреспонденции
+                if getlast  Oborot_before_c_D = tsOk
+                {
+                    bound_DolgDat   := Oborot_before_c_D.DatOb;
+
+                    if getfirst Saldo_Fill = tsOk
+                        Flag := True
+                    else
+                        Flag := False;
+                }
+                else
+                    Flag := False;
+
+                while Flag
+                do
+                {
+                    // проверка по знаку суммы (должны быть только отрицательные суммы)
+                    if Oborot_before_c_D.SumOb <= - SumCompare
+                        CheckResult := True
+                    else
+                        CheckResult := False;
+
+                    if CheckResult
+                    {
+
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if Oborot_before_C_D.ConvOb = 3
+                                _Valut    := Oborot_before_C_D.ConvVal
+                            else
+                                _Valut    := Oborot_before_C_D.KodValut;
+                        }
+                        else
+                            _Valut  := comp(0);
+
+                        // проверка по валютному разрезу
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if _Valut = bound_Val
+                                CheckResult    := True
+                            else
+                                CheckResult    := False;
+                        }
+                        else
+                            CheckResult := True;
+                    }
+
+                    if CheckResult
+                    {
+                        DistrSum    := - Oborot_before_c_D.SumOb;
+                        DistrSumVal    := - Oborot_before_c_D.SumValut;
+
+                        Flag2 := getlast Saldo_Fill = tsOk;
+                        while Flag2 and DistrSum >= SumCompare
+                        do
+                        {
+                                if (DistrSum - Saldo_Fill.S1) >= SumCompare
+                                    {
+                                    ZachSum     := Saldo_Fill.S1;
+                                    ZachSumVal := Saldo_Fill.S2;
+                                    Saldo_Fill.Flag_del := True;
+                                    update current Saldo_Fill;
+//                                    DeleteFromSaldo;
+                                    Flag2 := getlast Saldo_Fill = tsOk;
+                                    }
+                                else
+                                    {
+                                    ZachSum         := DistrSum;
+                                    ZachSumVal      := DistrSumVal;
+                                    Saldo_Fill.S1   := Saldo_Fill.S1 - DistrSum;
+                                    Saldo_Fill.S2   := Saldo_Fill.s2 - DistrSumVal;
+                                    update current Saldo_Fill;
+                                    Flag2 := getprev Saldo_Fill = tsOk;
+                                    }
+
+                        InsertSaldo(saldo_v,
+                                    bound_DateBeg,
+                                    cCredit,
+
+                                    Oborot_before_c_D.TblOs[1],
+                                    Oborot_before_c_D.TblOs[2],
+                                    Oborot_before_c_D.TblOs[3],
+                                    Oborot_before_c_D.TblOs[4],
+                                    Oborot_before_c_D.TblOs[5],
+                                    Oborot_before_c_D.TblOs[6],
+
+                                    Oborot_before_c_D.SchetO,
+                                    Oborot_before_c_D.SubOsSch,
+                                    Oborot_before_c_D.KauOs[1],
+                                    Oborot_before_c_D.KauOs[2],
+                                    Oborot_before_c_D.KauOs[3],
+                                    Oborot_before_c_D.KauOs[4],
+                                    Oborot_before_c_D.KauOs[5],
+                                    Oborot_before_c_D.KauOs[6],
+                                    Oborot_before_c_D.kodSpo  ,
+                                    _Valut,
+                                    Oborot_before_c_D.DatOb,
+
+                                    GetTidkGalName(Oborot_before_c_D.TiDkGal),
+                                    Oborot_before_c_D.NoDok,
+                                    Oborot_before_c_D.TiDkGal,
+                                    Oborot_before_c_D.cSoprDoc,
+
+                                    ZachSum,
+                                    ZachSumVal
+
+                                  , Oborot_before_c_D.KrSchetK
+                                  , Oborot_before_c_D.SubSchK
+                                  , Oborot_before_c_D.TblKs[1]
+                                  , Oborot_before_c_D.TblKs[2]
+                                  , Oborot_before_c_D.TblKs[3]
+                                  , Oborot_before_c_D.TblKs[4]
+                                  , Oborot_before_c_D.TblKs[5]
+                                  , Oborot_before_c_D.TblKs[6]
+                                  , Oborot_before_c_D.KauKs[1]
+                                  , Oborot_before_c_D.KauKs[2]
+                                  , Oborot_before_c_D.KauKs[3]
+                                  , Oborot_before_c_D.KauKs[4]
+                                  , Oborot_before_c_D.KauKs[5]
+                                  , Oborot_before_c_D.KauKs[6]
+                                  , Oborot_before_c_D.KodSpK
+                                    );
+
+                                DistrSum    := DistrSum - ZachSum;
+                                DistrSumVal := DistrSumVal - ZachSumVal;
+                            }
+
+                            vStopFlag := not NextVisual;
+                            if vStopFlag
+                            {
+                                StopVisual('',0);
+                                Exit;
+                            }
+                        }
+
+                        if getprev  Oborot_before_c_D = tsOk
+                        {
+                            bound_DolgDat   := Oborot_before_c_D.DatOb;
+                            if getfirst Saldo_Fill <> tsOk
+                                Flag := False;
+                        }
+                        else
+                            Flag := False;
+                    }
+            } // cCredit
+
+            cDebet:
+            {
+                var GGG : string;
+                GGG := Saldo_Z.St1;
+
+                Flag := getlast  Oborot_before_C_D = tsOk;
+
+                while Flag and DistrSum >= SumCompare
+                do
+                {
+                    // проверка по знаку суммы (должны быть только положительные суммы)
+                    if  Oborot_before_c_D.SumOb >= SumCompare
+                        CheckResult := True
+                    else
+                        CheckResult := False;
+
+                    if CheckResult
+                    {
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if Oborot_before_C_D.ConvOb = 3
+                                _Valut    := Oborot_before_C_D.ConvVal
+                            else
+                                _Valut    := Oborot_before_C_D.KodValut;
+                        }
+                        else
+                                _Valut    := comp(0);
+
+                        // проверка по валютному разрезу
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if _Valut = bound_Val
+                                CheckResult    := True
+                            else
+                                CheckResult    := False;
+                        }
+                        else
+                            CheckResult := True;
+                    }
+
+                    if CheckResult
+                    {
+
+                        if (DistrSum - Oborot_before_C_D.SumOb) >= SumCompare
+                        {
+                            ZachSum     := Oborot_before_C_D.SumOb;
+                            ZachSumVal  := Oborot_before_C_D.SumValut;
+
+                        }
+                        else
+                        {
+                            ZachSum     := DistrSum;
+                            ZachSumVal  := DistrSumVal;
+                        }
+                        InsertSaldo(saldo_v,
+                                bound_DateBeg,
+                                cDebet,
+
+                                Oborot_before_c_D.TblOs[1],
+                                Oborot_before_c_D.TblOs[2],
+                                Oborot_before_c_D.TblOs[3],
+                                Oborot_before_c_D.TblOs[4],
+                                Oborot_before_c_D.TblOs[5],
+                                Oborot_before_c_D.TblOs[6],
+
+
+                                Oborot_before_c_D.SchetO,
+                                Oborot_before_c_D.SubOsSch,
+                                Oborot_before_c_D.KauOs[1],
+                                Oborot_before_c_D.KauOs[2],
+                                Oborot_before_c_D.KauOs[3],
+                                Oborot_before_c_D.KauOs[4],
+                                Oborot_before_c_D.KauOs[5],
+                                Oborot_before_c_D.KauOs[6],
+                                Oborot_before_c_D.kodSpo  ,
+                                _Valut,
+                                Oborot_before_c_D.DatOb,
+
+                                GetTidkGalName(Oborot_before_c_D.TiDkGal),
+                                Oborot_before_c_D.NoDok,
+                                Oborot_before_c_D.TiDkGal,
+                                Oborot_before_c_D.cSoprDoc,
+
+                                ZachSum,
+                                ZachSumVal
+
+                              , Oborot_before_c_D.KrSchetK
+                              , Oborot_before_c_D.SubSchK
+                              , Oborot_before_c_D.TblKs[1]
+                              , Oborot_before_c_D.TblKs[2]
+                              , Oborot_before_c_D.TblKs[3]
+                              , Oborot_before_c_D.TblKs[4]
+                              , Oborot_before_c_D.TblKs[5]
+                              , Oborot_before_c_D.TblKs[6]
+                              , Oborot_before_c_D.KauKs[1]
+                              , Oborot_before_c_D.KauKs[2]
+                              , Oborot_before_c_D.KauKs[3]
+                              , Oborot_before_c_D.KauKs[4]
+                              , Oborot_before_c_D.KauKs[5]
+                              , Oborot_before_c_D.KauKs[6]
+                              , Oborot_before_c_D.KodSpK
+                                );
+
+                        DistrSum    := DistrSum - ZachSum;
+                        DistrSumVal := DistrSumval - ZachSumVal;
+                    }
+
+                    Flag := getprev  Oborot_before_c_D = tsOk;
+                    if (Flag and (double(Saldo_Z.SaldoDat) - vAgeLimit < double (Oborot_before_c_D.DatOb)))
+                        Flag := True
+                    else
+                        Flag := False;
+
+                    vStopFlag := not NextVisual;
+                    if vStopFlag
+                    {
+                        StopVisual('',0);
+                        Exit;
+                    }
+
+                }
+                if abs(DistrSum) < SumCompare
+                  {
+                  Saldo_Z.Flag_del := True;
+                  update current Saldo_Z;
+//                  DeleteFromSaldo;
+                  }
+                else
+                  {
+                    Saldo_Z.S1 := DistrSum;
+                    Saldo_z.S2 := DistrSumVal;
+                    update current Saldo_Z;
+                  };
+
+                // произведем коррекцию в случае, если есть отрицательные обороты на противоположной корреспонденции
+                if getlast  Oborot_before_c_K = tsOk
+                {
+                    bound_DolgDat   := Oborot_before_c_K.DatOb;
+
+                    if getfirst Saldo_Fill = tsOk
+                        Flag := True
+                    else
+                        Flag := False;
+                }
+                else
+                    Flag := False;
+
+                while Flag
+                do
+                {
+                    // проверка по знаку суммы (должны быть только отрицательные суммы)
+                    if  Oborot_before_c_K.SumOb <= - SumCompare
+                        CheckResult := True
+                    else
+                        CheckResult := False;
+
+                    if CheckResult
+                    {
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if Oborot_before_C_K.ConvOb = 4
+                                _Valut    := Oborot_before_C_K.ConvVal
+                            else
+                                _Valut    := Oborot_before_C_K.KodValut;
+                        }
+                        else
+                            _Valut  := comp(0);
+
+                        // проверка по валютному разрезу
+                        if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+                        {
+                            if _Valut = bound_Val
+                                CheckResult    := True
+                            else
+                                CheckResult    := False;
+                        }
+                        else
+                            CheckResult := True;
+                    }
+
+                    if CheckResult
+                    {
+                        DistrSum    := - Oborot_before_c_K.SumOb;
+                        DistrSumVal := - Oborot_before_c_K.SumValut;
+
+
+                        Flag2 := getlast Saldo_Fill = tsOk;
+                        while Flag2 and DistrSum >= SumCompare
+                        do
+                        {
+
+                                if (DistrSum - Saldo_Fill.S1) >= SumCompare
+                                    {
+
+                                    ZachSum     := Saldo_Fill.S1;
+                                    ZachSumVal  := Saldo_Fill.s2;
+                                    Saldo_Fill.Flag_del := True;
+                                    update current Saldo_Fill;
+//                                    DeleteFromSaldo;
+                                    Flag2 := getlast Saldo_Fill = tsOk;
+                                    }
+                                else
+                                    {
+                                    ZachSum         := DistrSum;
+                                    ZachSumVal      := DistrSumVal;
+                                    Saldo_Fill.S1   := Saldo_Fill.S1 - DistrSum;
+                                    Saldo_Fill.S2   := Saldo_Fill.S2 - DistrSumVal;
+                                    update current Saldo_Fill;
+                                    Flag2 := getprev Saldo_Fill = tsOk;
+                                    }
+
+                                InsertSaldo(saldo_v,
+                                    bound_DateBeg,
+                                    cDebet,
+
+                                    Oborot_before_c_K.Tblks[1],
+                                    Oborot_before_c_K.Tblks[2],
+                                    Oborot_before_c_K.Tblks[3],
+                                    Oborot_before_c_K.Tblks[4],
+                                    Oborot_before_c_K.Tblks[5],
+                                    Oborot_before_c_K.Tblks[6],
+
+                                    Oborot_before_c_K.SchetK,
+                                    Oborot_before_c_K.SubSchK,
+                                    Oborot_before_c_K.KauKs[1],
+                                    Oborot_before_c_K.KauKs[2],
+                                    Oborot_before_c_K.KauKs[3],
+                                    Oborot_before_c_K.KauKs[4],
+                                    Oborot_before_c_K.KauKs[5],
+                                    Oborot_before_c_K.KauKs[6],
+                                    Oborot_before_c_K.kodSpk  ,
+                                    _Valut,
+                                    Oborot_before_c_K.DatOb,
+
+                                    GetTidkGalName(Oborot_before_c_K.TiDkGal),
+                                    Oborot_before_c_K.NoDok,
+                                    Oborot_before_c_K.TiDkGal,
+                                    Oborot_before_c_K.cSoprDoc,
+
+                                    ZachSum,
+                                    ZachSumVal
+
+                                  , Oborot_before_c_K.DbSchetO
+                                  , Oborot_before_c_K.SubOsSch
+                                  , Oborot_before_c_K.TblOs[1]
+                                  , Oborot_before_c_K.TblOs[2]
+                                  , Oborot_before_c_K.TblOs[3]
+                                  , Oborot_before_c_K.TblOs[4]
+                                  , Oborot_before_c_K.TblOs[5]
+                                  , Oborot_before_c_K.TblOs[6]
+                                  , Oborot_before_c_K.KauOs[1]
+                                  , Oborot_before_c_K.KauOs[2]
+                                  , Oborot_before_c_K.KauOs[3]
+                                  , Oborot_before_c_K.KauOs[4]
+                                  , Oborot_before_c_K.KauOs[5]
+                                  , Oborot_before_c_K.KauOs[6]
+                                  , Oborot_before_c_K.KodSpO
+                                    );
+
+                                DistrSum    := DistrSum - ZachSum;
+                                DistrSumVal := DistrSumVal - ZachSumVal;
+
+                            }
+
+                            vStopFlag := not NextVisual;
+                            if vStopFlag
+                            {
+                                StopVisual('',0);
+                                Exit;
+                            }
+                        }
+
+                        if getprev  Oborot_before_c_K = tsOk
+                        {
+                            bound_DolgDat   := Oborot_before_c_K.DatOb;
+                            if getfirst Saldo_Fill <> tsOk
+                                Flag := False;
+                        }
+                        else
+                            Flag := False;
+                    }
+            } // cDebet
+            end; // case
+    }
+
+    DeleteFromSaldo;
+
+    SetVisualHeader (VisualStringFirstLine +  'Шаг 5/9 Учет начального сальдо периода');
+      _loop Saldo_Z1
+      {
+             ClearBuffer(#Saldo);
+             CopyTableFields(#Saldo_Z1, #Saldo);
+             Saldo.SaldoDat := bound_DateEnd;
+             Saldo.DataType := saldo_i;
+             insert current Saldo;
+             vStopFlag := not NextVisual;
+             if vStopFlag
+             {
+                StopVisual('',0);
+                Exit;
+             }
+      }
+    bound_SaldoDat   := bound_DateEnd;
+    bound_DataType   := saldo_i;
+    SetVisualHeader (VisualStringFirstLine + 'Шаг 6/9 Учет кредитовых оборотов внутри периода');
+    if getfirst sOrgPickRep = tsOk {};
+    do
+    {
+      if v_OrgFilterWord > word(1) bound_Org := sOrgPickRep.crec;
+         else bound_Org := v_OrgFilterComp;
+      _loop Oborot_inside_K
+      {
+
+
+         if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+           {
+                          if Oborot_inside_K.ConvOb = 4
+                              _Valut    := Oborot_inside_K.ConvVal
+                          else
+                              _Valut    := Oborot_inside_K.KodValut;
+           }
+         else
+                              _Valut    := comp(0);
+
+
+          InsertSaldo(oborot,
+                      date (1,1,1900),     // 0 означает что это оборот а не сальдо
+                      cCredit,
+
+                      Oborot_inside_K.TblKs[1],
+                      Oborot_inside_K.TblKs[2],
+                      Oborot_inside_K.TblKs[3],
+                      Oborot_inside_K.TblKs[4],
+                      Oborot_inside_K.TblKs[5],
+                      Oborot_inside_K.TblKs[6],
+
+                      Oborot_inside_K.SchetK,
+                      Oborot_inside_K.SubSchK,
+                      Oborot_inside_K.KauKs[1],
+                      Oborot_inside_K.KauKs[2],
+                      Oborot_inside_K.KauKs[3],
+                      Oborot_inside_K.KauKs[4],
+                      Oborot_inside_K.KauKs[5],
+                      Oborot_inside_K.KauKs[6],
+                      Oborot_inside_K.kodSpk  ,
+                      _Valut,
+                      Oborot_inside_K.DatOb,
+
+                      GetTidkGalName(Oborot_inside_K.TiDkGal),
+                      Oborot_inside_K.NoDok,
+                      Oborot_inside_K.TiDkGal,
+                      Oborot_inside_K.cSoprDoc,
+
+                      Oborot_inside_K.SumOb,
+                      Oborot_inside_K.SumValut
+
+                    , Oborot_inside_K.DbSchetO
+                    , Oborot_inside_K.SubOsSch
+                    , Oborot_inside_K.TblOs[1]
+                    , Oborot_inside_K.TblOs[2]
+                    , Oborot_inside_K.TblOs[3]
+                    , Oborot_inside_K.TblOs[4]
+                    , Oborot_inside_K.TblOs[5]
+                    , Oborot_inside_K.TblOs[6]
+                    , Oborot_inside_K.KauOs[1]
+                    , Oborot_inside_K.KauOs[2]
+                    , Oborot_inside_K.KauOs[3]
+                    , Oborot_inside_K.KauOs[4]
+                    , Oborot_inside_K.KauOs[5]
+                    , Oborot_inside_K.KauOs[6]
+                    , Oborot_inside_K.KodSpO
+                      );
+
+          ZachetSum  (saldo_i,
+                      bound_DateEnd,
+                      cCredit,
+
+                      Oborot_inside_K.Tblks[1],
+                      Oborot_inside_K.Tblks[2],
+                      Oborot_inside_K.Tblks[3],
+                      Oborot_inside_K.Tblks[4],
+                      Oborot_inside_K.Tblks[5],
+                      Oborot_inside_K.Tblks[6],
+
+                      Oborot_inside_K.SchetK,
+                      Oborot_inside_K.SubSchK,
+                      Oborot_inside_K.KauKs[1],
+                      Oborot_inside_K.KauKs[2],
+                      Oborot_inside_K.KauKs[3],
+                      Oborot_inside_K.KauKs[4],
+                      Oborot_inside_K.KauKs[5],
+                      Oborot_inside_K.KauKs[6],
+                      Oborot_inside_K.kodSpk  ,
+                      Oborot_inside_K.KodValut,
+                      Oborot_inside_K.DatOb,
+
+                      GetTidkGalName(Oborot_inside_K.TiDkGal),
+                      Oborot_inside_K.NoDok,
+                      Oborot_inside_K.TiDkGal,
+                      Oborot_inside_K.cSoprDoc,
+
+                      Oborot_inside_K.SumOb,
+                      Oborot_inside_K.SumValut,
+                      Oborot_inside_K.ConvOb,
+                      Oborot_inside_K.ConvVal
+
+                    , Oborot_inside_K.DbSchetO
+                    , Oborot_inside_K.SubOsSch
+                    , Oborot_inside_K.TblOs[1]
+                    , Oborot_inside_K.TblOs[2]
+                    , Oborot_inside_K.TblOs[3]
+                    , Oborot_inside_K.TblOs[4]
+                    , Oborot_inside_K.TblOs[5]
+                    , Oborot_inside_K.TblOs[6]
+                    , Oborot_inside_K.KauOs[1]
+                    , Oborot_inside_K.KauOs[2]
+                    , Oborot_inside_K.KauOs[3]
+                    , Oborot_inside_K.KauOs[4]
+                    , Oborot_inside_K.KauOs[5]
+                    , Oborot_inside_K.KauOs[6]
+                    , Oborot_inside_K.kodSpO
+                      )
+
+          vStopFlag := not NextVisual;
+          if vStopFlag
+          {
+              StopVisual('',0);
+              Exit;
+          }
+
+      }
+    } while getnext sOrgPickRep = tsOk and v_OrgFilterWord > word(1);
+
+    SetVisualHeader (VisualStringFirstLine + 'Шаг 7/9 Учет дебетовых оборотов внутри периода');
+    if getfirst sOrgPickRep = tsOk {};
+    do
+    {
+      if v_OrgFilterWord > word(1) bound_Org := sOrgPickRep.crec;
+         else bound_Org := v_OrgFilterComp;
+      _loop Oborot_inside_D
+      {
+
+         if ((vSaldoAnalitics and word (UP (2, 0))) = word(UP (2, 0)) )
+           {
+                          if Oborot_inside_D.ConvOb = 3
+                              _Valut    := Oborot_inside_D.ConvVal
+                          else
+                              _Valut    := Oborot_inside_D.KodValut;
+           }
+         else
+                              _Valut    := comp(0);
+
+          InsertSaldo(oborot,
+                      date (1,1,1900),     // 0 означает что это оборот а не сальдо
+                      cDebet,
+
+                      Oborot_inside_D.TblOs[1],
+                      Oborot_inside_D.TblOs[2],
+                      Oborot_inside_D.TblOs[3],
+                      Oborot_inside_D.TblOs[4],
+                      Oborot_inside_D.TblOs[5],
+                      Oborot_inside_D.TblOs[6],
+
+                      Oborot_inside_D.SchetO,
+                      Oborot_inside_D.SubOsSch,
+                      Oborot_inside_D.KauOs[1],
+                      Oborot_inside_D.KauOs[2],
+                      Oborot_inside_D.KauOs[3],
+                      Oborot_inside_D.KauOs[4],
+                      Oborot_inside_D.KauOs[5],
+                      Oborot_inside_D.KauOs[6],
+                      Oborot_inside_D.kodSpo  ,
+                      _Valut,
+                      Oborot_inside_D.DatOb,
+
+                      GetTidkGalName(Oborot_inside_D.TiDkGal),
+                      Oborot_inside_D.NoDok,
+                      Oborot_inside_D.TiDkGal,
+                      Oborot_inside_D.cSoprDoc,
+
+                      Oborot_inside_D.SumOb,
+                      Oborot_inside_D.SumValut
+
+                    , Oborot_inside_D.KrSchetK
+                    , Oborot_inside_D.SubSchK
+                    , Oborot_inside_D.TblKs[1]
+                    , Oborot_inside_D.TblKs[2]
+                    , Oborot_inside_D.TblKs[3]
+                    , Oborot_inside_D.TblKs[4]
+                    , Oborot_inside_D.TblKs[5]
+                    , Oborot_inside_D.TblKs[6]
+                    , Oborot_inside_D.KauKs[1]
+                    , Oborot_inside_D.KauKs[2]
+                    , Oborot_inside_D.KauKs[3]
+                    , Oborot_inside_D.KauKs[4]
+                    , Oborot_inside_D.KauKs[5]
+                    , Oborot_inside_D.KauKs[6]
+                    , Oborot_inside_D.KodSpK
+
+                      );
+
+          ZachetSum  (saldo_i,
+                      bound_DateEnd,
+                      cDebet,
+
+                      Oborot_inside_D.TblOs[1],
+                      Oborot_inside_D.TblOs[2],
+                      Oborot_inside_D.TblOs[3],
+                      Oborot_inside_D.TblOs[4],
+                      Oborot_inside_D.TblOs[5],
+                      Oborot_inside_D.TblOs[6],
+
+                      Oborot_inside_D.SchetO,
+                      Oborot_inside_D.SubOsSch,
+                      Oborot_inside_D.KauOs[1],
+                      Oborot_inside_D.KauOs[2],
+                      Oborot_inside_D.KauOs[3],
+                      Oborot_inside_D.KauOs[4],
+                      Oborot_inside_D.KauOs[5],
+                      Oborot_inside_D.KauOs[6],
+                      Oborot_inside_D.kodSpo  ,
+                      Oborot_inside_D.KodValut,
+                      Oborot_inside_D.DatOb,
+
+                      GetTidkGalName(Oborot_inside_D.TiDkGal),
+                      Oborot_inside_D.NoDok,
+                      Oborot_inside_D.TiDkGal,
+                      Oborot_inside_D.cSoprDoc,
+
+                      Oborot_inside_D.SumOb,
+  	                  Oborot_inside_D.SumValut,
+                      Oborot_inside_D.ConvOb,
+                      Oborot_inside_D.ConvVal
+
+                    , Oborot_inside_D.KrSchetK
+                    , Oborot_inside_D.SubSchK
+                    , Oborot_inside_D.TblKs[1]
+                    , Oborot_inside_D.TblKs[2]
+                    , Oborot_inside_D.TblKs[3]
+                    , Oborot_inside_D.TblKs[4]
+                    , Oborot_inside_D.TblKs[5]
+                    , Oborot_inside_D.TblKs[6]
+                    , Oborot_inside_D.KauKs[1]
+                    , Oborot_inside_D.KauKs[2]
+                    , Oborot_inside_D.KauKs[3]
+                    , Oborot_inside_D.KauKs[4]
+                    , Oborot_inside_D.KauKs[5]
+                    , Oborot_inside_D.KauKs[6]
+                    , Oborot_inside_D.KodSpK
+                      )
+
+          vStopFlag := not NextVisual;
+          if vStopFlag
+          {
+              StopVisual('',0);
+              Exit;
+          }
+
+      }
+    } while getnext sOrgPickRep = tsOk and v_OrgFilterWord > word(1);
+    SetVisualHeader (VisualStringFirstLine + 'Шаг 8/9 Удаление незначимых записей');
+    DeleteFromSaldo;
+    delete Saldo where ((bound_Schet == Saldo.Schet and bound_SubSchet == Saldo.SubSchet and SumCompare >> Saldo.S1 and -SumCompare << Saldo.S1));
+
+    SetVisualHeader (VisualStringFirstLine + 'Шаг 9/9 Свертка сальдо');
+
+    //свертка сальдо по активным счетам - к дебету, по пассивным - к кредиту
+    if boGetTune ('FIN.REPORTS.ROLLSALDO') = True
+    {
+      if getfirst BuhSchet where ((l_Schet == BuhSchet.Schet and l_SubSchet == BuhSchet.SubSch)) = tsOk
+      {
+       if BuhSchet.vidsald = word (1)
+       {
+        SetVisualHeader (VisualStringFirstLine + 'Шаг 9/9 Свертка сальдо к кредиту');
+        _loop Saldo where ((l_Schet == Saldo.Schet and
+                            l_SubSchet == Saldo.SubSchet and
+                            cDebet == Saldo.SaldoType and
+                            date(1,1,1900) << Saldo.SaldoDat
+                           ))
+        {
+          update current Saldo set Saldo.SaldoType := cCredit, Saldo.S1 := -Saldo.S1, Saldo.S2 := -Saldo.S2;
+        }
+       }
+       if BuhSchet.vidsald = word (0)
+       {
+        SetVisualHeader (VisualStringFirstLine + 'Шаг 9/9 Свертка сальдо к дебету');
+        _loop Saldo where (( l_Schet == Saldo.Schet and
+                            l_SubSchet == Saldo.SubSchet and
+                            cCredit == Saldo.SaldoType and
+                            date(1,1,1900) << Saldo.SaldoDat
+                           ))
+        {
+          update current Saldo set Saldo.SaldoType := cDebet, Saldo.S1 := -Saldo.S1, Saldo.S2 := -Saldo.S2;
+        }
+       }
+      }
+    }
+
+}
+
+Procedure FillData;
+{
+    MaxIerLevels  := 0;
+
+    STARTNEWVISUAL(vtRotateVisual, vfTimer+vfBreak+vfConfirm+vfThread, 'Анализ данных', 0);
+    SetVisualTitle ('Анализ данных');
+
+    delete all Saldo;
+
+    if getfirst PickBuh where (( cgPick_Schet  == PickBuh.KodTable)) <> tsOk
+    {
+                vErrorFlag := True;
+                vErrorDescr:= 'Не выбран ни один счет';
+                exit;
+    }
+    else
+    {
+     _Loop PickBuh where (( cgPick_Schet  == PickBuh.KodTable))
+        {
+            bound_Schet     := PickBuh.Schet;
+            if getfirst PickBuhSub where ((cgPick_SubSch   == PickBuhSub.KodTable and
+                                           bound_Schet     == PickBuhSub.Schet )) = tsOk
+            {
+                _Loop PickBuhSub where ((cgPick_SubSch   == PickBuhSub.KodTable and
+                                           bound_Schet   == PickBuhSub.Schet ))
+                {
+                    bound_SubSchet  := PickBuhSub.SubKau;
+                    AnaliseSubAnalitics;
+                    _SetBounds;
+                    FillDataInside(bound_Schet, bound_SubSchet);
+                    if vStopFlag or vErrorFlag Exit;
+                }
+           }
+           else
+           //если выбран счет и не выбраны субсчета
+           {
+             _loop BuhSchet where ((bound_Schet == BuhSchet.Schet))
+             {
+               bound_SubSchet  := BuhSchet.SubSch;
+               AnaliseSubAnalitics;
+               _SetBounds;
+               FillDataInside(bound_Schet, bound_SubSchet);
+               if vStopFlag or vErrorFlag  Exit;
+             }
+           }
+        }
+    }
+
+}

@@ -1,0 +1,66 @@
+#include Amort.vih
+
+Alter Interface Amort 'Расчет амортизации' EscClose, gray;
+
+  Create view loKatOSSearch
+  As select
+    KatOS.*
+  From
+    KatOS;
+
+  overload
+    Procedure GetOborotOnAnalitForSpMove( pwTabKau       : word;
+                                          pcKau          : comp;
+                                          _cSoprHoz      : comp );
+  end;
+
+  Procedure GetOborotOnAnalitForSpMove( pwTabKau       : word;
+                                        pcKau          : comp;
+                                        _cSoprHoz      : comp );
+  var   i       : word;
+  {
+    //inherited :: GetOborotOnAnalitForSpMove( pwTabKau, pcKau, _cSoprHoz);
+    if (pwTabKau = Word(0)) or (pcKau = 0)
+      Exit;
+
+    StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, 'Отбор проводок по операции...', 1);
+
+    loObSpMove._LOOP Oborot  where ((_cSoprHoz == Oborot.cSoprHoz))
+    {
+      var DelObFlag : boolean;
+      DelObFlag := false;
+
+      NextVisual;
+      for (i := cFirstKau; i <= cLastKau; i++)
+      {
+        if ((loObSpMove.Oborot.TblOs[i] = pwTabKau) and (loObSpMove.Oborot.KauOs[i] = pcKau)) or
+           ((loObSpMove.Oborot.TblKs[i] = pwTabKau) and (loObSpMove.Oborot.KauKs[i] = pcKau))
+            {
+              loObSpMove.tOborotSel.cOborot := loObSpMove.Oborot.NRec;
+              loObSpMove.Insert current tOborotSel;
+              DelObFlag := true;
+              Break;
+            }
+      }
+
+      var _KatOSInnum : string;
+      _KatOSInnum := '';
+
+      if not DelObFlag // если запись не попала уже на удаление, то проанализируем дальше
+        if loKatOSSearch.getfirst KatOS where (( pcKau == KatOS.NRec )) = tsOk
+        {
+          _KatOSInnum := loKatOSSearch.KatOS.Innum;
+
+          if  ( _KatOSInnum <> '' and ( (_KatOSInnum + ',') = SubStr(loObSpMove.Oborot.SodPr, 1, Length(_KatOSInnum + ',')) ) ) or
+              ( _KatOSInnum <> '' and ( _KatOSInnum = loObSpMove.Oborot.SodPr ) )
+          {
+            loObSpMove.tOborotSel.cOborot := loObSpMove.Oborot.NRec;
+            loObSpMove.Insert current tOborotSel;
+          }
+        }
+    }
+    StopVisual('', 0);
+  }
+
+
+end.

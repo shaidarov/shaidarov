@@ -1,0 +1,40 @@
+// пробить бакркод для новых МЦ
+Vipinterface KatMc_Barkod licensed(free) ;
+//..
+Interface KatMc_Barkod ;
+var
+ TMPBARKOD :string ;
+create view vKatMc_Barkod
+as select katmc.nrec
+from katmc,groupmc , katmc katmc2
+where ((
+  katmc.cgroupmc == groupmc.nrec
+)) ;
+#include KatMc_barkod.Vpp
+Procedure Zaglushka ;
+{ exit ;
+  SetDefaultBarKod ;
+  SetGrMCfromBarKod ;
+  PickBarKod ;
+
+}
+HandleEvent
+cmInit :
+{ if fileexist('!katmc_barkod.log') deletefile('Katmc_barkod.log')
+  Zaglushka ;
+ var oldbarkod :string ;
+   StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Простановка баркода в МЦ', 0);
+ external _loop Katmc where 'NEW' = katmc.barkod or length(katmc.barkod)<4
+ { if not nextvisual then break ;
+   if katmc.cgroupmc=0 then continue ;
+   oldbarkod:=katmc.barkod ;
+   set katmc.barkod:='М01' ;
+   TmpBarKod:=katmc.barkod ;
+   SetBarkodFromGrMC ;
+   update current katmc ;
+   logstrtofile('!katmc_barkod.log',string(katmc.nrec)+';'+katmc.barkod+';'+oldbarkod+';'+katmc.name)
+ }
+ Stopvisual('',0) ;
+} 
+end ;
+end.

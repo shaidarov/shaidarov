@@ -1,0 +1,127 @@
+!не зя использовать сильно длинные названия фейсов >10
+#include UserReport.vih
+
+#IFDEF UserNameFaceDop
+VipInterface UserReport_#SetMenuUserR#UserNameFace#UserNameFaceDop Implements IUserReport
+#ifdef Atl51
+licensed (FREE) 
+#end
+;
+Interface UserReport_#SetMenuUserR#UserNameFace#UserNameFaceDop;
+#ELSE
+VipInterface UserReport_#SetMenuUserR#UserNameFace Implements IUserReport
+#ifdef Atl51
+licensed (FREE) 
+#end
+;
+Interface UserReport_#SetMenuUserR#UserNameFace;
+
+#ENDIF
+#IFDEF _USEGROUPONLY_
+create view vaaa
+As Select  XarPred.nrec
+From XarPred
+,TUNEGR,TuneGrUs
+;
+#ENDIF
+
+!-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+begin
+! проверяем фильтр на права по группе
+#IFDEF _USEGROUPONLY_
+#DEFINE _USEGROUPONLYMES_
+#include chkgroup.vpp
+#UNDEF _USEGROUPONLYMES_
+
+#ENDIF    
+#IFDEF UserNameFORM
+#IFDEF UserNameFaceVar
+  RunForm('#UserNameFace',#UserNameFaceVar);
+#ELSe
+#IFDEF UserNameTEST
+  message('form #UserNameFace')
+#endif
+  RunForm('#UserNameFace');
+#ENDIF  
+#ELSE
+#IFDEF UserNameFaceVar
+#ifdef Atl51
+  RunInterface('#UserNameFace',#UserNameFaceVar);
+#ELSE  
+  RunInterface('#UserNameFace',#UserNameFaceVar);
+#ENDIF  
+#ELSe
+#ifdef Atl51
+#ifdef UserNameFaceModal
+  RunInterface(#UserNameFace);
+#else
+  RunInterfaceNoModal(#UserNameFace);
+#endif  
+#ELSe  
+  RunAnyView('INTERFACE #UserNameFace',false);
+//  RunInterface(#UserNameFace);
+#endif
+#ENDIF  
+#ENDIF
+if VisualizationActive Stopvisual('',0) ;
+end;
+!-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := #UserNameWnd;
+end;
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+#ifDef UserMenuGroup
+  case Level of
+  1 : GetGroupName := #UserMenuGroup;
+  end;
+#ENDIF
+end;
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+#IFDEF _USEGROUPONLY_
+!  message('1');
+#include chkgroup.vpp
+!  message('2');
+#ENDIF    
+  case Ind of
+    1 : VisibleInModule := '#SetMenuUserR';
+#IFDEF SetMenuUserR2    
+    2 : VisibleInModule := '#SetMenuUserR2';
+#ENDIF    
+#IFDEF SetMenuUserR3    
+    3 : VisibleInModule := '#SetMenuUserR3';
+#ENDIF    
+#IFDEF SetMenuUserR4    
+    4 : VisibleInModule := '#SetMenuUserR4';
+#ENDIF    
+#IFDEF SetMenuUserR5    
+    5 : VisibleInModule := '#SetMenuUserR5';
+#ENDIF    
+  end;
+end;
+!-------------------------------------------------------------------------------
+end.

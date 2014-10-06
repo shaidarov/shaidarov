@@ -1,0 +1,74 @@
+// Auth. Perevoz S.A.
+#include Z_Zar.VIl
+
+interface GetPar_KadrPrik 'Параметры кадровых приказов';
+show at (5,1,82,8);
+Create View
+var
+  PersFIORuk:string;
+  PersNrec:comp;
+  DolRuk:string;
+as select * from Persons, APPOINTMENTS, Catalogs
+where ((PersNrec==Persons.nrec and
+        Persons.APPOINTCUR==APPOINTMENTS.nrec and
+        APPOINTMENTS.POST==Catalogs.nrec))
+;
+
+Screen S1;
+Fields
+  PersFIORuk: noprotect, PickButton;
+  DolRuk: noprotect;
+buttons
+  cmOk, Default;
+<<
+ `Руководитель предприятия:`       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Должность руководителя:`         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+                              <.   ОК   .>
+>>
+End;
+
+//=========================
+Procedure SaveParam ;
+{ SaveMyDsk(PersFIORuk,'KadrPrik_PersFIORuk')
+  SaveMyDsk(dolRuk,'KadrPrik_dolRuk')
+}
+//=========================
+Procedure ReadParam ;
+{ ReadMyDsk(PersFIORuk,'KadrPrik_PersFIORuk',false)
+  ReadMyDsk(dolRuk,'KadrPrik_dolRuk',false)
+}
+//=========================
+handleevent
+   cmInit:
+   {
+     ReadParam;
+     if PersFIORuk=''
+     {
+       PersFIORuk:=sgettune('BOSS');
+       PersNrec:=cogettune('BOSS');
+       if (getfirst fastfirstrow persons=tsok)
+       if (getfirst fastfirstrow catalogs=tsok) {DolRuk:=catalogs.name;}
+     }
+     RereadRecord;
+   }
+   cmPick:
+   {
+     case curField of
+     #PersFIORuk:
+     {
+        runinterface('PickFioM', 0, 0, PersNrec,0, 0);
+        if (getfirst fastfirstrow persons=tsok) {PersFIORuk:=persons.fio;}
+        if (getfirst fastfirstrow catalogs=tsok) {DolRuk:=catalogs.name;}
+     }
+     end;
+     RereadRecord;
+   }
+   cmOk:
+   {
+     SaveParam ;
+     CloseInterface(1);
+   }
+end;
+End.

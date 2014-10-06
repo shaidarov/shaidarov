@@ -1,0 +1,690 @@
+//********************************************************************************
+//                                                        (c) корпорация Галактика
+// Галактика 7.12 - Управление производственной логистикой
+// Интерфейс документов:
+// ТХО для обработки документов по вкладке "Входящие"
+//********************************************************************************
+
+
+
+#include TxoApi.vih
+//#include tRawDist.tbl
+
+#include oEdIzm.vih
+
+// Указываем, что наш интерфейс реализует расчет идентификатора ТХО
+VipInterface Txo_MnfZak1
+  Implements ObjTxoIdentPlugin
+  #ifdef Atl51
+  Licensed(Free)
+  #end
+;
+
+Interface Txo_MnfZak1 (,hcTXOWVIPParam);
+ VAR cOldWay : comp;
+ #include oEdIzm.var
+create view
+
+  var
+    wBDorKS      : word;
+    CurSoprDoc   : comp;
+    wRaspr       : word;
+    wCenPos      : word;
+    wKolPos      : word;
+    strParam     : string;
+    //ED
+  wattr_table :word ; // для вывода атрибутов по таблице
+  wattr_nrec : comp ;
+  w_cfpco,w_CKAELEM:comp ;   
+as select
+  *
+from KatSopr
+   , SpSopr, Synonym SpSopr SpSoprSyr
+           , Synonym SpSopr SpSopr1
+   , SoprOrdB
+   , ObjAcct
+   , SpObjAcc
+   , BaseDoc
+   , StepDoc
+   , SpStep
+   , SpMnPl
+   , SpOrder
+   , KatMC, Synonym KatMC snKatMC_SpSopr
+          , Synonym KatMC snKatMC_SpSoprSyr
+          , Synonym KatMC snKatMC_SpStep
+          , Synonym KatMC snKatMC_SpMnPl
+          , Synonym KatMC snKatMC_ObjAcct
+          , Synonym KatMC snKatMC_SpObjAcc
+   , GroupMC, Synonym GroupMC snGroupMC_SpSopr
+            , Synonym GroupMC snGroupMC_SpSoprSyr
+            , Synonym GroupMC snGroupMC_SpStep
+            , Synonym GroupMC snGroupMC_SpMnPl
+            , Synonym GroupMC snGroupMC_ObjAcct
+            , Synonym GroupMC snGroupMC_SpObjAcc
+   , KatUsl, Synonym  KatUsl  snKatUsl_SpSopr
+           , Synonym  KatUsl  snKatUsl_SpSoprSyr
+           , Synonym  KatUsl  snKatUsl_SpStep
+           , Synonym  KatUsl  snKatUsl_SpMnPl
+           , Synonym  KatUsl  snKatUsl_ObjAcct
+           , Synonym  KatUsl  snKatUsl_SpObjAcc
+   , GroupUSL, Synonym GroupUSL snGroupUSL_SpSopr
+             , Synonym GroupUSL snGroupUSL_SpSoprSyr
+             , Synonym GroupUSL snGroupUSL_SpStep
+             , Synonym GroupUSL snGroupUSL_SpMnPl
+             , Synonym GroupUSL snGroupUSL_ObjAcct
+             , Synonym GroupUSL snGroupUSL_SpObjAcc
+   , KatParty, Synonym KatParty snKatParty_SpSopr
+             , Synonym KatParty snKatParty_SpSoprSyr
+             , Synonym KatParty snKatParty_SpStep
+   , StZatr, Synonym StZatr snStZatrMC_SpSopr
+           , Synonym StZatr snStZatrMC_SpSoprSyr
+           , Synonym StZatr snStZatrMC_SpStep
+           , Synonym StZatr snStZatrMC_SpMnPl
+           , Synonym StZatr snStZatrMC_ObjAcct
+           , Synonym StZatr snStZatrMC_SpObjAcc
+           , Synonym StZatr snStZatrUsl_SpSopr
+           , Synonym StZatr snStZatrUsl_SpSoprSyr
+           , Synonym StZatr snStZatrUsl_SpStep
+           , Synonym StZatr snStZatrUsl_SpMnPl
+           , Synonym StZatr snStZatrUsl_ObjAcct
+           , Synonym StZatr snStZatrUsl_SpObjAcc
+   , TypeMC, Synonym TypeMC snTypeMC_SpSopr
+           , Synonym TypeMC snTypeMC_SpSoprSyr
+           , Synonym TypeMC snTypeMC_SpStep
+           , Synonym TypeMC snTypeMC_SpMnPl
+           , Synonym TypeMC snTypeMC_ObjAcct
+           , Synonym TypeMC snTypeMC_SpObjAcc
+    , KatPodr
+             , Synonym KatPodr snKatPodr1
+    , KatMOL
+            , Synonym KatMOL snKatMOL1
+//ED            
+,attrnam attrnamk,attrval attrvalk,SpecMTR
+where((//накладные
+       CurSoprDoc        == KatSopr.nRec
+  and  KatSopr.nRec      == SpSopr.cSopr
+  and  SpSopr.cMcUSL     == snKatMC_SpSopr.nRec
+  and  snKatMC_SpSopr.cGroupMC   == snGroupMC_SpSopr.nRec
+  and  snKatMC_SpSopr.cStZatr    == snStZatrMC_SpSopr.nRec
+  and  snKatMC_SpSopr.cType      == snTypeMC_SpSopr.nRec
+  and  SpSopr.cMcUSL     == snKatUsl_SpSopr.nRec
+  and  snKatUsl_SpSopr.cGroupUSL == snGroupUSL_SpSopr.nRec
+  and  snKatUsl_SpSopr.cStZatr   == snStZatrUsl_SpSopr.nRec
+  and  SpSopr.cParty     == snKatParty_SpSopr.nRec
+  and  SpSopr.nRec == SoprOrdB.cSpSopr
+       //сырьевые
+  and  spsopr.nrec ==  SpSoprSyr.cspsopr    
+  and  SpSoprSyr.cMcUSL     == snKatMC_SpSoprSyr.nRec
+  and  snKatMC_SpSoprSyr.cGroupMC   == snGroupMC_SpSoprSyr.nRec
+  and  snKatMC_SpSoprSyr.cStZatr    == snStZatrMC_SpSoprSyr.nRec
+  and  snKatMC_SpSoprSyr.cType      == snTypeMC_SpSoprSyr.nRec
+  and  SpSoprSyr.cMcUSL     == snKatUsl_SpSoprSyr.nRec
+  and  snKatUsl_SpSoprSyr.cGroupUSL == snGroupUSL_SpSoprSyr.nRec
+  and  snKatUsl_SpSoprSyr.cStZatr   == snStZatrUsl_SpSoprSyr.nRec
+  and  SpSoprSyr.cParty     == snKatParty_SpSoprSyr.nRec
+
+       //основания
+  and  CurSoprDoc        == BaseDoc.nRec
+  and  BaseDoc.Nrec      == StepDoc.cBaseDoc
+  and  StepDoc.Nrec      == SpStep.cStepDoc
+  and  SpStep.cMcUSL     == snKatMC_SpStep.nRec
+  and  snKatMC_SpStep.cGroupMC   == snGroupMC_SpStep.nRec
+  and  snKatMC_SpStep.cStZatr    == snStZatrMC_SpStep.nRec
+  and  snKatMC_SpStep.cType      == snTypeMC_SpStep.nRec
+  and  SpStep.cMcUSL     == snKatUsl_SpStep.nRec
+  and  snKatUsl_SpStep.cGroupUSL == snGroupUSL_SpStep.nRec
+  and  snKatUsl_SpStep.cStZatr   == snStZatrUsl_SpStep.nRec
+  and  SpStep.cParty     == snKatParty_SpStep.nRec
+       //поз.ПЗ
+  and  SpMnPl.cIzd     == snKatMC_SpMnPl.nRec
+  and  snKatMC_SpMnPl.cGroupMC   == snGroupMC_SpMnPl.nRec
+  and  snKatMC_SpMnPl.cStZatr    == snStZatrMC_SpMnPl.nRec
+  and  snKatMC_SpMnPl.cType      == snTypeMC_SpMnPl.nRec
+  and  SpMnPl.cIzd     == snKatUsl_SpMnPl.nRec
+  and  snKatUsl_SpMnPl.cGroupUSL == snGroupUSL_SpMnPl.nRec
+  and  snKatUsl_SpMnPl.cStZatr   == snStZatrUsl_SpMnPl.nRec
+
+  and  CurSoprDoc        == ObjAcct.cOwner
+  and  wBDorKS           == ObjAcct.TypeOwn
+       //вх.1
+  and  ObjAcct.cObject   == snKatMC_ObjAcct.nRec
+  and  snKatMC_ObjAcct.cGroupMC   == snGroupMC_ObjAcct.nRec
+  and  snKatMC_ObjAcct.cStZatr    == snStZatrMC_ObjAcct.nRec
+  and  snKatMC_ObjAcct.cType      == snTypeMC_ObjAcct.nRec
+  and  ObjAcct.cObject   == snKatUsl_ObjAcct.nRec
+  and  snKatUsl_ObjAcct.cGroupUSL == snGroupUSL_ObjAcct.nRec
+  and  snKatUsl_ObjAcct.cStZatr   == snStZatrUsl_ObjAcct.nRec
+       //вх.2
+  and  SpObjAcc.cPos   == snKatMC_SpObjAcc.nRec
+  and  snKatMC_SpObjAcc.cGroupMC   == snGroupMC_SpObjAcc.nRec
+  and  snKatMC_SpObjAcc.cStZatr    == snStZatrMC_SpObjAcc.nRec
+  and  snKatMC_SpObjAcc.cType      == snTypeMC_SpObjAcc.nRec
+  and  SpObjAcc.cPos   == snKatUsl_SpObjAcc.nRec
+  and  snKatUsl_SpObjAcc.cGroupUSL == snGroupUSL_SpObjAcc.nRec
+  and  snKatUsl_SpObjAcc.cStZatr   == snStZatrUsl_SpObjAcc.nRec
+ //ED для вывода анешних атрибутов по таблицам
+ and wattr_table == attrnamk.wtable
+ and wattr_table == attrvalk.wtable
+ and attrnamk.nrec ==attrvalk.cattrnam
+ and wattr_nrec == attrvalk.crec
+ // объект целевого учета
+ and cospsopr     == SpecMTR.coTable  
+ and spsopr.nrec  == SpecMTR.cSpec
+  
+));
+//************ для вывода аналитик по внешним атрибутам
+Procedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+{ set wAttr_table :=wwtable ;
+  set wAttr_nrec  :=wwnrec ;
+  _loop fullcache attrnamk
+  { if attrnamk.AttrType=5 and isvalid(#attrvalk)
+    { if attrnamk.ROBJECT=5017 and w_CKAELEM=0 then w_CKAELEM:=attrvalk.vcomp ; // элемент затрат
+      TxoBodyAddKau(hTxo, wwFlKau_Mode, attrnamk.ROBJECT, attrvalk.vcomp)        
+      TxoDebugMsg(hTxo, 'TXO_KatSopr','аналитика к таблице '+string(wAttr_table)+',значение='+attrvalk.vstring+',режим='+string(wwFlKau_Mode)+'/'+string(attrnamk.ROBJECT))
+    } //if attrnamk.AttrType=5 and isvalid(#attrvalk)
+  } //_loop attrnamk
+} //Proccedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+
+
+//=============================================================================>
+Function dbCenaOrder(wIstCen:word;stSpSopr:Type$SpSopr;
+                     var dbNDEPrice,dbValPrice:double
+                    ):boolean;
+ {dbCenaOrder:= false;
+  dbNDEPrice := double(0);
+  dbValPrice := double(0);
+  case stSpSopr.VidSopr of
+   501,502,503,505,506:
+   {
+    case wIstCen of
+     word(1)://ДОКУМЕНТ
+     {
+      dbNDEPrice := stSpSopr.Price/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+      dbValPrice := stSpSopr.VPrice/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+      dbCenaOrder:= TRUE;
+     }//word(1)
+     word(2)://ОРДЕР
+     {//--- ПРИХОДНЫЙ ---
+      if(GetFirst SpOrder
+            where((stSpSopr.nRec == SpOrder.cSpSopr
+              and  word(0)       == SpOrder.VidOrder
+                 )) = tsOk )
+       {
+        dbNDEPrice := SpOrder.SrPrice;
+        dbValPrice := SpOrder.VPrice;
+        dbCenaOrder:= TRUE;
+       };//if
+     }//word(2)
+    end;//case wIstCen
+   }//501,502,503,505,506
+   504:
+   {
+    case wIstCen of
+     word(1)://ДОКУМЕНТ
+     {
+      dbNDEPrice := stSpSopr.Price/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+      dbValPrice := stSpSopr.VPrice/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+      dbCenaOrder:= TRUE;
+     }//word(1)
+     word(2)://ОРДЕР
+     {//--- РАСХОДНЫЙ  ---                                                                
+      if(GetFirst SpOrder
+            where((stSpSopr.nRec == SpOrder.cSpSopr
+              and  word(1)       == SpOrder.VidOrder
+                 )) = tsOk )
+       {
+        dbNDEPrice := SpOrder.SrPrice;
+        dbValPrice := SpOrder.VPrice;
+        dbCenaOrder:= TRUE;
+       };//if
+     }//word(2)
+    end;//case wIstCen
+   }//504
+   507 :
+   {
+    dbNDEPrice := 1;//stSpSopr.Price/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+    dbValPrice := 1;//stSpSopr.VPrice/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+    dbCenaOrder:= TRUE;
+   }//507
+   508 :
+   {
+    dbNDEPrice := stSpSopr.Price/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+    dbValPrice := stSpSopr.VPrice/fEdIzm.GetKoefOtpEd(stSpSopr.cOtpEd);
+    dbCenaOrder:= TRUE;
+   }//508
+  end;//case stSpSopr.VidSopr
+ };//function dbCenaOrder
+//=============================================================================>
+function GetInfo : string;
+{
+   GetInfo := 'Обработка производственных документов';
+}
+
+
+Window winParam 'Параметры идентификатора' EscClose, DoAccept;
+Show at (10,3,80,25);
+TabbedSheet tbParam;
+Screen scParam 'Параметры'(,hcMnf_TXOAPIMnfZak,);
+  Fields
+    wRaspr ('Тип формирования',,sci13EnEsc) : noprotect, pickbutton;
+    wCenPos('Сумма позиции',,sci13EnEsc) : noProtect, PickButton;
+    wKolPos('Количество МЦ/Услуги по позиции',,sci13EnEsc) :
+     [List 0  'Сырья (распределения)            '
+         , 1  'Спецификации (накладной\акта)    '
+         , 2  'Изделий"Входящих"(средней панели)'
+       ], Protect;
+  Buttons
+    cmOk;
+<<
+ `Формировать по:`           `Сумма из позиций:`
+   (.) Распределению сырья   ` (.) cпецификации документа    `
+   (.) Спецификации накладной` (.) ордеров,созд.по накл.\акту`
+
+ `Количество из позиций`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+                    <.~П~родолжить.>
+
+ &VIP[Obj:MnfZak1][Тип:"сырье"/"спецификация"][Сумма:"документ"/"ордер"]
+               [КолВо:"Сырья"/"Спецификации"/"ИздВходящих"]
+   При обработке документов по сырью / спецификации, параметр принимается
+ во внимание только в случае формирования проводок по:
+  * Накладным на приход ГП;
+  * Межцеховым накладным;
+  * Актам на оказание услуг.
+ В иных случаях обработка всегда осуществляется по спецификации документов.
+   При обработке сумм из позиций ордеров, созданных по накладной\акту,
+ проводки формируются только для оприходованных накладных\актов.
+   Для получения подробной информации о настройке ТХО по производственным
+ документам нажмите F1.
+>>
+End;  //Screen scParam
+
+Screen scInfo 'Информация'(,hcMnf_TXOAPIMnfZak,);
+<<
+ `Допустимые режимы формирования значения аналитики:`
+· Режим 0 - значения аналитик Материальные ценности, Группы МЦ, Типы МЦ,
+  Статьи затрат МЦ, Услуги, Группы услуг, Статьи затрат услуг
+  извлекаются из списка сырья накладной на приход готовой продукции,
+  межцеховой накладной или акта на оказание услуг. Значения аналитик
+  Подразделение, МОЛ - отправителя.
+· Режим 1 - значения аналитик Материальные ценности, Группы МЦ, Партии МЦ,
+  Группы партий МЦ, Типы МЦ, Статьи затрат МЦ, Услуги, Группы услуг,
+  Статьи затрат услуг извлекаются из спецификации обрабатываемых документов
+  всех видов. Значения аналитик Подразделение, МОЛ - получателя.
+>>
+End; //creen scInfo
+End; //TabbedSheet
+HandleEvent
+  cmInit:
+   {
+      wRaspr := 0;
+      wCenPos := 0;
+      wKolPos := 0;
+      strParam := '';
+   }//cmInit
+  cmOk :
+   {
+      if( (wRaspr and 1) = 1 )
+        strParam := strParam+'[Тип:"спецификация"]';
+      else
+        strParam := strParam+'[Тип:"сырье"]';
+      if( (wCenPos and 1) = 1 )
+        strParam := strParam+'[Сумма:"ордер"]';
+      else
+        strParam := strParam+'[Сумма:"документ"]';
+      case wKolPos of
+        0: strParam := strParam+'[КолВо:"Сырья"]';
+        1: strParam := strParam+'[КолВо:"Спецификации"]';
+        2: strParam := strParam+'[КолВо:"ИздВходящих"]';
+      end;//case wKolPos
+      CloseWindow(winParam);
+   }//cmOk
+End;//HandleEvent
+End;//Window winParam
+
+function ParamMaster : string;
+{
+         ParamMaster := '';
+   RunWindowModal(winParam);
+   ParamMaster := strParam;
+}//function ParamMaster
+
+
+//--- Добавление в буфер аналитик МЦ/Услуга, Партия из спецификации накладной/акта ---
+/*
+Procedure AddKAU_SpSopr(hTXO : longint);
+{
+  if(SpSopr.prMC=1)
+   {
+    TxoBodyAddKau(hTxo, 0, cgKau_KatMC, SpSopr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatMC, SpSopr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_GroupMC, if(IsValid(#snGroupMC_SpSopr),snGroupMC_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_Zatr, if(IsValid(#snStZatrMC_SpSopr),snStZatrMC_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_TypeMC, if(IsValid(#snTypeMC_SpSopr),snTypeMC_SpSopr.nRec,comp(0)));
+  Attr_Analitik(hTxo, wFlKau_Mode1,coKatmc,spsopr.cmcusl )
+   }
+  else
+   {
+    TxoBodyAddKau(hTxo, 0, cgKau_KatUsl, SpSopr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatUsl, SpSopr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_GroupUsl, if(IsValid(#snGroupUSL_SpSopr),snGroupUSL_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_Zatr, if(IsValid(#snStZatrUsl_SpSopr),snStZatrUsl_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_TypeMC, comp(0));
+  Attr_Analitik(hTxo, wFlKau_Mode1,coKatusl,spsopr.cmcusl )
+   };//if
+  TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatParty, SpSopr.cParty);
+
+  TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_KatPodr, KatSopr.cPodrFrom);
+  TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_KatMOL, KatSopr.cMolFrom);
+  TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatPodr, KatSopr.cPodrTo);
+  TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatMOL, KatSopr.cMolTo);
+  Attr_Analitik(hTxo, wFlKau_Mode1,coSpsopr,spsopr.nrec )
+  Attr_Analitik(hTxo, wFlKau_Mode2,coKatsopr,spsopr.csopr )
+}//Procedure AddKAU_SpSopr
+*/
+//--- Добавление в буфер аналитик МЦ/Услуга, Партия из сырьевой спецификации накладной/акта ---
+Procedure AddKAU_SpSoprSyr(hTXO : longint);
+{ w_CKAELEM:=0 ;
+  if(SpSoprSyr.prMC=1)
+   {
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_KatMC, SpSoprSyr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_GroupMC, if(IsValid(#snGroupMC_SpSoprSyr),snGroupMC_SpSoprSyr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_Zatr, if(IsValid(#snStZatrMC_SpSoprSyr),snStZatrMC_SpSoprSyr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_TypeMC, if(IsValid(#snTypeMC_SpSoprSyr),snTypeMC_SpSoprSyr.nRec,comp(0)));
+  Attr_Analitik(hTxo, wFlKau_Mode0,coKatmc,spsoprsyr.cmcusl )
+   }
+  else
+   {
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_KatUSL, SpSoprSyr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_GroupUsl, if(IsValid(#snGroupUSL_SpSoprSyr),snGroupUSL_SpSoprSyr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_Zatr, if(IsValid(#snStZatrUsl_SpSoprSyr),snStZatrUsl_SpSoprSyr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_TypeMC, comp(0));
+  Attr_Analitik(hTxo, wFlKau_Mode0,coKatUsl,spsoprsyr.cmcusl )
+   }
+  TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_KatParty, SpSoprSyr.cParty);
+
+  if(SpSopr.prMC=1)
+   {
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatMC, SpSopr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_GroupMC, if(IsValid(#snGroupMC_SpSopr),snGroupMC_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_Zatr, if(IsValid(#snStZatrMC_SpSopr),snStZatrMC_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_TypeMC, if(IsValid(#snTypeMC_SpSopr),snTypeMC_SpSopr.nRec,comp(0)));
+  Attr_Analitik(hTxo, wFlKau_Mode1,coKatmc,spsopr.cmcusl )
+   }
+  else
+   {
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatUsl, SpSopr.cMcUsl);
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_GroupUsl, if(IsValid(#snGroupUSL_SpSopr),snGroupUSL_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_Zatr, if(IsValid(#snStZatrUsl_SpSopr),snStZatrUsl_SpSopr.nRec,comp(0)));
+    TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_TypeMC, comp(0));
+  Attr_Analitik(hTxo, wFlKau_Mode1,coKatusl,spsopr.cmcusl )
+   }
+  TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatParty, SpSopr.cParty);
+  
+  if w_CKAELEM=0
+  { w_CKAELEM:=if(spsoprsyr.prmc=1,snKatMC_SpSoprSyr.CKAELEM,snKatUsl_SpSoprSyr.CKAELEM) ;
+  }
+  if w_CKAELEM=0
+  { w_CKAELEM:=if(spsopr.prmc=1,snKatMC_SpSopr.CKAELEM,snKatUsl_SpSopr.CKAELEM) ;
+  }
+  TxoDebugMsg(hTxo, 'TXO_KatSopr-','Элемент затрат='+string(w_CKAELEM) )       
+  TxoBodyAddKau(hTxo, wFlKau_Auto, 5017, w_CKAELEM)
+  TxoBodyAddKau(hTxo, wFlKau_Mode0, 5017, w_CKAELEM)
+ 
+  TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_KatPodr, KatSopr.cPodrFrom);
+  TxoBodyAddKau(hTxo, wflKau_Mode0, cgKau_KatMOL, KatSopr.cMolFrom);
+  Attr_Analitik(hTxo, wFlKau_Mode0,coSpsopr,spsoprsyr.nrec )
+  Attr_Analitik(hTxo, wFlKau_Mode1,coSpsopr,spsopr.nrec )
+  Attr_Analitik(hTxo, wFlKau_Mode2,coKatSopr,Katsopr.nrec )
+}//Procedure AddKAU_SpSoprSyr
+
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   // установить ограничения на логическую таблицу
+   //CurTiDkGal := buf.TiDkGal;
+  TxoAllowRecallStoreCycles(hTxo);
+  var Sum, SumV
+    , dbQtyDist, dbKoefDist, dbKoefPoz
+    , dbNDECena, dbValCena
+    : double;
+  var strP  //ТИП
+    , strC  //СУММА
+    , strK  //КОЛВО
+    : string;
+  strP:=''; strC:=''; strK:='';
+  var wSwitch    //ЗН.ТИПА
+    , wCenSwch   //ЗН.СУММЫ
+    , wKolSwch   //ЗН.КОЛВА
+    : word;
+  var wOnce,i : word;
+
+  FOR(i:=0; i<=TxoParamCount(hTxo); Inc(i))
+   {
+    if(i<>0)
+     {
+      case TxoParamName(hTxo,i) of
+       'ТИП':
+        {
+         strP := '';
+         strP := TxoParamValue(hTxo,i);
+        }//ТИП
+       'СУММА':
+        {
+         strC := '';
+         strC := TxoParamValue(hTxo,i);
+        }//CУММА
+       'КОЛВО':
+        {
+         strK := '';
+         strK := TxoParamValue(hTxo,i);
+        }//КОЛ-ВО
+      end;//case
+     }
+    else
+     {
+      strP := 'СЫРЬЕ';
+      strC := 'ДОКУМЕНТ';
+      strK := 'СЫРЬЯ';
+     };//if
+   };//FOR
+
+  //--- ТИП ---
+  wSwitch := word(0);
+  case UpCase(strP) of
+   'СПЕЦИФИКАЦИЯ':
+    {
+     wSwitch := word(1);
+    }//СПЕЦИФИКАЦИЯ
+   'СЫРЬЕ':
+    {
+     wSwitch := word(0);
+    }//СЫРЬЕ
+  end;//case strP
+
+  //--- СУММА ---
+  wCenSwch := word(0);
+  case UpCase(strC) of
+   'ДОКУМЕНТ' :
+    {
+     wCenSwch := word(1);
+    }//ДОКУМЕНТ
+   'ОРДЕР' :
+    {
+     case buf.TiDkGal of
+      61,507,509:
+      {
+       wCenSwch := word(1);
+      }//61,507,509
+     else
+      {
+       wCenSwch := word(2);
+      }
+     end;//case
+    }//ОРДЕР
+  else
+   {
+    wCenSwch := word(1);
+   }
+  end;//case strC
+
+  //--- КОЛВО ---
+  wKolSwch := word(0);
+  case UpCase(strK) of
+   'СЫРЬЯ' :
+    {
+     case buf.TiDkGal of
+      502,505,508 :
+      {
+       wKolSwch := word(0);
+      }//502,505,508
+      61,501,503,504,506,507,509 :
+      {
+       wKolSwch := word(1);
+      }//61,501,503,504,506,507,509
+     end;//case
+    }//СЫРЬЯ
+   'СПЕЦИФИКАЦИИ' :
+    {
+     wKolSwch := word(1);
+    }//СПЕЦИФИКАЦИИ
+   'ИЗДВХОДЯЩИХ' :
+    {
+     wKolSwch := word(2);
+    }//ИЗДВХОДЯЩИХ
+  else
+   {
+    wKolSwch := word(1);
+   }
+  end;//case strK
+
+  //--- ОБРАБАТЫВАЕМЫЙ ДОКУМЕНТ ---
+  set CurSoprDoc := buf.cSoprDoc;
+  if getfirst katsopr<>0
+  { TxoDebugMsg(hTxo, 'TXO_KatSopr-','Нет накладной!='+string(CurSoprDoc) )       
+  }
+  wBDorKS := word(0);
+  case buf.TiDkGal of
+   501..508 : //Накладные
+   {
+    wBDorKS := toKatSopr;
+   }//501..508
+   61,509 :   // ЛЗК, АДО
+   {
+    wBDorKS := toBaseDoc;
+   }//61, 509
+  end;//case TiDkGal
+
+  CASE wBDorKS OF
+   toKatSopr:
+    {
+     if( (wCenSwch=2) and (LongInt(KatSopr.dOpr)=0) )
+      {
+       wCenSwch:= word(0);//по неоприходованным накладным проводки не формировать
+      };//if
+
+     if(wCenSwch>0)
+      {
+         case buf.TiDkGal of
+          502,505,508 :
+           {//--- по НГП,МЦН,АУП ---
+            wOnce:=word(1);//по каждой позиции
+            if(GetFirst SpSopr1
+                  where((CurSoprDoc == SpSopr1.cGpSopr
+                       ))=tsOk)
+             {
+              DO{
+                 if(SpSopr1.cSpSopr=comp(0))
+                  {
+                   wOnce:=word(2);//на все позиции
+                  };//if SpSopr1
+                 BREAK;//SpSopr1
+                }//DO
+              WHILE(GetNext SpSopr1
+                      where((CurSoprDoc == SpSopr1.cGpSopr
+                           ))=tsOk);
+             }
+            else
+             {
+              wOnce:=word(0);//нет
+             };//if SpSopr1
+ 
+
+            _LOOP SpSopr
+             {
+             
+              if(wSwitch = 1)
+               {
+                if(dbCenaOrder(wCenSwch,SpSopr.buffer,dbNDECena,dbValCena)){};// источник цен для ГП
+               };//if
+              //=== РАСПРЕДЕЛЕНИЕ ГП,ПФ,УСЛ ПО ПОДРАЗДЕЛЕНИЯМ,МОЛ ===>
+              var dKolSpSopr : double; dKolSpSopr := double(0);
+              var dAllKolPozR : double; dAllKolPozR := double(0);
+              var dKolPozR,dbPozRNDECena,dbPozRValCena:double;
+              dKolSpSopr := fEdIzm.ConvertToUchEd(SpSopr.KolFact,SpSopr.cOtpEd);
+              var dkolost,dkolprov :double ;
+              dkolost:=dKolSpSopr ;
+              if(ABS(dKolSpSopr)>Double(0.0000000005))
+               {
+
+               dAllKolPozR:=0 ;
+               _loop SpSoprSyr
+               { dAllKolPozR:=dAllKolPozR+SpSoprSyr.price*SpSoprsyr.kol ;
+               }
+              //--- закачать суммы (нераспределленные по входящим) ---
+              _loop SpSoprSyr
+              {  if SpSoprSyr.price*SpSoprsyr.kol=0 then continue ;
+                 TxoBodyClear(hTxo);
+                 w_cfpco:=0 ; //KatSopr.cOtvPodr ;
+                 if isvalid(#SpecMtr)
+                 { TxoDebugMsg(hTxo, 'TXO_KatSopr-','Обьект капстроительства '+string(SpecMtr.cobj)+'/'+string(cgKau_ObjBuild))
+                   TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_ObjBuild, SpecMtr.cobj)        
+                   TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_ObjBuild, SpecMtr.cobj)        
+                   TxoBodyAddKau(hTxo, wFlKau_Auto, cgKau_FPCO , SpecMtr.ckau[1])        
+                   set w_cfpco:=SpecMtr.ckau[1] ;           
+                 }
+                 if w_cfpco=0 w_cfpco:=katsopr.cotvpodr ;
+                 TxoBodyAddKau(hTxo, wFlKau_mode1, cgKau_fpco, w_cfpco)
+   //       TxoBodyAddKau(hTxo, wFlKau_mode1, cgKau_katpodr, fpco.CMEAN)
+
+                        AddKAU_SpSoprSyr(hTXO);
+                        TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatPodr, if(IsValid(#snKatPodr1), snKatPodr1.nRec, comp(0)));
+                        TxoBodyAddKau(hTxo, wflKau_Mode1, cgKau_KatMOL, if(IsValid(#snKatMOL1), snKatMOL1.nRec, comp(0)));
+                        dkolprov:=round(if(dAllKolPozR>0,dKolSpSopr*SpSoprSyr.price*SpSoprsyr.kol/dAllKolPozR,dKolSpSopr),3)
+                        if abs(dkolprov-dkolost)<0.01
+                        { dkolprov:=dkolost ;
+                        }
+                        TxoBodySetSum( hTxo
+                                     , SpSoprSyr.price*SpSoprsyr.kol
+                                             , SpSoprSyr.vprice*SpSoprsyr.kol
+                                             ,
+                                          dkolprov
+                                          
+                                     );
+                                     if dAllKolPozR=0 then dKolSpSopr:=0 ;
+                        dkolost:=dkolost-dkolprov ;             
+                        //--- добавить в выгрузку ---
+                        TxoBodyInsert(hTxo);
+                       }
+               };//if
+             };//_LOOP SpSopr
+
+           }//502,505,508-окончание обработки по НГП,МЦН,АУП
+         end;//case TiDkGal
+      };//if wCenSwch
+    }//toKatSopr
+
+  END;//case wBDorKS
+
+}//procedure StoreCycles
+
+HandleEvent
+ cmOnVipLoad: // точка входа перед началом расчетов
+  {
+  }//cmOnVipLoad
+ cmOnVipUnload: // точка входа после завершения расчетов
+  {
+  }//cmOnVipUnload
+end;//HandleEvent Interface
+end.//Interface

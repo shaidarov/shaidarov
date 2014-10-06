@@ -1,0 +1,131 @@
+! =================================================
+! запрос и функции по работе с каталогом шин в модуле "управление транспортом"
+! =================================================
+.var
+ w_RegNum:string;
+ w_Razmer:string;
+ w_dt :date;
+ w_izgName:string;
+.endvar
+.create view vShinaF_Transp
+var w_nomer:string;
+as select 
+  SHINAF.CMARSHIN
+  , MARSHIN.IZGNAME // размер
+  , SHINAF.PGP //высота рисунка протектора
+  , SHINAF.NOMSHIN //номер
+  , SHINAF.DVIGE //1 - установленные
+  , SHINAF.DATZAK // последние установленные
+   
+from MARSHIN,SHINAF , SHINAF SHINAF_M, KATORG, KATPODR
+where
+((
+ cogettune('myorg') == transp.corg
+and w_RegNum == TRANSP.NOMER
+and TRANSP.NREC == SHINAF.cTRANSP
+and 1 == SHINAF.DVIGE 
+and 0 << SHINAF.cSHINAF(noindex)
+and w_dt<<= SHINAF.DATZAK (noindex)
+and add_day(w_dt,2)>>= SHINAF.DATZAK (noindex)
+and  SHINAF.CMARSHIN == MARSHIN.NREC
+and  SHINAF.cSHINAF == SHINAF_M.Nrec
+and SHINAF_M.IZGNREC == katorg.nrec
+and TRANSP.CPODR == katpodr.nrec
+));
+!====================== 
+.create view vShinaF
+var w_nomer:string;
+as select 
+  SHINAF.CMARSHIN
+  , MARSHIN.IZGNAME // размер
+  , SHINAF.PGP //высота рисунка протектора
+  , SHINAF.NOMSHIN //номер
+  , SHINAF.DVIGE //1 - установленные
+  , SHINAF.DATZAK // последние установленные
+   
+from MARSHIN,SHINAF(SHINAF12) , SHINAF SHINAF_M
+, KATORG, KATPODR , katmc, katparty
+where
+((
+ w_nomer == Shinaf_M.NOMSHIN
+and 0 ==  Shinaf_M.cShinaf
+and cogettune('myorg') == transp.corg
+and w_RegNum == TRANSP.NOMER
+//and TRANSP.NREC == SHINAF.cTRANSP
+and 1 == SHINAF.DVIGE (noindex)
+and Shinaf_M.nrec == SHINAF.cSHINAF 
+and w_dt>>= SHINAF.DATZAK (noindex)
+and SHINAF_M.CMARSHIN == MARSHIN.NREC
+and SHINAF_M.IZGNREC == katorg.nrec
+and SHINAF_M.CXARAF2 == katpodr.nrec
+and MARSHIN.CKATMC == katmc.nrec
+and SHINAF_M.CXARAF4 == katparty.nrec
+));
+!====================== 
+.create view vPutLst
+var
+ w_dtb , w_dte: date;
+ wc_transp :comp
+as select Putlst.PROBEGALL from PUTLST
+where (( wc_transp == Putlst.cTransp
+and w_dtb <<= PutLst.EXITDN
+and w_dte >>= PutLst.EXITDN
+)) ;
+!====================== 
+.create view v1 
+var 
+ wfio :string ;
+ wpodr:string ;
+as select persons.nrec 
+from 
+  persons , katpodr , katmol , appointments ,catalogs
+where (( wpodr == katpodr.name 
+and katpodr.nrec == katmol.CSKL
+//and wfio == katmol.name
+and katmol.cpersons == persons.nrec
+and persons.appointcur == appointments.nrec
+and appointments.post == catalogs.nrec
+and cogettune('myorg') == katorg.nrec
+)) ;
+!================================ 
+.Function GetDolgByMol(wwpodr :string ; wwmol :string):string ;
+begin
+ GetDolgByMol:=''
+ v1.wfio:=wwmol ;
+ v1.wpodr:=wwpodr ;
+ if v1.getfirst katpodr<>0 then exit ; 
+ if v1.getfirst katmol<>0 then exit ; 
+ if wwmol<>''
+ { if (v1.getfirst katmol where ((katpodr.nrec == katmol.CSKL
+     and wfio == katmol.name )) ) <>0 then exit ; 
+ }
+ if v1.getfirst persons<>0 then exit ; 
+ if v1.getfirst appointments<>0 then exit ; 
+ if v1.getfirst catalogs<>0 then exit ; 
+ GetDolgByMol:=v1.catalogs.name ;
+
+ end.
+.Function GetDolgByFio(wwmol :string):string ;
+begin
+ GetDolgByFio:=''
+ v1.wfio:=wwmol ;
+ if v1.getfirst persons where (('С' ==ISEMPLOYEE and v1.wfio == persons.fio ))<>0 then exit ; 
+ if v1.getfirst appointments<>0 then exit ; 
+ if v1.getfirst catalogs<>0 then exit ; 
+ GetDolgByFio:=v1.catalogs.name ;
+
+ end.
+.Function GetDolgByFioC(wwmol :comp):string ;
+begin
+ GetDolgByFioC:=''
+ if v1.getfirst persons where (( wwmol == persons.nrec ))<>0 then exit ; 
+ if v1.getfirst appointments<>0 then exit ; 
+ if v1.getfirst catalogs<>0 then exit ; 
+ GetDolgByFioC:=v1.catalogs.name ;
+
+ end.
+!================================ 
+.procedure MyxlAddRangeNameVar(w :string ; wrow:longint) ;
+begin
+ xlAddRangeName(w,wrow,3,wrow,3)
+ end. 

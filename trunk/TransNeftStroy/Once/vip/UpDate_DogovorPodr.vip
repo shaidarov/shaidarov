@@ -1,0 +1,61 @@
+
+Interface UpDate_DogovorPodr 'UpDate_DogovorPodr' EscClose DoAccept;
+
+create view
+var
+  Handle
+               : longint;
+  sDBFname
+, logFileName
+, _KodPodr
+, _cDog
+               : string;
+
+as select * from
+  Dogovor
+, KatPodr
+;
+
+HandleEvent
+
+cmInit:{
+  sDBFname    := '\\gal01-tns\GalSrv\TopSoft\shaidarov\Договора\DogCurPodr.dbf';
+
+  _try {
+    Handle := DBFOpen(sDBFname, stOpen);
+  }
+
+  if (Handle = 0 ) {
+     Abort;
+     Exit;
+  }
+
+  StartNewVisual(vtRotateVisual, vfTimer, ''#3'Закачка UpDate_DogovorPodr', 1);
+
+  if (DBFGetFirst(Handle) = tsOK)
+    Do {
+            _cDog    := string( DBFGetFieldValue(Handle,'DOGNREC') );
+            _KodPodr := string( DBFGetFieldValue(Handle,'KODPODR') );
+
+            if (GetFirst Dogovor where (( _cDog  == Dogovor.nRec )) = tsOK) {
+                    if (GetFirst KatPodr where (( _KodPodr == KatPodr.Kod )) = tsOK) {
+                        DOGOVOR.CCURPODR := KatPodr.nRec;
+                        UpDate current Dogovor;
+                      } else {
+                        LogStrToFile('C:\ErrPodr.txt', _cDog + '~' + _KodPodr);
+                        }
+              }  else {
+              LogStrToFile('C:\ErrDog.txt', _cDog + '~' + _KodPodr);
+                 }
+
+    } While (DBFGetNext(Handle) = tsok)
+
+  DBFClose(Handle);
+  StopVisual('',0);
+
+
+}
+
+end;
+
+end.

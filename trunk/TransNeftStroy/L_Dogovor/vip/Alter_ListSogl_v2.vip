@@ -1,0 +1,278 @@
+
+alter interface ListSogl;
+
+Const
+  LS_NameAttr9 = 'Лист согласования. 9. Дата реестра' ;
+end;
+
+  overload
+    DataStream dsLS;
+    Procedure ResetAllFilterBounds;
+    Function SetFilterBounds: boolean;
+  end;
+  OverloadFormats brListSogl;
+  OverloadFormats AAA;
+
+
+Table struct tPapaDogovor
+(
+  cListSogl : comp         // в таблице в памяти нет nRec листа согласования - завяжусь на ссылку на Договор
+, cDog      : comp
+, nDog      : string       // номер Договора
+, dDog      : date
+, cDopSogl  : comp
+, nDopSogl  : string       // номер Доп. соглашения
+, dDopSogl  : date
+)
+With Index
+(
+  inx01 = cListSogl
+);
+
+create view
+var
+  fdFromReestr
+, fdToReestr
+                        : date;
+  AttrName_LS_dReestr
+                        : string;
+as select
+  oExtAttr.sGetAttr(coDogovor, mListSogl.cDogovor, LS_NameAttr9)
+    ( FieldName = LS_dReestr )
+, * from
+  tPapaDogovor
+, KatVidD
+, AttrDog
+, KatNotes
+, synonym Dogovor DogovorPapa
+, synonym AttrVal AttrVal_LSdReestr
+where (( mListSogl.cDogovor == tPapaDogovor.cListSogl
+     and Dogovor.cVidDog    == KatVidD.nRec
+     and Dogovor.nRec       == AttrDog.cDogovor
+     and Dogovor.cNote      == KatNotes.nRec
+      ))
+Bounds byDatesReestr =
+         coDogovor           == AttrVal_LSdReestr.wTable
+     and mListSogl.cDogovor /== AttrVal_LSdReestr.cRec
+     and AttrName_LS_dReestr == AttrVal_LSdReestr.cAttrNam
+     and fdFromReestr       <<= AttrVal_LSdReestr.vDate
+     and fdToReestr         >>= AttrVal_LSdReestr.vDate
+;
+
+Window wFilterAct 'Установка фильтров' EscClose DoAccept Gray;
+  Show at (1, 1, 74, 13);
+
+Panel pAAA;
+  NoTableNavigation;
+
+Screen AAA ('', , sci13Esc);
+
+Fields
+  wFilter ('Установить фильтр', , sci1Esc) : NoProtect;
+  fdFrom ('Введите начальную дату фильтра по договорам'): NoProtect,
+    {Font = {BackColor = if ( ((wFilter and 1) <> 0) and (fdFrom > fdTo), ColorNeed, 0) }};
+  fdTo ('Введите конечную дату фильтра по договорам'): NoProtect,
+    {Font = {BackColor = if ( ((wFilter and 1) <> 0) and (fdTo = ZeroDate)
+                            , ColorNeed
+                            , if(((wFilter and 1) <> 0)
+                                  and
+                                 (fdTo <> ZeroDate)
+                                  and
+                                 (fdFrom > fdTo), ColorError, 0)) }};
+  fdFromV ('Введите начальную дату фильтра по договорам'): NoProtect,
+    {Font = {BackColor = if ( ((wFilter and 2) <> 0) and (fdFromV > fdToV), ColorNeed, 0) }};
+  fdToV ('Введите конечную дату фильтра по договорам' ): NoProtect,
+    {Font = {BackColor = if ( ((wFilter and 2) <> 0) and (fdToV = ZeroDate)
+                            , ColorNeed
+                            , if(((wFilter and 2) <> 0)
+                                  and
+                                 (fdToV <> ZeroDate)
+                                  and
+                                 (fdFromV > fdToV), ColorError, 0)) }};
+  fStatus ('Выбор статуса'): [LIST 'Выдан', 'Не выдан', 'Сдан', 'Снят'], Protect;
+  fKatPodr.Name('Выбор подразделения'): Protect;
+  fdFromReestr ('Введите начальную дату фильтра по договорам'): NoProtect,
+    {Font = {BackColor = if ( ((wFilter and 32) <> 0) and (fdFromReestr > fdToReestr), ColorNeed, 0) }};
+  fdToReestr ('Введите конечную дату фильтра по договорам'): NoProtect,
+    {Font = {BackColor = if ( ((wFilter and 32) <> 0) and (fdToReestr = ZeroDate)
+                            , ColorNeed
+                            , if(((wFilter and 32) <> 0)
+                                  and
+                                 (fdToReestr <> ZeroDate)
+                                  and
+                                 (fdFromReestr > fdToReestr), ColorError, 0)) }};
+  fDogs('Выбор договора'): Protect;
+
+Buttons
+  cmOK, Default, , 'Ввод - принять выбор', , sci1Esc;
+  cmValueCancel, , , 'Снять ограничения';
+  cmCancel, , , 'Отмена', , sci1Esc;
+<<
+
+ `Использовать фильтры:`
+  [.] дата выдачи          ` `с`.@@@@@@@@@@`по`.@@@@@@@@@@
+  [.] факт. дата возврата  ` `с`.@@@@@@@@@@`по`.@@@@@@@@@@
+  [.] статус               `    .@@@@@@@@@@
+  [.] курирующее подр-ние  `    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  [.] просроченные листы   `
+  [.] дата реестра         ` `с`.@@@@@@@@@@`по`.@@@@@@@@@@
+  [.] договорам/соглашениям`    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ <.Установить фильтр.> <.  Снять фильтр   .> <.     Отмена      .>
+
+>>
+end; // Screen
+
+HandleEvent // panel
+cmDelOnProtect:
+  {
+    case CurField of
+      #fKatPodr.Name:
+        {
+          set fPodr := 0;
+
+          set wFilter := wFilter and word(1 shl (FilterFldKol + 1) - 8);
+        }
+    end;
+
+    ReScanPanel(CurTable);
+  }
+end; // HandleEvent // panel
+
+end; // panel
+end; // window
+
+  DataStream dsLS (
+  Table inherited::mListSogl (
+!      mListSogl.NoReestr     ;
+!      mListSogl.NoDoc        ;
+      mListSogl.dInput       ;
+      mListSogl.dVozv        ;
+      mListSogl.dFactVozv    ;
+      tPapaDogovor.nDopSogl  ;
+      tPapaDogovor.dDopSogl  ;
+      tPapaDogovor.nDog      ;
+      tPapaDogovor.dDog      ;
+      KatOrg.UNN             ;
+!      KatOrg.Name            ;
+      KatVidD.Name           ;
+      AttrDog.Subject1       ;
+      AttrDog.Subject2       ;
+      AttrDog.Subject3       ;
+      Dogovor.Summa          ;
+      AttrDog.Sign_my_osn    ;
+      [SostListSogl]   GetLS_State(mListSogl.dVozv, mListSogl.dFactVozv);
+!      KatPodr.Name           ;
+      AttrDog.Cont_my_FIO    ;
+      AttrDog.Cont_My_Addr   ;
+      KatNotes.sName         ;
+    );
+  )
+  end;
+
+
+Procedure ResetAllFilterBounds;
+{
+  SetupBounds(tbbyDatesReestr  , FALSE);
+  inherited :: ResetAllFilterBounds;
+}
+
+Function SetFilterBounds: boolean;
+{
+  SetupBounds(tbbyDatesReestr  , FALSE);
+
+  if ( (wFilter and 32) <> 0 ) {
+      SetupBounds(tbbyDatesReestr, TRUE)
+  }
+
+  inherited :: SetFilterBounds
+  ReReadRecord(CurTable);
+}
+
+
+
+
+
+Procedure InitPapaDog; {
+var
+  _papa : comp;
+
+  delete all tPapaDogovor;
+
+  _Loop mListSogl {
+      _papa := Dogovor.cDogovor;
+
+      while ( GetFirst DogovorPapa where (( _papa == DogovorPapa.nRec )) = tsOK ) {
+         if DogovorPapa.cDogovor > 0 {
+         _papa := DogovorPapa.cDogovor;
+         } else {
+           break;
+           }
+      }
+
+     ClearBuffer(#tPapaDogovor);
+     tPapaDogovor.cListSogl    := mListSogl.cDogovor ;
+       if (_papa > 0) {
+         tPapaDogovor.cDog     := _papa              ;
+         tPapaDogovor.nDog     := DogovorPapa.NoDoc  ;  // Внутренний номер
+         tPapaDogovor.dDog     := DogovorPapa.dDoc   ;
+         tPapaDogovor.cDopSogl := Dogovor.nRec       ;
+         tPapaDogovor.nDopSogl := Dogovor.NoDoc      ;
+         tPapaDogovor.dDopSogl := Dogovor.dDoc       ;
+       } else {
+         tPapaDogovor.cDog     := Dogovor.nRec       ;
+         tPapaDogovor.nDog     := Dogovor.NoDoc      ;
+         tPapaDogovor.dDog     := Dogovor.dDoc       ;
+         tPapaDogovor.cDopSogl := 0                  ;
+         tPapaDogovor.nDopSogl := ''                 ;
+         tPapaDogovor.dDopSogl := LongInt(0)         ;
+         }
+     Insert current tPapaDogovor;
+  }
+}
+
+
+Browse brListSogl(, , sci14Esc);
+  Show at (,,,15)
+  Table mListSogl;
+
+Fields
+  mListSogl.NoReestr     #3'Номер по', #3'реестру':  [8], Protect, Centered, NoAutoSize;
+  LS_dReestr             #3'Дата' , #3'реестра'   : [10], Protect, Centered, NoAutoSize;
+  mListSogl.NoDoc        #3'Номер', #3'листа'     :  [8], Protect, Centered, NoAutoSize;
+  mListSogl.dInput       #3'Дата' , #3'выдачи ЛС' : [10], Protect, Centered, NoAutoSize;
+  mListSogl.dVozv        #3'Дата' , #3'возврата'  : [10], Protect, Centered, NoAutoSize;
+  mListSogl.dFactVozv    #3'Дата' , #3'возврата', #3'(факт)': [10], Protect, Centered, NoAutoSize;
+  tPapaDogovor.nDopSogl  #3'Номер', #3'доп. согл.': [14], Protect, Centered, NoAutoSize;
+  tPapaDogovor.dDopSogl  #3'Дата' , #3'доп. согл.': [10], Protect, Centered, NoAutoSize;
+  tPapaDogovor.nDog      #3'Номер', #3'договора'  : [14], Protect, Centered, NoAutoSize;
+  tPapaDogovor.dDog      #3'Дата' , #3'договора'  : [10], Protect, Centered, NoAutoSize;
+  KatOrg.UNN             #3'Контрагент', #3'ИНН'  : [10], Protect;
+  KatOrg.Name            #3'Контрагент', #3'наименование' : [15], Protect;
+  KatVidD.Name           #3'Вид договора'         : [15], Protect;
+  AttrDog.Subject1       #3'Предмет договора'     : [15], Protect;
+  Dogovor.Summa          #3'Сумма договора', #3'с НДС' : [15], Protect;
+  AttrDog.Sign_my_osn    #3'Основание для', #3'заключения договора' : [15], Protect;
+  GetLS_State(mListSogl.dVozv, mListSogl.dFactVozv) #3'Состояние': [26], Protect;
+  KatPodr.Name           #3'Курирующее', #3'подразделение': [15], Protect;
+  AttrDog.Cont_my_FIO
++ ' '
++ AttrDog.Cont_My_Addr   #3'Исполнитель': [15], Protect;
+  KatNotes.Name          #3'Статус', #3'договора': [15], Protect;
+end;
+
+
+HandleEvent
+cmInit: {
+  inherited::handleEvent (cmInit);
+
+  InitPapaDog;
+  set AttrName_LS_dReestr := oExtAttr.CreateAttr(coDogovor, LS_NameAttr9, cgAttrType_Date);
+}
+
+cmEdit: {
+  RunInterface('L_Dogovor::Dogovor',0,0,0,0,Dogovor.cDogovor,Dogovor.nRec);
+}
+end;
+
+end.

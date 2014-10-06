@@ -1,0 +1,325 @@
+Interface My_Transp 'Выбор ТС по подразделению'
+! (,,sci178InsPM)
+! (,,sci178EnEscIns)
+ cyan;
+ var
+  i:integer     ;
+  var_nsopr,var_KatPodr_nrec:comp;
+  Get_Transp_Marker_lap,Get_Podr_Marker_lap:LongInt;
+  Name_Get_Podr_Marker_lap, Name_Get_Transp_Marker_lap :String
+  dtb,dte :date ;
+Parameters Get_Podr_Marker_lap, Name_Get_Podr_Marker_lap
+          , Get_Transp_Marker_lap, Name_Get_Transp_Marker_lap
+          , dtb,dte 
+table Struct Var_Transp
+(
+  Transp_nrec     : Comp   , //nrec Автомобиля
+  Transp_cpodr    : Comp   , //ссылка на подразеление закрепления
+  Transp_nomer    : String , //Гос.Номер Автомобиля
+  Transp_marka    : String , //Марка Автомобиля (Или Прицеп)
+  Transp_tiptc    : Word   , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+  Transp_passport : String , //Номер Паспорта Техсредства
+  Transp_godv     : date   , //Дата Выпуcка
+  Transp_nomdvig  : String , //Учетный Номер Двигателя
+  Transp_speedexi : Double , //Показания Спидометра
+  Transp_zavnom   : String ,  //Заводской Номер
+  Transp_CKATOS   : Comp
+ )
+   with index
+ (
+   Index1 = Transp_cpodr
+  ,Index2 = Transp_nrec
+ )
+ ;
+table Struct My_Get_Transp_Lap
+(
+  Transp_nrec     : Comp   , //nrec Автомобиля
+  Transp_nomer    : String , //Гос.Номер Автомобиля
+  Transp_marka    : String , //Марка Автомобиля (Или Прицеп)
+  Transp_tiptc    : Word   , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+  Transp_passport : String , //Номер Паспорта Техсредства
+  KatPodr_Name    : String , //подразделение баланса
+  Transp_innum    : String , //Инвентарный Номер
+  Transp_godv     : Date   , //Дата Выпуcка
+  Transp_nomdvig  : String , //Учетный Номер Двигателя
+  Transp_speedexi : Double , //Показания Спидометра
+  Transp_zavnom   : String   //Заводской Номер
+ )
+   with index
+ (
+   Index1 = Transp_Nomer
+  ,Index2 = Transp_Nrec
+ )
+;
+table Struct My_Get_Transp_Lap1
+(
+  Transp_nrec     : Comp    //nrec Автомобиля
+ )
+   with index
+ (
+  Index1 = Transp_nrec
+ )
+;
+create view
+var
+    indxClass : longint;
+    nameClass : string;
+  (IsGet_Transp_Marker_lap)
+as select
+SearchMarker(Get_Transp_Marker_lap, My_Get_Transp_Lap.Transp_nrec, indxClass),
+  My_Get_Transp_Lap.Transp_marka ,
+  My_Get_Transp_Lap.Transp_nomer ,
+  My_Get_Transp_Lap.Transp_innum ,
+  My_Get_Transp_Lap.KatPodr_Name
+  from My_Get_Transp_Lap(index1),VAR_TRANSP,My_Get_Transp_Lap1  ,katpodr
+  ;
+Browse Get_Transp  (,,sci178EnEscIns)
+show at (,1,,);
+Table My_Get_Transp_Lap;
+fields
+  My_Get_Transp_Lap.Transp_marka  'Марка ТС' : [7],  Protect,
+   {font = {Bold = IsGet_Transp_Marker_lap; Italic = IsGet_Transp_Marker_lap; Color = if(IsGet_Transp_Marker_lap,ColorMark,1)}};
+  My_Get_Transp_Lap.Transp_nomer 'Номер ТС' : [7],  Protect,
+   {font = {Bold = IsGet_Transp_Marker_lap; Italic = IsGet_Transp_Marker_lap; Color = if(IsGet_Transp_Marker_lap,ColorMark,1)}};
+  My_Get_Transp_Lap.Transp_innum  'Инв.номер ТС' : [7],  Protect,
+   {font = {Bold = IsGet_Transp_Marker_lap; Italic = IsGet_Transp_Marker_lap; Color = if(IsGet_Transp_Marker_lap,ColorMark,1)}};
+  My_Get_Transp_Lap.KatPodr_Name 'Подразделение закрепления ТС' : [15],  Protect,
+   {font = {Bold = IsGet_Transp_Marker_lap; Italic = IsGet_Transp_Marker_lap; Color = if(IsGet_Transp_Marker_lap,ColorMark,1)}};
+end;
+HandleEvent
+cmInit:
+{
+ StartNewVisual( vtNumericVisual, vfTimer, 'Отбор записей по фильтру', 1);
+ delete all Var_Transp;
+ modifier insert Var_Transp
+  select
+  Transp.nrec     , //nrec Автомобиля
+  Transp.cpodr    , //ссылка на подразеление закрепления
+  Transp.nomer    , //Гос.Номер Автомобиля
+  Transp.marka    , //Марка Автомобиля (Или Прицеп)
+  Transp.tiptc    , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+  Transp.passport , //Номер Паспорта Техсредства
+  Transp.godv     , //Дата Выпуcка
+  Transp.nomdvig  , //Учетный Номер Двигателя
+  Transp.speedexi , //Показания Спидометра
+  Transp.zavnom   , //Заводской Номер
+  Transp.CKATOS
+  from transp
+ ;
+ Get_Podr_Marker_lap := InitMarker(Name_Get_Podr_Marker_lap, 8, 10, 10); // инициализация маркера
+ ////////
+ i:=0
+ var count_mark :longint ;
+ count_mark:=GetMarkerCount(Get_Podr_Marker_lap)
+ if count_mark<recordsintable(#katpodr)
+ { Delete All My_Get_Transp_Lap;
+   do  //формирование строки КАУ
+    { NextVisual
+     if (GetMarker(Get_Podr_Marker_lap,i,var_KatPodr_nrec))
+      {
+        insert My_Get_Transp_Lap
+        Select
+          Var_Transp.Transp_nrec     , //nrec Автомобиля
+          Var_Transp.Transp_nomer    , //Гос.Номер Автомобиля
+          Var_Transp.Transp_marka    , //Марка Автомобиля (Или Прицеп)
+          Var_Transp.Transp_tiptc    , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+          Var_Transp.Transp_passport , //Номер Паспорта Техсредства
+          KatPodr.Name    , //подразделение баланса
+          KATOS.innum    , //Инвентарный Номер
+          Var_Transp.Transp_godv     , //Дата Выпуcка
+          Var_Transp.Transp_nomdvig  , //Учетный Номер Двигателя
+          Var_Transp.Transp_speedexi , //Показания Спидометра
+          Var_Transp.Transp_zavnom     //Заводской Номер
+        Where (( var_KatPodr_nrec == KatPodr.Nrec and
+                 KatPodr.Nrec /== Var_Transp.Transp_cPodr and
+                 Var_Transp.Transp_CKATOS == KATOS.nrec
+              ))
+        ;
+       i:=i+1
+      }
+    } while i<GetMarkerCount(Get_Podr_Marker_lap) //конец формирование My_Get_Transp_Lap
+// дополнить по путевым листам
+    if dtb<>date(0,0,0) and dte<>date(0,0,0)
+    { i:=0  ;
+      iNextVisual('Отбор записей по фильтру-путевые листы')
+      do  //формирование строки КАУ
+      { delete all My_Get_Transp_Lap1 ;
+        if not NextVisual then break ;
+        if (GetMarker(Get_Podr_Marker_lap,i,var_KatPodr_nrec))
+        {
+          insert My_Get_Transp_Lap1
+          Select 
+           PutLst.cTransp      //nrec Автомобиля
+          from putlst
+           ,My_Get_Transp_Lap  
+           Where ((                  1 == Putlst.statpl and
+                 var_KatPodr_nrec /== Putlst.cpol and
+                 dtb <<=Putlst.DATPL(noindex) and
+                 dte >>=Putlst.DATPL(noindex) and
+                 Putlst.ctransp == My_Get_Transp_Lap.transp_nrec 
+              )) and (not isvalidall(tnMy_Get_Transp_Lap)) 
+//              group by PutLst.cTransp 
+          ;
+          var wnrec :comp ;
+          wnrec:=0 ;
+          external _loop My_Get_Transp_Lap1
+          {  if wnrec=My_Get_Transp_Lap1.transp_nrec
+             { delete current My_Get_Transp_Lap1 ;
+               continue ;
+             } 
+             wnrec:=My_Get_Transp_Lap1.transp_nrec
+          }
+      insert My_Get_Transp_Lap
+        Select
+          Var_Transp.Transp_nrec     , //nrec Автомобиля
+          Var_Transp.Transp_nomer    , //Гос.Номер Автомобиля
+          Var_Transp.Transp_marka    , //Марка Автомобиля (Или Прицеп)
+          Var_Transp.Transp_tiptc    , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+          Var_Transp.Transp_passport , //Номер Паспорта Техсредства
+          KatPodr.Name    , //подразделение баланса
+          KATOS.innum    , //Инвентарный Номер
+          Var_Transp.Transp_godv     , //Дата Выпуcка
+          Var_Transp.Transp_nomdvig  , //Учетный Номер Двигателя
+          Var_Transp.Transp_speedexi , //Показания Спидометра
+          Var_Transp.Transp_zavnom     //Заводской Номер
+        from MY_GET_TRANSP_LAP1,katpodr,katos,Var_Transp  
+        Where (( My_Get_Transp_Lap1.transp_nrec /== Var_Transp.Transp_nrec and
+                 Var_Transp.Transp_cPodr == KatPodr.Nrec  and
+                 Var_Transp.Transp_CKATOS == KATOS.nrec
+              ))
+        ;
+          i:=i+1
+        }
+      } while i<GetMarkerCount(Get_Podr_Marker_lap) //конец формирование My_Get_Transp_Lap
+        
+    } //if dtb<>date(0,0,0) and dte<>date(0,0,0) 
+  } //if count_mark<recordsintable(#katpodr)
+  else
+  {
+      insert My_Get_Transp_Lap
+        Select
+          Var_Transp.Transp_nrec     , //nrec Автомобиля
+          Var_Transp.Transp_nomer    , //Гос.Номер Автомобиля
+          Var_Transp.Transp_marka    , //Марка Автомобиля (Или Прицеп)
+          Var_Transp.Transp_tiptc    , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+          Var_Transp.Transp_passport , //Номер Паспорта Техсредства
+          KatPodr.Name    , //подразделение баланса
+          KATOS.innum    , //Инвентарный Номер
+          Var_Transp.Transp_godv     , //Дата Выпуcка
+          Var_Transp.Transp_nomdvig  , //Учетный Номер Двигателя
+          Var_Transp.Transp_speedexi , //Показания Спидометра
+          Var_Transp.Transp_zavnom     //Заводской Номер
+        from VAR_TRANSP,katpodr,katos  
+        Where (( 
+                 Var_Transp.Transp_cPodr == KatPodr.Nrec  and
+                 Var_Transp.Transp_CKATOS == KATOS.nrec
+              ))
+        ;
+  } //else count_mark<recordsintable(#katpodr)
+  If RecordsInTable(tnMy_Get_Transp_Lap)=0
+   then {
+        Message('нет ТС в выбранном подразделении ')
+        StopVisual('', 0);
+        exit;
+        CloseInterface(-1);
+       }
+ //////////
+  Name_Get_Transp_Marker_lap := 'Name_Get_Transp_Marker_lap'
+  Get_Transp_Marker_lap := InitMarker(Name_Get_Transp_Marker_lap, 8, 10, 10); // инициализация маркера
+!  ClearMarker(Get_Transp_Marker_lap);
+ if GetMarkerCount(Get_Transp_Marker_lap)>0
+ { var ww_nrec :comp;
+   if GetMarker(Get_Transp_Marker_lap,0,ww_nrec)
+   { if getfirst My_Get_Transp_Lap where (( ww_nrec == My_Get_Transp_Lap.Transp_nrec ))=0 {}
+     rescanpanel(#My_Get_Transp_Lap)
+   }
+ }
+StopVisual('', 0);
+}
+cmCheckField:
+{
+! Message('CheckField')
+!  case CurTable of
+!  #My_BaseDoc:
+!  {
+!   InvertMarker(Get_Transp_Marker_lap, My_BaseDoc.BaseDoc_nrec);
+!   Modifier Update Current My_BaseDoc
+!   ;
+!}
+!  end;
+!  RereadRecord;
+!  RescanPanel(tnMy_BaseDoc);
+}
+cmMarkUnmark:
+{
+! Message('Unmark')
+ case CurTable of
+  #My_Get_Transp_Lap:
+  {
+   InvertMarker(Get_Transp_Marker_lap, My_Get_Transp_Lap.Transp_nrec);
+   if (GetNext My_Get_Transp_Lap = tsOk ) {};
+  }
+  end;
+  RescanPanel(tnMy_Get_Transp_Lap);
+}
+
+cmSelectAll:
+{
+!  Message('MarkAll')
+   StartNewVisual( vtRotateVisual, vfTimer, 'Помечаю все', 1);
+    case CurTable of
+    #My_Get_Transp_Lap:
+    {
+        If (GetFirst My_Get_Transp_Lap = tsOk)
+        Do If (not IsGet_Transp_Marker_lap)
+                InvertMarker(Get_Transp_Marker_lap, My_Get_Transp_Lap.Transp_nrec);
+        While (GetNext My_Get_Transp_Lap = tsOk);
+    }
+    end;
+    RescanPanel(#My_Get_Transp_Lap);
+    StopVisual('', 0);
+}
+cmUnselectAll:
+{
+ StartNewVisual( vtRotateVisual, vfTimer, 'Снимаю пометку со всех', 1);
+ ClearMarKer(Get_Transp_Marker_lap)
+! case CurTable of
+!    #My_Get_Transp_Lap:
+!    {
+!        If (GetFirst My_Get_Transp_Lap = tsOk)
+!        Do If (IsGet_Transp_Marker_lap)
+!                InvertMarker(Get_Transp_Marker_lap, My_Get_Transp_Lap.Transp_nrec);
+!        While (GetNext My_Get_Transp_Lap = tsOk);
+!    }
+!    end;
+    RescanPanel(#My_Get_Transp_Lap);
+    StopVisual('', 0);
+}
+cmDone:
+{
+! Message('cmDone')
+ DoneMarker (Get_Transp_Marker_lap,Name_Get_Transp_Marker_lap);
+}
+cmDefault:
+{
+ IF GetMarkerCount(Get_Transp_Marker_lap) = 0
+  then
+   {
+    case CurTable of
+     #My_Get_Transp_Lap:
+     {
+      InvertMarker(Get_Transp_Marker_lap, My_Get_Transp_Lap.Transp_nrec);
+     }
+  end;
+  RescanPanel(tnMy_Get_Transp_Lap);
+   }
+! message('Выбрано'+GetMarkerCount(Get_Transp_Marker_lap));
+! For(i=0;i<GetMarkerCount(Get_Transp_Marker_lap);i:=i+1)
+! {
+!  GetMarker(Get_Transp_Marker_lap,i,var_nsopr)
+!  Message(i+'   '+var_nsopr)
+! }
+ CloseInterface(-1);
+}
+end;
+end.

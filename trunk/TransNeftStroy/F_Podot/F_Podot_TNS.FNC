@@ -1,0 +1,4 @@
+const fcKOMKOMETAP1 = 29563;
+const fcKOMKOMETAP2 = 8897;
+const fcKOMKOMFIRST = 24020;
+const fcKOMKOMSECOND = 41936;

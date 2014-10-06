@@ -1,0 +1,283 @@
+//------------------------------------------------------------------------------
+//                                                      (c) Корпорация ГАЛАКТИКА
+//------------------------------------------------------------------------------
+// Галактика 8.1 - ФРО
+//------------------------------------------------------------------------------
+VipInterface UserRep_NalCb_34   Licensed(Free);
+#include PSManager.vih
+#include NalFunc.vih
+Interface UserRep_NalCb_34 ;
+show at(,,65,5);
+table Struct TabVeksl(
+  _NrecVeksl:comp,
+  _Emit:string,
+  _dPriob:date,
+  _SumBuh:double
+)with index(
+  TabVeksl0=_NrecVeksl
+);
+
+var
+  iNalFunc: NalFunc;
+  wTipUsers: word;
+  dFrom
+ ,dTo: date;
+ //Filter_CO: tNRec;
+ //mFilter_CO: word;
+
+!  Calc4Saldo : boolean;
+const
+  MultiStr           = 'множественный выбор';
+  numCol=8;
+end;
+
+create view vCb32
+from Veksl, SpApp, AppVeks, KatOrg,
+        KlVal,
+
+        synonym SpApp SpAppPerGash,
+        synonym AppVeks AppVeksPerGash,
+
+        AttrNam, AttrVal,SpKau,
+        Oborot, TabVeksl
+where
+((
+  dFrom <<= VEKSL.DATVIP(noindex)
+  and dTo>>= VEKSL.DATVIP(noindex)
+
+  and Veksl.nrec==SpApp.cVeksl
+  and word(88)==SpApp.tidk
+  and SpApp.cAppVeks==AppVeks.nrec
+
+  and Veksl.cPlat==KatOrg.nrec
+
+  and Veksl.cVal==KlVal.nrec
+
+  and 'Обращаемость'==AttrNam.name
+  and coVeksl==AttrNam.wtable
+  and AttrNam.nrec==AttrVal.cattrnam
+  and Veksl.nrec==AttrVal.cRec(noindex)
+  and coVeksl==attrval.wtable(noindex)
+  and AttrVal.vComp==SpKau.nrec
+
+  and Veksl.nrec==SpAppPerGash.cVeksl
+  and (
+         word(85)=SpAppPerGash.tidk or
+         word(87)=SpAppPerGash.tidk
+        )
+  and SpAppPerGash.cAppVeks==AppVeksPerGash.nrec
+
+  and AppVeksPerGash.Nrec==Oborot.cSoprDoc
+  and AppVeksPerGash.Tidk==Oborot.Tidk
+  and (
+        '76'=OBOROT.DBSCHETO and
+        '08'=OBOROT.SUBOSSCH and
+        '91'=OBOROT.KRSCHETK and
+        '04'=OBOROT.SUBSCHK
+        )
+  ))
+  and (
+          word(81)=Veksl.tidk or
+          word(83)=Veksl.tidk
+        );
+
+
+!-------------------------------------------------------------------------------------------------------------
+!Заполнение данными
+!  Убить функцию сделать сразу печать тута!!!!
+!-------------------------------------------------------------------------------------------------------------
+procedure FillTable;
+{
+  delete all from TabVeksl;
+  _loop Veksl
+  {
+    if ('001'=SPKAU.CODE)
+    {
+      ClearBuffer(#TabVeksl);
+      TabVeksl._Emit := KatOrg.Name+' '+VEKSL.NODOC;
+      TabVeksl._dPriob := AppVeks.datVip;
+      if (isValid(#SpAppPerGash))
+      {
+        _loop Oborot
+        {
+          if not iNalFunc.CheckOborotCo(Oborot.KodSpo)
+            continue;
+          TabVeksl._SumBuh += Oborot.SumOB;
+        }
+      }
+      insert TabVeksl;
+    }
+  }
+
+}
+
+procedure PrintReport;
+var
+  CurIndex
+ ,NPP, i: word;
+  Sum7 :double;
+{
+  xlCreateExcel('report.xls',true);
+  xlCreateMatrix(5000, numCol);
+
+  xlSetColumnWidth(4,1,1,1,1);
+  xlSetColumnWidth(20,1,2,1,2);
+  xlSetColumnWidth(25,1,3,1,3);
+  xlSetColumnWidth(10,1,4,1,8);
+
+  CurIndex:=1;
+  xlMergeCells(CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex, numCol);
+  //xlSetFontSize(12,1,1,2,1);
+  xlSTWriteToMatrix(CurIndex,1,'ЦБ 3.4 Определение расчетной цены ценных бумаг, обращаемых на организованном рынке ценных бумаг');
+  CurIndex ++;
+
+  xlMergeCells(CurIndex,1,CurIndex, numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,1);
+  xlAlignCellsEx(2,2,CurIndex,1,CurIndex, numCol);
+  //xlSetFontSize(12,1,1,1,1);
+  xlSTWriteToMatrix(CurIndex,1,'за период с '+dateToStr(dFrom,'DD.MM.YYYY')+' по '+dateToStr(dTo,'DD.MM.YYYY'));
+  CurIndex ++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,numCol);
+  xlSetFontStyle(1,CurIndex,1,CurIndex,numCol);
+  xlSTWriteToMatrix(CurIndex,1,'№ п/п');
+  xlSTWriteToMatrix(CurIndex,2,'Ценная бумага (вид, эмитент, номер)');
+  xlSTWriteToMatrix(CurIndex,3,'Наименование организатора торговли');
+  xlSTWriteToMatrix(CurIndex,4,'Дата сделки');
+  xlSTWriteToMatrix(CurIndex,5,'Минимальная цена сделки');
+  xlSTWriteToMatrix(CurIndex,6,'Максимальная цена сделки');
+  xlSTWriteToMatrix(CurIndex,7,'Цена реализации по данным бухгалтерского учета');
+  xlSTWriteToMatrix(CurIndex,8,'Цена для целей налогообложения');
+  CurIndex++;
+
+  xlAlignCellsEx(3,2,CurIndex,1,CurIndex,8);
+   for(i := 0; i <= numCol; i++)
+    xlSTWriteToMatrix(CurIndex, i, string(i));
+
+  CurIndex++;
+  Sum7:=0;
+  Npp:=1;
+
+  _loop TabVeksl
+  {
+    xlAlignCellsEx(3,2,CurIndex,1,CurIndex,1);
+    xlSTWriteToMatrix(CurIndex,1,Npp);
+    xlSTWriteToMatrix(CurIndex,2,TabVeksl._Emit);
+    iNalFunc.WriteDate(CurIndex,4,TabVeksl._dPriob);
+    xlSetNumberFormat( '# ##0,00', CurIndex, 5, CurIndex, 8 );
+    iNalFunc.WriteSum(CurIndex,7,TabVeksl._SumBuh);
+
+    Sum7 += TabVeksl._SumBuh;
+    Npp++;
+    CurIndex++;
+  }
+
+  xlSetFontStyle(1,CurIndex,1,CurIndex,11);
+  xlMergeCells(CurIndex,1,CurIndex,2);
+  xlSTWriteToMatrix(CurIndex,1,'ВСЕГО:');
+  xlSetNumberFormat ( '# ##0,00', CurIndex, 5, CurIndex, 8 );
+  iNalFunc.WriteSum(CurIndex,7,Sum7);
+
+  xlWrapText(3,1,CurIndex,8);
+  xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,3,1,CurIndex,8);
+  xlSetFontSize(8,3,1,CurIndex,8);
+
+  xlWriteMatrixToExcel(1,1);
+  xlFreeMatrix;
+  xlKillExcel;
+  delete all from TabVeksl;
+}
+procedure Run;
+{
+  MtClear(#TabVeksl, mfNormal);
+  FillTable;
+  PrintReport;
+}
+HandleEvent
+cmInit:
+{
+  if iNalFunc.RunTune(dFrom, dTo)
+    Run;
+}
+end;
+
+end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-------------------------------------------------------------------------------
+// подключение в меню отчетов
+!-------------------------------------------------------------------------------
+
+#include UserReport.vih
+
+VipInterface UserReport_NalCb_34 Implements IUserReport Licensed(Free);
+
+Interface UserReport_NalCb_34  ;
+Create View;
+
+//-------------------------------------------------------------------------------
+// Запуск отчета на выполнение при выборе его из списка отчетов
+procedure Run;
+//var
+//  RepParams: TVipReportParams;
+begin
+  RunInterface('UserRep_NalCb_34');//, RepParams);;
+end;
+
+//-------------------------------------------------------------------------------
+// Наименование отчета в списке
+function GetReportName: String;
+begin
+  GetReportName := 'ЦБ 3.4 Определение расчетной цены ценных бумаг, обращаемых на организованном рынке ценных бумаг';
+end;
+
+!-------------------------------------------------------------------------------
+// Наименования групп, в которые входит отчет
+// Группа n+1 делается подчиненной группе n
+// В данном случае будет иерархия:
+// [+] Группа 1
+//     [+] Группа 2
+//         Отчет 1
+function GetGroupName (Level : Word) : String;
+begin
+  GetGroupName := '';
+  case Level of
+    1 : GetGroupName := 'Налоговые регистры';
+!    2 : GetGroupName := 'Группа 2';
+  end;
+end;
+
+!-------------------------------------------------------------------------------
+// Приоритет отчета - сортировка внутри группы выполняется сначала
+// по приоритету, а затем по наименованию
+function GetPriority : Integer;
+begin
+  GetPriority := 0;
+end;
+
+!-------------------------------------------------------------------------------
+// ModuleID модулей, в которых будет виден отчет
+// '*' - отчет будет виден в любом модуле
+function VisibleInModule(Ind : Byte) : String;
+begin
+  VisibleInModule := '';
+  case Ind of
+    1 : VisibleInModule := '*';
+  end;
+end;
+
+end. // interface

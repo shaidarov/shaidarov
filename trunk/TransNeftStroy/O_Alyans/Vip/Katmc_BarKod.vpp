@@ -1,0 +1,428 @@
+//******************************************************************************
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - логистика
+// Процедуры и функции по Баркодам МЦ
+//******************************************************************************
+
+!  SYSTDATE "Системные данные"
+!        temp19     : word    "инкрементация док-тов: 1-по БД, 0-corpo",
+!     (temp51 and 4): bit     "плавающая длинна символов из кода гр. МЦ",
+!        temp40     : word    "Баркод: символов из кода гр.МЦ",
+!        BKauto     : word    "0-нет,1-автоинкрементир.баркоды,2-по запросу",
+!        BKstart    : s20     "начало баркода",
+!        BKlen      : word    "длина инкремента",
+!        BKend      : s20     "хвост баркода-РЕЗЕРВ",
+!        BKean      : word    "0-нет,1-ЕАН13,2-ЕАН8"
+! Function GetLastNumD__(tab : word; sub:string; len:byte) : string; far;
+! Procedure DelLastNumD_(tab : word; sub:string; nom : string); far;
+
+
+//==============================================================================
+//=======    Расчет контрольного разряда ЕАН13 и ЕАН8 баркодов    ==============
+//==============================================================================
+
+Function GetEAN13(var s : string) : string;
+{
+  var i : integer;
+  var c : integer;
+
+  GetEAN13 := '';
+
+  if (Length(s) <> 12)
+    Exit;
+
+  for (i := 1; i < 12; i := i + 1)
+    if (Pos(SubStr(s,i,1),'0123456789') = 0)
+      Exit;
+
+  c := 0;
+
+  for (i := 2; i < 13; i := i + 2)
+    c := c + 3 * integer(SubStr(s,i,1));
+
+  for (i := 1; i < 13; i := i + 2)
+    c := c + integer(SubStr(s,i,1));
+
+  c := (10 - c mod 10) mod 10;
+  GetEAN13 := string(c);
+}
+
+Function GetEAN8(var s : string) : string;
+{
+  var i : integer;
+  var c : integer;
+
+  GetEAN8 := '';
+
+  if (Length(s) <> 7)
+    Exit;
+
+  for (i := 1; i < 7; i := i + 1)
+    if (Pos(SubStr(s,i,1),'0123456789') = 0)
+      Exit;
+
+  c := 0;
+
+  for (i := 1; i < 8; i := i + 2)
+    c := c + 3 * integer(SubStr(s,i,1));
+
+  for (i := 2; i < 8; i := i + 2)
+    c := c + integer(SubStr(s,i,1));
+
+  c := (10 - c mod 10) mod 10;
+  GetEAN8 := string(c);
+}
+
+//==============================================================================
+//========    процедуры и функции получения следующего баркода    ==============
+//==============================================================================
+
+Function _GetGrMCStr(BegBK:string):string;
+{
+ if boGetTune('FN.LenFloat')
+  {
+    _GetGrMCStr := Substr( BegBK, Length(sGetTune('FN.BKstart'))+1,
+                           Length(BegBK) - Length(sGetTune('FN.BKstart')));
+  }
+ else
+  {
+   _GetGrMCStr:='';
+
+   if ( wGetTune('FN.BKLenGrMc') > 0 )
+    {
+     if ( Length(BegBK) > Length(sGetTune('FN.BKstart')) )
+       _GetGrMCStr:= PadCh( SubStr( BegBK
+                                 , Length(sGetTune('FN.BKstart'))+1
+                                 , if( ( Length(BegBK) - Length(sGetTune('FN.BKstart'))
+                                              < wGetTune('FN.BKLenGrMc')
+                                       )
+                                     , Length(BegBK) - Length(sGetTune('FN.BKstart'))
+                                     , wGetTune('FN.BKLenGrMc')
+                                     )
+                                 )
+                         , '0'
+                         , wGetTune('FN.BKLenGrMc')
+                         )
+      else
+      _GetGrMCStr:= PadCh('','0',wGetTune('FN.BKLenGrMc'));
+    }
+  }
+}
+
+Function _GetBegStr(BegBK:string):string;
+{
+  if ( Length(BegBK) < Length(sGetTune('FN.BKstart')) )
+    _GetBegStr:=sGetTune('FN.BKstart')
+  else
+    _GetBegStr:=Substr(BegBK,1,Length(sGetTune('FN.BKstart')));
+}
+
+Function _GetBarKodStr(BegBK:string):string;
+{
+  _GetBarKodStr:= _GetBegStr(BegBK) + _GetGrMCStr(BegBK);
+}
+
+Function _GetBKNumStr(BegBK:string):string;
+{
+ if boGetTune('FN.LenFloat')
+  {
+    _GetBKNumStr:=PadCh('', '0', wGetTune('FN.BKlen'));
+  }
+ else
+  {
+   if ( Length(BegBK)>wGetTune('FN.BKLenGrMc')+Length(sGetTune('FN.BKstart')))
+     _GetBKNumStr:=PadCh(Substr( BegBK
+                              , wGetTune('FN.BKLenGrMc')+Length(sGetTune('FN.BKstart'))+1
+                              , if ( wGetTune('FN.BKlen') <= Length(BegBK)
+                                  - wGetTune('FN.BKLenGrMc') - Length(sGetTune('FN.BKstart'))
+                                   , wGetTune('FN.BKlen')
+                                   , Length(BegBK) - wGetTune('FN.BKLenGrMc') -
+                                          Length(sGetTune('FN.BKstart'))
+                                   )
+                              )
+                       , '0'
+                       , wGetTune('FN.BKlen')
+                       )
+   else
+     _GetBKNumStr:=PadCh('', '0', wGetTune('FN.BKlen'));
+  }
+}
+
+Function LastNumBarKod(BegBK:string):string;
+// Возвращает последний занятый номер баркода
+// начинающийся с первых SYSTDATE.temp40+Length(SYSTDATE.BKstart)
+// символов BegBK
+// или по SYSTDATE.BKstart
+// если ошибка - возвращает ''
+{
+  LastNumBarKod:='';
+
+  if (wGetTune('FN.BKauto')>0)
+    {
+      var Tmp1Barkod : string; Tmp1BarKod := TmpBarKod;
+
+      PushPos(#KatMC2);
+      ResetBounds(#KatMC2);
+
+      TMPBarKod:=_GetBarKodStr(BegBK);
+
+      if ( ( modifier Getlast KatMC2 Where ((TmpBarKod               <<= KatMC2.BarKod
+                                         AND PadCh(TmpBarKod,'9',20) >>= KatMC2.BarKod
+                                         AND (KatMc.Nrec <> KatMc2.Nrec) )) ) =tsOk )
+        {
+          var TmpNumBarKod : string;
+          LastNumBarKod:=_GetBKNumStr(KatMC2.BarKod);
+        }
+      else
+        LastNumBarKod := PadCh('','0',wGetTune('FN.BKlen'));
+
+      TmpBarKod:=Tmp1BarKod;
+      SetBounds(#KatMc2);
+      PopPos(#KatMc2);
+    }
+}
+
+Procedure DelNextBarKod(BegBK:string);
+// попытаться удалить последний номер баркода
+{
+  var s1,s2:string;
+
+  if ( (wGetTune('FN.BKauto')>0) AND boGetTune('FN.LenFloat'))
+    {
+      s1 := SubStr(BegBK,1,Length(BegBK)-wGetTune('FN.BKlen'));
+      s2 := SubStr(BegBK,Length(s1)+1,
+                  if( wGetTune('FN.BKlen')<=Length(BegBK)-Length(s1)
+                    , wGetTune('FN.BKlen')
+                    , Length(BegBK )- Length(s1)
+                    )
+              );
+
+    DelLastNumD_(44,s1,s2);
+   }
+  else
+   {
+    if ( (wGetTune('FN.BKauto')>0) AND
+         ( length(BegBK) > ( wGetTune('FN.BKLenGrMc') + Length(sGetTune('FN.BKstart')) ) ) )
+      {
+        s1 := SubStr(BegBK,1,wGetTune('FN.BKLenGrMc')+Length(sGetTune('FN.BKstart')));
+        s2 := SubStr(BegBK,wGetTune('FN.BKLenGrMc')+Length(sGetTune('FN.BKstart'))+1,
+                  if( wGetTune('FN.BKlen')<=Length(BegBK)-wGetTune('FN.BKLenGrMc')
+                          -Length(sGetTune('FN.BKstart'))
+                    , wGetTune('FN.BKlen')
+                    , Length(BegBK )- wGetTune('FN.BKLenGrMc') - Length(sGetTune('FN.BKstart'))
+                    )
+                );
+      DelLastNumD_(44,s1,s2);
+     }
+   }
+}
+
+Function GetNextBarKod(BarKodOld:string):string;
+// найти первый свободный баркод
+var
+  OldBarKod
+, FirstNumS  : string;
+  isFirst    : boolean;
+{
+  if (wGetTune('FN.BKauto') <> 0)
+    {
+      PushPos(#KatMC);
+      ResetBounds(#KatMC);
+      OldBarKod:='';
+      isFirst := TRUE;
+
+      var tmpTBK : string;
+      var tempbarkod: string;
+      var tempS1, nextNumS : string; nextNumS := '';
+
+      tempbarkod := _GetBarKodStr(BarKodOld);
+      tmpTBK     := tempbarkod;
+
+      if (wGetTune('FN.AlgForNewKod') <> 0)
+        nextNumS := PadCh(nextNumS, '0', wGetTune('FN.BKlen'));
+      else
+        if (wGetTune('FN.AvtoNum') = 1)
+          nextNumS := LastNumBarKod(tmpTBK);
+
+      do
+        {
+          if (wGetTune('FN.AlgForNewKod') = 0)
+            if (wGetTune('FN.AvtoNum') = 1)
+              nextNumS := NextNumStr(nextNumS);
+            else
+              nextNumS := GetLastNumD__(44, tmpTBK, wGetTune('FN.BKlen'));
+          else
+            nextNumS := NextNumStr(nextNumS);
+
+          if (isFirst)
+            FirstNumS := nextNumS;
+
+          tempbarkod := tmpTBK + nextNumS;
+
+          case wGetTune('FN.BKean') of
+            1: GetNextBarKod:=tempbarkod+GetEAN13(tempbarkod);
+            2: GetNextBarKod:=tempbarkod+GetEAN8(tempbarkod);
+          else
+            GetNextBarKod:=tempbarkod;
+          end;
+
+          if (GetFirst KatMC where ((GetNextBarKod == KatMC.barKod)) <> tsOk)
+           Break;
+
+      if ( OldBarKod = GetNextBarKod ) OR ((FirstNumS = nextNumS) and (not isFirst))
+          { if (wGetTune('McUsl.UniqMcBarCode') > 0)
+              message(''#3'Рассчитать уникальный ном.номер нельзя - '#13#3+
+                      'возможно использованы все номера в шаблоне'#13#3+
+                      'номенклатурного номера. Измените шаблон ном.номера');
+            Break;
+          }
+
+      OldBarKod:=GetNextBarKod;
+          isFirst := FALSE;
+     } //проверка на уник-сть
+    while ( GetFirst KatMC where ((GetNextBarKod == KatMC.BarKod)) = tsOk );
+
+    SetBounds(#KatMC);
+    PopPos(#KatMC);
+  }
+else
+  GetNextBarKod:=BarKodOld;
+}
+
+//==============================================================================
+//=========     процедуры автоинкрементации баркода для KatMC.VIP     ==========
+//==============================================================================
+
+Procedure DelDefaultBarKod; // удалить баркод по умолчанию
+{
+  DelNextBarKod(TmpBarKod);
+  TmpBarKod:='';
+}
+
+Procedure SetBarKodfromGrMC; // установить баркод по группе матценностей
+{
+ if (((wGetTune('FN.BKauto')>0) AND
+      (wGetTune('FN.BKLenGrMc') > 0) AND
+      (KatMC.cGroupMC <> 0) AND
+      ( Padch(Substr(GroupMC.KOD,1,wGetTune('FN.BKLenGrMc')),'0',wGetTune('FN.BKLenGrMc')) <>
+        Padch(Substr( KatMC.BarKod
+                    , Length(sGetTune('FN.BKstart'))+1
+                    , wGetTune('FN.BKLenGrMc')
+                    )
+             ,'0'
+             , wGetTune('FN.BKLenGrMc')
+             )
+      )
+    ) OR
+    (
+     (wGetTune('FN.BKauto')>0) AND
+     boGetTune('FN.LenFloat')
+    )
+    )
+   {
+     if (wGetTune('FN.BKauto') = 2)
+       if ( message(''#3'Баркод не соответствует группе товара.'#13#13#3+
+                      'Рассчитать баркод?',YesNo) = cmNo)
+         Exit;
+
+       DelDefaultBarKod;
+
+       var ccc : comp;   ccc := KatMC.cEd;
+       var nnn : string; nnn := KatMC.Name;
+
+       if (trim(KatMC.Name) = '')
+         KatMC.Name := '*Временно*';
+
+       if (KatMC.cEd = 0)
+         KatMC.cEd := -234;
+
+       TmpBarKod:=
+       GetNextBarKod( _GetBegStr(KatMC.BarKod)+
+                      if (boGetTune('FN.LenFloat'),GroupMC.KOD,
+                           Substr(GroupMC.KOD,1,wGetTune('FN.BKLenGrMc')))
+                     );
+       Set KatMC.BarKod := TmpBarKod;
+       Set KatMC.Name := nnn;
+       Set KatMC.cEd  := ccc;
+   }
+}
+
+//******************************************************************************
+// установить баркод по умолчанию
+
+Procedure SetDefaultBarKod;
+{
+  if (KatMC.cGroupMC = 0)
+    TmpBarKod:=GetNextBarKod('')
+  else
+    TmpBarKod:=GetNextBarKod(sGetTune('FN.BKstart')+GroupMC.KOD);
+
+  if (wGetTune('FN.BKauto') <> 0)
+    KatMC.BarKod:=TmpBarKod;
+}
+
+
+Procedure SetGrMCfromBarKod;
+// установить группу МЦ по баркоду
+{
+ if ( (wGetTune('FN.BKauto')>0) AND
+      (( wGetTune('FN.BKLenGrMc')  > 0 ) OR
+     boGetTune('FN.LenFloat')) AND
+      ( KatMC.cGroupMC=0 )
+    )
+  {
+   var Tmp1Barkod : string; Tmp1BarKod := TmpBarKod;
+
+   if boGetTune('FN.LenFloat')
+     TmpBarKod:=Substr( KatMC.BarKod
+                          , Length(sGetTune('FN.BKstart'))+1
+                          , Length(KatMC.BarKod) - Length(sGetTune('FN.BKstart')) -
+                            wGetTune('FN.BKlen')
+                       )
+
+   else
+     TmpBarKod:=RTrim(Substr( KatMC.BarKod
+                          , Length(sGetTune('FN.BKstart'))+1
+                          , wGetTune('FN.BKLenGrMc')
+                          )
+                      , '0'
+                      );
+
+    PushPos(#GroupMC);
+    ResetBounds(#GroupMC);
+
+    if (( Modifier GetFirst GroupMC where ((TmpBarKod               <<= GroupMC.KOD
+                                       AND  PadCh(TmpBarKod,'0',20) >>= GroupMC.KOD))) = tsOk)
+      if ( message(''#3'Желаете установить группу товара:'#13#3
+                 + GroupMC.Name
+                 + ','#13#3
+                 + 'найденную по баркоду?', YesNo) = cmYes)
+        {
+          Set KatMC.cGroupMC:=GroupMC.Nrec;
+          Set KatMC.BarKod:='';
+          PutCommand(cmValue13);
+        }
+    SetBounds(#GroupMC);
+    PopPos(#GroupMC);
+    TmpBarKod:=Tmp1BarKod;
+  }
+}
+
+Procedure PickBarKod; // выбрать баркод
+{
+ if (wGetTune('FN.BKauto')>0)
+   {
+    DelDefaultBarKod;
+
+    if ( (( wGetTune('FN.BKLenGrMc')  > 0 ) OR
+         boGetTune('FN.LenFloat')) AND
+         ( KatMC.cGroupMC <> 0 )
+       )
+      Set KatMC.BarKod:=GetNextBarKod( _GetBegStr(KatMC.BarKod)+GroupMC.KOD)
+    else
+      Set KatMC.BarKod:=GetNextBarKod( _GetBegStr(KatMC.BarKod) );
+   }
+ else
+  ShowTune('Для автоматического выбора баркода необходимо'+
+        ' разрешить автоинкрементацию и задать необходимые параметры!', 'FN.BKauto');
+}

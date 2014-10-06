@@ -1,0 +1,505 @@
+#DEFINE Transp_GSM_FLT
+#DEFINE Transp_MOL_VIB1 
+Interface Transp_GSM_12 '12.Ведомость движения ГСМ' EscClose ;
+var
+#include transp_var.vpp
+
+create view 
+var
+  wc_party :comp;
+  wc_katmc :comp;
+//select from
+#include transp_table.vpp
+
+//where ((
+//#include transp_link.vpp
+//))
+,sporder sporder1, spsopr spsopr1, katotped katotped1
+,Katparty ,katmc
+where ((
+//=====================
+   wc_party == Katparty.nrec
+and 0 == sporder1.sp
+and katparty.nrec == sporder1.cparty
+and wc_katmc == katmc.nrec
+and 0 == sporder1.vidorder
+//and wdt_zakup <<= sporder1.dord
+and wc_katmc == sporder1.cmc(noindex)
+and 1 == sporder1.TIPORD(noindex)
+and katparty.CORGPAR == katorg.nrec
+and sporder1.CSPSOPR == spsopr1.nrec 
+and spsopr1.cotped == katotped1.nrec
+))
+;
+
+create view vvv_dop
+var wc_katmc :comp ;
+  wc_toplivo :comp ;
+  ww_podrname :string
+  
+as select sporder.nrec
+
+from sporder, katpodr , katmol , TmpSaldo1 , toplivo , katmc , kated
+, katmc katmc1
+
+where ((
+  0 == sporder.sp
+and ww_podrname == katpodr.name
+and katpodr.nrec == katmol.cskl  
+and wc_toplivo == toplivo.nrec
+and wc_katmc == katmc.nrec
+and katmc.cmaskmc == katmc1.cmaskmc
+and katmc.nrec == kated.nrec
+and dtb <<=sporder.dord
+and dte >>=sporder.dord
+and katmc1.nrec ==  sporder.cmc
+and katpodr.nrec == sporder.ccpodr
+
+)) ;  
+#include excel_fun.vpp
+#include transp_fun.vpp
+//include transp_putlst.vpp
+#include transp_gsm.vpp
+//==================================
+// сохранение параметров
+//==================================
+Procedure SaveParam ;
+{ SaveMyDsk(dtb,'T12_GSM_12_dtb')
+  SaveMyDsk(dte,'T12_GSM_12_dte')
+  SaveMyDsk(tp_period,'T12_GSM_12_tp_period')
+  SaveMyDsk(filtr_tp,'T12_GSM_12_filtr')
+  SaveMyDsk(logfilekl,'T12_GSM_12_logfilekl')
+  
+} //Procedure SaveParam ;
+//==================================
+// чтение параметров
+//==================================
+Procedure ReadParam ;
+var wwkl :boolean ;
+{ if Not ReadMyDsk(dtb,'T12_GSM_12_dtb',wwkl) dtb:=date(1,month(cur_date),year(cur_date))
+  if Not ReadMyDsk(dte,'T12_GSM_12_dte',wwkl) dte:=date(last_day(cur_date),month(cur_date),year(cur_date))
+  if Not ReadMyDsk(tp_period,'T12_GSM_12_tp_period',wwkl) tp_period:=0 ;
+  if Not ReadMyDsk(filtr_tp,'T12_GSM_12_filtr',wwkl) filtr_tp:=0 ;
+  if Not ReadMyDsk(logfilekl,'T12_GSM_12_logfilekl',wwkl) logfilekl:=false ;
+
+} //Procedure ReadParam ;
+//===================================
+var     wnpp :longint ;
+var ww_Katpodr_name:string;
+var wexrow_beg: longint;
+var ww_kolonka :word;
+//===============================
+Function CheckParty :boolean;
+{ CheckParty:=true
+  if getfirst katparty<>0 then exit;
+  if coTXOGetExtAttr('KATPARTY','УТ_ГСМ_Считать_талоном',katparty.nrec)>0
+     CheckParty:=false
+
+  /*
+  if (katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON2')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON3')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON4')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON5')
+   )
+   */
+   /*
+  if False  
+  {  CheckParty:=False;
+  }
+  else
+  { if getfirst katorg=0 
+    { if pos('Розн',Katorg.name)>0
+      { CheckParty:=false;
+      }
+      else 
+      { if getfirst fastfirstrow sporder1=0
+         if getfirst  fastfirstrow  spsopr1=0
+         { if coTXOGetExtAttr('SPSOPR','УТ_ГСМ_Считать_талоном',spsopr1.nrec) >0
+            CheckParty:=False
+         }
+      } 
+    }   
+  }
+  */
+}
+//===================================
+Procedure PrintSharp;
+{ matrixkl:=False;
+  wexrow:=9;wexcol:=1;
+  MyPutExcel(GetTpPeriod,10,0,-1,-1);  // период
+  wexrow:=2;wexcol:=1;
+  MyPutExcel(sGetTune('MYORG'),10,0,-1,-1);  //
+  ww_Katpodr_name:=My_WorkGsm.Katpodr_name
+  vvv_dop.ww_podrname:=ww_Katpodr_name
+  if vvv_dop.getfirst katpodr =0
+    if vvv_dop.getfirst katmol=0 
+  {
+  }  
+  wexrow:=11;wexcol:=5;
+  MyPutExcel(iPodrFilterDef.MyGetInitial(vvv_dop.katmol.name,false),10,0,-1,-1);  //
+  
+  HeaderStrCount :=16 ;
+  wexrow:=HeaderStrCount ;
+  //MyXlCreaMatrix(10000,30);
+  
+  //wexrow:=HeaderStrCount-1 ;
+  wnpp:=0;
+  
+} 
+//==================================
+// добавить вывести колонку
+//==================================
+Procedure PrintKolonka;
+{ wexrow:=wexrow+1 ;
+  wexcol:=11;
+  mylogwrite(false,'PrintKolonka '+string(ww_kolonka)+'/'+string(wexrow))
+  MyPutExcel('Колонка '+string(ww_kolonka),10,0,-1,-1);//
+  if abs(dmsu[13]-(dmsu[12]-dmsu[11]))>0.01 then xlSetbackcolor(0FFFF00h, wexrow, 11,  wexrow, 13) 
+  xlMergeCells(wexrow,11,wexrow,13)
+  wexrow:=wexrow+1 ;
+  wexcol:=11;
+  MyPutExcelNumber(dmsu[11],1,10,0,-1,-1);//
+  MyPutExcelNumber(dmsu[12],1,10,0,-1,-1);//
+  MyPutExcelNumber(dmsu[13],1,10,0,-1,-1);//
+  dmsu[11]:=0;
+  dmsu[12]:=0
+  dmsu[13]:=0
+}
+//==================================
+// вывести итоги по ГСМ
+//==================================
+Procedure PrintItogGsm ;
+var ww_exrow :longint;
+{ ww_exrow:=wexrow;
+  wexrow:=wexrow_beg; wexcol:=13;
+// Расход теперь считаем не по ордерам
+  dmsu[26]:=dmsu[23]+dmsu[24]+dmsu[25]
+  dmsu[27]:=dmsu[21]+dmsu[22]-dmsu[26]
+  mylogwrite(false,'PrintItogGsm '+w_vidgsm+'/'+string(wexrow))
+
+  MyPutExcelNumber(dmsu[14],1,10,0,-1,-1);//
+  if abs(dmsu[14]-(dmsu[26]-dmsu[30]))>0.01
+  { xlSetbackcolor(0FFFF00h, wexrow, 13, wexrow, 13)
+  }
+  wexcol:=4;
+  MyPutExcelNumber(dmsu[21],1,10,0,-1,-1);//Остаток на начало отчетного периода
+  MyPutExcelNumber(dmsu[22],1,10,0,-1,-1);//Поступило за отчетный период	
+  //Расход за отчетный период
+  MyPutExcelNumber(dmsu[23],1,10,0,-1,-1);//"заправ-лено в автома-шины"	
+  MyPutExcelNumber(dmsu[24],1,10,0,-1,-1);//передано другим службам	
+  MyPutExcelNumber(dmsu[25],1,10,0,-1,-1);//стороним организациям	
+  MyPutExcelNumber(dmsu[26],1,10,0,-1,-1);//ИТОГО	
+  MyPutExcelNumber(dmsu[27],1,10,0,-1,-1);//Остаток на конец отчетного периода
+
+  if ww_exrow = wexrow
+  { ww_exrow:=ww_exrow+1;wexcol:=2;
+  
+  }
+  wexrow:=wexrow+1; wexcol:=2;
+  MyPutExcel('Прокачка по акту',10,0,-1,-1);//
+  wexcol:=6
+  MyPutExcelNumber(dmsu[30],1,10,0,-1,-1);//
+  wexcol:=9
+  MyPutExcelNumber(dmsu[30],1,10,0,-1,-1);//
+  for(i:=1;i<=10;i:=i+1)
+  { dmsu[i]:=dmsu[i]+dmsu[20+i]
+    dmsu[20+i]:=0;
+  }
+  dmsu[10]:=dmsu[10]+dmsu[14];
+  dmsu[14]:=0;
+  MyxlFrameCells(63, 2, 1, 1,wexrow_beg,1,wexrow,13); 
+  MyxlFrameCells(xlBorderL+xlBorderR+xlBorderT+xlBorderB , 3, 1, 1,wexrow_beg,1,wexrow_beg,13); 
+  
+  wexrow:=ww_exrow;
+//  xlMergeCells(wexrow,3,wexrow,7)
+    
+}
+//==================================
+// добавить лист
+//==================================
+Procedure PrintItog;
+{ wexrow:=wexrow+1 ;
+  wexcol:=2;
+  MyPutExcel('Итого',10,0,-1,-1);//Дата выдачи
+  MyPutExcel('',10,0,-1,-1);//
+  MyPutExcelNumber(dmsu[1],1,10,0,-1,-1);//Остаток на начало отчетного периода	
+  MyPutExcelNumber(dmsu[2],1,10,0,-1,-1);// Поступило за отчетный период	
+//  Расход за отчетный период				
+  MyPutExcelNumber(dmsu[3],1,10,0,-1,-1);//"заправ-лено в автома-шины"	
+  MyPutExcelNumber(dmsu[4],1,10,0,-1,-1);//передано другим службам	
+  MyPutExcelNumber(dmsu[5],1,10,0,-1,-1);//стороним организациям	
+  MyPutExcelNumber(dmsu[6],1,10,0,-1,-1);//ИТОГО	
+  dmsu[7]:=dmsu[1]+dmsu[2]-dmsu[6]
+  MyPutExcelNumber(dmsu[7],1,10,0,-1,-1);//  Остаток на конец отчетного периода		
+  xlSetFontStyle(1, wexrow, 1, wexrow,13)
+  MyxlFrameCells(xlBorderL+xlBorderR+xlBorderT+xlBorderB , 4, 1, 1,wexrow,1,wexrow,13); 
+  MyxlFrameCells(xlBorderL+xlBorderR+xlBorderT+xlBorderB , 3, 1, 1,HeaderStrCount-2,4,wexrow,4); 
+  MyxlFrameCells(xlBorderL+xlBorderR+xlBorderT+xlBorderB , 3, 1, 1,HeaderStrCount-2,10,wexrow,10); 
+  xlWrapText(headerstrcount,2,wexrow,2)
+  wexrow:=wexrow+1 ;
+  if matrixkl
+  { MyxlWriteMatrix(wexrow);
+    xlFreeMatrix;
+    matrixkl:=False; 
+  }  
+  wexrow:=wexrow+1 ; wexcol:=1;
+  MyPutExcel('Приложено документов ',10,0,-1,-1);//
+  wexcol:=8;
+  MyPutExcel('шт',10,0,-1,-1);//
+  MyxlFrameCells(xlBorderB, 2, 1, 1,wexrow,4,wexrow,7); 
+  wexrow:=wexrow+1 ; wexcol:=4;
+  MyPutExcel('прописью',7,0,-1,-1);//
+  xlAlignCellsEX(xlCenter, xlTop, wexrow, 3, wexrow, 4)
+  xlMergeCells(wexrow,4,wexrow,7)
+  wexrow:=wexrow+1 ; wexcol:=1;
+  wexrow:=wexrow+1 ; wexcol:=1;
+  MyPutExcel('Материально ответственное лицо:',10,0,-1,-1);//
+  wexcol:=8;
+  MyPutExcel(iPodrFilterDef.MyGetInitial(vvv_dop.katmol.name,false),10,0,-1,-1);//
+  MyxlFrameCells(xlBorderB, 2, 1, 1,wexrow,4,wexrow,7); 
+  wexrow:=wexrow+1 ; wexcol:=4;
+  MyPutExcel('прописью',7,0,-1,-1);//
+  xlAlignCellsEX(xlCenter, xlTop, wexrow, 3, wexrow, 4)
+  xlMergeCells(wexrow,4,wexrow,7)
+  wexrow:=wexrow+2 ; wexcol:=1;
+  MyPutExcel('Отчет проверил',10,0,-1,-1);
+  MyxlFrameCells(xlBorderB, 2, 1, 1,wexrow,3,wexrow,7); 
+  wexrow:=wexrow+1 ; wexcol:=3;
+  MyPutExcel('должность и подпись',7,0,-1,-1);//
+  xlMergeCells(wexrow,3,wexrow,7)
+  xlAlignCellsEX(xlCenter, xlTop, wexrow, 3, wexrow, 4)
+
+}
+Procedure RasOst;
+{ MyLogWrite(false,' ======RasOst============= ')
+
+  vvv_dop.wc_toplivo:=My_WorkGsm.toplivo_nrec
+  if vvv_dop.getfirst Toplivo<>0 then exit;
+  vvv_dop.wc_katmc:=vvv_dop.toplivo.ckatmc
+  MyLogWrite(false,'подразделение '+vvv_dop.katpodr.name+', топливо ='+vvv_dop.toplivo.name)
+  if vvv_dop.getfirst katmc<>0
+  { MyLogWrite(false,'для топлива ='+vvv_dop.toplivo.name +' не задана МЦ!!!')
+    message('для топлива ='+vvv_dop.toplivo.name +' не задана МЦ!!!')
+  }
+  if vvv_dop.getfirst kated=0 {}
+  MyLogWrite(false,'подразделение '+vvv_dop.katpodr.name+', топливо ='+vvv_dop.toplivo.name+'/'+vvv_dop.katmc.barkod)
+  Store_Init ; 
+  Store_TypeOstatki(TRUE) ; 
+  Store_SkladProizv(0);
+  vvv_dop._loop katmc1
+  { vvv_dop.delete all TmpSaldo1; 
+    Store_Reinit
+    Store_Run ( Dtb, vvv_dop.katmc1.nrec ,vvv_dop.Katpodr.Nrec,0,0,TRUE, TRUE, TRUE ) ;
+    ReReadRecord(vvv_dop.tnTmpSaldo1)
+    if vvv_dop.getfirst TmpSaldo1=0 {}
+    MyLogWrite(false,'число записей в остатках '+Recordsintable(vvv_dop.tnTmpSaldo1) )
+    vvv_dop._loop TmpSaldo1 ordered by index TMPSaldo103 
+    { set wc_party:=vvv_dop.TmpSaldo1.cparty ;
+      set wc_katmc:=vvv_dop.TmpSaldo1.cmc ;
+      if cFiltr_Mol>0
+      { if vvv_dop.tmpSaldo1.cmol<>cFiltr_Mol then continue
+      }
+      MyLogWrite(false,'остатки 0='+string(vvv_dop.TmpSaldo1.kol)+'='+katparty.name+'='+katmc.name)
+      if not CheckParty then continue; // проверим не талоны ли это
+
+      dmsu[21]:=dmsu[21]+vvv_dop.TmpSaldo1.kol 
+      MyLogWrite(false,'остатки 1='+string(vvv_dop.TmpSaldo1.kol)+'='+katparty.name+'='+katmc.name)
+    
+    }
+  
+    vvv_dop._loop fullcache sporder
+    { MyLogWrite(false,'ордер ' +Datetostr(vvv_dop.sporder.dord,'от DD/MM/YYYY'))
+      set wc_party:=vvv_dop.sporder.cparty ;
+      if cFiltr_Mol>0
+      { if vvv_dop.sporder.ccmol<>cFiltr_Mol then continue
+      }
+
+      set wc_katmc:=vvv_dop.sporder.cmc ;
+      if not CheckParty then continue; // проверим не талоны ли это
+      if vvv_dop.sporder.vidorder=1 // расход
+      { //   dmsu[26]:=dmsu[26]+vvv_dop.sporder.kol
+      }
+      else  
+      {  dmsu[22]:=dmsu[22]+vvv_dop.sporder.kol
+      }
+   
+    }
+  } // loop katmc1  
+  Store_Done ;
+  
+} //Procedure RasOst;
+
+//==================================
+// добавить лист
+//==================================
+Procedure Add_List;
+var ww_i : integer ;
+{ ww_i:=0
+   mylogwrite(false,'Add_List '+vvv_dop.ww_podrname+'/'+My_WorkGsm.katpodr_name+'/'+string(wexrow))
+  xlGetSheetsCount(ww_i)
+  XlSetSheetName(ww_i,vvv_dop.ww_podrname)
+  xlRunMacro('Copy_Shap'+chr(40)+'"'+vvv_dop.ww_podrname+'"'+chr(41)) ;
+  XlSetActiveSheetByName('REP')
+  xlGetSheetsCount(ww_i)
+  XlSetSheetName(ww_i,My_WorkGsm.katpodr_name)
+}
+//==================================
+// печать
+//==================================
+Function PrintDoc : boolean ;
+var werr:word ;
+    wstr,wpodr:string ; 
+    wkol :double;
+    
+{ PrintDoc:=false ;
+  nmtemplate:='AVTO_GSMMove.xls';
+  if getfirst My_WorkGsm where (( 0 == My_WorkGsm.pa)) ordered by index index6<>0
+  { message('Нет данных')
+    exit;
+  } 
+  ww_Katpodr_name:=My_WorkGsm.Katpodr_name
+  for(i:=1;i<=200;i:=i+1) dmsu[i]:=0 ;
+  werr:=ExcelInit(nmtemplate,true,year(dtb))
+  if werr>0
+  { message('Ошибка инициализации Excel по шаблону '+nmtemplate) ;
+    exit ;
+  }
+  //вывод данных
+  PrintSharp
+  wkol:=0;
+  vorg.wc_org:=cogettune('myorg')
+  w_vidgsm:='?????'
+  ww_kolonka:=-1;
+  //=========================
+  _loop My_WorkGsm where (( 0 == My_WorkGsm.pa))  ordered by index Index7  
+  {  if ww_Katpodr_name<>My_WorkGsm.Katpodr_name
+     { PrintKolonka;
+       PrintItogGsm;
+       PrintItog;
+       Add_List;
+       PrintSharp;
+       for(i:=1;i<=200;i:=i+1) dmsu[i]:=0 ;
+       w_vidgsm:='?????'
+       ww_kolonka:=My_WorkGsm.kolonka;
+     }
+     if w_vidgsm<>My_WorkGsm.Toplivo_KODGSM
+     { if w_vidgsm<>'?????'
+       { PrintKolonka;
+         PrintItogGsm;
+       }
+       w_vidgsm:=My_WorkGsm.Toplivo_KODGSM
+       ww_kolonka:=My_WorkGsm.kolonka;
+       wexrow:=1+wexrow;wexcol:=1;
+       wnpp:=wnpp+1;
+       mylogwrite(false,'Begin '+w_vidgsm+'/'+string(wexrow))
+       MyPutExcelNumber(wnpp,0,10,0,-1,-1);//
+       MyPutExcel(w_vidgsm,10,0,-1,-1);//
+       RasOst;
+       MyPutExcel(vvv_dop.kated.abbr,10,0,-1,-1);//
+       xlSetFontStyle(1, wexrow, 1, wexrow,13)
+
+	   wexrow_beg:=wexrow;
+     }
+     if ww_kolonka<>My_WorkGsm.kolonka
+     { PrintKolonka;
+       ww_kolonka:=My_WorkGsm.kolonka;
+     }
+     if My_WorkGsm.LIMZAPL_TEMP4<dmsu[11] or dmsu[11]=0 //or (My_WorkGsm.LIMZAPL_TEMP4-dmsu[11]>90000) 
+     { dmsu[11]:=My_WorkGsm.LIMZAPL_TEMP4 // счетчик на начало
+     }
+     dmsu[12]:=My_WorkGsm.LIMZAPL_TEMP4+My_WorkGsm.Zarpl_Vidt // счетчик на конец
+     dmsu[13]:=dmsu[13]+My_WorkGsm.Zarpl_Vidt;
+     dmsu[14]:=dmsu[14]+My_WorkGsm.Zarpl_Vidt;
+     mylogwrite(false,'Вед.='+My_WorkGsm.LIMZAPH_NUM+', выд.'+string(My_WorkGsm.Zarpl_Vidt)+', пут.='+My_WorkGsm.PUTLST_NPL
+       +', ост.н.='+string(dmsu[11])+',ост.к.='+string(dmsu[12])+', расх.'+string(dmsu[13])+', '+string(My_WorkGsm.LIMZAPL_NREC,21,0)
+       +',номер='+My_WorkGsm.PUTLST_Nomer+';'
+       )
+     if My_WorkGsm.PUTLST_Nomer=''
+     { dmsu[30]:=dmsu[30]+My_WorkGsm.Zarpl_Vidt
+        MyLogWrite(false,'прокачка='+string(My_WorkGsm.Zarpl_Vidt))
+       
+     }
+     else
+//20100616     if upcase(My_WorkGsm.PUTLST_Nomer)='НА НУЖДЫ НБ'
+     if My_WorkGsm.LIMZAPH_TYPE=1
+     { dmsu[25]:=dmsu[25] +My_WorkGsm.Zarpl_Vidt
+     }
+     else
+     if upcase(My_WorkGsm.TRANSP_MARKA)='ПОДРАЗДЕЛЕНИЯ'
+      dmsu[24]:=dmsu[24] +My_WorkGsm.Zarpl_Vidt
+     else // в машины
+      dmsu[23]:=dmsu[23] +My_WorkGsm.Zarpl_Vidt
+      
+  } //_loop My_WorkGsm where (( 1 == My_WorkGsm.pa))  ordered by index Index4  
+  PrintKolonka;
+  PrintItogGsm;
+  PrintItog;
+  //=========================
+       
+   wexrow:=wexrow+1 ;
+
+ 
+
+
+  // вывод итогов
+
+  PrintDoc:=true ;
+
+} //Function PrintDoc : boolean ;
+
+//==================================
+// отбор данных
+//==================================
+Function FormDoc : boolean ;
+{ FormDoc:=false ;
+  SaveParam ;
+  GetTranspSpis ;
+  delete all My_WorkGsm;
+if not GetGSMData(1) then exit ;
+//  if not GetPutLstData then exit ;
+//  if not GroupByPutLst(2) then exit ;
+// удалим не наши
+  delete My_WorkGsm where (( 0 == My_WorkGsm.pa and 10<<=My_WorkGsm.LIMZAPH_TYPE(noindex)));
+  if not TranspSpis_chk then exit ;
+  FormDoc:=PrintDoc ;
+  MyXlEnd ;
+} //Function FormDoc : boolean ;
+//==================================
+// экранная форма задания параметров
+//==================================
+#include transp_scr1.vpp
+//==================================
+// дополнит.функция инициализации
+//==================================
+Function Dop_Init :boolean ;
+{  Dop_Init:=true ;
+   nmtemplate:='AVTO_GSMMove.xls' ;
+   ReadParam ;
+}
+//==================================
+// дополнит.функция выбора
+//==================================
+Function Dop_Pick :boolean ;
+{  Dop_Pick:=true ;
+}
+//==================================
+// дополнит.функция завершения
+//==================================
+Function Dop_Done :boolean ;
+{  Dop_Done :=true ;
+   SaveParam ;
+}
+//==================================
+// дополнит.функция отработки enter
+//==================================
+Function Dop_Default :boolean ;
+{  Dop_Default:=true ;
+}
+//==================================
+// обработчик событий
+//==================================
+#include transp_handle.vpp
+end.
+#UNDEF Transp_GSM_FLT
+#UNDEF Transp_MOL_VIB1 

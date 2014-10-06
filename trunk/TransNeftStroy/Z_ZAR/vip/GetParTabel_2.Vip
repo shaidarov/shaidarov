@@ -1,0 +1,433 @@
+// Auth. Childinov S.M.
+interface GetParTabel_2 'Параметры формирования отчета'  AlwaysReturn ;
+
+Create View
+var
+  PersFIOK,PersFIOO:string[100];
+  PersNrecK,PersNrecO:comp;
+  DolnameK,DolnameO:string[100];
+  PodrNrec:comp;
+  PodrName:string[100];
+  OrgName:string;
+  OrgNrec:comp;
+  iGetKau : GetKau
+  ObjStroyName :string;
+  ObjStroyName1:string;
+  ObjStroyName2:string;
+  ObjStroyName3:string;
+  ObjStroyName4:string;
+  ObjStroyName5:string;
+  ObjStroyNrec:Comp;
+  flExit:boolean;
+  f1,flRazbivka:word;
+  CntDays: word;
+  mode1:byte;
+  mode2:word;
+  mode_gr:word;
+  AnCode:word;
+//20081003
+  MarkerKauName : string ;
+  Marker : longint ;
+  Type_tabel : word ; // тип табеля 0 - старый
+  Group_tbl : word ; // тип группировки
+  ie_analitik:word;
+  logfilekl:boolean;
+  sort_fio :word;
+as select * from katpodr,katorg,katstroy,spkau,TMPSOTRUDNIK ,katos
+where ((PodrNrec==katpodr.nrec 
+and katpodr.corg==katorg.nrec
+and ObjStroyNrec==KATOS.Nrec
+and ObjStroyNrec==katstroy.Nrec
+and ObjStroyNrec==spkau.Nrec
+))
+;
+
+parameters
+//  Type_tabel,Group_tbl,PersFIOK,PersNrecK,DolnameK,PersFIOO,PersNrecO,DolnameO,PodrName,PodrNrec,CntDays,flRazbivka,ObjStroyNrec,Ancode;
+  Type_tabel //1
+  ,Group_tbl //2
+  ,PersFIOK  //3
+  ,PersNrecK //4
+  ,DolnameK  //5
+  ,PersFIOO  //6
+  ,PersNrecO //7
+  ,DolnameO  //8
+  ,PodrName  //9
+  ,PodrNrec  //10
+  ,f1        //11
+  ,flRazbivka  //12
+  ,ObjStroyNrec //13
+  ,mode2        //14
+  ,mode_gr      //15
+  ;
+
+procedure FilltmpSotrO;
+{
+  Delete All tmpSotrudnik;
+  Modifier insert tmpSotrudnik
+    select persons.nrec,lschet.tabn,persons.fio,catalogs.name,katpodr.name from lschet,persons
+  where   (( root == catalogs.name and
+          (  pos('Начальник отдела',catalogs.name)>0 or
+             pos('Начальник службы',catalogs.name)>0 or
+             pos('Заместитель начальника отдела',catalogs.name)>0 or
+             pos('Заместитель начальника службы',catalogs.name)>0) and
+     catalogs.nrec==lschet.cappoint (noindex) and lschet.tperson==persons.nrec and persons.galdep==katpodr.nrec)) 
+     and (pos('зар',katpodr.name)>0)  
+}
+
+procedure FilltmpSotrK;
+{
+  Delete All tmpSotrudnik;
+  Modifier insert tmpSotrudnik
+    select persons.nrec,lschet.tabn,persons.fio,catalogs.name,katpodr.name from lschet,persons
+  where   (( root == catalogs.name and
+          (  pos('Начальник отдела',catalogs.name)>0 or
+             pos('Начальник службы',catalogs.name)>0 or
+             pos('Заместитель начальника отдела',catalogs.name)>0 or
+             pos('Заместитель начальника службы',catalogs.name)>0) and
+     catalogs.nrec==lschet.cappoint (noindex) and lschet.tperson==persons.nrec and persons.galdep==katpodr.nrec))   
+     and (pos('кадр',katpodr.name)>0)
+}
+
+
+Panel P1;
+table katpodr ;
+Screen S1;
+Fields
+  PersFIOK: Protect, PickButton;
+  dolnameK: Protect;
+  PersFIOO: Protect, PickButton;
+  dolnameO: Protect;
+  mode2 ('Аналитика...', ,sci1Esc):noprotect;
+  ObjStroyName : Protect, PickButton;
+  ObjStroyName1: Protect, PickButton;
+  ObjStroyName2: Protect, PickButton;
+  ObjStroyName3: Protect, PickButton;
+  ObjStroyName4: Protect, PickButton;
+  f1:noprotect;
+  flRazbivka:noprotect;
+  PodrName: Protect, PickButton;
+buttons
+  cmOk, Default;
+  cmCancel;
+<< 
+    `Работник отдела кадров:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Должность работника отдела кадров:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Работник ОТиЗ:`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Должность работника ОТиЗ:`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    Фильтр по аналитике в переходах:
+     [.] Объект строительства           ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+     [.] Объект РБП                     ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+     [.] Виды деятельности и производств` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+     [.] Виды страховых случаев         ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+     [.] Основное средство              ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     [.] Формировать за 15 дней`
+     [.] Не выводить работников`
+     [.] Вид деятельности, вид работ вывести только отклонения`
+     Раздельное ведение табелей:
+     (.) Не разбивать табели по переходам в меж.период`
+     (.) Разбивать табели по переходам в меж.период в соответствии с назначениями`
+     (.) Разбивать табели по всем переходам в меж.период`
+
+    `Подразделение:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                            <.   ОК   .>       <. Отмена .>
+>>
+End;
+Screen S2;
+Fields
+  PersFIOK: Protect, PickButton;
+  dolnameK: Protect;
+  PersFIOO: Protect, PickButton;
+  dolnameO: Protect;
+  mode2 ('Аналитика...', ,sci1Esc):noprotect;
+  ObjStroyName : Protect, PickButton;
+  mode_gr ('использовать в наименовании группировок по аналитикам', ,sci1Esc) :noprotect;
+  ObjStroyName1: Protect, PickButton;
+  ObjStroyName2: Protect, PickButton;
+  ObjStroyName3: Protect, PickButton;
+  ObjStroyName4: Protect, PickButton;
+  Group_tbl : [List 0 'Нет группировки','По категориям','По аналитикам','По аналитикам+категории'
+   ,'По категориям+аналитики',  'По подразделению',  'По подразделению+категория'],protect ;
+  f1:noprotect;
+  flRazbivka:noprotect;
+  PodrName: Protect, PickButton;
+buttons
+  cmOk, Default;
+  cmCancel;
+<< 
+    `Работник отдела кадров:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Должность работника отдела кадров:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Работник ОТиЗ:`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    `Должность работника ОТиЗ:`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   `Фильтр по аналитике в переходах:`                               `Использовать в группировках`
+   [.] Объект строительства           ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] О.C`
+   [.] Объект РБП                     ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] РБП`
+   [.] Виды деятельности и производств` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] ВДП`
+   [.] Виды страховых случаев         ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] ВСС`
+   [.] Основное средство              ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] ОС `
+
+     Группировка .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+     [.] Формировать за 15 дней`         
+     [.] Не выводить работников`
+     [.] Вид деятельности, вид работ вывести только отклонения`
+
+     Раздельное ведение табелей:
+     (.) Не разбивать табели по переходам в меж.период`
+     (.) Разбивать табели по переходам в меж.период в соответствии с назначениями`
+     (.) Разбивать табели по всем переходам в меж.период`
+    `Подразделение:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                            <.   ОК   .>       <. Отмена .>
+>>
+End;
+Screen S3;
+Fields
+  PersFIOK: Protect, PickButton;
+  dolnameK: Protect;
+  PersFIOO: Protect, PickButton;
+  dolnameO: Protect;
+  mode2 ('Аналитика...', ,sci1Esc):noprotect;
+  ObjStroyName : Protect, PickButton;
+  mode_gr ('использовать в наименовании группировок по аналитикам', ,sci1Esc) :noprotect;
+  ObjStroyName1: Protect, PickButton;
+  ObjStroyName2: Protect, PickButton;
+  ObjStroyName3: Protect, PickButton;
+  ObjStroyName4: Protect, PickButton;
+  Group_tbl : [List 0 'Нет группировки','По категориям','По аналитикам','По аналитикам+категории'
+   ,'По категориям+аналитики',  'По подразделению',  'По подразделению+категория'],protect ;
+  f1:noprotect;
+  ie_analitik : noprotect;
+  flRazbivka:noprotect;
+  logfilekl :noprotect;
+  PodrName: Protect, PickButton;
+buttons
+  cmOk, Default;
+  cmCancel;
+//     [.] Сортировка по фио`
+
+<< 
+ `Работник отдела кадров:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   <.   ОК   .>       
+ `Должность работника отдела кадров:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Работник ОТиЗ:`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   <. Отмена .>
+ `Должность работника ОТиЗ:`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+   `Фильтр по аналитике в переходах:`                               `Использовать в группировках`
+   [.] Объект строительства           ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] О.C`
+   [.] Объект РБП                     ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] РБП`
+   [.] Виды деятельности и производств` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] ВДП`
+   [.] Виды страховых случаев         ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] ВСС`
+   [.] Основное средство              ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      [.] ОС `
+     Группировка .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     [.] Формировать за 15 дней`                                    Глубина свертки КАУ
+     [.] Не выводить работников`                                    по аналитике в итогах .@@@@
+     [.] Вид деятельности, вид работ вывести только отклонения`      
+     [.] Вывести доп.итоги (категория/аналитика)`                   `Для итогов по аналитика рекомендуется`
+     [.] Развернуть объекты строит. в итогах аналогично аналитике`  "Разбивать табели по всем переходм"
+     Раздельное ведение табелей:                                    
+     (.) Не разбивать табели по переходам в меж.период`                           [.] Отладка`
+     (.) Разбивать табели по переходам в меж.период в соответствии с назначениями`
+     (.) Разбивать табели по всем переходам в меж.период`
+    `Подразделение:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+End;
+End;
+// установить фильтр
+Function GetCodeGrKau(w:word) :word;
+{ case w of
+  0: { GetCodeGrKau:=myCodeKauObjStroy; }
+  1: { GetCodeGrKau:=myCodeKauRBP; }
+  2: { GetCodeGrKau:=myCodeKauVidD; }
+  3: { GetCodeGrKau:=myCodeKauVidStrah; }
+  4: { GetCodeGrKau:=15; } // основные средства
+  end;
+
+}
+Procedure  SetFilterName ;
+var CountMarker : longint ;
+    kk:word;
+    wstr:string;
+{ For(kk:=0;kk<=4;kk:=kk+1)
+  { AnCode:=GetCodeGrKau(kk)
+    MarkerKauName := iGetKau.GetMarkerName(AnCode );
+    Marker := InitMarker(MarkerKauName,8,100,10);
+    CountMarker := GetMarkerCount(Marker)
+    wstr:='' ;
+    GetMarker(Marker,0,ObjStroyNrec)
+    //message(ObjStroyNrec)
+    if CountMarker=1
+    { GetMarker(Marker,0,ObjStroyNrec)
+       if (AnCode=myCodeKauObjStroy)
+       {
+         if (getfirst KATSTROY where ((ObjStroyNrec==KATSTROY.Nrec))=tsOk)
+         {
+             wstr:=KATSTROY.NAME;
+          }
+       }
+       else 
+       if (AnCode=15) // основные
+       {
+         if (getfirst KATOS where ((ObjStroyNrec==KATOS.Nrec))=tsOk)
+         {
+             wstr:=KATOS.NAMEOS;
+          }
+         }
+       else
+       {
+         if (getfirst spkau where ((ObjStroyNrec==spkau.Nrec))=tsOk)
+         {
+           wstr:=spkau.NAME;
+         }
+       }
+    }
+    else
+    { if ObjStroyNrec=0 ObjStroyNrec:=1 ;
+      wstr:='Выбрано '+string(CountMarker) ;
+    }
+    DoneMarker(marker,markerkauname) 
+    case kk of
+    0: ObjStroyName :=wstr;
+    1: ObjStroyName1:=wstr;
+    2: ObjStroyName2:=wstr;
+    3: ObjStroyName3:=wstr;
+    4: ObjStroyName4:=wstr;
+    end;
+  } //For(kk:=0;kk<=4;kk:=kk+1)
+} //Procedure  SetFilterName ;
+//Компаундирование по сере
+//=========================
+Procedure SaveParam ;
+{ SaveMyDsk(PersFIOK,'FT02_PersFIOK')
+  SaveMyDsk(dolnameK,'FT02_dolnameK')
+  SaveMyDsk(PersFIOO,'FT02_PersFIOO')
+  SaveMyDsk(dolnameO,'FT02_dolnameO')
+  SaveMyDsk(mode2,'FT02_mode2')
+  SaveMyDsk(ObjStroyName,'FT02_ObjStroyName')
+  SaveMyDsk(Group_tbl,'FT02_Group_tbl')
+  SaveMyDsk(f1,'FT02_f1')
+  SaveMyDsk(flRazbivka,'FT02_flRazbivka')
+  SaveMyDsk(PodrName,'FT02_PodrName')
+  SaveMyDsk(mode_gr,'FT02_mode_gr')
+  SaveMyDsk(ie_analitik,'FT02_ie_analitik')
+  SaveMyDsk(logfilekl,'FT02_logfilekl')
+}
+//=========================
+Procedure ReadParam ;
+{ if not ReadMyDsk(PersFIOK,'FT02_PersFIOK',false) PersFIOK:=''
+  if not ReadMyDsk(dolnameK,'FT02_dolnameK',false) dolnameK:=''
+  if not ReadMyDsk(PersFIOO,'FT02_PersFIOO',false) PersFIOO:=''
+  if not ReadMyDsk(dolnameO,'FT02_dolnameO',false) dolnameO:=''
+  if not ReadMyDsk(mode2,'FT02_mode2',false) mode2:=0 ;
+//  ReadMyDsk(ObjStroyName,'FT02_ObjStroyName',false)
+  if not ReadMyDsk(Group_tbl,'FT02_Group_tbl',false) Group_tbl:=0;
+  if not ReadMyDsk(f1,'FT02_f1',false) f1:=0
+  if not ReadMyDsk(flRazbivka,'FT02_flRazbivka',false) flRazbivka:=0;
+  if not ReadMyDsk(PodrName,'FT02_PodrName',false) PodrName:=''
+  if not ReadMyDsk(mode_gr,'FT02_mode_gr',false) mode_gr:=1;
+  if not ReadMyDsk(ie_analitik,'FT02_ie_analitik',false) ie_analitik:=0
+//  if not ReadMyDsk(sort_fio,'PrintT13_SortFlag',false) sort_fio:=0
+//  if sort_fio=1 f1:=f1 or 32 else f1:=f1 xor 32 ;
+  logfilekl:=false;
+  rescanpanel(#katpodr) ;
+}
+
+Procedure MyCheckField ;
+{ /*
+  case mode2 of
+  0: { AnCode:=myCodeKauObjStroy; }
+  1: { AnCode:=myCodeKauRBP; }
+  2: { AnCode:=myCodeKauVidD; }
+  3: { AnCode:=myCodeKauVidStrah; }
+  end;
+  */
+  //ObjStroyName:='';
+  //ObjStroyNrec:=comp(0);
+  cntDays:=if((f1 and 1)=1,15,31);
+
+}
+//=========================
+handleevent
+   cmInit:
+   { if Type_tabel=1 then setformat(S2)
+     if Type_tabel=2 then setformat(S3)
+     f1:=0;flRazbivka:=0;
+     Group_tbl:=0 ;
+     AnCode:=myCodeKauObjStroy;
+     mode2:=0;
+     ReadParam ; 
+     f1:=f1 or 4;
+     MyCheckField
+     SetFilterName;
+     RereadRecord;
+   }
+   cmCheckField:
+   {
+     case curfield of
+       #f1, #mode2:
+       { MyCheckField ;
+       }
+     end;
+     ReReadRecord;
+   } 
+   cmPick:
+   {
+     case curField of
+     #PersFIOK:
+     {
+       FilltmpSotrK;
+       runinterface('GetSotrudnik',PersnrecK,PersFioK,DolNameK);
+     }
+     #PersFIOO:
+     {
+       FilltmpSotrO;
+       runinterface('GetSotrudnik',PersnrecO,PersFioO,DolNameO);
+     }
+     #PodrName:
+     {
+       mode1:=0;
+       runinterface('Getfilial3',Podrnrec,Podrname,mode1);
+       if (getfirst katpodr=tsOk and getfirst katorg=tsOk )
+         PodrName:=katorg.name;
+     }
+     #ObjStroyName:
+     { ObjStroyName:='';   ObjStroyNrec:=comp(0);
+       iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,GetCodeGrKau(0),ObjStroyNrec);
+       SetFilterName ;
+     }
+     #ObjStroyName1:
+     { ObjStroyName1:='';   ObjStroyNrec:=comp(0);
+       iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,GetCodeGrKau(1),ObjStroyNrec);
+       SetFilterName ;
+     }
+     #ObjStroyName2:
+     { ObjStroyName2:='';   ObjStroyNrec:=comp(0);
+       iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,GetCodeGrKau(2),ObjStroyNrec);
+       SetFilterName ;
+     }
+     #ObjStroyName3:
+     { ObjStroyName3:='';   ObjStroyNrec:=comp(0);
+       iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,GetCodeGrKau(3),ObjStroyNrec);
+       SetFilterName ;
+     }
+     #ObjStroyName4:
+     { ObjStroyName4:='';   ObjStroyNrec:=comp(0);
+       iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,GetCodeGrKau(4),ObjStroyNrec);
+       SetFilterName ;
+     }
+     end;
+     RereadRecord;
+   }
+   cmOk:
+   { SaveParam ;
+     flExit:=true;
+     if ( PersFIOO='' or PersFIOK='' )
+       { message('Не выбран руководитель!',okButton+Error);flExit:=false }
+     if flExit
+     {  //message(string(flRazbivka))
+        CloseInterface(cmDefault);
+     
+     }
+   }
+end;
+End.

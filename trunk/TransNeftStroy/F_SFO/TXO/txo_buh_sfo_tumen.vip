@@ -1,0 +1,134 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_BUHSFOTUMEN implements ObjTxoIdentPlugin Licensed (free);
+
+Interface    TXO_BUHSFOTUMEN;
+var
+  CurSoprDoc  : comp ;
+  CurSoprHoz  : comp ;
+  nrec_ob     : comp ;
+  nrec_lschet : comp ;
+
+create view
+as select
+  *
+from
+     plpor    (ReadOnly),
+     soprhoz  (ReadOnly)
+
+where
+((
+   CurSoprDoc        == plpor.nRec          and
+   CurSoprHoz        == soprhoz.nrec
+
+))
+;
+
+function GetInfo : string;
+{
+   GetInfo := 'Изменение аналитики "Объекты строительства на счете 10.09';
+}
+
+function ParamMaster : string;
+{
+   ParamMaster := '' ;
+}
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   CurSoprDoc := buf.cSoprDoc;
+   CurSoprHoz := buf.cSoprHoz;
+
+   if GetFirst soprhoz = tsOK
+    {
+   if GetFirst plpor = tsOK
+    {
+
+     _loop saldmoun where ((
+                           date(1,month(soprhoz.datob),year(soprhoz.datob)) == saldmoun.datesal  and
+                           'T10'             == saldmoun.SCHETO     and
+                           '09'              == saldmoun.SUBOSSCH   and
+                           0064000000000002h == saldmoun.CPLANSSCH  (noindex)
+                          ))
+      {
+
+       nrec_lschet :=0;
+       nrec_ob     :=0;
+
+       if getfirst lschet where ((saldmoun.KAUOS[5] == lschet.tperson)) = tsok
+        {
+         nrec_lschet:=lschet.nrec;
+        }
+/*
+        else
+         {
+          if getfirst APPOINTMENTS where ((saldmoun.KAUOS[5] == APPOINTMENTS.PERSON)) = tsok
+           {
+           if getfirst lschet where ((APPOINTMENTS.CADDNREC2 == lschet.nrec )) = tsok
+            {
+             nrec_lschet:=lschet.nrec;
+            }
+           }
+         }
+*/
+        if getfirst lschet where ((nrec_lschet == lschet.nrec)) = tsok
+         {
+           if getfirst perscard where ((lschet.nrec == perscard.clschet)) = tsok
+            {
+           if getfirst attrnam where
+                               ((
+                                 word(4005)               == AttrNam.wTable  and
+                                 'Счет отнесения затрат'  == AttrNam.Name
+                                ))
+                                  = tsok
+            {
+             if getfirst attrval where
+                                ((
+                                  word(4005)       == AttrVal.wTable    and
+                                  perscard.nrec    == AttrVal.cRec      and
+                                  AttrNam.Nrec     == AttrVal.cAttrNam
+                                 ))
+                                   = tsok
+              {
+               if attrval.vcomp = 0064000000000083h   // счет 26
+                {
+                 nrec_ob := 006400000000385Bh;        // Спецодежда для управленческих нужд
+                }
+               if  (attrval.vcomp = 0064000000000086h  // счет 29 и субсчета
+                 or attrval.vcomp = 0064000000000085h  //
+                 or attrval.vcomp = 0064000000000087h  //
+                 or attrval.vcomp = 0064000000000088h) //
+                {
+                 nrec_ob := 0064000000003856h;         // Обслуживающие производства
+                }
+               if (nrec_ob=0)
+                {
+                nrec_ob:=0064000000001681h;    // Ремонто-эксплуатационные нужды
+                }
+              }
+            }
+          }
+         }
+
+       if nrec_ob <> 0 and nrec_ob <> saldmoun.KAUOS[1]
+        {
+         TxobodyClear  (hTxo);
+         TxobodyAddKau (hTxo, wflkau_mode1,    40, nrec_ob);
+         TxobodyAddKau (hTxo, wflkau_mode2,    40, saldmoun.KAUOS[1]);
+         TxobodyAddKau (hTxo, wflkau_mode1,    60, saldmoun.KAUOS[2]);
+         TxobodyAddKau (hTxo, wflkau_mode1,     4, saldmoun.KAUOS[3]);
+         TxobodyAddKau (hTxo, wflkau_mode1, 20076, saldmoun.KAUOS[4]);
+         TxobodyAddKau (hTxo, wflkau_mode1,     3, saldmoun.KAUOS[5]);
+         TxobodyAddKau (hTxo, wflkau_mode1,     2, saldmoun.KODSPO);
+         TxobodySetSum (hTxo, saldmoun.SUMS, 0, saldmoun.KOL);
+         TxobodyInsert (hTxo);
+        }
+      }
+  }
+}
+}
+
+handleevent
+end;
+
+end.

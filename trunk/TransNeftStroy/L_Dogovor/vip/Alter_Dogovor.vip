@@ -1,0 +1,792 @@
+
+alter interface Dogovor;
+
+overload
+  Procedure MyProtectDogovor;
+end;
+
+OverloadFormats scDogovorEditMainHead;
+OverloadFormats scDogovorAttachHead;
+OverloadFormats scDogovorEditMain;
+OverloadFormats scDogovorAttachMain;
+
+ExtendFormats brDogovorSelectMain;
+
+var DogovorBrFR_FirstRow : boolean ;
+var _papa : comp;
+
+
+#include ListSogl.const
+/*               // эти константы добавлены в контанты Проекта
+const
+  Attr_Skan1 = 89509042593989334; // Атрибут к договору "Путь на файл 1"
+  Attr_Skan2 = 89509042593989364; // Атрибут к договору "Путь на файл 2"
+  Attr_SmetaSum = 89509042593989464; // Атрибут к договору "Сметная стоимость"
+end;
+*/
+Table struct tsPapaDogovor (
+  cCurDog      : comp
+, cDog         : comp
+, nDog         : string       // номер Договора
+, dDog         : date
+, dDogBeg      : date
+, dDogEnd      : date
+, cDopSogl     : comp
+, nDopSogl     : string       // номер Доп. соглашения
+, dDopSogl     : date
+, dDopSoglBeg  : date
+, dDopSoglEnd  : date
+)
+With Index
+(
+  inx01 = cCurDog
+);
+
+Table Struct tsDogOborot (
+   cDog     : comp
+ , Schet    : string
+ , dOborot  : double
+ , kOborot  : double
+) with index (
+  idx01 = cDog
+, idx02 = cDog + Schet
+);
+
+Table Struct tsDogOborotPrint (
+   cDog     : comp
+ , Schet    : string
+ , dOborot  : double
+ , kOborot  : double
+) with index (
+  idx01 = cDog
+, idx02 = cDog + Schet
+);
+
+Table Struct tsDogOborotItog (
+   cDog     : comp
+ , dOborot  : double
+ , kOborot  : double
+) with index (
+  idx01 = cDog
+);
+
+create view
+as select
+  oExtAttr.sGetAttrID(coDogovor,Dogovor1.nRec,Attr_Skan1)
+                                (FieldName = fSkan1)
+, oExtAttr.sGetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan2 )
+                                (FieldName = fSkan2)
+, oExtAttr.doGetAttrID(coDogovor, Dogovor1.nRec, Attr_SmetaSum )
+                                (FieldName = fSmetaSum)
+, * from
+  tsDogOborot
+, tsDogOborotPrint
+, tsDogOborotItog
+, tsPapaDogovor
+, synonym Dogovor DogovorPapa
+where (( Dogovor1.nRec  == tsDogOborotPrint.cDog
+     and Dogovor1.nRec  == tsDogOborotItog.cDog
+     and Dogovor1.nRec  == tsPapaDogovor.cCurDog
+)) ;
+
+
+
+Function GetLS_State(D1, D2: date): string; forward;
+Function NullFrDate(_date: date): string; forward;
+Procedure CulcDogOborot; forward;
+Procedure UnionOborot; forward;
+
+
+DataStream dsBrDogovor (
+  DataSet DogovorBrFR (
+
+  [LS_NoReestr ] oExtAttr.sGetAttr(coDogovor, Dogovor1.nRec, LS_NameAttr1);
+  [LS_NoDoc    ] oExtAttr.sGetAttr(coDogovor, Dogovor1.nRec, LS_NameAttr2);
+  [LS_dInput   ] NullFrDate( oExtAttr.dGetAttr(coDogovor, Dogovor1.nRec, LS_NameAttr3) );
+  [LS_dVozv    ] NullFrDate( oExtAttr.dGetAttr(coDogovor, Dogovor1.nRec, LS_NameAttr5) );
+  [LS_dFactVozv] NullFrDate( oExtAttr.dGetAttr(coDogovor, Dogovor1.nRec, LS_NameAttr6) );
+
+  [NameDog] if (IsValid(#Dogovor),
+              if (GetClassName, DocName,
+                if (Dogovor1.cDogovor = 0,
+                  if (Dogovor1.cZamena = 0, UserNameDogovor, UserNameOtmenDogovor),
+                  if (Dogovor1.cZamena = 0, UserNameUtochSogl, UserNameOtmenSogl))),
+              '') ;
+  Dogovor1.nRec   ;
+  Dogovor1.DesCr  ;
+  Dogovor1.DesGr  ;
+
+                            tsPapaDogovor.nDopSogl     ;
+  [dDopSogl]     NullFrDate(tsPapaDogovor.dDopSogl)    ;
+                            tsPapaDogovor.nDog         ;
+  [dDog]         NullFrDate(tsPapaDogovor.dDog)        ;
+
+  [dDogEnd]      if(tsPapaDogovor.cDopSogl >0, NullFrDate(tsPapaDogovor.dDopSoglEnd)
+                                             , NullFrDate(tsPapaDogovor.dDogEnd)     ) ;
+
+  KatOrg1.UNN            ;
+  KatOrg1.Name           ;
+
+  KatVidD.Name           ;
+  [sDirect]                if((KatVidD.Direct < 1) OR (KatVidD.Direct > 3), '???',
+                              if ((KatVidD.Direct mod 2) = 1, '1->2', '2->1'));
+
+  AttrDog.Subject1       ;
+  AttrDog.Subject2       ;
+  AttrDog.Subject3       ;
+  Dogovor1.Summa         ;
+  AttrDog.Sign_my_osn    ;
+  [SostListSogl]            GetLS_State( oExtAttr.dGetAttr(coDogovor, Dogovor1.nRec, LS_NameAttr5)
+                                       , oExtAttr.dGetAttr(coDogovor, Dogovor1.nRec, LS_NameAttr6)
+                                       );
+  KuratPodr.Name         ;
+  AttrDog.Cont_my_FIO    ;
+  AttrDog.Cont_My_Addr   ;
+  KatNotes.sName         ;
+
+  tsDogOborotItog.dOborot ;
+  tsDogOborotItog.kOborot ;
+  [ItogSaldo] tsDogOborotItog.dOborot - tsDogOborotItog.kOborot;
+
+  [PDF_1]    oExtAttr.sGetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan1     );
+  [PDF_2]    oExtAttr.sGetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan2     );
+  [SmetaSum] oExtAttr.doGetAttrID(coDogovor, Dogovor1.nRec, Attr_SmetaSum );
+  );
+
+      Table tsDogOborotPrint (
+        tsDogOborotPrint.Schet    ;
+        tsDogOborotPrint.dOborot  ;
+        tsDogOborotPrint.kOborot  ;
+      );
+
+)
+
+
+ HandleEvent dataset DogovorBrFR
+  cmPreProcess:  {
+    StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, 'Сбор проводок по договорам', 0);
+    DogovorBrFR_FirstRow := true;
+
+  mtClear(#tsDogOborot     , mfNormal);      // delete all удаляет в рамках Ограничений в логической таблице - т.е. не полностью
+  mtClear(#tsDogOborotPrint, mfNormal);
+  mtClear(#tsDogOborotItog , mfNormal);
+  mtClear(#tsPapaDogovor   , mfNormal);
+  }
+
+  cmOnProcess: {
+    if( not NextVisual )
+      BreakProcess;
+
+    if( DogovorBrFR_FirstRow ) {
+      DogovorBrFR_FirstRow := false;
+
+      if( TreeGetFirstEx(brDogovorSelectMain) ) {
+        ContinueDataset;
+      }
+    }
+    else
+    {
+      if( TreeGetNextEx(brDogovorSelectMain) ) {
+        ContinueDataset;
+      }
+    }
+
+       CulcDogOborot;
+       UnionOborot;
+       mtClear(#tsDogOborot     , mfNormal);      // delete all удаляет в рамках Ограничений в логической таблице - т.е. не полностью
+
+      _papa := Dogovor1.cDogovor;
+
+      while ( GetFirst DogovorPapa where (( _papa == DogovorPapa.nRec )) = tsOK ) {
+         if DogovorPapa.cDogovor > 0 {
+         _papa := DogovorPapa.cDogovor;
+         } else {
+           break;
+           }
+      }
+
+     ClearBuffer(#tsPapaDogovor);
+     tsPapaDogovor.cCurDog    := Dogovor1.nRec      ;
+     if (_papa > 0) {
+       tsPapaDogovor.cDog        := _papa              ;
+       tsPapaDogovor.nDog        := DogovorPapa.NoDoc  ;  // Внутренний номер
+       tsPapaDogovor.dDog        := DogovorPapa.dDoc   ;
+       tsPapaDogovor.dDogBeg     := DogovorPapa.dBeg   ;
+       tsPapaDogovor.dDogEnd     := DogovorPapa.dEnd   ;
+       tsPapaDogovor.cDopSogl    := Dogovor1.nRec      ;
+       tsPapaDogovor.nDopSogl    := Dogovor1.NoDoc     ;
+       tsPapaDogovor.dDopSogl    := Dogovor1.dDoc      ;
+       tsPapaDogovor.dDopSoglBeg := Dogovor1.dBeg      ;
+       tsPapaDogovor.dDopSoglEnd := Dogovor1.dEnd      ;
+     } else {
+       tsPapaDogovor.cDog     := Dogovor1.nRec      ;
+       tsPapaDogovor.nDog     := Dogovor1.NoDoc     ;
+       tsPapaDogovor.dDog     := Dogovor1.dDoc      ;
+       tsPapaDogovor.dDogBeg  := Dogovor1.dBeg   ;
+       tsPapaDogovor.dDogEnd  := Dogovor1.dEnd   ;
+       tsPapaDogovor.cDopSogl := 0                  ;
+       tsPapaDogovor.nDopSogl := ''                 ;
+!       tsPapaDogovor.dDopSogl := LongInt(0)         ;
+       }
+     Insert current tsPapaDogovor;
+  }
+
+  cmPostProcess: {
+    StopVisual('', 0);
+  }
+ end;
+
+
+ HandleEvent
+  cmPreProcess: {
+    StartNewVisual(vtRotateVisual, vfTimer + vfBreak + vfConfirm, 'Печать реестра договоров', 0);
+  }
+
+  cmPostProcess: {
+    StopVisual('', 0);
+  }
+ end;
+
+end;
+
+Procedure UnionOborot; {
+
+  _Loop tsDogOborot {
+// сделаем счета в одну строку
+    if (GetFirst tsDogOborotPrint where (( tsDogOborot.cDog  == tsDogOborotPrint.cDog
+                                       and tsDogOborot.Schet == tsDogOborotPrint.Schet )) = tsOK) {
+
+      tsDogOborotPrint.dOborot := tsDogOborotPrint.dOborot + tsDogOborot.dOborot;
+      tsDogOborotPrint.kOborot := tsDogOborotPrint.kOborot + tsDogOborot.kOborot;
+      UpDate current tsDogOborotPrint;
+    } else {
+        ClearBuffer(#tsDogOborotPrint);
+        tsDogOborotPrint.cDog    := tsDogOborot.cDog;
+        tsDogOborotPrint.Schet   := tsDogOborot.Schet;
+        tsDogOborotPrint.dOborot := tsDogOborot.dOborot;
+        tsDogOborotPrint.kOborot := tsDogOborot.kOborot;
+        Insert current tsDogOborotPrint;
+      }
+
+// посчитаем итог по договору
+    if (GetFirst tsDogOborotItog where (( tsDogOborot.cDog  == tsDogOborotItog.cDog )) = tsOK) {
+
+      tsDogOborotItog.dOborot := tsDogOborotItog.dOborot + tsDogOborot.dOborot;
+      tsDogOborotItog.kOborot := tsDogOborotItog.kOborot + tsDogOborot.kOborot;
+      UpDate current tsDogOborotItog;
+    } else {
+        ClearBuffer(#tsDogOborotItog);
+        tsDogOborotItog.cDog    := tsDogOborot.cDog;
+        tsDogOborotItog.dOborot := tsDogOborot.dOborot;
+        tsDogOborotItog.kOborot := tsDogOborot.kOborot;
+        Insert current tsDogOborotItog;
+      }
+  }
+}
+
+Procedure CulcDogOborot; {
+var cDog  : comp;
+
+    cDog := Dogovor1.nRec;
+
+    SQL
+      Select       Dogovor.nRec    as cDog
+             ,     Oborot.DbSchetO as Schet
+             , Sum(Oborot.SumOb)   as dOborot
+             ,     0               as kOborot
+      from   Dogovor
+           , Oborot
+      where ( :(cDog) = Dogovor.nRec
+         and #comp(28147497671065602)  = Oborot.cPlansSch                                // надо здесь ставить условие
+         and Oborot.SchetO            <> Oborot.SchetK                                   // исключим внутренние обороты
+         and Oborot.nRec in (
+           Select Oborot.nRec
+            from  Oborot
+            where (   (    14           = Oborot.TBLOS[1]
+                       and Dogovor.nRec = Oborot.KAUOS[1]
+                      )
+                   or (    14           = Oborot.TBLOS[2]
+                       and Dogovor.nRec = Oborot.KAUOS[2]
+                      )
+                   or (    14           = Oborot.TBLOS[3]
+                       and Dogovor.nRec = Oborot.KAUOS[3]
+                      )
+                   or (    14           = Oborot.TBLOS[4]
+                       and Dogovor.nRec = Oborot.KAUOS[4]
+                      )
+                   or (    14           = Oborot.TBLOS[5]
+                       and Dogovor.nRec = Oborot.KAUOS[5]
+                      )
+                   or (    14           = Oborot.TBLOS[6]
+                       and Dogovor.nRec = Oborot.KAUOS[6]
+                      )
+                  )
+            )
+       )
+      group by Dogovor.nRec, Oborot.DbSchetO
+      into  tsDogOborot byName
+      ;
+
+    SQL
+      Select       Dogovor.nRec    as cDog
+             ,     Oborot.KrSchetK as Schet
+             ,     0               as dOborot
+             , Sum(Oborot.SumOb)   as kOborot
+      from   Dogovor
+           , Oborot
+      where ( :(cDog) = Dogovor.nRec
+         and #comp(28147497671065602)  = Oborot.cPlansSch
+         and Oborot.SchetO            <> Oborot.SchetK                                   // исключим внутренние обороты
+         and Oborot.nRec in (
+           Select Oborot.nRec
+            from  Oborot
+            where (   (    14           = Oborot.TBLKS[1]
+                       and Dogovor.nRec = Oborot.KAUKS[1]
+                      )
+                   or (    14           = Oborot.TBLKS[2]
+                       and Dogovor.nRec = Oborot.KAUKS[2]
+                      )
+                   or (    14           = Oborot.TBLKS[3]
+                       and Dogovor.nRec = Oborot.KAUKS[3]
+                      )
+                   or (    14           = Oborot.TBLKS[4]
+                       and Dogovor.nRec = Oborot.KAUKS[4]
+                      )
+                   or (    14           = Oborot.TBLKS[5]
+                       and Dogovor.nRec = Oborot.KAUKS[5]
+                      )
+                   or (    14           = Oborot.TBLKS[6]
+                       and Dogovor.nRec = Oborot.KAUKS[6]
+                      )
+                  )
+            )
+       )
+      group by Dogovor.nRec, Oborot.KrSchetK
+      into  tsDogOborot byName
+      ;
+}
+
+
+
+Function GetLS_State(D1, D2: date): string;
+{
+  Result := '';
+
+  if ( D2 = ZeroDate )
+    {
+      if ( CalcDaysBetweenDates(D1, Cur_Date, FALSE) > 1 )
+        Result := FormatStr_1('Просрочен на %d дн', CalcDaysBetweenDates(D1, Cur_Date, FALSE) - 1);
+    }
+  else
+    if ( CalcDaysBetweenDates(D1, D2, FALSE) > 1 )
+      Result := FormatStr_1('Согласован с просрочкой на %d дн', CalcDaysBetweenDates(D1, D2, FALSE) - 1)
+    else
+      Result := 'Согласован в срок';
+}
+
+Function NullFrDate(_date: date): string; {
+  Result := '';
+
+  if (_date > LongInt(0)) {Result := DateToStr(_date, 'DD.MM.YYYY');}
+}
+
+Procedure MyProtectDogovor;
+var boNeedProtect: boolean;
+{
+  inherited :: MyProtectDogovor
+  SetFieldProtected(#fSkan1      , boNeedProtect);
+  SetFieldProtected(#fSkan2      , boNeedProtect);
+}
+
+
+Tree brDogovorSelectMain ('Выберите документ и нажмите <ENTER>', hcDogViewListDogovor, sci1478EnEscTreeI)
+  Show at (, , , );
+  Table Dogovor1;
+  RecMarker = pMarker { Dogovor1.nRec };
+Fields
+  fSmetaSum        #3'Сметная стоимость' : [18, '\2p[|-]3666`666`666`666.88'], Protect, NoAutoSize, LessNull;
+  To_Char(Dogovor1.nRec,0) #3'nRec'  : [18],  Protect;
+  if((KatVidD.Direct < 1) OR (KatVidD.Direct > 3), '???',
+    if ((KatVidD.Direct mod 2) = 1, '1->2', '2->1'))  #3'Направление'       : [4], Protect;
+  AttrDog.Subject1 #3'Предмет договора1' : [30], Protect;
+  AttrDog.Subject2 #3'Предмет договора2' : [30], Protect;
+  AttrDog.Subject3 #3'Предмет договора3' : [30], Protect;
+  KuratPodr.Name   #3'Курирующее подразделение': [30], Protect;
+  KatOrg.Name      #3'Наша организация'  : [30], Protect;
+  KatOrg1.UNN      #3'ИНН контрагента'   : [10], Protect;
+  sTXOGetField('DOGOVOR', 'NODOC', if(Dogovor1.cDogovor <> 0, Dogovor1.cDogovor, Dogovor1.Nrec)) #3'Номер договора'  : [19], Protect;
+  sTXOGetField('FpCo', 'Name', AttrDog.cPodr) #3'ЦО'  : [19], Protect;
+!  Dogovor1.Atl_LastDate    #3'LastDate'  : [10] , Protect;
+!  Dogovor1.Atl_Lasttime    #3'Lasttime'  : [7] , Protect;
+  AttrDog.Sign_my_osn      #3'Основание для заключения договора' : [30], Protect;
+end;
+
+
+
+Window wiDogovorEditMain 'Редактирование договора' ('Редактирование договора', , )
+
+Screen scDogovorEditMainHead
+  ('Редактирование договора',hcDogEditDogovor,sci13Esc)
+  Show at (,,,7);
+  Table Dogovor ;
+
+Fields
+  KatNotes.Name      ('Статус договора'): PickButton, protect, {font = {color = ColorByEndDate; bold = (ColorByEndDate<>0)}};
+  Dogovor.DesGr      ('Код группы пользователей'): protect;
+  Dogovor.Descr      ('Дескриптор(идентификатор) пользователя'): protect;
+  Dogovor.NoDoc_Ext  ('Номер договора', , sci1Esc): noprotect;
+  Dogovor.dInput     ('Дата создания договора'): [10, 'DD/MM/YYYY'], noprotect;
+  KatVidD.Name       ('Вид договора'): PickButton, protect;
+  Dogovor.NoDoc      ('Номер договора'): PickButton, noprotect;
+  Dogovor.dDoc       ('Дата заключения договора'): [10, 'DD/MM/YYYY'], noprotect;
+  Dogovor.TipMoney   ('Тип договора'): [LIST 1 'в НДЕ', 'вал-НДЕ', 'валютный'], protect;
+  DogZamenaInfo      : skip;
+  Dogovor.dBeg       ('Дата начала договора'): [10, 'DD/MM/YYYY'], noprotect;
+  Dogovor.dEnd       ('Дата окончания договора', ): [10, 'DD/MM/YYYY'], noprotect, {font = {color = ColorByEndDate; bold = (ColorByEndDate<>0)}};
+  Dogovor.Summa      ('Общая (планируемая) сумма по договору', , sci1Esc): [19.2, '\2p[|-]3666`666`666`666.88'], noprotect;
+  ValDogovor         ('Валюта договора'): protect;
+  Dogovor.SumNDS     ('Сумма налогов по договору', , sci1Esc): [19.2, '\2p[|-]3666`666`666`666.88'], noprotect;
+  fSmetaSum          ('Сметная стоимость', , sci1Esc): [19.2, '\2p[|-]3666`666`666`666.88'], noProtect;
+<<
+ Группа&  Дескр.&        Номер &       Дата   &    Статус.@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@  .@@@@@@   .@@@@@@@@@@@   .@@@@@@@@@@@    Вид   .@@@@@@@@@@@@@@@@@@@@@@@@@
+        Внутренний №.@@@@@@@@@@@ от.@@@@@@@@@@@    Тип   .@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        На период с .@@@@@@@@@@@ по.@@@@@@@@@@@  на сумму.@@@@@@@@@@@@@@@@@@@.@@@@@
+                                                 налоги  .@@@@@@@@@@@@@@@@@@@
+                                           Сметная ст-ть .@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scDogovorEditMain
+
+TabbedSheet BOTTOM tsDogovorEditMain
+  Show at (,8,);
+
+Screen scDogovorEditMain 'Основная информация'
+  ('Редактирование договора',hcDogEditDogovor,sci13Esc)
+  Table Dogovor ;
+
+Fields
+//******************************************************************************
+  AttrDog.Subject1   ('Предмет договора', , sci14Esc): noprotect;
+  AttrDog.Subject2   ('Предмет договора', , sci14Esc): noprotect;
+  AttrDog.Subject3   ('Предмет договора', , sci14Esc): noprotect;
+//******************************************************************************
+  AttrDog.Otv_My_Fio  ('Фамилия, имя, отчество ответственного', , sci13Esc) : PickButton, noprotect;
+  AttrDog.Otv_My_Post ('Должность ответственного', , sci13Esc) : PickButton, noprotect;
+  AttrDog.Cont_My_FIO  ('Контактное лицо', , sci13Esc) : PickButton, noProtect;
+  AttrDog.Cont_My_Addr ('Контакт'        , , sci13Esc) : PickButton, noProtect;
+  KuratPodr.Name    : Protect;
+  AttrDog.Sign_my_osn('Основание для заключения договора', , sci14Esc): noProtect;
+  KatVidD.Role1      ('Роль контрагента в договоре') : skip;
+  KatOrg.Name        ('Наименование контрагента') : protect,QuickChoice;
+  KatVidD.Role2      ('Роль контрагента в договоре') : skip;
+  KatOrg1.Name       ('Наименование контрагента', , sci134Esc) : protect,QuickChoice;
+
+  isSpDog            ('Присутствие в договоре спецификации') : skip ;
+  Dogovor.SpecStatus ('Статус спецификации')
+    : [LIST 'обязательная',
+            'рекомендательная'], protect ;
+  AktSver.dDoc       ('Дата последнего акта сверки') : [10,'DD/MM/YYYY'],skip ;
+  AktSver.Status     ('Статус последнего акта сверки')
+    : [LIST 'оформляемый',
+            'аннулированный',
+            'проведенный'], skip ;
+  fSkan1             ('Путь на файл со сканом 1' , , sci13Esc) : PickButton, noProtect;
+  fSkan2             ('Путь на файл со сканом 2' , , sci13Esc) : PickButton, noProtect;
+Buttons
+  cmValue2  ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue3  ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue5  ,,, 'Спецификация' ;
+  cmSchema  ,,, 'Схема платежей' ;
+  cmValue7  ,,, 'Акт сверки' ;
+  cmAttrib  ,,, 'Просмотр и изменение расширенной информации по документу' ;
+  cmDogSkan1 , [singleLine],,, 'Печать скана 1' ;
+  cmDogSkan2 , [singleLine],,, 'Печать скана 2' ;
+<<
+`Предмет договора`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Ответственный`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`Должность`.@@@@@@@@@@@@@@@@@@@@@@@@
+`Контактное лицо`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  `Контакт`.@@@@@@@@@@@@@@@@@@@@@@@@
+`Курирующее подразделение`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Основание для заключения договора`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+<. Контрагент 1.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Контрагент 2.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Спецификация.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@  <.    Схема платежей    .>
+
+<. Акт сверки  .> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@  <.Расширенная информация.>
+
+<. Файл-скан 1 .> .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+<. Файл-скан 2 .> .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scDogovorEditMain
+end; // TabbedSheet
+    HandleEvent
+    cmDogSkan1: {
+    var iRet : integer;
+
+      if (fSkan1 > '') {
+        ExecProgram( 'start'
+                   , oExtAttr.sGetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan1 )
+                   ,'Печать скана 1'
+                   , pfDontWait
+                   , iRet);
+      } else {
+        message('Не задан путь на файл!');
+        }
+    }
+
+    cmDogSkan2: {
+    var iRet : integer;
+
+      if (fSkan2 > '') {
+        ExecProgram( 'start'
+                   , oExtAttr.sGetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan2 )
+                   ,'Печать скана 2'
+                   , pfDontWait
+                   , iRet);
+      } else {
+        message('Не задан путь на файл!');
+        }
+    }
+    end;
+end; // Window wiDogovorEditMain
+
+
+Window wiDogovorAttachMain 'Соглашение' LeftToolbar;
+  Show at (,,88,27);
+
+Screen  scDogovorAttachHead ('Редактирование соглашения',hcDogSoglasie,sci13Esc)
+  Show at (,,,8);
+  Table Dogovor ;
+
+Fields
+  KatNotes.Name      ('Статус соглашения') : PickButton, protect ;
+  Dogovor.DesGr      ('Код группы пользователей') : protect;
+  Dogovor.Descr      ('Дескриптор(идентификатор)пользователя') : protect;
+  Dogovor.NoDoc_Ext  ('Входящий номер соглашения',,sci1Esc) : noprotect;
+  Dogovor.dInput     ('Дата создания соглашения') : [10,'DD/MM/YYYY'], noprotect;
+  KatVidD.Name       ('Вид соглашения') : PickButton, protect ;
+  Dogovor.TipMoney   ('Тип соглашения')
+    : [LIST 1 'в НДЕ', 'вал-НДЕ', 'валютный'], protect ;
+  Dogovor.NoDoc      ('Номер соглашения',,sci1Esc) : noprotect;
+  Dogovor.dDoc       ('Дата заключения соглашения') : [10,'DD/MM/YYYY'], noprotect ;
+  OwnerDogInfo        : skip;
+  DogZamenaInfo       : skip;
+  Dogovor.dBeg       ('Дата начала соглашения') : [10,'DD/MM/YYYY'], noprotect;
+  Dogovor.dEnd       ('Дата окончания соглашения') : [10,'DD/MM/YYYY'], noprotect;
+  Dogovor.Summa      ('Общая (планируемая) сумма по соглашению',,sci1Esc) : [19.2,'\2p[|-]3666`666`666`666.88'] noprotect;
+  ValDogovor         ('Валюта соглашения') : protect;
+  Dogovor.SumNDS     ('Сумма налогов по соглашению',,sci1Esc) : [19.2,'\2p[|-]3666`666`666`666.88'] noprotect;
+  fSmetaSum          ('Сметная стоимость', , sci1Esc): [19.2, '\2p[|-]3666`666`666`666.88'], noProtect;
+<<
+ Группа&  Дескр.&   Входящий номер &   Дата   &    Статус.@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@  .@@@@@@   .@@@@@@@@@@@   .@@@@@@@@@@@    Вид   .@@@@@@@@@@@@@@@@@@@@@@@@@
+                                                   Тип   .@@@@@@@@@@@@@@@@@@@@@@@@@
+        Внутренний №.@@@@@@@@@@@ от.@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        На период с .@@@@@@@@@@@ по.@@@@@@@@@@@  на сумму.@@@@@@@@@@@@@@@@@@@.@@@@@
+                                                 налоги  .@@@@@@@@@@@@@@@@@@@
+                                           Сметная ст-ть .@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scDogovorAttachMain
+
+TabbedSheet BOTTOM tsDogovorEditMain
+  Show at (,9,);
+
+Screen scDogovorAttachMain 'Основная информация' ('Редактирование соглашения',hcDogSoglasie,sci13Esc)
+  Table Dogovor ;
+Fields
+  AttrDog.Subject1   ('Предмет договора', , sci14Esc): noprotect;
+  AttrDog.Subject2   ('Предмет договора', , sci14Esc): noprotect;
+  AttrDog.Subject3   ('Предмет договора', , sci14Esc): noprotect;
+  AttrDog.Otv_My_Fio  ('Фамилия, имя, отчество ответственного', , sci13Esc) : PickButton, noprotect;
+  AttrDog.Otv_My_Post ('Должность ответственного', , sci13Esc) : PickButton, noprotect;
+  AttrDog.Cont_My_FIO  ('Контактное лицо', , sci13Esc) : PickButton, noProtect;
+  AttrDog.Cont_My_Addr ('Контакт'        , , sci13Esc) : PickButton, noProtect;
+  KuratPodr.Name    : Protect;
+  AttrDog.Sign_my_osn('Основание для заключения договора', , sci14Esc): noProtect;
+  KatVidD.Role1      ('Роль контрагента в договоре') : skip;
+  KatOrg.Name        ('Наименование контрагента') : protect,QuickChoice;
+  KatVidD.Role2      ('Роль контрагента в договоре') : skip;
+  KatOrg1.Name       ('Наименование контрагента', , sci134Esc) : protect,QuickChoice;
+
+  isSpDog            ('Присутствие в договоре спецификации') : skip ;
+  Dogovor.SpecStatus ('Статус спецификации')
+    : [LIST 'обязательная',
+            'рекомендательная'], protect ;
+  AktSver.dDoc       ('Дата последнего акта сверки') : [10,'DD/MM/YYYY'],skip ;
+  AktSver.Status     ('Статус последнего акта сверки')
+    : [LIST 'оформляемый',
+            'аннулированный',
+            'проведенный'], skip ;
+  fSkan1             ('Путь на файл со сканом 1' , , sci13Esc) : PickButton, noProtect;
+  fSkan2             ('Путь на файл со сканом 2' , , sci13Esc) : PickButton, noProtect;
+Buttons
+  cmValue2  ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue3  ,,, 'Просмотр подробной информации по контрагенту' ;
+  cmValue5  ,,, 'Спецификация' ;
+  cmSchema  ,,, 'Схема платежей' ;
+  cmValue7  ,,, 'Акт сверки' ;
+  cmAttrib  ,,, 'Просмотр и изменение расширенной информации по документу' ;
+  cmDogSkan1 , [singleLine],,, 'Печать скана 1' ;
+  cmDogSkan2 , [singleLine],,, 'Печать скана 2' ;
+<<
+`Предмет соглашения`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Ответственный`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`Должность`.@@@@@@@@@@@@@@@@@@@@@@@@
+`Контактное лицо`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  `Контакт`.@@@@@@@@@@@@@@@@@@@@@@@@
+`Курирующее подразделение`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+`Основание для заключения соглашения`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+<. Контрагент 1.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Контрагент 2.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+<. Спецификация.> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@  <.    Схема платежей    .>
+
+<. Акт сверки  .> .@@@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@  <.Расширенная информация.>
+
+<. Файл-скан 1 .> .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+<. Файл-скан 2 .> .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end; // screen scDogovorAttachMain
+end; // TabbedSheet
+    HandleEvent
+    cmDogSkan1: {
+    var iRet : integer;
+
+      if (fSkan1 > '') {
+        ExecProgram( 'start'
+                   , oExtAttr.sGetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan1 )
+                   ,'Печать скана 1'
+                   , pfDontWait
+                   , iRet);
+      } else {
+        message('Не задан путь на файл!');
+        }
+    }
+
+    cmDogSkan2: {
+    var iRet : integer;
+
+      if (fSkan2 > '') {
+        ExecProgram( 'start'
+                   , oExtAttr.sGetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan2 )
+                   ,'Печать скана 2'
+                   , pfDontWait
+                   , iRet);
+      } else {
+        message('Не задан путь на файл!');
+        }
+    }
+    end;
+end; // Window wiDogovorAttachMain 'Соглашение' LeftToolbar;
+
+HandleEvent // Interface
+cmPick: {
+var SkanFileName : string;
+
+  if NOT EditDogPosEnabled(FALSE, TRUE)
+    {
+      Abort;
+      Exit;
+    }
+
+  var pOrg : comp;
+
+  case CurField OF
+    #AttrDog.Cont_My_Addr:
+      {
+            if ( GetFirst Persons where (( AttrDog.cCont_My == Persons.nRec )) = tsOk )
+              RunInterface('GetTelephone', AttrDog.cCont_My, AttrDog.Cont_My_Addr)
+            else
+              {
+                Message('Выберите контактное лицо', Information);
+                SelectField(#AttrDog.Cont_My_FIO);
+              }
+      }
+  //************************
+    #AttrDog.Cont_My_FIO:
+      {
+            if ( iGetKau.GetCodeKau(cgiPick, cgKau_KatPersons, AttrDog.cCont_My) > 0 )
+              if ( GetFirst Persons where (( AttrDog.cCont_My == Persons.nRec )) = tsOk )
+                {
+                  set AttrDog.cCont_My    := Persons.nRec;
+                  set AttrDog.Cont_My_Fio := Persons.FIO;
+                }
+      }
+
+   #fSkan1 : {
+     SkanFileName := GetFileName('*.pdf', 'Выберите файл со сканом договора');
+
+     if SkanFileName > '' {
+       oExtAttr.sSetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan1, SkanFileName);
+       ReReadRecord(#Dogovor);
+       }
+     }
+   #fSkan2 : {
+     SkanFileName := GetFileName('*.pdf', 'Выберите файл со сканом договора');
+
+     if SkanFileName > '' {
+       oExtAttr.sSetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan2, SkanFileName);
+       ReReadRecord(#Dogovor);
+       }
+     }
+  end;
+}
+
+cmCheckField: {
+  case CurField OF
+      #AttrDog.Cont_My_Addr
+    , #AttrDog.Cont_My_FIO
+    , #AttrDog.Sign_my_osn
+      : {
+          Update current AttrDog;
+          RereadRecord(#AttrDog);
+      }
+  end;
+}
+
+cmExprFieldChanged: {
+  case CurField of
+      #fSkan1 : {
+         if string(ExprFieldValue) > '' {
+           oExtAttr.sSetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan1, string(ExprFieldValue) );
+           ReReadRecord(#Dogovor1);
+           } else {
+             oExtAttr.DeleteValueID(coDogovor, Dogovor1.nRec, Attr_Skan1);
+             ReDrawPanel(#Dogovor1);
+             }
+      }
+      #fSkan2 : {
+         if string(ExprFieldValue) > '' {
+           oExtAttr.sSetAttrID(coDogovor, Dogovor1.nRec, Attr_Skan2, string(ExprFieldValue) );
+           ReReadRecord(#Dogovor1);
+           } else {
+             oExtAttr.DeleteValueID(coDogovor, Dogovor1.nRec, Attr_Skan2);
+             ReDrawPanel(#Dogovor1);
+             }
+      }
+      #fSmetaSum : {
+         if double(ExprFieldValue) <> 0 {
+           oExtAttr.doSetAttrID(coDogovor, Dogovor1.nRec, Attr_SmetaSum, double(ExprFieldValue) );
+           ReReadRecord(#Dogovor1);
+           } else {
+             oExtAttr.DeleteValueID(coDogovor, Dogovor1.nRec, Attr_SmetaSum);
+             ReDrawPanel(#Dogovor1);
+             }
+      }
+  end;
+}
+
+cmPrintDoc: {
+  RunFReport(dsBrDogovor, '', FALSE);
+  }
+End;
+
+
+end.

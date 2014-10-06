@@ -1,0 +1,65 @@
+// Запрос для составления регистра Р 2.4.3
+
+ select
+        KatOs.NameOs, //Наименование РБП
+        DOGOVOR.NODOC_EXT, //Номер договора
+        DOGOVOR.DINPUT,    //Дата договора
+        DOGOVOR.DBEG, //Дата начала
+        DOGOVOR.DEND //Дата окончания
+        ,SpKauVidPr.NAME //Виды продукции работ, услуг
+        ,KatPodr.Name //Наименование подразделения
+        ,SpKauVidStrah.NAME //Виды страхования
+        ,SPKATOS.SUMIZN //Начисление части страховой премии нарастающим итогом на начало периода
+        ,SPKATOS.SIZNM //Начисление части страховой премии за период
+        ,SpKauShet.Name //Наименование счета БУ для начисления амортизации
+        ,SALDMOUN.SUMS //Сумма оплаты нарастающим итогом на начало периода
+        ,oborot.SUMOB //Сумма оплаты за период
+        from KatOs
+            ,Vidnorma
+            ,KAUREFF
+            ,dogovor
+            ,synonym KAUREFF VipPr
+            ,synonym SpKau SpKauVidPr
+            , NastrOs
+            , SpKatOs
+            ,synonym KAUREFF Schet
+            ,synonym KAUREFF VidStrah
+            ,synonym SpKau SpKauShet
+            ,synonym SpKau SpKauVidStrah
+            ,SALDMOUN
+            ,oborot
+            ,katPodr
+                        where ((16==KatOs.TIDK                                                         // фильтр на НМА
+                           and KatOs.CVID/==VIDNORMA.nrec and (VIDNORMA.Kod='1103') //Личное страхование
+                           and '3000'==KAUREFF.COTABLE //Внешнее КАУ договора к каталогу ОС
+                           and KatOs.Nrec==KAUREFF.cRec
+                           and '14'==KAUREFF.WKAU
+                           and KAUREFF.CKAU==DOGOVOR.Nrec
+                           and KatOs.CPODR==KatPodr.Nrec //Подразделение учета
+                           and '3000'==VipPr.COTABLE //Внешнее КАУ виды продукции, работ, услуг
+                           and KatOs.Nrec==VipPr.cRec
+                           and '20009'==VipPr.WKAU
+                           and VipPr.CKAU==SpKauVidPr.Nrec
+                           and '3000'==VidStrah.COTABLE //Внешнее КАУ виды страхования
+                           and KatOs.Nrec/==VidStrah.cRec
+                           and '20025'==VidStrah.WKAU
+                           and VidStrah.CKAU/==SpKauVidStrah.Nrec and (SpKauVidStrah.CODE='001'       // Фильтр по виду страхования
+                                                                  or SpKauVidStrah.CODE='001001'
+                                                                  or SpKauVidStrah.CODE='001002'
+                                                                  or SpKauVidStrah.CODE='013'
+                                                                  or SpKauVidStrah.CODE='013001'
+                                                                  or SpKauVidStrah.CODE='013002')
+                           and NASTROS.Nrec/== SpKatOs.CNASTROS and (NASTROS.Name='Бухгалтерский учет')
+                           and KatOs.Nrec== SpKatOs.CKATOS
+                           and '3000'==Schet.COTABLE //Внешнее КАУ счет БУ для начисления амортизации
+                           and KatOs.Nrec==Schet.cRec
+                           and '20077'==Schet.WKAU
+                           and Schet.CKAU==SpKauShet.Nrec
+                           and 'N997'==SALDMOUN.SCHETO    //Условие на сальдо для суммы оплаты на начало периода
+                           and DATE(01,05,2008)==SALDMOUN.DATESAL
+                           and '33'==SALDMOUN.SUBOSSCH and (SALDMOUN.KAUOS[2]=KatOs.Nrec)
+                           and 'N997'==oborot.SCHETO  //Условие на оборот для суммы оплаты за период
+                           and '33'==oborot.SUBOSSCH
+                           and  date(01,05,2008)<<=oborot.DATOB
+                           and  date(31,05,2008)>>=oborot.DATOB and  (oborot.KAUOS[2]=KatOs.Nrec)
+                          ));

@@ -1,0 +1,189 @@
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+
+#end
+
+
+
+interface MyViewProv 'Проводки к документу' escclose ;
+create view vMyViewProv
+var
+ wtipdoc:word ;
+ wdocnrec :comp ;
+ wsoprhoz :comp ;
+ MyPlansNo  :comp ;
+ wsum_ob :double ;
+as select soprhoz.nrec
+,RTrim(if (GetAnyKau(word(0),oborot.tblos[1],oborot.kauos[1]),GivenAnName(1),'')) (fieldname=kaud1,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblos[2],oborot.kauos[2]),GivenAnName(1),'')) (fieldname=kaud2,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblos[3],oborot.kauos[3]),GivenAnName(1),'')) (fieldname=kaud3,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblos[4],oborot.kauos[4]),GivenAnName(1),'')) (fieldname=kaud4,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblos[5],oborot.kauos[5]),GivenAnName(1),'')) (fieldname=kaud5,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblos[6],oborot.kauos[6]),GivenAnName(1),'')) (fieldname=kaud6,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblks[1],oborot.kauks[1]),GivenAnName(1),'')) (fieldname=kauk1,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblks[2],oborot.kauks[2]),GivenAnName(1),'')) (fieldname=kauk2,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblks[3],oborot.kauks[3]),GivenAnName(1),'')) (fieldname=kauk3,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblks[4],oborot.kauks[4]),GivenAnName(1),'')) (fieldname=kauk4,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblks[5],oborot.kauks[5]),GivenAnName(1),'')) (fieldname=kauk5,length=50)
+,RTrim(if (GetAnyKau(word(0),oborot.tblks[6],oborot.kauks[6]),GivenAnName(1),'')) (fieldname=kauk6,length=50)
+,if(isvalid(tnkatd),
+ if(katd.KODTABLE[1]<>oborot.tblos[1] or katd.KODTABLE[2]<>oborot.tblos[2]
+ or katd.KODTABLE[3]<>oborot.tblos[3] or katd.KODTABLE[4]<>oborot.tblos[4]
+ or katd.KODTABLE[5]<>oborot.tblos[5] or katd.KODTABLE[6]<>oborot.tblos[6]
+ , true ,false ),false) (fieldname=kaud_err)
+,if(isvalid(tnkatk),
+ if(katk.KODTABLE[1]<>oborot.tblks[1] or katk.KODTABLE[2]<>oborot.tblks[2]
+ or katk.KODTABLE[3]<>oborot.tblks[3] or katk.KODTABLE[4]<>oborot.tblks[4]
+ or katk.KODTABLE[5]<>oborot.tblks[5] or katk.KODTABLE[6]<>oborot.tblks[6]
+ , true ,false ),false) (fieldname=kauk_err)
+
+from oborot(readonly),soprhoz(readonly) , soprhoz soprhoz1(readonly)
+,PLANSSCH(readonly)  
+, katpodr katpodrd(readonly) , katpodr katpodrk(readonly)
+, buhschet katd
+, buhschet katk
+where ((  wsoprhoz ==  soprhoz.nrec
+  and soprhoz.tipdoc == oborot.tidk
+  and soprhoz.csoprdoc == oborot.csoprdoc
+  and MyPlansNo == oborot.cplanssch
+  and MyPlansNo == PLANSSCH.NREC
+  and oborot.kodspo == katpodrd.nrec
+  and oborot.kodspk == katpodrk.nrec
+  and oborot.scheto== katd.schet
+  and oborot.subossch == katd.subsch
+  and oborot.schetk== katk.schet
+  and oborot.subschk == katk.subsch
+  and wtipdoc == soprhoz1.tipdoc
+  and wdocnrec == soprhoz1.CSOPRDOC
+ )) ;
+parameters
+ wtipdoc , wdocnrec ,wsoprhoz ;
+
+#include -GET_US0.VPP
+
+screen scrmain show at (,,,3) ;
+table soprhoz ;
+fields
+  planssch.name : protect,skip ;
+  soprhoz.summa : [10.2] ,protect,skip ; 
+  soprhoz.nodoc : protect,skip ;
+  soprhoz.datob : protect,skip ;
+  wsum_ob :[10.2] , { Font = { Color = if (soprhoz.summa<>wsum_ob, ColorSysRed, 0 )}}  ,protect,skip ; 
+<<
+ План счетов .@@@@@@@@@@@@@@@@@@@@@@@@@@@       Сумма докум. .@@@@@@@@@@@
+ Документ .@@@@@@@@@@@@@@@@@@@@@ от .@@@@@@@@@@ Сумма пров.  .@@@@@@@@@@@
+>> 
+end; 
+
+#IFDEF _OB_INT_
+Embedded embEditOborot 'Проводки по типовой хозяйственной операции к документу.' Interface iSyncOborot.wnEdit;
+  Show at(,5);
+End;
+
+Procedure onAfterEditOborot;
+{
+  if not CheckSumProv
+    ModifOborot := true;
+}
+#else
+
+browse broborot   Show at(, 4 , ,14);
+table oborot ;
+fields
+{ Font = { Color = if (kaud_err or kauk_err, ColorSysRed, 0 )}} ;
+  oborot.DATOB 'Дата ' :[10], protect ;
+  oborot.sumob 'Сумма'  :[10.2] ,protect ;
+  oborot.DBSCHETO+'/'+oborot.SUBOSSCH 'Деб.Сч/суб' :[6], protect ;
+  katpodrd.name 'Д.подр.' :[20], protect ;
+  kaud1+'/'+kaud2+'/'+kaud3+'/'+kaud4+'/'+kaud5+'/'+kaud6 'Д.аналитика' :[30] ,protect ;
+  oborot.KRSCHETK+'/'+oborot.SUBSCHK  'Кред.Сч/суб' :[6], protect ;
+  katpodrk.name 'К.подр.' :[20], protect ;
+  kauk1+'/'+kauk2+'/'+kauk3+'/'+kauk4+'/'+kauk5+'/'+kauk6 'К.аналитика' :[30] ,protect ;
+  
+end ;
+
+screen scroborot show at (,15)
+table oborot ;
+fields
+oborot.DBSCHETO+'/'+oborot.SUBOSSCH : protect ; 
+  katpodrd.name: { Font = { backColor = if ((katd.VISIB and 2)=0 and oborot.kodspo=0, ColorSysRed, 0 )}},protect ;
+  oborot.sumob : [10.3] protect ;
+  //(katd.VISIB and 2)=0 and oborot.kodspo=0
+#declare NameTabField(Num)
+    [wKauD#Num]   if(isValid(tnkatd), LoCase(GetAnalitikName(katd.KodTable[#Num])), '')         : protect;
+    kaud#Num: { Font = { backColor = if (katd.KODTABLE[#Num]<>oborot.tblos[#Num], ColorSysRed, 0 )}},protect ;
+#end    
+  #NameTabField(1)
+  #NameTabField(2)
+  #NameTabField(3)
+  #NameTabField(4)
+  #NameTabField(5)
+  #NameTabField(6)
+#undef NameTabField
+  oborot.KRSCHETK+'/'+oborot.SUBSCHK: protect ;
+  katpodrk.name: { Font = { backColor = if ((katk.VISIB and 2)=0 and oborot.kodspk=0, ColorSysRed, 0 )}},protect ;
+  OBOROT.VHPROP : protect ;
+#declare NameTabField(Num)
+    [wKauk#Num]   if(isValid(tnkatd), LoCase(GetAnalitikName(katk.KodTable[#Num])), '')         : protect;
+    kauk#Num: { Font = { backColor = if (katk.KODTABLE[#Num]<>oborot.tblks[#Num], ColorSysRed, 0 )}},protect ;
+#end    
+  #NameTabField(1)
+  #NameTabField(2)
+  #NameTabField(3)
+  #NameTabField(4)
+  #NameTabField(5)
+  #NameTabField(6)
+#undef NameTabField  
+  OBOROT.SODPR : protect ;
+<<
+Дебет .@@@@@@@@@ Подразделение .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@
+1 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@ 2 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+3 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@ 4 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+5 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@ 6 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Кредит .@@@@@@@@ Подразделение .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Вх.в сумму .@@
+1 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@ 2 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+2 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@ 4 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+5 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@ 6 .@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Содержание .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+end;
+
+#endif 
+handleevent
+cmInit: {
+ if wsoprhoz=0
+ { if getfirst soprhoz1=0
+   { wsoprhoz:=soprhoz1.nrec ;
+   }  
+ } 
+ if getfirst soprhoz<>0
+ { message('Не найдена хозоперация по документу')
+   closeinterface(cmDone) ;
+   abort
+   exit ;
+ }
+ if not GetUserTuneParam(MyPlansNo)
+    exit;
+#IFDEF _OB_INT_
+  iSyncOborot.InitEdit;
+     iSyncOborot.Sync;
+        iSyncOborot.SetParams(TDocument(Self), iPSManager, cgiOborot_SoprHozOborot, cgiOborot_SoprHozOborot);
+        iSyncOborot.InitView;
+        BindEvent(onAfterEditOborot, iSyncOborot.EventAfterEdit);
+#endif
+ wsum_ob :=0 ;
+ _loop oborot
+ { wsum_ob:=wsum_ob+if(OBOROT.VHPROP='-',0,oborot.sumob)
+ }
+ if getfirst oborot =0 {}
+ rescanpanel(#soprhoz) ;
+ rescanpanel(#oborot) ;
+}
+cmDone:
+{
+#IFDEF _OB_INT_
+    iSyncOborot.FreeLinks;
+#endif
+}
+end;
+end. 

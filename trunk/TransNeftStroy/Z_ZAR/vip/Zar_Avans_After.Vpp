@@ -1,0 +1,292 @@
+//DEFINE ZAR_CTZ_VIPL_TEST //- сделал отчет
+//========================
+// для разбики выплат по суммам
+//========================
+// пробуем расчитать сумму фонда
+//========================
+// Считаем процнт удержнаия алиментов
+//========================
+Function CalCNalAlimProc :double;
+var ww_sunach,ww_suuder:double
+{ CalCNalAlimProc:=1.13
+  ww_sunach:=0;ww_suuder:=0;
+  _loop fullcache nachisl
+  { wvo_fond:=nachisl.vidopls
+    if getfirst fastfirstrow KLVIDOPL=0 
+    { if KLVIDOPL.VHVO[6]='+' //'Вид оплаты входит в расчет алиментов'
+      { ww_sunach:=ww_sunach+nachisl.summa
+      }
+    }
+  }
+  _loop fullcache uder
+  {  if uder.vidud>=185 and uder.vidud<=191
+     { ww_suuder:=ww_suuder+uder.sumud;
+     }
+  }
+  CalCNalAlimProc:=1.13+if(ww_sunach>0,round(ww_suuder/ww_sunach,2),0)
+} //Function CalCNalAlimProc :double;
+//==========================
+Procedure Ins_tmp_fond(const wwsu:double;wwud:double;const wwvo:word);
+var ww_param:string;
+{ wpa_fond:=0
+  wvo_fond:=wwvo
+  if wwsu=0 then exit;
+  if getfirst fastfirstrow tmp_fond_vo<>0
+  { ww_param:=''
+    if getfirst fastfirstrow klvidopl=0 then 
+    { wc_spkau:=coTXOGetExtAttr('KLVIDOPL','Фонд выплаты',klvidopl.nrec) 
+      if getfirst fastfirstrow spkau=0 then 
+      { if spkau.code='Ф_НЕТ' then ww_param:='';
+        else ww_param:=spkau.code;
+      }
+#IFDEF ZAR_CTZ_VIPL_TEST
+     displ(string(wc_spkau)+','+ww_param+','+string(klvidopl.vidopl)+'/'+string(klvidopl.vidoplp))
+#ENDIF
+     if klvidopl.nalg=97 or klvidopl.nalg=98 ww_param:='';
+     if wc_spkau=0 //or spkau.code=''
+     { //displ(' вид оплаты (сист./польз.) '+string(klvidopl.vidopl)+'/'+string(klvidopl.vidoplp)+' - не привязан атрибут с фондом' )
+       ww_param:='Ф_ФЗП'
+     } 
+    }   
+    else
+    { displ(' не найден системный вид оплат '+string(wwvo)+', таб.='+string(lschet.tabn) )
+    }
+    insert into tmp_fond_vo
+        set tmp_fond_vo.pa:=0
+           ,tmp_fond_vo.vidopl:=wwvo
+           ,tmp_fond_vo.name:=ww_param
+  }
+  if tmp_fond_vo.name=''  exit;
+  // запомним сумму
+#IFDEF ZAR_CTZ_VIPL_TEST
+     displ('пишем сумму '+string(wwsu,0,2)+','+tmp_fond_vo.name)
+#ENDIF
+  su_nach:=su_nach+wwsu;
+  if getfirst tmp_fond_div where ((
+     tmp_fond_vo.name == tmp_fond_div.name
+     ))<>0
+  { insert into tmp_fond_div set
+         tmp_fond_div.summa       :=wwsu
+       // ,tmp_fond_div.sumvipl_meg :=wwud  - да не зачем тут уже учитывать - только авансы
+        ,tmp_fond_div.name:=tmp_fond_vo.name  
+  }
+  else
+  { update current tmp_fond_div 
+      set tmp_fond_div.summa :=tmp_fond_div.summa+wwsu
+       //  ,tmp_fond_div.sumvipl_meg:=tmp_fond_div.sumvipl_meg+wwud
+     ;
+  }     
+}//Procedure Ins_tmp_fond(wwsu:double;wwvo:word);
+#DECLARE ZAR_CTZ_VU_D
+or ((wwvo>144 and wwvo<=149) or wwvo=201 or (wwvo>=220 and wwvo<=230) or wwvo=199)
+#END  
+
+Procedure Ins_tmp_vipl(const wwsu:double;wwvo:word);
+var ww_param:string;
+{ ww_param:=''
+  if wwvo=0 then // аванс
+  {  ww_param:='Ф_ФЗП'
+  }
+  else
+  { wpa_fond:=1
+    wvo_fond:=wwvo
+    if getfirst fastfirstrow tmp_fond_vo<>0
+    { if getfirst fastfirstrow klvidud=0
+      { if klvidud.VHVO3=0 // перечисление VHVO3=0 
+        #ZAR_CTZ_VU_D //20100708 - тоже считаем выплатами
+        { 
+          if False // klvidud.PARAM<>''
+          { ww_param:=klvidud.PARAM
+          }
+          else
+          { ww_param:='Ф_ФЗП'
+          }
+        }
+      }
+      insert into tmp_fond_vo set
+         tmp_fond_vo.pa:=1
+        ,tmp_fond_vo.vidopl:=wwvo
+        ,tmp_fond_vo.vidoplp:=klvidud.vidudp
+        ,tmp_fond_vo.name:=ww_param
+        ,tmp_fond_vo.VHVO3:=klvidud.VHVO3
+      ; 
+    }
+    else ww_param:=tmp_fond_vo.name;
+    wwvo:=tmp_fond_vo.vidoplp;
+  }//  else if wwvo=0 ww_param:='Ф_ФЗП'
+  if ww_param='' then exit;
+//  if not ((wwvo>=206 and wwvo<=210) or (wwvo>=220 and wwvo<=230)) // не окончательная выплата
+//207 будем всегда считать ФЗП
+  if wwvo<220 or wwvo>230
+  { if wwvo=0 or (wwvo>=206 and wwvo<=210) or (wwvo<>0 and tmp_fond_vo.VHVO3='0')  // аванс + частичные выплаты
+    #ZAR_CTZ_VU_D //20100708 - тоже считаем выплатами
+    { if getfirst tmp_fond_div where ((
+        ww_param == tmp_fond_div.name   ))<>0
+      { insert into tmp_fond_div set
+           tmp_fond_div.sumvipl_meg :=wwsu 
+          ,tmp_fond_div.name:=ww_param  
+      }
+      else
+      { update current tmp_fond_div 
+        set tmp_fond_div.sumvipl_meg:=tmp_fond_div.sumvipl_meg+wwsu  ;
+      }   
+      su_vipl_meg:=su_vipl_meg+wwsu;  
+    }  
+  }
+  else
+  { su_vipl:=su_vipl+wwsu;
+    wc_uder:=uder.nrec
+#IFDEF ZAR_CTZ_VIPL_TEST
+    displ('есть выплата 1 '+string(su_vipl,10,2))
+#ENDIF
+  }
+  
+}//Procedure Ins_tmp_vipl(wwsu:double;wwvo:word);
+#UNDEF ZAR_CTZ_VU_D
+//========================
+//1 - тек,89 - буд. - уд.межпериод
+//========================
+Function Viplata_DIV:boolean;
+var 
+  wsu_vipl_it,wsu_vipl:double;
+  ww_name:string;
+  w_fond_max_su:double ;
+  w_fond_max_name:string;
+  ww_proc:double;
+  kl_blisnet:boolean;
+{ Viplata_DIV:=false;
+  ww_proc:=0;
+  if type_period<>0 then exit; // будущий период не дробим!!
+
+  if getfirst shtraf where (( 201 == Shtraf.vidud and LSCHET.NREC == SHTRAF.CLSCH ))=0 
+  { update current shtraf set SHTRAF.SUMUD:=0, SHTRAF.SUMUDALL:=0,SHTRAF.SBOR:=0 ;
+    // можно просто удалить и вставить занового с 201
+  } else 
+  { if getfirst shtraf where (( 220 == Shtraf.vidud and LSCHET.NREC == SHTRAF.CLSCH ))<>0 
+    { displ('Для табельного номера '+ GetStrTabn(Lschet.Tabn,Lschet.StrTabn) +' нет 220 вида в постоянных удержаниях')
+      exit
+    }
+    shtraf.vidud:=201;
+    shtraf.nrec:=0
+    shtraf.sumud:=0;
+    SHTRAF.SUMUDALL:=0
+    SHTRAF.SBOR:=0
+    insert current shtraf;
+  }
+
+  wchoice_prvidopl:=if(type_period=0,0,99)
+  delete all tmp_fond_div;
+#IFDEF ZAR_CTZ_VIPL_TEST
+  displ('Viplata_DIV')
+#ENDIF
+  su_nach:=0;
+  su_vipl:=0;
+  su_vipl_meg:=0;
+  su_nach_meg:=0
+  wc_uder:=0;
+  _loop fullcache nachisl
+  { 
+#IFDEF ZAR_CTZ_VIPL_TEST
+    displ('nachisl vo='+string(nachisl.vidopl)+', '+string(nachisl.summa,10,2))
+#ENDIF
+    Ins_tmp_fond(nachisl.summa,0,nachisl.vidopls)
+  }
+  //добавим аванс
+ //  Ins_tmp_vipl(if(type_period=0,LSCHET.AVFAKT,LSCHET.SUMMA28),0)
+  _loop fullcache uder
+  { 
+#IFDEF ZAR_CTZ_VIPL_TEST
+   displ('uder vo='+string(uder.vidud)+', '+string(uder.sumud,10,2))
+#ENDIF
+     //if (uder.vidud>=220 and uder.vidud<=230) // or (uder.vidud>=207 and uder.vidud<=210)  
+     Ins_tmp_vipl(uder.sumud,uder.viduds)
+     
+
+  }
+  if su_vipl+su_vipl_meg>0 //and su_vipl_meg wc_uder>0
+  { 
+#IFDEF ZAR_CTZ_VIPL_TEST
+   displ(' Нечисленно '+string(su_nach)+', выплата = '+string(su_vipl)+', аванс = '+string(su_vipl_meg)+    ', '+string(wc_uder))
+#ENDIF
+    ww_name:='' ; wsu_vipl:=0 ;wsu_vipl_it:=0
+    su_nach:=0
+    w_fond_max_su:=-999999999 ;
+    w_fond_max_name:='';
+    // отнимем межпериод
+    external _loop tmp_fond_div 
+    { //update current tmp_fond_div set
+      //  tmp_fond_div.summa:=tmp_fond_div.summa-tmp_fond_div.sumvipl_meg
+      if tmp_fond_div.summa>w_fond_max_su
+      { w_fond_max_su  :=tmp_fond_div.summa ;
+        w_fond_max_name:=tmp_fond_div.name ;
+      }
+
+      if tmp_fond_div.summa<=0 // если меньше 0 то не берем в расчет
+      { //update current tmp_fond_div set tmp_fond_div.summa:=0;
+        delete current tmp_fond_div
+      }  
+      else
+      {  su_nach:=su_nach+tmp_fond_div.summa;  
+      }
+    }
+    // расчитаем сууму выплат по фондам
+    external _loop tmp_fond_div 
+    { update current tmp_fond_div set
+//       tmp_fond_div.sumvipl:=round(tmp_fond_div.summa*su_vipl/su_nach,2)
+      tmp_fond_div.sumvipl:=round(tmp_fond_div.summa*(su_vipl+su_vipl_meg)/su_nach,2) //-tmp_fond_div.sumvipl_meg
+#IFDEF ZAR_CTZ_VIPL_TEST
+   displ('Установили сумму выплаты по фонду= '+tmp_fond_div.name+' '+string(tmp_fond_div.sumvipl) )
+#ENDIF   
+
+      if tmp_fond_div.sumvipl<=0 // все выплатаили авансам - ну не снимать же теперь
+      { delete current tmp_fond_div
+      }
+      else
+      { if tmp_fond_div.sumvipl>wsu_vipl
+        { wsu_vipl:=tmp_fond_div.sumvipl
+          ww_name :=tmp_fond_div.name
+        } 
+        wsu_vipl_it:=wsu_vipl_it+tmp_fond_div.sumvipl;
+      }  
+    }
+    if su_vipl+su_vipl_meg<>wsu_vipl_it
+    { if getfirst tmp_fond_div where ((ww_name==tmp_fond_div.name))=0
+      { update current tmp_fond_div set 
+          tmp_fond_div.sumvipl:=tmp_fond_div.sumvipl+su_vipl+su_vipl_meg-wsu_vipl_it ;
+        if tmp_fond_div.sumvipl<0
+        { wsu_vipl_it:=tmp_fond_div.sumvipl;
+          //pdate current tmp_fond_div set  tmp_fond_div.sumvipl:=0;
+          delete current tmp_fond_div;
+          _loop fullcache tmp_fond_div where (tmp_fond_div.sumvipl>0 )
+          { if (tmp_fond_div.sumvipl>- wsu_vipl_it)
+            { update current tmp_fond_div set 
+                tmp_fond_div.sumvipl:=tmp_fond_div.sumvipl+wsu_vipl_it;
+              break  
+            }
+            else
+            { wsu_vipl_it:=wsu_vipl_it+tmp_fond_div.sumvipl
+              //update current tmp_fond_div set    tmp_fond_div.sumvipl:=0;
+              delete current tmp_fond_div;
+            }
+          }
+        }
+      } 
+    }
+    wsu_vipl_it:=0
+    // ура пишем что получилось!!!
+    external _loop tmp_fond_div 
+    { if tmp_fond_div.name='Ф_ФМП'
+      { update current shtraf set shtraf.sumud:=tmp_fond_div.sumvipl; 
+#IFDEF ZAR_CTZ_VIPL_TEST
+   displ('Установили сумму премии '+GetStrTabn(Lschet.tabn,Lschet.StrTabn)+' '+string(tmp_fond_div.sumvipl) )
+#ENDIF   
+        su_vipl:=su_vipl- tmp_fond_div.sumvipl;
+      }                                           
+    }
+  }
+#IFDEF ZAR_CTZ_VIPL_TEST
+   displ('Установили аванс '+GetStrTabn(Lschet.tabn,Lschet.StrTabn)+' '+string(su_vipl+su_vipl_meg))
+#ENDIF   
+    update current Lschet set LSCHET.AVFAKT:=su_vipl+su_vipl_meg;
+    Viplata_DIV:=true;
+} //Viplata_DIV

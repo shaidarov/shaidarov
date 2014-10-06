@@ -1,0 +1,101 @@
+Interface FRO 'Замена подразделения на филиал в оборотах';
+Show at (10,5,70,20);
+
+view
+var
+ c1: comp;
+ c2: comp;
+ d1: Date;
+ aRadioButton: byte;
+ aCheckBox: byte;
+
+    as select * from
+    katpodr
+  , oborot
+  , synonym katpodr katpodr1
+     where (( oborot.kodspo == katpodr.nrec
+          and oborot.kodspk == katpodr1.nrec
+           ));
+
+Screen s_param
+fields
+ d1           : NoProtect;
+Buttons
+   cmUpMVZ;
+   cmGetCancel;
+<<
+                `дата проводок :` .@@@@@@@@@@@@
+
+
+              <. Выполнить .>            <.   Выход   .>
+>>
+End;
+
+HandleEvent
+cmInit : {
+       d1:=Cur_Date;
+       c1:=0001000000000010h;
+       c2:=000100000001BBD8h;
+
+       Runinterface(Z_KATPODR::GetGrPodr,c1);
+
+        Case c1 of
+             0001000000000010h : {
+                       c2:=000100000001BBD8h;
+				}
+             0001000000000015h : {
+//                       c2:=000100000001C584h;
+            message('Для Москвы данная функция не запускается на выполнение');
+            Abort;
+            Exit;
+            CloseInterface(cmCancel);
+				}
+        end;
+}
+
+cmUpMVZ : {
+                update oborot where (( d1              == Oborot.datob
+                                   and 'T69'           == Oborot.schetk
+                                   and Oborot.kodspk  /== katpodr1.nrec ))
+                                   and katpodr1.CGRPODR = c1
+                                   set oborot.kodspk := c2;
+
+                update oborot where (( d1              == Oborot.datob
+                                   and 'T70'           == Oborot.schetk
+                                   and Oborot.kodspk  /== katpodr1.nrec))
+                                   and katpodr1.CGRPODR = c1
+                                   set oborot.kodspk := c2;
+
+                update oborot where (( d1              == Oborot.datob
+                                   and 'T69'           == Oborot.scheto
+                                   and Oborot.kodspo  /== katpodr.nrec))
+                                   and katpodr.CGRPODR = c1
+                                   set oborot.kodspo := c2;
+
+                update oborot where (( d1              == Oborot.datob
+                                   and 'T97'           == Oborot.scheto
+                                   and Oborot.kodspo  /==katpodr.nrec))
+                                   and katpodr.CGRPODR = c1
+                                   set oborot.kodspo := c2;
+
+                update oborot where (( d1              == Oborot.datob
+                                   and 'T91'           == Oborot.scheto
+                                   and '05'            == Oborot.subossch
+                                   and Oborot.kodspo  /== katpodr.nrec))
+                                   and katpodr.CGRPODR = c1
+                                   set oborot.kodspo := c2;
+
+                update oborot where (( d1              == Oborot.datob
+                                   and 'T91'           == Oborot.schetk
+                                   and '05'            == Oborot.subschk
+                                   and Oborot.kodspk  /== katpodr1.nrec))
+                                   and katpodr1.CGRPODR = c1
+                                   set oborot.kodspk := c2;
+
+                Message ('подразделение в проводках заменено на филиал');
+}
+cmGetCancel:
+  PutCommand(cmCancel);
+
+end;
+end.

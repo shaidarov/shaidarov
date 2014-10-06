@@ -1,0 +1,597 @@
+#include TxoApi.vih
+#include aRefTable.vih
+#include ChgPar.vih
+#include ExtAttr.vih
+
+#doc
+  ТХО АПИ алгоритм для вытаскивания сумм ПР к начислению
+#end
+VipInterface TXO_OsRazn_v2 implements ObjTxoIdentPlugin;
+
+Interface TXO_OsRazn_v2;
+
+  const
+    wOsRaznPRSt = 7715; // раздел записей OsRazn в которых будут сохраняться дополнительные данные по постоянным разницам
+
+    idVipInfo = '&VIP[Obj:"OsRazn_v2"]';
+    idVipTag  = 'OsRazn_v2';
+  end;
+
+  var piRefTable : viRefTable;
+  #include ExtAttr.var
+
+  Create View
+  Var
+    Param_Result          : word;        // Параметр "Результат" - один из числовых реквизитов документа
+
+    CurSoprHoz    : comp;
+    CurTiDkGal    : word;
+    CurSoprDoc    : comp;
+    CurDatOb      : date;
+    CurCValut     : comp;
+    CurHTxo       : longint;
+
+    CurNaklSpOrder  : comp;
+    CurNaklSpSopr   : comp;
+    CurSaleSklOrder : comp;
+    CurSaleKatSopr  : comp;
+    CurSaleBaseDoc  : comp;
+    CurSaleKatParty : comp;
+    CurSaleKatMc    : comp;
+
+    CurOsRaznDate    : date;
+    CurOperType      : word;
+    tmpFisrtDayMonth : date;
+
+  as select
+    *
+  from
+      katos
+    , SpKatOs
+
+    , SoprHoz     (readonly)
+    , SpMove
+    , SPMOVEOS
+    , MoveOS
+    , NastrOS
+    , OsRazn
+    , OsRazn OSRaznPRSt
+
+    ,ArcIznos                  (readonly)
+    ,KauReff     (readonly)
+    ,MbpIn       (readonly)
+    ,MoveOs      MoveOsExtKau  (readonly)
+    ,SpMove      SpMoveExtKau  (readonly)
+    ,SpMoveOs    SpMoveOsExtKau(readonly)
+
+    ,BaseDoc     SaleBaseDoc   (readonly)
+    ,SpGrSch     SaleSpGrSch   (readonly)
+    ,KatSopr     SaleKatSopr   (readonly)
+    ,Dogovor     SaleDogovor   (readonly)
+    ,SklOrder    SaleSklOrder  (readonly)
+    ,KatParty    SaleKatParty  (readonly)
+    ,KatMc       SaleKatMc     (readonly)
+
+ where
+ ((
+
+    CurSoprHoz           ==  SoprHoz.Nrec        and // ─ Запись ЖХО
+    CurSoprDoc           ==  SpMove.Nrec         and // ─ операция ОС/НМА по методу учета
+    SpMove.cNastrOs      ==  NastrOs.Nrec        and // ─ метод учета
+    SpMove.cMoveOs       ==  MoveOs.Nrec         and // ─ сама операция ОС/НМА
+    MoveOs.cOsnov        ==  KlassOs.nRec        and
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // ограничения для цикла по спецификации операции ОС/НМА
+    word(1)              ==  SpMoveOs.IsLeaf     and // ┐ спецификация операции ОС/НМА по методу учета word(1) обрабатываем только листики
+    CurSoprDoc           ==  SpMoveOs.cSpMove    and // ┘ спецификация операции ОС/НМА по методу учета
+    SpMoveOs.cKatOs      ==  KatOs.Nrec          and // ┐ карточка ОС/НМА
+
+        KatOs.TiDk        == OsRazn.TiDk
+    and CurOsRaznDate     == OsRazn.Data
+    and KatOs.Nrec        == OsRazn.cDoc
+
+    and wOsRaznPRSt       == OSRaznPRSt.TiDk
+    and CurOsRaznDate     == OSRaznPRSt.Data
+    and KatOs.Nrec        == OSRaznPRSt.cDoc
+
+    and
+    KatOs.Nrec           ==  SpKatOS.cKatOS      and // │<┐ данные из карточки ОС/НМА по методу учета
+    NastrOs.Nrec         ==  SpKatOS.cNastrOS    and // │<┘
+
+    SpMoveOs.cKatOs      ==  ARCIZNOS.cKatos     and  // архив за предыдущий месяц
+    SpMoveOs.cNastrOs    ==  ARCIZNOS.cNastrOs   and
+    CurDatOb            >>=  ARCIZNOS.Data       and
+
+    coKatOs              ==  KauReff.coTable     and // │<┐ внешние КАУ из карточки OS
+    KatOs.Nrec           ==  KauReff.cRec        and // │<┘
+    KatOs.cOrigDoc       ==  MbpIn.Nrec          and //<┤<─ if KatOs.wOrigType = osfMBP
+
+ // Для получения значений Внешних КАУ до изменения в текущем периоде из операций "Изменение параметров"
+    SpMoveOs.cNastrOs     ==  SpMoveOsExtKau.cNastrOs and
+    SpMoveOs.cKatOs       ==  SpMoveOsExtKau.cKatOs   and
+    CurDatOb             >>=  SpMoveOsExtKau.DatOb    and
+
+    SpMoveOsExtKau.cMoveOs  ==  MoveOsExtKau.NRec     and
+    SpMoveOsExtKau.cSpMove  ==  SpMoveExtKau.NRec     and
+
+    CurSaleBaseDoc         == SaleBaseDoc.NRec        and  // шапка ДО на продажу ОС/НМА
+    word(0)                == SaleSpGrSch.wList       and  // привязка ДО к группам (для получения аналитики по Группам ДО)
+    CurSaleBaseDoc         == SaleSpGrSch.cBaseDoc    and
+    CurSaleKatSopr         == SaleKatSopr.NRec        and  // шапка накладной на продажу ОС/НМА
+    SaleKatSopr.cDogovor   == SaleDogovor.Nrec        and  // Договор (для получения аналитики по видам договоров и доп. классификации договоров)
+    CurSaleSklOrder        == SaleSklOrder.Nrec       and  // приходный ордер для последующей продажи
+    CurSaleKatParty        == SaleKatParty.Nrec       and  // Партия МЦ (для получения аналитики по группам партий МЦ)
+    CurSaleKatMc           == SaleKatMc.nRec               // Каталог МЦ (для получения аналитики по группам МЦ)
+  ));
+
+
+function ResultCm2Str(wRes : word; m : word) : string;
+{
+   ResultCm2Str := '';
+   case wRes of                      /*0  Параметр */     /* 1  Операции */   /*2 Расшифровка */                                            /*3 Правило для выбора поля таблицы */
+     cmValue33  : ResultCm2Str := if(m=0, 'ПРНМ'      , if(m=1, '1;2;3;4;5;6;7;9' , 'Начислено постоянной разницы на начало месяца'                ));//НПРНМ     1;2;3;4;5;7;9 OSRAZN.PR
+     cmValue28  : ResultCm2Str := if(m=0, 'ПР'        , if(m=1, '1;2;3;4;5;6;7;9' , 'Начислено за месяц постоянной разницы'                 )); //ПР        1;2;3;4;5;7;9   OSRAZN.PRM
+
+     cmValue1  : ResultCm2Str := if(m=0, 'ПРКННАЧМ'    , if(m=1, '1;2;3;4;5;6;7;9' , 'Постоянная разница к начислению на начало месяца'                ));//НПРНМ     1;2;3;4;5;7;9
+     cmValue2  : ResultCm2Str := if(m=0, 'ПРКНУВЕЛМ'    , if(m=1, '1;2;3;4;5;6;7;9' , 'Увеличение постоянной разницы к начислению в месяце'                ));//НПРНМ     1;2;3;4;5;7;9
+     cmValue3  : ResultCm2Str := if(m=0, 'ПРКНУМЕНМ'    , if(m=1, '1;2;3;4;5;6;7;9' , 'Уменьшение постоянной разницы к начислению в месяце'                ));//НПРНМ     1;2;3;4;5;7;9
+     cmValue4  : ResultCm2Str := if(m=0, 'ПРКНКОНМ'    , if(m=1, '1;2;3;4;5;6;7;9' , 'Постоянная разница к начислению на конец месяца'                ));//НПРНМ     1;2;3;4;5;7;9
+   end;
+}
+
+//------------------------------------------------------------------------------
+function ResultStr2Cm(sRes : string) : word;
+{
+   ResultStr2Cm := 0;
+   case sRes of
+     'ПРНМ'      : ResultStr2Cm := cmValue33 ;
+     'ПР'        : ResultStr2Cm := cmValue28;
+
+     'ПРКННАЧМ'  : ResultStr2Cm := cmValue1;
+     'ПРКНУВЕЛМ' : ResultStr2Cm := cmValue2;
+     'ПРКНУМЕНМ' : ResultStr2Cm := cmValue3;
+     'ПРКНКОНМ'  : ResultStr2Cm := cmValue4;
+   end;
+}
+
+
+Window winParam 'Параметры идентификатора' EscClose, DoAccept;
+  Show at (5,1,90,10);
+
+TabbedSheet tbParam;
+ Screen scParam 'Параметры';
+ table SPMOVE;
+Fields
+  [ParamResultFld]   ResultCm2Str(Param_Result,2)+' ['+ResultCm2Str(Param_Result,0)+']' ('Параметр "Результат" - один из числовых реквизитов документа',,sci13EnEsc) : protect, pickbutton;
+<<
+ `Результат`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+End;  // screen
+
+//------------------------------------------------------------------------------
+Screen scInfo 'Информация';
+table SPMOVE;
+<<
+
+
+>>
+End;  // screen
+End;  // TabbedSheet
+
+End;   // Window
+
+procedure MyCheckField;
+{
+}
+
+TableEvent table SpMove;
+  cmPick :
+    {  case CurField of
+         #ParamResultFld :
+         {
+           var tmpCm   : word;
+           tmpCm := RunMenu('TXO_OsRazn_v2_Result');
+           if( tmpCm <> cmCancel ) set Param_Result := tmpCm;
+         }
+       end;
+       MyCheckField;
+    }
+  cmDelOnProtect :
+    {  case CurField of
+         #ParamResultFld     : set Param_Result       := cmValue1;
+       end;
+       MyCheckField;
+    }
+End;
+
+function GetInfo : string;
+{
+  GetInfo := 'Получение остатка разниц на конец периода';
+}
+
+function ParamGen : string;
+{
+  var s : string;
+  s := '';
+  if( Param_Result <> 0 ) s := s + '[Рез:'+ResultCm2Str(Param_Result,0)+']';
+  result := s;
+}
+
+function ParamMaster : string;
+{
+   ParamMaster := '';
+   if( RunWindowModal(winParam)=cmDefault )
+     ParamMaster := ParamGen;
+}
+
+procedure ParamParser;
+{
+   var s : String;
+   var i : Longint;
+
+   // - Значения параметров по умолчанию -----------------------------------------------------------
+   Param_Result          := cmValue7;   // Параметр "Результат"
+
+   // - Разбор параметров --------------------------------------------------------------------------
+   for( i:=1; i<=TxoParamCount(CurHTxo); i:=i+1 )
+   {  TxoDebugMsg(CurHTxo, idVipTag, '['+TxoParamName(CurHTxo,i)+':'+TxoParamValue(CurHTxo,i)+'] '+string(i)+' of '+string(TxoParamCount(CurHTxo)));
+      case TxoParamName(CurHTxo,i) of
+        'РЕЗ': {  Param_Result := ResultStr2Cm(TxoParamValue(CurHTxo,i));
+                  if( Param_Result = 0 )
+                    TxoDebugMsg(CurHTxo, idVipTag, 'Ошибка 1 разбора параметра ['+TxoParamName(CurHTxo,i)+':'+TxoParamValue(CurHTxo,i)+']');
+               }
+      end;
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// ПИР 101.46375 - функцию GetPersonByMol лучше сделать на дополнительной ЛТ (логической таблице)
+// чтобы не разрушались запросы в главной ЛТ интерфейса при выгрузке данных из БД.
+create view vKatMol
+  var cKatMol : comp;
+  as select KatMol.cPersons from KatMol where (( cKatMol == KatMol.Nrec ));
+
+//------------------------------------------------------------------------------
+function GetPersonByMol(cMol:comp) : comp; cacheable;
+{
+  result := 0;
+  vKatMol.cKatMol := cMol;
+  if( vKatMol.getfirst fastfirstrow KatMol = tsOk )
+     result := vKatMol.KatMol.cPersons;
+}
+
+//-------------------------------------------------------------------------------
+// ПИР 101.46375 - процедуру ExtractKatOsChgPar также лучше сделать на дополнительной ЛТ
+// чтобы не разрушались запросы в главной ЛТ интерфейса при выгрузке данных из БД.
+create view vOsChgPar
+var
+  wType : word;
+  cMoveOs: comp;
+  cKatOs: comp;
+  cNastrOs : comp;
+as select
+  OsChgPar.ParCode,
+  OsChgPar.cValue
+from
+  OsChgPar (readonly)
+where
+((
+  cMoveOs == OsChgPar.cMoveOs and
+  wType   == OsChgPar.wType and
+  cKatOs == OsChgPar.cKatOs and
+  cNastrOs == OsChgPar.cNastrOs
+));
+
+//-------------------------------------------------------------------------------
+procedure ExtractKatOsChgPar(_wType, _flKau : word; _cMoveOs, _cKatOs, _cNastrOs : comp);
+{
+  vOsChgPar.wType    := _wType;
+  vOsChgPar.cMoveOs  := _cMoveOs;
+  vOsChgPar.cKatOs   := _cKatOs;
+  vOsChgPar.cNastrOs := _cNastrOs;
+
+  vOsChgPar._loop OsChgPar
+  {
+    case vOsChgPar.OsChgPar.ParCode of
+      cgOsChg_Podr:
+        TxoBodyAddKau(CurHTxo, _flKau, cgKau_KatPodr, vOsChgPar.OsChgPar.cValue);                  // Подразделение
+      cgOsChg_Mol :
+      { TxoBodyAddKau(CurHTxo, _flKau, cgKau_KatMOL,  vOsChgPar.OsChgPar.cValue);                  // МОЛ
+        TxoBodyAddKau(CurHTxo, _flKau, cgKau_Persons, GetPersonByMol(vOsChgPar.OsChgPar.cValue));  // Сотрудник
+      }
+      cgOsChg_CO :
+        TxoBodyAddKau(CurHTxo, _flKau, cgKau_FpCO,    vOsChgPar.OsChgPar.cValue);                  // Центр ответственности
+      cgOsChg_Isp :
+        TxoBodyAddKau(CurHTxo, _flKau, if(CurTiDkGal=cgDoc_0015, cgKau_IspOs, cgKau_IspNma), vOsChgPar.OsChgPar.cValue); // Признак использования
+      cgOsChg_GrAm :
+        TxoBodyAddKau(CurHTxo, _flKau, cgKau_AmortGr, vOsChgPar.OsChgPar.cValue); // Амортизационная группа
+      cgOsChg_PrSb :
+        TxoBodyAddKau(CurHTxo, _flKau, if(CurTiDkGal=cgDoc_0015, cgKau_PrSbOs, cgKau_PrSbNma), vOsChgPar.OsChgPar.cValue); // Признак собственности
+      cgOsChg_KauReff:
+        TxoBodyAddKau(CurHTxo, _flKau, Word(vOsChgPar.OsChgPar.dValue), vOsChgPar.OsChgPar.cValue);          // Внешнее КАУ
+      cgOsChg_Grup :
+        if CurTiDkGal = cgDoc_0015
+          TxoBodyAddKau(CurHTxo, _flKau, cgKau_GrOs, vOsChgPar.OsChgPar.cValue);                   // Группы ОС
+    end;
+  }
+}
+
+procedure ExtractSaleKau2(wFlKau : word);
+{
+   var wasFound : boolean;
+   if( SpMove.SysOper = cgOs_4_Vybyt )
+   {
+      CurSaleKatMc := piRefTable.RefTable_GetRecord2(cgReg_Adm, cgSel_OsRealDocs, word(0), coSpMoveOs, SpMoveOs.Nrec, cgOsReal_McOne, wasFound);
+      if( not wasFound ) CurSaleKatMc := KatOs.cMc;
+
+      if( (CurSaleKatMc<>0) and (getfirst fastfirstrow SaleKatMc = tsOk) )
+      {
+         TxoBodyAddKau(CurHTxo, wFlKau, cgKau_KatMC,   SaleKatMc.Nrec);
+         TxoBodyAddKau(CurHTxo, wFlKau, cgKau_GroupMC, SaleKatMC.cGroupMC);
+         TxoBodyAddKau(CurHTxo, wFlKau, cgKau_TypeMC,  SaleKatMC.cType);
+      }
+   }
+}
+
+procedure TxoBodyAddKau1;
+{
+     ////////////////////////////////////////////////////////////////////////
+     // Перекачка аналитики спецификации
+     TxoBodyClear(CurHTxo);
+
+     case CurTiDkGal of
+       cgDoc_0015 :
+         {
+            if (((SpMoveOs.SysOper = 2) or (SpMoveOs.SysOper = 4)) and
+                (SpMoveOs.cKatOsNew <> comp(0)))
+            {
+              TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_OS, SpMoveOs.cKatosNew);  // сама карточка ОС
+              TxoBodyAddKau(CurHTxo, wFlKau_Mode8, cgKau_OS, SpMoveOs.cKatos );
+            }
+            else
+              TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_OS, SpMoveOs.cKatos );    // сама карточка ОС
+
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_VidNor1, KatOs.cVid);                     // вид ОС
+            _loop KauReff
+            {
+              TxoBodyAddKau(CurHTxo, wFlKau_KauReffOS, KauReff.wKau, KauReff.cKau); // внешние КАУ из карточки ОС
+
+              // для операции амортизации
+              if (SpMove.SysOper = cgOs_5_Amort)
+                TxoBodyAddKau(CurHTxo, wFlKau_KauPrevMonth, KauReff.wKau, KauReff.cKau); // внешние КАУ из карточки ОС в режим "на конец предыдущего месяца" для амортизации
+            }
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_AmortGr, SpKatOs.cGrAm);                  // амортизационная группа ОС
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_IspOs,   SpKatOs.cIsp);                   // признак использования ОС
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_GrOs,    KatOs.cGrup);                    // Группы ОС
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_PrSbOs,  KatOs.cPrSb);                    // Признаки собственности ОС
+            //DocFlt.cNormaAmortFlt := SpKatOs.cNorma; // to do
+         }
+     end;
+
+     // МЦ из карточки
+     TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_KatMC, KatOs.cMc);
+
+     // Центр ответственности из карточки
+     TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_FpCO, KatOs.cCO);
+
+     // объект строительства из карточки
+     TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_ObjBuild, if( KatOs.wOrigType = osfKatStroy, KatOs.cOrigDoc, 0));
+
+     // подразделения, сотрудники и МОЛ-ы
+     case SpMove.SysOper of
+       cgOs_1_Post: //поступление
+         {  //wFlKau_Auto из спецификации
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_KatPodr, KatOs.cPodr);
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_Persons, GetPersonByMol(KatOs.cMol));
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_KatMOL,  KatOs.cMol);
+
+            //подразделение и МОЛ получатели
+            TxoBodyAddKau(CurHTxo, wFlKau_PodrTo, cgKau_KatPodr, KatOs.cPodr);
+            TxoBodyAddKau(CurHTxo, wFlKau_MOLTo,  cgKau_Persons, GetPersonByMol(KatOs.cMol));
+            TxoBodyAddKau(CurHTxo, wFlKau_MOLTo,  cgKau_KatMol,  KatOs.cMol);
+
+            //подразделение и МОЛ отправители
+            case KatOs.wOrigType of
+              osfMBP : // перевод из МБП в ОС
+              {
+                 if( getfirst MbpIn = tsOk )
+                 {  TxoBodyAddKau(CurHTxo, wFlKau_PodrFrom, cgKau_KatPodr, MBPIn.cPodr);
+                    TxoBodyAddKau(CurHTxo, wFlKau_MOLFrom,  cgKau_Persons, GetPersonByMol(MBPIn.cMol));
+                    TxoBodyAddKau(CurHTxo, wFlKau_MOLFrom,  cgKau_KatMol,  MBPIn.cMol);
+                 }
+              }
+              // osfKatStroy to do перевод из УКС
+              else // прочие переводы со складов в ОС
+              {
+                 TxoBodyAddKau(CurHTxo, wFlKau_PodrFrom, cgKau_KatPodr, MoveOs.cOldPodr);
+                 TxoBodyAddKau(CurHTxo, wFlKau_MOLFrom,  cgKau_Persons, GetPersonByMol(MoveOs.cOldMol));
+                 TxoBodyAddKau(CurHTxo, wFlKau_MOLFrom,  cgKau_KatMol,  MoveOs.cOldMol);
+              }
+            end;
+         }
+       cgOs_2_VnuPer: //внутреннее перемещение
+         {  //wFlKau_Auto из спецификации
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_KatPodr, KatOs.cPodr);
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_Persons, GetPersonByMol(KatOs.cMol));
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_KatMOL,  KatOs.cMol);
+
+            // подразделение и МОЛ отправитель-получатель
+            // определяется из шапки операции смотри tpp_serv.pas
+            // здесь упоминается только чтобы работали фильтры fKnnn_mmm"mask"
+            TxoBodyAddKau(CurHTxo, wFlKau_PodrFrom, cgKau_KatPodr, MoveOs.cOldPodr);
+            TxoBodyAddKau(CurHTxo, wFlKau_PodrTo,   cgKau_KatPodr, MoveOs.cNewPodr);
+            TxoBodyAddKau(CurHTxo, wFlKau_MOLFrom,  cgKau_Persons, GetPersonByMol(MoveOs.cOldMol));
+            TxoBodyAddKau(CurHTxo, wFlKau_MOLTo,    cgKau_Persons, GetPersonByMol(MoveOs.cNewMol));
+            TxoBodyAddKau(CurHTxo, wFlKau_MOLFrom,  cgKau_KatMOL,  MoveOs.cOldMol);
+            TxoBodyAddKau(CurHTxo, wFlKau_MOLTo,    cgKau_KatMOL,  MoveOs.cNewMol);
+         }
+       else //все остальные операции
+         {  //wFlKau_Auto из спецификации
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_KatPodr, KatOs.cPodr);
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_Persons, GetPersonByMol(KatOs.cMol));
+            TxoBodyAddKau(CurHTxo, wFlKau_Auto, cgKau_KatMOL,  KatOs.cMol);
+         }
+     end;
+
+     //Аналитика из архива <режим 9> для операции амортизации
+     case SpMove.SysOper of
+       cgOs_5_Amort: //амортизация
+       {
+         // обрабатываем в обратном порядке операции в период даты операции до 1го числа того же месяца
+         if ( getlast fastfirstrow SpMoveOsExtKau = tsOk )
+           do
+           {
+             //достигли операций предыдущих месяцев
+             if SpMoveOsExtKau.DatOb < tmpFisrtDayMonth
+               break;
+
+             if ( getfirst fastfirstrow MoveOsExtKau  = tsOk )
+               if ( getfirst fastfirstrow SpMoveExtKau  = tsOk )
+               {
+                 ExtractKatOsChgPar(cgOsChg_OldVal, wFlKau_KauPrevMonth, SpMoveExtKau.cMoveOs, SpMoveOsExtKau.cKatOs, 0);
+                 ExtractKatOsChgPar(cgOsChg_OldVal, wFlKau_KauPrevMonth, SpMoveExtKau.cMoveOs, SpMoveOsExtKau.cKatOs, SpMoveExtKau.cNastrOs);
+               }
+           }
+           while ( getprev fastfirstrow SpMoveOsExtKau = tsOk );
+
+         if( getLast fastfirstrow ArcIznos  = tsOk )
+         {
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_KatPodr, ArcIznOs.cKatPodr);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_KatMOL, ArcIznOs.cMol);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_Persons, GetPersonByMol(ArcIznOs.cMol));
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_FpCO, ArcIznOs.cCO);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_AmortGr, ArcIznOs.cGrAm);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_GrOs, ArcIznOs.cGrup);
+
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, if(CurTiDkGal=cgDoc_0015,cgKau_IspOs,cgKau_IspNMA), ArcIznOs.cIsp);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, if(CurTiDkGal=cgDoc_0015,cgKau_PrSbOs,cgKau_PrSbNMA), ArcIznOs.cPrSb);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, if(CurTiDkGal=cgDoc_0015,cgKau_VidNor1,cgKau_VidNor2), ArcIznOs.cVid);
+         }
+         else  // 102.118903 Если нет архива, то вернем текущие
+         {
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_KatPodr, KatOs.cPodr);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_KatMOL,  KatOs.cMol);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_Persons, GetPersonByMol(KatOs.cMol));
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_FpCO,    KatOs.cCO);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_GrOs,    KatOs.cGrup);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, cgKau_AmortGr, SpKatOs.cGrAm);
+
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, if(CurTiDkGal=cgDoc_0015,cgKau_IspOs,cgKau_IspNMA),    SpKatOs.cIsp);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, if(CurTiDkGal=cgDoc_0015,cgKau_PrSbOs,cgKau_PrSbNMA),  KatOs.cPrSb);
+           TxoBodyAddKau(CurHTxo, wFlKau_Mode9, if(CurTiDkGal=cgDoc_0015,cgKau_VidNor1,cgKau_VidNor2), KatOs.cVid);
+         }
+       }
+     end;
+
+     // аналитика из документов, формируемых в операции выбытия
+     ExtractSaleKau2(wFlKau_Mode3);
+
+     // аналитка из накладной на покупку самой карточки ОС
+     // if KatOs.wReserv1 <> osfKatStroy
+     //  ExtractNaklKau(coSpOrder, KatOs.cInSpOrder, wFlKau_Mode4);
+
+     // аналитика из закладки "изменяемые параметры"
+     // для операции амортизации изменяемых параметров нет
+     if ( SpMove.SysOper <> cgOs_5_Amort )
+     {
+       ExtractKatOsChgPar(cgOsChg_OldVal, wFlKau_Mode6, SpMove.cMoveOs, SpMoveOs.cKatOs, 0);
+       ExtractKatOsChgPar(cgOsChg_OldVal, wFlKau_Mode6, SpMove.cMoveOs, SpMoveOs.cKatOs, SpMove.cNastrOs);
+       ExtractKatOsChgPar(cgOsChg_NewVal, wFlKau_Mode7, SpMove.cMoveOs, 0/*SpMoveOs.cKatOs*/, 0);
+       ExtractKatOsChgPar(cgOsChg_NewVal, wFlKau_Mode7, SpMove.cMoveOs, 0/*SpMoveOs.cKatOs*/, SpMove.cNastrOs);
+     }
+}  // TxoBodyAddKau1
+
+procedure StoreCycles(HTxo : longint; buf : TTxoApiInfoDoc);
+{
+  var tmpSumTxo : double;
+  var MethKol   : word;
+
+  // установить ограничения на логическую таблицу
+   CurSoprHoz := buf.cSoprHoz;
+   CurTiDkGal := buf.TiDkGal;
+   CurSoprDoc := buf.cSoprDoc;
+   CurDatOb   := buf.DatOb;
+   CurCValut  := buf.cValut;
+   CurHTxo    := hTxo;
+
+  ParamParser;
+
+  TxoAllowRecallStoreCycles(CurHTxo);
+
+  // заполнить циклическую аналитику
+  if (getfirst fastfirstrow SPMOVE = tsOk)
+  {
+    if isValid(tnNastrOS)
+    if isValid(tnMoveOS)
+    _loop SPMOVEOS
+    {
+      if isValid(tnKatOs)
+        if isValid(tnSpKatOs)
+          // if isValid(tnNastrOS)
+            // if getfirst OsRazn = tsOk
+              // if getfirst OSRaznPRSt = tsOk
+              {
+                MethKol   := NastrOs.field4;
+                tmpSumTxo := 0;
+                TxoBodyClear(CurHTxo);
+
+                set CurOsRaznDate := Date(Last_Day(MoveOs.DatOb), Month(MoveOs.DatOb), Year(MoveOs.DatOb));
+                set tmpFisrtDayMonth := Date(1,Month(SpMoveOs.DatOb),Year(SpMoveOs.DatOb));
+
+                TxoBodyAddKau1;
+
+                case Param_Result of
+                  cmValue33, cmValue28:
+                    if getfirst OsRazn = tsOk
+                    {
+                      case Param_Result of
+                        cmValue33 : tmpSumTxo := OsRazn.PR;// - 'Начислено постоянной разницы на начало месяца'
+                        cmValue28 : tmpSumTxo := OsRazn.PRM;// - 'Начислено за месяц постоянной разницы'
+                      end;
+                    }
+
+                  cmValue1, cmValue2, cmValue3, cmValue4:
+                    if getfirst OSRaznPRSt = tsOk
+                    {
+                      case Param_Result of
+                        cmValue1  : tmpSumTxo := OSRaznPRSt.NvrNach; // - 'Постоянная разница к начислению на начало месяца'        ,
+                        cmValue2  : tmpSumTxo := OSRaznPRSt.NvrNachM; // - 'Увеличение постоянной разницы к начислению в месяце'     ,
+                        cmValue3  : tmpSumTxo := OSRaznPRSt.PRM; // - 'Уменьшение постоянной разницы к начислению в месяце'
+                        cmValue4  : tmpSumTxo := OSRaznPRSt.NvrNach + OSRaznPRSt.NvrNachM - OSRaznPRSt.PRM; // - 'Постоянная разница к начислению на конец месяца'
+                      end;
+                    }
+                    else
+                    {
+                      case Param_Result of
+                        cmValue1  : { if( getLast fastfirstrow ArcIznos  = tsOk )
+                                        tmpSumTxo := piExtAttr.sGetAttr (coArcIznos, ArcIznos.Nrec, 'ПР к начислению'); // - 'Постоянная разница к начислению на начало месяца'
+                                    }
+                        cmValue2  : tmpSumTxo := 0; // - 'Увеличение постоянной разницы к начислению в месяце'     ,
+                        cmValue3  : tmpSumTxo := 0; // - 'Уменьшение постоянной разницы к начислению в месяце'
+                        cmValue4  : tmpSumTxo := piExtAttr.sGetAttr (coKatOS, KatOS.Nrec, 'ПР к начислению'); // - 'Постоянная разница к начислению на конец месяца'
+                      end;
+                    }
+                  end;
+
+                TxoBodySetSum(CurHTxo, tmpSumTxo, 0, 0);
+                TxoBodyInsert(CurHTxo);
+              }
+    }
+  }
+}
+end.
+
+TXO_OsRazn_v2_Result menu
+{
+   = 'Данные из карточки ОС/НМА';
+   {
+      -----------------;
+      - 'Начислено постоянной разницы на начало месяца'          , cmValue33;
+      - 'Начислено за месяц постоянной разницы'                  , cmValue28;
+      -----------------;
+      - 'Постоянная разница к начислению на начало месяца'        , cmValue1;
+      - 'Увеличение постоянной разницы к начислению в месяце'     , cmValue2;
+      - 'Уменьшение постоянной разницы к начислению в месяце'     , cmValue3;
+      - 'Постоянная разница к начислению на конец месяца'         , cmValue4;
+   }
+}

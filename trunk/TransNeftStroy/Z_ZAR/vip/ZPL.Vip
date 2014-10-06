@@ -1,0 +1,111 @@
+Interface MVZ 'Замена подразделеня на МВЗ';
+Show at (10,5,70,20);
+
+view
+var
+ c1: comp;
+ c2: comp;
+ d1: Date;
+ aRadioButton: byte;
+ aCheckBox: byte;
+
+    as select * from
+    nachisl
+  , nenach
+  , uder
+  , perevodtek
+  , katpodr
+  , synonym katpodr katpodrn
+  , synonym katpodr katpodrp
+  , synonym katpodr katpodru
+    where (( nachisl.cexoz     == katpodr.nrec
+         and nenach.cexoz      == katpodrn.nrec
+         and perevodtek.cexoz  == katpodrp.nrec
+         and uder.cexoz        == katpodru.nrec
+          ));
+
+Screen s_param
+fields
+ aCheckBox    : NoProtect;
+Buttons
+   cmUpMVZ;
+   cmGetCancel;
+<<'Параметры'
+
+	 [.] начисления`
+	 [.] удержания`
+	 [.] налоги на ФОТ`
+
+ <. Выполнить .>      <.   Выход   .>
+>>
+End;
+
+HandleEvent
+cmInit : {
+       d1:=Cur_Date;
+       c1:=0001000000000010h;
+       c2:=000100000001BBD8h;
+       Runinterface(Z_KATPODR::GetGrPodr,c1);
+        }
+
+cmUpMVZ : {
+
+  if (c1 = 0001000000000015h) {
+    message('Для Москвы данная функция не запускается на выполнение');
+    Abort;
+    Exit;
+    CloseInterface(cmCancel);
+    }
+
+             if (aCheckBox and 1)=1 then  {
+                      update nachisl where (( nachisl.cexoz == katpodr.nrec ))
+                             and katpodr.cGrPodr = c1
+                             set nachisl.brigade := nachisl.cexoz;
+
+                      update nachisl where (( nachisl.cexoz == katpodr.nrec ))
+                             and Katpodr.cGrPodr = c1
+                             and Katpodr.cfunc   = 9
+                             set nachisl.cexoz := nachisl.cex;
+
+                      update nenach where ((nenach.cexoz == katpodrn.nrec))
+                             and katpodrn.cGrPodr = c1
+                             set nenach.brigade:=nenach.cexoz;
+
+                      update nenach where ((nenach.cexoz==katpodrn.nrec))
+                             and katpodrn.cGrPodr = c1
+                             and Katpodrn.cfunc   = 9
+                             set nenach.cexoz:=nenach.cex;
+
+                Message ('замена в начислениях завершена');
+                }
+                if (aCheckBox and 2)=2 then {
+                      update uder where ((uder.cexoz == katpodru.nrec))
+                            and katpodru.cGrPodr = c1
+                            set uder.brigade:=uder.cexoz;
+
+                      update uder where ((uder.cexoz==katpodru.nrec))
+                             and katpodru.cGrPodr = c1
+                             and Katpodru.cfunc   = 9
+                             Set uder.cexoz:=uder.cex;
+                      Message ('замена в удержаниях завершена');
+                    }
+                if (aCheckBox and 4)=4 then  {
+                      update perevodtek where ((perevodtek.cexoz == katpodrp.nrec))
+                            and katpodrp.cGrPodr = c1
+                            set perevodtek.brigade:=perevodtek.cexoz;
+
+                      update perevodtek where ((
+                             perevodtek.cexoz==katpodrp.nrec))
+                             and katpodrp.cGrPodr = c1
+                             and Katpodrp.cfunc   = 9
+                             set perevodtek.cexoz:=perevodtek.cex;
+                Message ('замена в налогах на ФОТ завершена');
+                    }
+                Message ('подразделение ОЗ заменено на МВЗ');
+
+}
+cmGetCancel:
+  PutCommand(cmCancel);
+
+end;
+end.

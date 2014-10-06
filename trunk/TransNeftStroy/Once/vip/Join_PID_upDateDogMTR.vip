@@ -1,0 +1,60 @@
+
+interface "upDateMTRdog";
+
+create view
+as select * from
+            Dogovor
+  , synonym SpecMTR SpecMTR_Dog
+  , synonym SpecMTR SpecMTR_SpSopr
+where ((
+          1707              == AttrVal.wTable   (noIndex)
+      and 88664617663857092 == AttrVal.cAttrNam // Состояние интеграции
+
+      and AttrVal.cRec  == Dogovor.nRec
+
+      and 401           == SpDocs.TiDk
+      and Dogovor.nRec  == SpDocs.cDoc
+      and 1723          == SpecMTR_Dog.coTable
+      and SpDocs.nRec   == SpecMTR_Dog.cSpec
+
+      and Dogovor.nRec  == KatSopr.cAppDogovor
+      and KatSopr.nRec  == SpSopr.cSopr
+      and SpDocs.cMcUsl == SpSopr.cMcUsl
+
+      and 1110          == SpecMTR_SpSopr.coTable
+      and SpSopr.nRec   == SpecMTR_SpSopr.cSpec
+      ))
+      and SpecMTR_Dog.cObj <> SpecMTR_SpSopr.cObj
+;
+
+
+HandleEvent
+  cmInit :
+  {
+     _Loop AttrVal {
+LogStrToFile('C:\GAL\11.log', AttrVal.nRec);
+       _Loop Dogovor {
+LogStrToFile('C:\GAL\12.log', AttrVal.nRec);
+          _Loop SpDocs {
+LogStrToFile('C:\GAL\13.log', AttrVal.nRec+'~'+SpDocs.nRec);
+           _Loop SpecMTR_Dog {
+LogStrToFile('C:\GAL\14.log', AttrVal.nRec);
+               _Loop KatSopr {
+LogStrToFile('C:\GAL\16.log', AttrVal.nRec);
+                 _Loop SpSopr {
+LogStrToFile('C:\GAL\17.log', AttrVal.nRec);
+                   _Loop SpecMTR_SpSopr {
+LogStrToFile('C:\GAL\18.log', AttrVal.nRec);
+                      set SpecMTR_Dog.cObj := SpecMTR_SpSopr.cObj;
+                      upDate current SpecMTR_Dog;
+                     }
+                   }
+                 }
+           }
+         }
+       }
+     }
+  }
+  end;
+
+end.

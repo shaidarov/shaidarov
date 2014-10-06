@@ -1,0 +1,67 @@
+#component "F_OSOPER"
+
+alter interface OSREALSE;
+
+Create view
+from
+attrnam attrnam_s,
+attrval attrval_s,
+perscard,
+lschet,
+persons,
+mbpmove,
+mbpin mbpin_s,
+mbpout mbpout_s
+;
+
+HandleEvent
+
+cmDone:
+  {
+
+    if getfirst reftable
+       where ((
+                word(2)    == RefTable.wTable2  and
+                katsopr.nrec == RefTable.cRecord2 and
+                word(4)    == RefTable.wAccount and
+                word(21)   == RefTable.wMain    and
+                word(0)    == RefTable.wSub     and
+                word(2003) == RefTable.wTable1 (noindex)
+             )) = tsok
+    if getfirst mbpmove  where (( RefTable.cRecord1 == mbpmove.nrec  )) = tsok
+    if getfirst mbpout_s   where (( mbpmove.nrec      == mbpout_s.cmove  )) = tsok
+    if getfirst mbpin_s    where (( mbpout_s.cmbpin     == mbpin_s.nrec    )) = tsok
+    if getfirst perscard where (( mbpin_s.cpers       == perscard.nrec )) = tsok
+    if getfirst lschet   where (( perscard.clschet  == lschet.nrec   )) = tsok
+    if getfirst persons  where (( lschet.tperson    == persons.nrec  )) = tsok
+     {
+    if getfirst attrnam_s where ((     word(1109)               == attrnam_s.wtable
+                                and 'Сотрудники предприятия'    == attrnam_s.name)) = tsok
+     {
+     if getfirst attrval_s where ((   word(1109)              == AttrVal_s.wTable
+                                   and katsopr.nrec           == AttrVal_s.cRec
+                                   and AttrNam_s.Nrec         == AttrVal_s.cAttrNam
+                                   )) <> tsok
+      {
+       ClearBuffer(#attrval_s);
+       attrval_s.wtable   := word(1109);
+       attrval_s.cattrnam := attrnam_s.nrec;
+       attrval_s.vcomp    := persons.nrec ;
+       attrval_s.crec     := katsopr.nrec ;
+       attrval_s.vstring  := persons.tabnmb+', '+persons.fio;
+       insert current attrval_s;
+      }
+     else
+      {
+       attrval_s.vcomp    := persons.nrec ;
+       attrval_s.vstring  := persons.tabnmb+', '+persons.fio;
+       update current attrval_s;
+      }
+     }
+     }
+
+   if (inherited::handleEvent (cmDone) = heAbort )
+   Abort;
+  }
+end;
+end.

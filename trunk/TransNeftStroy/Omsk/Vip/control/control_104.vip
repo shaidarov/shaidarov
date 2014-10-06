@@ -1,0 +1,81 @@
+ #include galnet.ccm
+ #include galnet.csc
+end;
+
+Interface control_104 'Задание параметров для отчета' DoAccept; 
+  show at (20,8,81,19)
+  var
+   d1,d2:date;
+   b1,b2,b3:byte;
+   priz:boolean;
+  parameters d1,d2,b1,b2,b3;
+  create view t1 var chd1,chd2:date;
+                         chb2:byte;
+  FROM tmpgrn;
+  const 
+   cmButtOK = 27567; 
+   cmButtCn = 27568; 
+  end;
+
+
+panel Pn1;
+   screen Scr1 (,,sci1Esc);
+    Fields
+     chD1 :[,'DD/MM/YYYY'],noprotect;
+     chD2 :[,'DD/MM/YYYY'],noprotect;
+     b1   : noprotect;
+     b3   : noprotect;
+     chb2 : noprotect;  
+    Buttons
+     cmButtOK;
+     cmButtCn;
+<<
+
+         Период : с .@@@@@@@@@@@@ по .@@@@@@@@@@@@
+                  
+          Тип учета                           Сортировка
+     (.) Склад       `                   (.) Дата       `
+     (.) Производство`                   (.) Наименование МЦ`
+
+           [.] За все время до установленной даты`
+
+            <. Запуск .>              <. Отмена .>
+>>
+
+end;
+  HandleEvent
+    cmInit:
+    {
+     priz:=false;
+    }
+    cmSetCurField:
+    {
+     IF NOT priz
+     {
+      t1.chd1:=d1;
+      t1.chd2:=d2;
+      ReReadRecord();
+      priz:=true;
+     }
+    } 
+    cmCheckField:
+    {
+     IF Curfield=#chb2 
+     {
+      IF chb2=0 SetFieldOption(#chd1,ofSelectable);
+      ELSE ClearFieldOption(#chd1,ofSelectable);
+     }
+    }
+    cmButtOK:
+     PutCommand(cmDefault); 
+    cmButtCn: 
+     PutCommand(cmCancel); 
+    CmDefault:
+    {
+     d1:=chd1;
+     d2:=chd2;
+     b2:=chb2;
+    }
+  End;
+End;
+End.

@@ -1,0 +1,158 @@
+#ifdef ComponentVersion
+#Component "F_TxoApi"
+#end
+
+#include TxoApi.vih
+
+VipInterface Txo_AktVzaim implements ObjTxoIdentPlugin
+#ifdef ATL51
+ licensed (FREE) 
+#endif 
+;
+
+Interface Txo_AktVzaim cacheable;
+create view vTxo_AktVzaim
+var
+  CurTiDkGal : word;
+  CurSoprDoc : comp;
+  CurPlPor : comp;
+  wattr_table :word ; // для вывода атрибутов по таблице
+  wattr_nrec : comp ;
+  W_CKAELEM:comp ;
+as select
+  PlPor.nrec
+from
+   PlPor
+  ,BaseFin
+  ,BaseFin BaseFin0
+  ,BaseFin BaseFin1
+  ,BaseDoc BaseDoc0
+  ,BaseDoc BaseDoc1
+  ,StepDoc StepDoc0
+  ,StepDoc StepDoc1
+  ,attrnam attrnamk,attrval attrvalk
+Where
+((
+     CurPlPor           == BaseFin0.cPlPor
+ and word(1)            == BaseFin0.Direct(noindex)
+ and BaseFin0.cStepDoc  == StepDoc0.NRec
+ and BaseFin0.cBaseDoc  == BaseDoc0.NRec
+
+ and CurPlPor           == BaseFin1.cPlPor
+ and word(2)            == BaseFin1.Direct(noindex)
+ and BaseFin1.cStepDoc  == StepDoc1.NRec
+ and BaseFin1.cBaseDoc  == BaseDoc1.NRec
+ // для вывода анешних атрибутов по таблицам
+ and wattr_table == attrnamk.wtable
+ and wattr_table == attrvalk.wtable
+ and attrnamk.nrec ==attrvalk.cattrnam
+ and wattr_nrec == attrvalk.crec
+
+)) ;
+function GetInfo : string;
+{
+  GetInfo := 'Обработка актов  взаимозачета дебитора и кредитора (с спец. - есть VzBaseDoc)';
+}
+function ParamMaster : string;
+{
+  ParamMaster := '';
+  Message('Пользовательский режим формирования значений аналитики <режим 0> - выдает аналитику для дебитора.'#13
+         +'Пользовательский режим формирования значений аналитики <режим 1> - выдает аналитику для кредитора.');
+}
+
+//************ для вывода аналитик по внешним атрибутам
+Procedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+{ set wAttr_table :=wwtable ;
+  set wAttr_nrec  :=wwnrec ;
+  _loop fullcache attrnamk
+  { if attrnamk.AttrType=5 and isvalid(#attrvalk)
+    { if attrvalk.vcomp>0
+      { if attrnamk.ROBJECT=5017 and w_CKAELEM=0 then w_CKAELEM:=attrvalk.vcomp ; // элемент затрат
+        TxoBodyAddKau(hTxo, wwFlKau_Mode, attrnamk.ROBJECT, attrvalk.vcomp)        
+        TxoDebugMsg(hTxo, 'TXO_PLporBASEDOC','аналитика к таблице '+string(wAttr_table)+',значение='+attrvalk.vstring+',режим='+string(wwFlKau_Mode)+'/'+string(attrnamk.ROBJECT)+'/'+string(attrvalk.vcomp))
+      }  
+    } //if attrnamk.AttrType=5 and isvalid(#attrvalk)
+  } //_loop attrnamk
+} //Proccedure   Attr_Analitik(hTxo : longint;wwFlKau_Mode:word ; wwtable :word ;wwnrec :comp ) ;
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+  // установить ограничения на логическую таблицу
+  CurTiDkGal := buf.TiDkGal;
+  CurSoprDoc := buf.cSoprDoc;
+  CurPlPor   := 0;
+
+  TxoAllowRecallStoreCycles(hTxo);
+
+
+  case CurTiDkGal of
+    cgDoc_0070:
+    {
+      if(getfirst PlPor where ((CurSoprDoc == PlPor.NRec)) = tsOk)
+        CurPlPor := PlPor.Nrec;
+    }
+
+    cgDoc_0071:
+    {
+      if(getfirst BaseFin where ((CurSoprDoc == BaseFin.NRec)) = tsOk)
+        if(getfirst PlPor where ((BaseFin.cPlPor == PlPor.NRec)) = tsOk)
+          CurPlPor := PlPor.Nrec;
+    }
+  end;
+
+  if(CurPlPor = 0)
+  {
+    TxoDebugMsg(hTxo, 'Ошибка', 'Не установлена ссылка на АВЗ');
+    exit;
+  }
+
+  var wsumma1,wsumma0 , wsumzach :double
+  if getfirst BaseFin1=0
+  { wsumma1:=BaseFin1.summa ;
+  }
+  // закачиваем данные спецификаций ДО дебетора
+  
+  _loop BaseFin0
+  {
+    wsumma0:=basefin0.summa
+   
+    while wsumma0>0
+    {    // Договор
+      if wsumma1<0.01
+      { if (getnext basefin1<>0) break
+        wsumma1:=basefin1.summa ;
+      }
+      TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_Dogovor, 
+        if(basefin0.cappDogovor>0,basefin0.cappDogovor,basefin0.cDogovor) );
+      TxoBodyAddKau(hTxo, wFlKau_Mode1, cgKau_Dogovor, 
+        if(basefin0.cappDogovor>0,basefin1.cappDogovor,basefin1.cDogovor) );
+      TxoBodyAddKau(hTxo, wFlKau_Mode0, cgKau_katorg, basefin0.corg);
+      TxoBodyAddKau(hTxo, wFlKau_Mode1, cgKau_katorg, basefin1.corg);
+      Attr_Analitik(hTxo, wFlKau_Mode0,coDogovor,basefin0.cdogovor )
+      Attr_Analitik(hTxo, wFlKau_Mode1,coDogovor,basefin1.cdogovor )
+      if isvalid(#basedoc0)
+      { Attr_Analitik(hTxo, wFlKau_Mode0,coBasedoc,basedoc0.nrec )
+
+      }
+      if isvalid(#basedoc1)
+      { Attr_Analitik(hTxo, wFlKau_Mode0,coBasedoc,basedoc1.nrec )
+      }
+      if wsumma1>wsumma0
+      { wsumzach:=wsumma0 ;
+      }
+      else
+      { wsumzach:=wsumma1 ;
+      }
+      TxoDebugMsg(hTxo, 'TXO_PLporBASEDOC','сумма деб..'+string(wsumma0)+', сумма кред.'+string(wsumma1))
+      wsumma1:=wsumma1-wsumzach
+      wsumma0:=wsumma0-wsumzach
+
+      TxoBodySetSum(hTxo, wsumzach, 0, 0);  // Не понятно из спецификации какого ДО (дебитора или кредитора) брать валюту и единицу измерения
+      TxoBodyInsert(hTxo);
+
+    } //while wsumma0>0
+  }
+} //procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+
+end.
+

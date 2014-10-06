@@ -1,0 +1,71 @@
+// Акт перемещения между объектами---------------------------------------------------------------------------------------------
+
+#component "L_SKLAD"
+
+alter interface AKTONPEREMESCH
+
+Create view
+from
+attrnam attrnamob,
+attrval attrvalob,
+spsopr spsoprob,
+specmtr specmtrob
+;
+
+procedure update_party;
+ {
+ _loop spsopr
+   {
+   if getfirst spsoprob where ((spsopr.nrec == spsoprob.cspsopr)) = tsok
+    {
+     if getfirst specmtrob where ((word(1110) == SPECMTRob.COTABLE
+                         and spsoprob.nrec == SPECMTRob.CSPEC
+                           )) = tsok
+      {
+      if getfirst attrnamob where ((     word(1430)                 == attrnamob.wtable
+                                and 'Объекты строительства'     == attrnamob.name)) = tsok
+       {
+       if  getfirst attrvalob where ((attrnamob.nrec         == attrvalob.cattrnam
+                                 and word(1430)              == attrvalob.wtable  (noindex)
+                                 and SPECMTRob.COBJ          == attrvalob.vcomp   (noindex)
+                                 )) = tsok
+        {
+        if spsoprob.cparty = 0
+        {
+        spsoprob.cparty := attrvalob.crec;
+        update current spsoprob;
+        }
+        else
+         {
+          if spsoprob.cparty <> attrvalob.crec
+           {
+//            if Message('Партия не соответствует объекту, изменить партию?', YesNo) = cmYes
+//             {
+              spsoprob.cparty := attrvalob.crec;
+              update current spsoprob;
+//             }
+           }
+         }
+
+        }
+       }
+      }
+    }
+   }
+ }
+
+ Window  WNDAKTONPEREMESCHKOR
+
+
+HandleEvent
+
+
+cmMAKEORDER:
+  {
+   update_party;
+   if (inherited::handleEvent (cmMAKEORDER) = heAbort )
+   Abort;
+  }
+end;
+end;
+end.

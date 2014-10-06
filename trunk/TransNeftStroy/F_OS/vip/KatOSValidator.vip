@@ -1,0 +1,440 @@
+#include KatOSValidator.vih
+#include ExtAttr.Vih
+
+#doc
+  Интерфейс проверки корректности ввода
+#end
+Interface iKatOSValidator;
+
+  table struct Errors
+  (
+    cKatOS   : comp,
+    Message  : string
+  )
+  with index
+  (
+    Errors01 = cKatOS + Message
+  )
+  ;
+
+  var
+    LogFilePath      : string;
+    glo_LogFilePath  : string;
+    glo_BatchMode    : boolean;
+  #include ExtAttr.var
+
+  Create View
+  as select *
+  From
+        KatOS
+      , SpKatOS SpKatOSBuh
+      , SpKatOS SpKatOSNal
+      , IspOS
+      , VidNorma
+      , Sterr
+      , FpCO
+      , KatPodr
+      , Errors
+  ;
+
+  procedure LogError(Msg : string);
+  {
+    ClearBuffer(tnErrors);
+    Errors.cKatOS  := KatOS.NRec;
+    Errors.Message := Msg;
+    insert current Errors;
+  }
+
+  function CheckSterr(_cRec : comp) : boolean;
+  {
+    result := false;
+    if getfirst Sterr where (( _cRec ==  Sterr.NRec )) = tsOk
+    {
+      _cRec := Sterr.cRec;
+      if getfirst Sterr where (( _cRec == Sterr.NRec )) = tsOk
+      {
+        if Sterr.SysCode = 2201
+          result := true;
+      }
+    }
+  }
+
+  procedure GetPodrLevel(_cRec : comp; var Level : longint);
+  {
+    PushPos(tnKatPodr);
+    if _cRec <> 0
+    {
+      if getfirst KatPodr where (( _cRec == KatPodr.NRec )) = tsOk
+      {
+        Level := Level + 1;
+        GetPodrLevel(KatPodr.cPodr, Level);
+      }
+    }
+    PopPos(tnKatPodr);
+  }
+
+  function GetBatchMode : boolean;
+  {
+    result := glo_BatchMode;
+  }
+
+  procedure SetBatchMode(_NewVal : boolean);
+  {
+    glo_BatchMode := _NewVal;
+  }
+
+  property BatchMode     : boolean read GetBatchMode write SetBatchMode(result);
+
+  function ClearBatchLog : boolean;
+  {
+    if ExistFile (glo_LogFilePath)
+      DeleteFile(glo_LogFilePath);
+    result := true;
+  }
+
+  function ShowBatchLog : boolean;
+  {
+    if ExistFile (glo_LogFilePath)
+      ProcessText(glo_LogFilePath, vfRunModal + vfEscable + vfNewTitle + vfMacroSize, 'Протокол пакетной проверки ОС');
+    result := true;
+  }
+
+  function ValidateKatOS(_cKatOs : comp) : boolean;
+  {
+    result := true;
+
+    if getfirst KatOs  where ((_cKatOs == KatOS.NRec )) = tsOk
+      if getfirst SpKatOsBuh where ((    coGetTune('OS.OSBUHMETUCHT') == SpKatOSBuh.cNastrOS
+                                     and KatOS.NRec                   == SpKatOSBuh.cKatOS )) = tsOk
+        if getfirst SpKatOsNal where ((     coGetTune('OS.OSNALMETUCHT') == SpKatOSNal.cNastrOS
+                                        and KatOS.NRec                   == SpKatOSNal.cKatOS )) = tsOk
+          if KatOs.TiDk = 15
+          {
+            // для всех ОС
+            if getfirst IspOS where (( SpKatOSBuh.cIsp == IspOS.NRec )) = tsOk
+            {
+              if IspOS.PrIsp >= 81
+              {
+                LogError('Для БУ задан неверный признак использования');
+
+              }
+            }
+            else
+              {
+                LogError('Не задан признак использования для БУ');
+
+              }
+
+            if getfirst IspOS where (( SpKatOSNal.cIsp == IspOS.NRec )) = tsOk
+            {
+              if IspOS.PrIsp < 81
+              {
+                LogError('Для НУ задан неверный признак использования. Должны использоваться только с кодом 81 и выше.');
+
+              }
+            }
+            else
+            {
+              LogError('Не задан признак использования для НУ');
+
+            }
+
+            if getfirst FpCO where (( KatOS.cCO == FpCO.NRec )) = tsOk
+            {
+              if SubStr(FpCO.LevelCode, 1, 1) <> '0'
+              {
+                LogError('Центр ответственности для фильтров установлен из неправильной ветки справочника');
+
+              }
+            }
+            else
+            {
+              LogError('Не задан центр ответственности для фильтров');
+
+            }
+
+            if getfirst KatPodr where (( KatOS.cPodr == KatPodr.NRec )) = tsOk
+            {
+              var vPodrLevel : longint;
+              vPodrLevel := 0;
+              GetPodrLevel(KatPodr.NRec, vPodrLevel);
+              if vPodrLevel <> 3
+              {
+                LogError('Подразделение учета ОС выбрано с неправильного уровня. Должно быть выбрано с уровня 3, а выбран уровень ' + vPodrLevel);
+
+              }
+            }
+            else
+            {
+              LogError('Не задано подразделение учета ОС');
+
+            }
+
+            if getfirst FpCO where (( KatOS.cCO == FpCO.NRec )) = tsOk
+              if getfirst KatPodr where (( KatOS.cPodr == KatPodr.NRec )) = tsOk
+                {
+                  if SubStr(FpCO.LevelCode, 2, 1) <> SubStr(KatPodr.Kod,1,1)
+                  {
+                    LogError('Центр ответственности для фильтров не соответствует подразделению');
+
+                  }
+                }
+
+            if getfirst IspOS where (( SpKatOSBuh.cIsp == IspOS.NRec )) = tsOk
+            {
+              // арендованные ОС
+              if     IspOS.PrIsp = 72 // Имущество, полученное в аренду
+              {
+                if GetKauReffNRec('KATOS', KatOS.NRec, 1) = 0
+                {
+                  LogError('Не задан внешний КАУ 1 "Организации", необходимый для арендованных ОС.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 14) = 0
+                {
+
+                  LogError('Не задан внешний КАУ 14 "Договоры", необходимый для арендованных ОС.');
+                }
+              }
+
+              // собственное ОС
+              if     IspOS.PrIsp <> 72 // Имущество, полученное в аренду
+                 and IspOS.PrIsp <> 71 // Имущество, полученное в лизинг
+                 and IspOS.PrIsp <> 87 // Имущество, полученное в безвозмездное пользование
+              {
+                if GetKauReffNRec('KATOS', KatOS.NRec, 20077) = 0
+                {
+                  LogError('Не задан внешний КАУ 20077 "Счет БУ для начисления амортизации", необходимый для начисления амортизации.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 20054) <> 0
+                {
+                  if GetKauReffStrKod('KATOS', 0, 20054) <> '001003' // Учитываются по правилам налогового учета (общий режим налогообложения )
+                  {
+                    LogError('Использован неправильный внешний КАУ 20054 "Признак входимости в налогооблагаемую базу". Нужно выбирать с кодом 001003');
+
+                  }
+                }
+                else
+                {
+                  LogError('Не задан внешний КАУ 20054 "Признак входимости в налогооблагаемую базу", необходимый для начисления амортизации.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 20073) = 0
+                {
+                  LogError('Не задан внешний КАУ 20073 "Статьи затрат", необходимый для начисления амортизации.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 20009) = 0
+                {
+                  LogError('Не задан внешний КАУ 20009 "Виды продукции, работ, услуг", необходимый для начисления амортизации.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 20009) = 0
+                {
+                  LogError('Не задан внешний КАУ 20009 "Виды продукции, работ, услуг", необходимый для начисления амортизации.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 40 ) = 0
+                {
+                  LogError('Не задан внешний КАУ 40 "Объект строительства", необходимый для начисления амортизации.');
+
+                }
+                // !!! проверка сочетания счета для затрат и Объекта строительства
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 2 ) = 0
+                {
+                  LogError('Не задан внешний КАУ 2 "Подразделения", необходимый для начисления амортизации.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 22 ) = 0
+                {
+                  LogError('Не задан внешний КАУ 22 "Центры ответственности", необходимый для начисления амортизации.');
+
+                }
+
+                //if GetKauReffNRec('KATOS', KatOS.NRec, 20081 ) = 0
+                //  LogError('Не задан внешний КАУ 20081 "Факт государственной регистрации", необходимый для проводок по 01 и 02.');
+
+                //if GetKauReffNRec('KATOS', KatOS.NRec, 20064 ) = 0
+                //  LogError('Не задан внешний КАУ 20064 "Способ начисления  амортизации по объектам ОС в БУ", необходимый для отчетов.');
+
+                //if GetKauReffNRec('KATOS', KatOS.NRec, 20065 ) = 0
+                //  LogError('Не задан внешний КАУ 20065 "Способ начисления  амортизации по объектам ОС в НУ", необходимый для отчетов.');
+
+
+                /* необязательные
+                20043 "Обременение"
+                20055 "Признак недвижимого имущества"
+                20067 "Способы поступления активов"
+                20080 "Требование страхования"
+                */
+
+                // проверка для налога на прибыль
+                if GetKauReffNRec('KATOS', KatOS.NRec, 43) = 0
+                {
+                  LogError('Не задан внешний КАУ 43 "Коды причин постановки на учет", необходимый для расчета налога на прибыль.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 50000) = 0
+                {
+                  LogError('Не задан внешний КАУ 50000 "Государственная налоговая инспекция", необходимый для расчета налога на прибыль.');
+
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 50001) <> 0
+                {
+                  if not CheckSterr(GetKauReffNRec('KATOS', KatOS.NRec, 50001))
+                  {
+                    LogError('Внешний КАУ 50001 "Административно-территориальное деление", необходимый для расчета транспортного налога, выбран из неправильного раздела справочника АТД');
+
+                  }
+                }
+                else
+                {
+                  LogError('Не задан внешний КАУ 50001 "Административно-территориальное деление", необходимый для расчета налога на прибыль.');
+
+                }
+
+              // проверка для налога на имущество
+                if GetKauReffNRec('KATOS', KatOS.NRec, 72) <> 0
+                {
+                  if not CheckSterr(GetKauReffNRec('KATOS', KatOS.NRec, 72))
+                  {
+                    LogError('Внешний КАУ 72 "Административно-территориальное деление", необходимый для расчета транспортного налога, выбран из неправильного раздела справочника АТД');
+
+                  }
+                }
+                else
+                {
+                  LogError('Не задан внешний КАУ 72 "Административно-территориальное деление", необходимый для расчета налога на имущество.');
+                }
+
+                if GetKauReffNRec('KATOS', KatOS.NRec, 20034) = 0
+                {
+                  LogError('Не задан внешний КАУ 20034 "Льгота по налогу на имущество", необходимый для расчета налога на имущество.');
+
+                }
+
+                // проверка для транспортного налога
+                if getfirst VidNorma where (( KatOS.cVid == VidNorma.NRec )) = tsOk
+                  if VidNorma.Kod = '04' // Транспортные средства
+                    {
+                      if GetKauReffNRec('KATOS', KatOS.NRec, 5003) = 0
+                      {
+                        LogError('Не задан внешний КАУ 5003 "Марки транспортных средств", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      if GetKauReffNRec('KATOS', KatOS.NRec, 20088) = 0
+                      {
+                        LogError('Не задан внешний КАУ 20088 "Виды транспортных средств", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      if not oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'ЕдИзмОКЕИ')
+                      {
+                        LogError('Не задан внешний атрибут "ЕдИзмОКЕИ", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      if not oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'ДатаИзмНач_1')
+                      {
+                        LogError('Не задан внешний атрибут "ДатаИзмНач_1", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      //if not oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'ДатаИзмКон_1')
+                      //  LogError('Не задан внешний атрибут "ЕдИзмОКЕИ", необходимый для расчета транспортного налога.');
+
+                      if oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'ОКАТОГИБДД')
+                      {
+                        if not CheckSterr(oExtAttr.coGetAttr(coKatOS, KatOS.NRec, 'ОКАТОГИБДД'))
+                        {
+                          LogError('Внешний атрибут "ОКАТОГИБДД", необходимый для расчета транспортного налога, выбран из неправильного раздела справочника АТД');
+
+                        }
+                      }
+                      else
+                      {
+                        LogError('Не задан внешний атрибут "ОКАТОГИБДД", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      if not oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'КПП_1')
+                      {
+                        LogError('Не задан внешний атрибут "КПП_1", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      if not oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'ГосНомер_1')
+                      {
+                        LogError('Не задан внешний атрибут "ГосНомер_1", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      if not oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'МощностьДвигателя_1')
+                      {
+                        LogError('Не задан внешний атрибут "МощностьДвигателя_1", необходимый для расчета транспортного налога.');
+
+                      }
+
+                      if not oExtAttr.ValueExists(coKatOS, KatOS.NRec, 'СтавкаНалога_1')
+                      {
+                        LogError('Не задан внешний атрибут "СтавкаНалога_1", необходимый для расчета транспортного налога.');
+
+                      }
+                    }
+              } // собственные ОС
+
+            } // if getfirst IspOS where (( SpKatOSBuh.cIsp == IspOS.NRec )) = tsOk
+
+            if not glo_BatchMode
+            {
+              LogFilePath      := GetStringParameter('Files','OutPutFilesDirectory',0) + 'iKatOSValidator\iKatOSValidator_' + '_#_' + KatOs.Innum + '.log';
+              DeleteFile(LogFilePath);
+            }
+            else
+            {
+              LogFilePath := glo_LogFilePath;
+            }
+            LogStrToFile(LogFilePath, '=========================================================================================');
+            LogStrToFile(LogFilePath, 'Выполняется проверка правильности оформления ОС #' + KatOs.Innum);
+            _loop Errors
+            {
+              LogStrToFile(LogFilePath, Errors.Message);
+            }
+
+            if getfirst Errors where (( KatOS.NRec == Errors.cKatOS )) <> tsOk
+            {
+              LogStrToFile(LogFilePath, 'Карточка ОС корректна.');
+            }
+            else
+              result := false;
+
+            LogStrToFile(LogFilePath, '=========================================================================================');
+
+            delete Errors where (( KatOS.NRec == Errors.cKatOS ));
+          } // if KatOS.TiDk = 15
+  } //
+
+  HandleEvent
+    cmOnVipLoad:
+    {
+      glo_LogFilePath := GetStringParameter('Files','OutPutFilesDirectory',0) + 'iKatOSValidator\iKatOSValidator_' + '_#_BatchMode.log';
+      glo_BatchMode   := false;
+    }
+
+    cmOnVipUnLoad:
+    {
+    }
+  end;
+end.

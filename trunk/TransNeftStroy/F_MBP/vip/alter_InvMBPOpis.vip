@@ -1,0 +1,178 @@
+#component "F_MBP"
+
+alter interface InvMBPOpis;
+
+var
+bal_i,bal:word;
+
+create view
+as select
+  *
+from
+  attrnam attrnamp,
+  attrval attrvalp,
+  attrnam attrnams,
+  attrval attrvals,
+  spkau spkaup,
+  spkau spkaus
+where ((
+             word(2001)       == AttrNamp.wTable
+        and  'Признак счета'  == AttrNamp.Name
+        and  word(2001)       == AttrValp.wTable
+        and  mbpin.nrec       == AttrValp.cRec
+        and  AttrNamp.Nrec    == AttrValp.cAttrNam
+        and  attrvalp.vcomp   == spkaup.nrec
+        and  word(2001)       == AttrNams.wTable
+        and  'Признак счета на складе'  == AttrNams.Name
+        and  word(2001)       == AttrVals.wTable
+        and  mbpin.nrec       == AttrVals.cRec
+        and  AttrNams.Nrec    == AttrVals.cAttrNam
+        and  attrvals.vcomp   == spkaus.nrec
+
+      ))
+
+;
+
+
+
+Function ReloadRecords_alter: Boolean;
+{
+  Delete All I_MBPOut;
+  InitGrMCFilter(fltGrp);
+
+  ReloadRecords_alter := True;
+  Stopped := False;
+  StartNewVisual(vtIndicatorVisual, vfTimer + vfBreak + vfConfirm, 'Выгрузка данных для отчета', RecordsInTable(#MBPIn));
+
+  if (GetFirstPick)
+    do
+      _loop MBPIn
+      {
+        if (not NextVisual)
+        {
+          Stopped := True;
+          Break;
+        }
+
+        if (not isInMatched)
+          Continue;
+
+        // Вставить запись в выгрузку данных для отчета
+
+  if bal_i<>0
+  {
+  bal:=0;
+
+  if mbpin.INEKSPL=word(1)
+   {
+  if getfirst attrnamp = tsok
+   {
+  if getfirst attrvalp = tsok
+   {
+  if getfirst spkaup = tsok
+   {
+   if spkaup.code = '001'
+    {
+      bal:=1
+    }
+    else
+       {
+        bal:=2;
+       }
+   }
+   }
+   }
+
+   if bal=0
+    {
+      if Months_Between(mbpin.DATEEKSP,mbpin.DATEEND) <= 12
+       {
+        bal:=2;
+
+       }
+       else
+        {
+         bal:=1;
+        }
+    }
+   }
+   else
+     {
+      if getfirst attrnams = tsok
+       {
+      if getfirst attrvals = tsok
+       {
+      if getfirst spkaus = tsok
+       {
+       if spkaus.code = '001'
+        {
+          bal:=1
+        }
+        else
+           {
+            bal:=2;
+           }
+       }
+       }
+       }
+
+       if bal=0 {bal:=1;}
+     }
+
+   }
+
+     if bal=bal_i or bal_i=0
+      {
+        InsertRepRecord;
+      }
+
+      }
+    while (GetNextPick);
+
+  StopVisual('', 0);
+
+  if (Stopped)
+  ReloadRecords_alter := False;
+}
+
+
+HandleEvent
+
+cmInit:
+  {
+
+   if RunDialog('Get_par_sfo',bal_i) <> cmCancel
+    {}
+
+    Abort;
+
+    if (not ReloadRecords_alter)
+    {
+      Message('Процесс прерван пользователем', Warning + okButton);
+      Exit;
+    }
+
+    ShowReport;
+
+  }
+
+end;
+
+end.
+
+
+Get_par_sfo dialog
+fields
+  bal_i : word;
+Buttons
+  cmOk,Default,, 'Подтверждение ввода',,scGalDial ;
+
+<< 'Ввод параметров'
+
+  `В ведомость выводить:      `
+  (.) Всю СФО                 `
+  (.) Балансовую СФО          `
+  (.) Забалансовую СФО        `
+
+       <. Продолжить .>
+>>

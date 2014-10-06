@@ -1,0 +1,212 @@
+//требует подключения
+//#include PickBuh.var
+//#include PickBuhNew.var
+//#include GetKau.var
+
+create view v_Flt
+from BuhSchet, PickBuhNew;
+
+var lEntity: Longint;
+
+//Получить имя Счета/Субсчета
+function GetFltSchSubName(wTab: Word): String;
+{
+var lCount: Word;
+var cSchet: Comp;
+
+	lCount := iPickBuh.GetCountItem(wTab);
+
+	case lCount of
+	  0: GetFltSchSubName := '';
+      1:
+	  {
+		cSchet := iPickBuh.FoundInPick_GetRec(wTab);
+		if v_Flt.GetFirst FastFirstRow BuhSchet
+		  	where ((cSchet == BuhSchet.nRec)) = tsOk
+		GetFltSchSubName := if (wTab = cgPick_Schet, #GetDbSch(v_Flt.BuhSchet.Schet), v_Flt.BuhSchet.SubSch) +
+		  					' ' + v_Flt.BuhSchet.Name;
+	  }
+      else GetFltSchSubName := 'множественный выбор (' + lCount + ')';
+	end;
+}
+
+//получить значение установлен ли счет/субсчет
+function IsSetFltSchSubName(wTab: Word): Boolean;
+{
+  	IsSetFltSchSubName := iPickBuh.GetCountItem(wTab) > 0;
+}
+
+function RestoreSchetMarker: Comp;
+{
+ var MarkerName: String;
+ var Marker: LongInt;
+ var cLastBS: Comp;
+
+  	MarkerName := 'gt' + string(cgPick_Schet) + 'buhschet';
+  	Marker := InitMarker('', 8, 200, 100, false);
+
+	v_Flt._loop PickBuhNew
+		where ((lEntity == PickBuhNew.lEntity and
+                cgPick_Schet == PickBuhNew.KodTable))
+	{
+		InsertMarker(Marker, v_Flt.PickBuhNew.PickRec);
+	  	cLastBS := v_Flt.PickBuhNew.PickRec;
+	}
+
+	v_Flt._loop PickBuhNew
+		where ((lEntity == PickBuhNew.lEntity and
+		  		cgPick_SubSch == PickBuhNew.KodTable))
+	{
+		InsertMarker(Marker, v_Flt.PickBuhNew.PickRec);
+	  	cLastBS := v_Flt.PickBuhNew.PickRec;
+	}
+
+	DoneMarker(Marker, MarkerName);
+
+	RestoreSchetMarker := cLastBS;
+}
+
+//Выбор Cчета/субсчета
+function PickSchSubFlt(cPlansSch: Comp): Boolean;
+{
+var cBS: Comp;
+var Sch, Sub: String;
+
+  	PickSchSubFlt := false;
+  	if (QuickChoiceName <> '') QuickChoiceName := 'qcBuh_SchetAndSub';
+
+	iPickBuhNew.MakePickBuh(lEntity);
+	cBS := RestoreSchetMarker;
+
+	if v_Flt.GetFirst FastFirstRow BuhSchet
+ 	  	where ((cBS == BuhSchet.nRec)) = tsOK
+	{
+	  Sch := v_Flt.BuhSchet.Schet;
+	  Sub := v_Flt.BuhSchet.SubSch;
+	}
+
+	if RunInterface ('F_BUHSCHET::GetBuhSchet', (cgiPick or cgiMulti or cgiNotClear), cPlansSch, Sch, Sub) <> cmCancel
+	{
+	  iPickBuhNew.GetPickBuh(lEntity); // Создать PickBuhNew из старого PickBuh
+	  PickSchSubFlt := true;
+	}
+}
+
+//Удаление выбранного Счета/субсчета
+procedure DelSchSubFlt(wTab: Word);
+{
+  if wTab = cgPick_Schet
+    iPickBuh.DeleteItem(cgPick_SubSch);
+  iPickBuh.DeleteItem(wTab);
+  iPickBuhNew.GetPickBuh(lEntity); // Создать PickBuhNew из старого PickBuh
+}
+
+//получить наименование аналитики
+function GetKauNames(lMarker: LongInt; wTbl: Word): String;
+{
+var lCount: LongInt;
+var cKau: Comp;
+
+  Result := '';
+
+  if wTbl <> Word(0)
+  {
+    lCount := GetMarkerCount(lMarker);
+
+    case lCount of
+      0: Result := '';
+      1:
+      {
+        GetMarker(lMarker, 0, cKau);
+        Result := if (cKau = Comp(0),
+                      'значение не определено',
+                      if (GetAnyKau(Word(0), wTbl, cKau), GivenAnName(1), ''));
+      }
+      else Result := 'множественный выбор (' + lCount + ')';
+    end;
+
+  }
+}
+
+//Выбор аналитики
+function PickKauFlt(lMarker: LongInt; wTbl: Word): Boolean;
+{
+var nMark: String;
+var lM: LongInt;
+var i, lCount: LongInt;
+var cKau: Comp;
+
+  Result := false;
+  if wTbl <> Word(0)
+  {
+    lCount := GetMarkerCount(lMarker);
+
+    StartNewVisual(vtIndicatorVisual, vfTimer + vfScreenBottom,
+                   'Инициализация...', lCount);
+
+    nMark := iGetKAU.GetMarkerName(wTbl);
+
+    lM := InitMarker(nMark, 8, 100, 10, false);
+    ClearMarker(lM);
+
+    cKau := Comp(0);
+    for (i := 0; i < lCount; i++)
+    {
+      GetMarker(lMarker, i, cKau);
+      InsertMarker(lM, cKau);
+      NextVisual;
+    }
+    DoneMarker(lM, nMark);
+
+    StopVisual('', 0);
+
+    if (QuickChoiceName <> '')
+      QuickChoiceName := 'qcKau_Needed';
+
+    if iGetKau.GetCodeKau(cgiPickMult + cgiNotClear, wTbl, cKau) <> 0
+    {
+      Result := true;
+      lM := InitMarker(nMark, 8, 100, 10, false);
+      lCount := GetMarkerCount(lM);
+
+      StartNewVisual(vtIndicatorVisual, vfTimer + vfScreenBottom,
+                     'Формирование элементов выбора...', lCount);
+
+      ClearMarker(lMarker);
+
+      for (i := 0; i < lCount; i++)
+      {
+        GetMarker(lM, i, cKau);
+        InsertMarker(lMarker, cKau);
+        NextVisual;
+      }
+      DoneMarker(lM, nMark);
+
+      StopVisual('', 0);
+    }
+  }
+}
+
+//Удаление выбранной аналитики
+procedure DelKauFlt(lMarker: LongInt);
+{
+  ClearMarker(lMarker);
+}
+
+//поиск аналитики
+function TestKauFlt(lMarker: LongInt; cKau: Comp): Boolean;
+{
+var iNo: LongInt;
+
+  if GetMarkerCount(lMarker) > 0
+  {
+    TestKauFlt := SearchMarker(lMarker, cKau, iNo);
+  }
+  else TestKauFlt := true;
+}
+
+//установлен фильтр
+function IsSetKauFlt(lMarker: LongInt): Boolean;
+{
+  Result := GetMarkerCount(lMarker) > 0;
+}

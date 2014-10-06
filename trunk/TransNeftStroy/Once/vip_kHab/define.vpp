@@ -1,0 +1,567 @@
+#declare IsValidTable(cRec,tmpTable,Table,FieldName,FieldCode,sClassifier,sDetailDocInfo)
+  result := false;
+  if (#cRec = 0)
+    exit;
+
+  if (GetFirst #tmpTable where ((#cRec == #tmpTable.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  #sClassifier. ' +
+                                'Невозможно прочитать данные из dbf файла. ' +
+                                #sDetailDocInfo + '. ' +
+                                'Nrec: ' + string(#cRec), cg_ImportError);
+    exit;
+  }
+
+  if (vCheckCatalogs.GetFirst #Table where ((#cRec == #Table.nRec)) = tsOk)
+  {
+    if (trim(vCheckCatalogs.#Table.#FieldName) <> #tmpTable.#FieldName)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  #sClassifier. Не совпадает наименование ' + #tmpTable.#FieldName + '. ' +
+                                  #sDetailDocInfo + '. ' +
+                                  'Nrec: ' + string(#cRec), cg_ImportError);
+    }
+    if (vCheckCatalogs.#Table.#FieldCode <> #tmpTable.#FieldCode)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  #sClassifier. Не совпадает код ' + #tmpTable.#FieldCode + '. ' +
+                                  #sDetailDocInfo + '. ' +
+                                  'Nrec: ' + string(#cRec), cg_ImportError);
+    }
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  #sClassifier. Не найден в БД ' + #tmpTable.#FieldName + '. ' +
+                                  #sDetailDocInfo + '. ' +
+                                  'Nrec: ' + string(#cRec), cg_ImportError);
+  }
+#end
+
+function IsValidKatOrg(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatOrg,KatOrg,Name,Code,Контрагент,sDetailInfo)
+}
+
+function IsValidKatBank(cRec : comp; sDetailInfo : string) : boolean;
+{
+   result := false;
+  if (cRec = 0)
+    exit;
+
+  if (GetFirst tmpKatBank where ((cRec == tmpKatBank.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Банк. ' +
+                                'Невозможно прочитать данные из dbf файла. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+
+  if (vCheckCatalogs.GetFirst KatBank where ((cRec == KatBank.nRec)) = tsOk)
+  {
+    if (vCheckCatalogs.KatBank.Name <> tmpKatBank.Name)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Банк. ' +
+                                  'Не совпадает наименование ' + tmpKatBank.Name + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+    if (vCheckCatalogs.KatBank.Schet1 <> tmpKatBank.Schet1)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Банк. ' +
+                                  'Не совпадает счет ' + tmpKatBank.Schet1 + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+    if (vCheckCatalogs.KatBank.MFO1 <> tmpKatBank.MFO1)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Банк. ' +
+                                  'Не совпадает МФО ' + tmpKatBank.MFO1 + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Банк. Не найден в БД ' + tmpKatBank.Name + '. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+  }
+}
+
+function IsValidKatPodr(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatPodr,KatPodr,Name,Kod,Подразделение,sDetailInfo)
+}
+
+function IsValidKatMol(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatMol,KatMol,Name,Kod,МОЛ,sDetailInfo)
+}
+
+function IsValidKatUsl(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatUsl,KatUsl,Name,Kod,Услуга,sDetailInfo)
+}
+
+function IsValidKatMC(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatMC,KatMC,Name,BarKod,МЦ,sDetailInfo)
+}
+
+function IsValidKatOtpEd(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatOtpEd,KatOtpEd,Name,bKod,Отпускная единица,sDetailInfo)
+}
+
+function IsValidFpCO(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpFpCO,FpCO,Name,CODE,ЦО,sDetailInfo)
+}
+
+function IsValidGrNal(coTable : word; cRec : comp; sDetailInfo : string): boolean;
+{
+  result := false;
+  if (cRec = 0)
+    exit;
+
+  if (GetFirst tmp_GrNal where ((cRec == tmp_GrNal.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Группа налогов. ' +
+                                'Невозможно прочитать данные из dbf файла. ' +
+                                 sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+
+  var sKod : string; sKod := tmp_GrNal.Kod;
+  if (vCheckCatalogs.GetFirst tmpGrNalMy where ((sKod == tmpGrNalMy.Kod)) = tsOk)
+  {
+    if (cRec <> vCheckCatalogs.tmpGrNalMy.Nrec)
+    {
+      case coTable of
+      coSpDocNal :
+      {
+        tmpSpDocNal.cGrNal := vCheckCatalogs.tmpGrNalMy.Nrec;
+        if (update current tmpSpDocNal = tsOk) {}
+      }
+      coSpSopr :
+      {
+        tmpSpSopr.cGrNal := vCheckCatalogs.tmpGrNalMy.Nrec;
+        if (update current tmpSpSopr = tsOk) {}
+      }
+      coSpSchF   :
+      {
+        tmpSpSchF.cGrNal := vCheckCatalogs.tmpGrNalMy.Nrec;
+        if (update current tmpSpSchF = tsOk) {}
+      }
+      coSpStep :
+      {
+        tmpSpStep.cGrNal := vCheckCatalogs.tmpGrNalMy.Nrec;
+        if (update current tmpSpStep = tsOk) {}
+      }
+      end;
+    }
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Группа налогов. Не найден в БД ' + sKod + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Код: ' + sKod, cg_ImportError);
+  }
+
+  if (coTable = coSpDocNal)
+  {
+    sKod := tmpSpDocNal.NalogKod;
+    if (vCheckCatalogs.GetFirst KATNALOG where ((sKod == KATNALOG.Kod)) = tsOk)
+    {
+      tmpSpDocNal.cNalog := vCheckCatalogs.KatNalog.Nrec;
+      if (update current tmpSpDocNal = tsOk) {}
+    }
+    else
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Налог. Не найден в БД ' + sKod + '. ' +
+                                   sDetailInfo + '. ' +
+                                  'Код: ' + tmpSpDocNal.NalogKod, cg_ImportError);
+    }
+  }
+}
+//SaldTune
+//SpKau
+function IsValidDogovor(cRec : comp; sDetailInfo : string): boolean;
+{
+  result := false;
+  if (cRec = 0)
+    exit;
+
+  if (GetFirst tmp_Dogovor where ((cRec == tmp_Dogovor.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Договор. ' +
+                                'Невозможно прочитать данные из dbf файла. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+
+  if (vCheckCatalogs.GetFirst Dogovor where ((cRec == Dogovor.nRec)) = tsOk)
+  {
+    if (vCheckCatalogs.Dogovor.NoDoc <> tmp_Dogovor.NoDoc)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Договор. Не совпадает номер ' + tmp_Dogovor.NoDoc + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+    if (vCheckCatalogs.Dogovor.DDOC <> tmp_Dogovor.dDoc)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Договор. Не совпадает дата ' + datetostr(tmp_Dogovor.dDoc, 'YYYY.MM.DD') + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Договор. Не найден в БД ' + tmp_Dogovor.NoDoc + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+  }
+}
+
+function IsValidCalPlan(cRec : comp; sDetailInfo : string): boolean;
+{
+  result := false;
+  if (cRec = 0)
+    exit;
+
+  if (GetFirst tmp_CalPlan where ((cRec == tmp_CalPlan.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Календарный план. ' +
+                                'Невозможно прочитать данные из dbf файла. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+
+  if (vCheckCatalogs.GetFirst CalPlan where ((cRec == CalPlan.nRec)) = tsOk)
+  {
+    if (vCheckCatalogs.CalPlan.NODOC <> tmp_CalPlan.NoDoc)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Календарный план. Не совпадает номер ' + tmp_CalPlan.NoDoc + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+    if (vCheckCatalogs.CalPlan.DINPUT <> tmp_CalPlan.DINPUT)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Календарный план. Не совпадает дата ' + datetostr(tmp_CalPlan.DINPUT, 'YYYY.MM.DD') + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Календарный план. Не найден в БД ' + tmp_CalPlan.NoDoc + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+  }
+}
+
+function IsValidKatParty(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatParty,KatParty,Name,Kod,Партия,sDetailInfo)
+}
+
+#declare ChangetmpSpecMtr(FieldAnalitik, FieldRecAnalitik)
+  if (buf2.#FieldAnalitik = buf1.WOBJ)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.COBJ;
+  else if (buf2.#FieldAnalitik = buf1.wKau1)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau1;
+  else if (buf2.#FieldAnalitik = buf1.wKau2)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau2;
+  else if (buf2.#FieldAnalitik = buf1.wKau3)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau3;
+  else if (buf2.#FieldAnalitik = buf1.wKau4)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau4;
+  else if (buf2.#FieldAnalitik = buf1.wKau5)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau5;
+  else if (buf2.#FieldAnalitik = buf1.wKau6)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau6;
+  else if (buf2.#FieldAnalitik = buf1.wKau7)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau7;
+  else if (buf2.#FieldAnalitik = buf1.wKau8)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau8;
+  else if (buf2.#FieldAnalitik = buf1.wKau9)
+    tmpSpecMtr2.#FieldRecAnalitik := buf.cKau9;
+#end
+Procedure InsertTmpSpecMTR2(buf1 : type$tmpSaldTune; buf : type$tmpSpecMtr; buf2 : type$MySaldTune);
+{
+  ClearBuffer(#tmpSpecMtr2);
+  //1
+  #ChangetmpSpecMtr(WOBJ,COBJ)
+  //2
+  #ChangetmpSpecMtr(WKAU[1],CKAU1)
+  //3
+  #ChangetmpSpecMtr(WKAU[2],CKAU2)
+//4
+  #ChangetmpSpecMtr(WKAU[3],CKAU3)
+//5
+  #ChangetmpSpecMtr(WKAU[4],CKAU4)
+//6
+  #ChangetmpSpecMtr(WKAU[5],CKAU5)
+//7
+  #ChangetmpSpecMtr(WKAU[6],CKAU6)
+//8
+  #ChangetmpSpecMtr(WKAU[7],CKAU7)
+//9
+  #ChangetmpSpecMtr(WKAU[8],CKAU8)
+//10
+  #ChangetmpSpecMtr(WKAU[9],CKAU9)
+
+  tmpSpecMtr2.nRec      := buf.nRec;
+  tmpSpecMtr2.cSpec     := buf.cSpec;
+  tmpSpecMtr2.COTABLE   := buf.coTable;
+  tmpSpecMtr2.CSALDTUNE := buf2.Nrec;
+  insert current tmpSpecMtr2;
+}
+
+function ValidKauFull(cRec : comp; coTable : word; sDetailInfo : string) : boolean;
+var
+  bDocumentError : boolean;
+  bExistSpecMtr, bExistSaldTune, bExistSaldTuneTmp : boolean;
+{
+  bDocumentError := false;
+  bExistSpecMtr := (GetFirst tmpSpecMTR where ((coTable == tmpSpecMTR.coTable
+                                            and cRec    == tmpSpecMTR.cSpec)) = tsOk);
+  NextVisual;
+  if (bExistSpecMtr)
+
+  {
+    bExistSaldTuneTmp := (GetFirst tmpSaldTune where ((tmpSpecMTR.cSaldTune == tmpSaldTune.nRec)) = tsOk);
+    if (not bExistSaldTuneTmp)
+    {
+      bDocumentError := true;
+      GenerateLogFile(m_wTidkGal, '  Настройка ЦУ. ' +
+                                'Не найдена настройка объектов цу. Невозможно прочитать данные из dbf файла. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(tmpSpecMTR.cSaldTune), cg_ImportError);
+    }
+    else
+    {
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WOBJ , tmpSpecMTR.cObj , tmpSpecMTR.COBJNAME , tmpSpecMTR.COBJKOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU1, tmpSpecMTR.CKAU1, tmpSpecMTR.CKAU1NAME, tmpSpecMTR.CKAU1KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU2, tmpSpecMTR.CKAU2, tmpSpecMTR.CKAU2NAME, tmpSpecMTR.CKAU2KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU3, tmpSpecMTR.CKAU3, tmpSpecMTR.CKAU3NAME, tmpSpecMTR.CKAU3KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU4, tmpSpecMTR.CKAU4, tmpSpecMTR.CKAU4NAME, tmpSpecMTR.CKAU4KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU5, tmpSpecMTR.CKAU5, tmpSpecMTR.CKAU5NAME, tmpSpecMTR.CKAU5KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU6, tmpSpecMTR.CKAU6, tmpSpecMTR.CKAU6NAME, tmpSpecMTR.CKAU6KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU7, tmpSpecMTR.CKAU7, tmpSpecMTR.CKAU7NAME, tmpSpecMTR.CKAU7KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU8, tmpSpecMTR.CKAU8, tmpSpecMTR.CKAU8NAME, tmpSpecMTR.CKAU8KOD, sDetailInfo);
+      bDocumentError := bDocumentError or IsValidKau(tmpSaldtune.WKAU9, tmpSpecMTR.CKAU9, tmpSpecMTR.CKAU9NAME, tmpSpecMTR.CKAU9KOD, sDetailInfo);
+      if (not bDocumentError)
+      {
+         // решили определять по Тип настройки и коду
+         bExistSaldTune    := (GetFirst MySaldTune where ((tmpSaldTune.WTYPE == MySaldTune.WTYPE
+                                                       and tmpSaldTune.Code  == MySaldTune.Code   )) = tsOk);
+         if (not bExistSaldTune)
+         {
+           bDocumentError := true;
+           GenerateLogFile(m_wTidkGal, '  Настройка ЦУ. ' +
+                                      'Не найдена настройка по коду ' + tmpSaldTune.Code + '. '  +
+                                      sDetailInfo + '. ' +
+                                     'Nrec: ' + string(tmpSpecMTR.cSaldTune), cg_ImportError);
+         }
+         else
+           InsertTmpSpecMTR2(tmpSaldTune.buffer, tmpSpecMTR.buffer, MySaldTune.buffer);
+      }
+    }
+  }
+/*  else
+  {
+
+    bDocumentError := true;
+    var sStr : string;
+    case coTable of
+    coSpSopr : sStr := 'Спец. накладной или акта';
+    coSpOrder: sStr := 'Спец. ордера';
+    coSpDocs:  sStr := 'Спец. договора или ПКП';
+    coSpStep:  sStr := 'Спец. ДО';
+    coSpSchF:  sStr := 'Спец. СФ';
+    end;
+    GenerateLogFile(m_wTidkGal, '  не найдена настройка объектов ЦУ. Невозможно прочитать данные из dbf файла. ' +sStr + ' Nrec: ' + string(cRec), cg_ImportError);
+
+  }*/
+  result := bDocumentError;
+}
+
+Procedure CloseMark_Dbf;
+{
+  DBFClose(DBFKatSopr);
+  DBFClose(DBFSpSopr);
+  DBFClose(DBFKatOrg);
+  DBFClose(DBFKatBank);
+  DBFClose(DBFKatPodr);
+  DBFClose(DBFKatMc);
+  DBFClose(DBFKatUsl);
+  DBFClose(DBFKatOtpEd);
+  DBFClose(DBFKlVal);
+  DBFClose(DBFFPCO);
+  DBFClose(DBFKatNotes);
+  DBFClose(DBFKatMol);
+  DBFClose(DBFKatParty);
+  DBFClose(DBFHozOper);
+  DBFClose(DBFSaldTune);
+  DBFClose(DBFDogovor);
+  DBFClose(DBFCalPlan);
+  DBFClose(DBFSchFact);
+  DBFClose(DBFSpSchF);
+  DBFClose(DBFUsersDoc);
+  DBFClose(DBFBaseDoc);
+  DBFClose(DBFSpStep);
+  DBFClose(DBFAttrVal);
+  DBFClose(DBFGrNal);
+  DBFClose(DBFStepDoc);
+  DbfClose(DBFSpecMtr);
+  DbfClose(DBFSklOrder);
+  DbfClose(DBFSpOrder);
+  DbfClose(DBFSoprHoz);
+  DbfClose(DBFKatStroy);
+  DbfClose(DBFKatSoprRef);
+  DbfClose(DBFSpDocNal);
+  DbfClose(DBFSpecZatr);
+}
+
+Procedure CloseMark_DbfDogovor;
+{
+  DBFClose(DBFDogovorDoc);
+  DBFClose(DBFCalPlanDoc);
+  DBFClose(DBFSpDocs);
+  DBFClose(DBFKatOrg);
+  DBFClose(DBFKatPodr);
+  DBFClose(DBFKatMc);
+  DBFClose(DBFKatUsl);
+  DBFClose(DBFKatOtpEd);
+  DBFClose(DBFKlVal);
+  DBFClose(DBFFPCO);
+  DBFClose(DBFKatNotes);
+  DBFClose(DBFSaldTune);
+  DBFClose(DBFAttrVal);
+  DbfClose(DBFSpecMtr);
+  DbfClose(DBFKatBank);
+  DbfClose(DBFPlanPays);
+  DbfClose(DBFPaySchem);
+  DbfClose(DBFSpDocNal);
+  DbfClose(DBFGrNal);
+}
+
+procedure CloseMark_SklOrderDbf;
+{
+  DBFClose(DBFKatPodr);
+  DBFClose(DBFKatMc);
+  DBFClose(DBFKatMol);
+  DBFClose(DBFKatParty);
+  DBFClose(DBFSaldTune);
+  DBFClose(DBFAttrVal);
+  DbfClose(DBFSpecMtr);
+  DbfClose(DBFSklOrder);
+  DbfClose(DBFSpOrder);
+  DbfClose(DBFSoprHoz);
+  DbfClose(DBFSpDocNal);
+}
+
+function IsValidKatSoprRef(cRec : comp; cRefSpSopr : comp; sDetailInfo : string): boolean;
+{
+  result := false;
+  if ((cRec = 0) and (cRefSpSopr = 0))
+    exit;
+  if (cRefSpSopr <> 0)
+  {
+    if (GetFirst tmpKatSoprRef where ((cRefSpSopr == tmpKatSoprRef.cRec)) <> tsOk)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Накладная. ' +
+                                'Не найдена накладная по спецификации. Невозможно прочитать данные из dbf файла. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRefSpSopr), cg_ImportError);
+      exit;
+    }
+    else
+      cRec := tmpKatSoprRef.Nrec;
+  }
+  else
+  if (GetFirst tmpKatSoprRef where ((cRec == tmpKatSoprRef.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Накладная. ' +
+                                'Не найдена накладная. Невозможно прочитать данные из dbf файла. ' +
+                                sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+  // если документ вставляется и ссылка на его самого, то проверка не делается
+  if (GetFirst tmpKatSoprSyn where ((cRec == tmpKatSoprSyn.Nrec)) = tsOk)
+    exit;
+
+  if (vCheckCatalogs.GetFirst KatSopr where ((cRec == KatSopr.nRec)) = tsOk)
+  {
+    if (vCheckCatalogs.KatSopr.NSOPR <> tmpKatSoprRef.NSOPR)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Накладная. ' +
+                                  'Не совпадает номер ' + tmpKatSoprRef.NSOPR + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+    if (vCheckCatalogs.KatSopr.DSOPR <> tmpKatSoprRef.DSOPR)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Накладная. ' +
+                                  'Не совпадает дата' + datetostr(tmpKatSoprRef.DSOPR, 'YYYY.MM.DD') + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Накладная. Не найден в БД c номером ' + tmpKatSoprRef.NSOPR + '. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+  }
+}
+
+function IsValidKatStroy(cRec : comp; sDetailInfo : string): boolean;
+{
+  #IsValidTable(cRec,tmpKatStroy,KatStroy,Name,CODE,Объект строительства,sDetailInfo)
+}
+
+//вид договоров
+function IsValidKATVIDD(cRec : comp; sDetailInfo : string): boolean;
+{
+  result := false;
+  if (cRec = 0)
+    exit;
+
+  if (vCheckCatalogs.GetFirst KATVIDD where ((cRec == KATVIDD.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Вид договора. Не найден в БД. ' +
+                                  sDetailInfo + '. ' +
+                                  'Nrec: ' + string(cRec), cg_ImportError);
+  }
+}

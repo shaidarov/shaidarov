@@ -1,0 +1,434 @@
+#commands start at 7500
+const
+scLapus = 7500;
+end;
+!my_itner statusLine
+!{
+!(scLapus..sclapus)
+!{
+!'~^Enter~ Раскрыть', cmOpenLevellapus, kbCtrlEnter;
+!'~^BackSpace~ Сжать', cmCompressLevellapus,kbCtrlBack;
+!}
+!}
+Interface My_TipTexTree 'Выбор типа ТС'
+! (,,sci178InsPM)
+! (,,sci178EnEscIns)
+!  (,,scIntClass)
+ cyan;
+ var
+  var_pred_TipTex_nrec,var_KatPodr_nrec:comp;
+  i:integer     ;
+  var_nsopr,cicl_var_nrec:comp;
+  Get_TipTex_Marker_lap,Get_Podr_Marker_lap:LongInt;
+  Name_Get_Podr_Marker_lap, Name_Get_Tiptex_Marker_lap :String
+Parameters Get_Podr_Marker_lap, Name_Get_Podr_Marker_lap,
+           Get_TipTex_Marker_lap, Name_Get_Tiptex_Marker_lap
+Table struct My_TipTex
+(
+ TipTex_Nrec    : Comp   , //nrec ТС
+ TipTex_NAME    : String , //наименование типа ТС
+ TipTex_KODTIP  : String , //наименование кода ТС
+ TipTex_CTIPTEX : Comp   , //ссылка на ТС
+ TipTex_ISLEAF  : Word   , //лист или нет
+ del_rec        : Boolean  //удалять или нет запись
+)
+ with index
+(
+ index1 = TipTex_cTipTex ,
+ index2 = TipTex_nrec
+)
+;
+Table Struct Var_Transp
+(
+  Transp_nrec     : Comp , //nrec Автомобиля
+  Transp_CPODR : Comp , //ссылка на подразеление баланса
+  Transp_tiptc    : word , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+  Transp_godv     : Date , //Дата Выпуcка
+  Transp_cTipTex  : Comp   //с
+)
+With Index
+ (
+  index1 = Transp_CPODR
+ )
+ ;
+Table Struct Var_Transp_itog
+(
+  Transp_nrec     : Comp , //nrec Автомобиля
+  Transp_CPODR : Comp , //ссылка на подразеление баланса
+  Transp_tiptc    : word , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+  Transp_godv     : Date , //Дата Выпуcка
+  Transp_cTipTex  : Comp   //с
+)
+With Index
+ (
+  index1 = Transp_cTipTex
+ )
+ ;
+create view
+ var
+ var_nrec:Comp;
+ cOwner:comp;
+ indxClass : longint;
+ nameClass : string;
+(IsGet_TipTex_Marker_lap)
+as select
+  SearchMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec, indxClass),
+  My_TipTex.*
+ from my_tipTex,VAR_TRANSP,VAR_TRANSP_ITOG,TIPTEX
+ where ((
+          cOwner == My_TipTex.TipTex_cTipTex
+       ))
+  ;
+tree Get_TipTex  (,,sci178EnEscIns)
+show at (,1,,);
+Table My_TipTex;
+fields
+  My_TipTex.TipTex_NAME  'тип ТС' : [15],  Protect,
+   {font = {Bold = IsGet_TipTex_Marker_lap; Italic = IsGet_TipTex_Marker_lap; Color = if(IsGet_TipTex_Marker_lap,ColorMark,1)}};
+  My_TipTex.TipTex_KODTIP 'код типа ТС' : [7],  Protect,
+   {font = {Bold = IsGet_TipTex_Marker_lap; Italic = IsGet_TipTex_Marker_lap; Color = if(IsGet_TipTex_Marker_lap,ColorMark,1)}};
+ end;
+Procedure my_MarkTree (pro_var_nrec:Comp);
+var Pro_var_pred_TipTex_nrec:comp;
+{
+     if getfirst My_TipTex where ((pro_var_nrec == My_TipTex.TipTex_cTipTex)) = tsOK
+        Do
+        {
+!          message('в процедуре  My_TipTex.TipTex_isLeaf'+My_TipTex.TipTex_isLeaf)
+          InsertMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+          if My_TipTex.TipTex_isLeaf = 0
+           {
+!            Message('рекурсия')
+            Pro_var_pred_TipTex_nrec:=My_TipTex.TipTex_nrec
+            My_MarkTree(Pro_var_pred_TipTex_nrec)
+            getfirst My_TipTex where ((Pro_var_pred_TipTex_nrec == My_TipTex.TipTex_cTipTex))
+           }
+        }
+        While (GetNext My_TipTex where ((pro_var_nrec == My_TipTex.TipTex_cTipTex)))= tsOk;
+}
+Procedure my_UnMarkTree (pro_var_nrec:Comp);
+var Pro_var_pred_TipTex_nrec:comp;
+{
+     if getfirst My_TipTex where ((pro_var_nrec == My_TipTex.TipTex_cTipTex)) = tsOK
+        Do
+        {
+!          message('в процедуре  My_TipTex.TipTex_isLeaf'+My_TipTex.TipTex_isLeaf)
+          deleteMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+          if My_TipTex.TipTex_isLeaf = 0
+           {
+!            Message('рекурсия')
+            Pro_var_pred_TipTex_nrec:=My_TipTex.TipTex_nrec
+            My_UnMarkTree(Pro_var_pred_TipTex_nrec)
+            getfirst My_TipTex where ((Pro_var_pred_TipTex_nrec == My_TipTex.TipTex_cTipTex))
+           }
+        }
+        While (GetNext My_TipTex where ((pro_var_nrec == My_TipTex.TipTex_cTipTex)))= tsOk;
+}
+HandleEvent
+cmInit:
+{
+ StartNewVisual (vtRotateVisual,vfTimer,'заполнение временных таблиц',100)
+  delete all Var_Transp;
+ modifier insert Var_Transp
+  select
+  Transp.nrec     , //nrec Автомобиля
+  Transp.CPODR , //ссылка на подразеление баланса
+  Transp.tiptc    , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+  Transp.godv     , //Дата Выпуcка
+  Transp.cTipTex    //ссылка на TipTex
+  from transp
+ ;
+ Delete All My_TipTex;
+ modifier Insert My_TipTex
+ Select
+  TipTex.Nrec    , //nrec ТС
+  TipTex.NAME    , //наименование типа ТС
+  TipTex.KODTIP  , //наименование кода ТС
+  TipTex.CTIPTEX , //ссылка на тип ТС
+  0              ,
+  True
+  from tipTex
+ ;
+ SetVisualHeader('отбор записей')
+ Delete All Var_Transp_itog;
+  Get_Podr_Marker_lap := InitMarker(Name_Get_Podr_Marker_lap, 8, 10, 10); // инициализация маркера
+ i:=0
+  do  //формирование строки КАУ
+    {
+     if (GetMarker(Get_Podr_Marker_lap,i,var_KatPodr_nrec))
+      {
+       if (GetFirst Var_Transp Where ((var_KatPodr_nrec == Var_Transp.Transp_CPODR))
+          )=tsOK
+          {
+          do
+           {
+            if (GetFirst Var_Transp_itog Where ((Var_Transp.Transp_cTipTex == Var_Transp_itog.Transp_cTipTex))
+              )<>tsOK
+              {
+               Modifier Insert Var_Transp_itog
+                set
+                 Var_Transp_itog.Transp_nrec     := Var_Transp.Transp_nrec     , //nrec Автомобиля
+                 Var_Transp_itog.Transp_CPODR := Var_Transp.Transp_CPODR , //ссылка на подразеление баланса
+                 Var_Transp_itog.Transp_tiptc    := Var_Transp.Transp_tiptc    , //Тип Тс 0-Осн, 1-Приц, 3-Списано
+                 Var_Transp_itog.Transp_godv     := Var_Transp.Transp_godv     , //Дата Выпуcка
+                 Var_Transp_itog.Transp_cTipTex  := Var_Transp.Transp_cTipTex
+              }
+            } While (getNext Var_Transp Where ((var_KatPodr_nrec == Var_Transp.Transp_CPODR))
+                   )=tsOK
+          }
+      }
+     i:=i+1
+    } while i<GetMarkerCount(Get_Podr_Marker_lap) //конец формирование My_Get_TipTex_Lap
+  SetVisualHeader('построение дерева')
+//////////////
+i:=0
+_loop Var_Transp_itog
+{
+           if (GetFirst My_TipTex Where((Var_Transp_Itog.Transp_cTipTex==My_TipTex.TipTex_Nrec))
+              )=tsOK
+              {
+               if My_TipTex.del_rec=true
+                Modifier Update Current My_TipTex
+                 set My_TipTex.del_rec:=False
+                ;
+               cicl_var_nrec := My_TipTex.TipTex_cTipTex
+                  if (GetFirst My_TipTex Where ((cicl_var_nrec == My_TipTex.TipTex_nrec))
+                     )=tsOK
+                     do
+                      {
+                        i:=i+1
+                       Modifier Update Current My_TipTex
+                        set My_TipTex.del_rec:=False
+                        ;
+                       cicl_var_nrec:=My_TipTex.TipTex_cTipTex
+                      }  While (GetFirst My_TipTex Where ((cicl_var_nrec == My_TipTex.TipTex_nrec))
+                               )=tsOK
+              }
+ }
+/////////////////
+i:=0
+_loop TipTex
+{
+ i:=i+1
+ GetFirst My_TipTex Where ((TipTex.nrec == my_TipTex.TipTex_nrec))
+ if My_TipTex.del_rec=true
+   Modifier Delete Current My_TipTex
+  ;
+}
+if recordsInTable(tnMy_TipTex)=0
+{
+  StopVisual('построение дерева',vfTimer);
+  Message('в выбранных подразделениях нет ни одного ТС')
+  exit
+}
+ i:=0
+ _loop TipTex
+ {
+  if (getFirst My_TipTex Where ((TipTex.nrec == My_TipTex.TipTex_cTipTex))
+     )<>tsOK
+     then
+      {
+       if (GetFirst My_TipTex where ((TipTex.nrec == My_TipTex.TipTex_nrec))
+          )=tsOK
+          then
+           {
+            i:=i+1
+            Modifier Update current My_TipTex
+             set My_TipTex.TipTex_ISLEAF=1
+           }
+      }
+ }
+  Name_Get_Tiptex_Marker_lap := 'Name_Get_Tiptex_Marker_lap'
+  Get_TipTex_Marker_lap := InitMarker(Name_Get_Tiptex_Marker_lap, 8, 10, 10); // инициализация маркера
+  ClearMarker(Get_TipTex_Marker_lap);
+  getFirst My_TipTex;
+   cowner:=My_TipTex.TipTex_nrec;
+   if TreeGetFirst(Get_TipTex) then {}
+  StopVisual('построение дерева',vfTimer);
+}
+cmTreeTop  :
+ {
+  cowner:=0h;
+ }
+cmTreeDown :
+ {
+  cowner:=My_TipTex.TipTex_nrec;
+ }
+cmTreeUP   :
+ {
+  cowner:=My_TipTex.TipTex_cTipTex;
+ }
+cmTreeNodeType  :
+{
+ if not isvalid(#My_TipTex) then TreeSetNodeType(Get_TipTex,ntfText);
+ if (My_TipTex.TipTex_isLeaf = 1)  then TreeSetNodeType(Get_TipTex,2);
+}
+!cmOpenLevellapus:
+!{
+! TreeOpenNode(Get_TipTex)
+! RescanPanel(tnMy_TipTex);
+!}
+!cmCompressLevel:
+!{
+!  case CurTable of
+!  #My_TipTex:
+!  {
+!   var_nrec:=My_TipTex.TipTex_cTipTex
+!   If (GetFirst My_TipTex where ((var_nrec == My_TipTex.TipTex_nrec))) = tsOk {}
+!  }
+!  end;
+!  TreeCloseNode(Get_TipTex)
+!  TreeGetprev(Get_TipTex)
+!  RescanPanel(tnMy_TipTex);
+!}
+! TreeOpenNode
+! TreeCloseNode
+! TreeCloseAllOpenedNode
+cmCheckField:
+{
+! Message('CheckField')
+!  RescanPanel(tnMy_BaseDoc);
+}
+cmMarkUnmark:
+{
+! Message('Unmark')
+ case CurTable of
+  #My_TipTex:
+  {
+!  Message(TreeLevel(Get_TipTex))
+  If (IsGet_TipTex_Marker_lap)
+  then
+  {
+   StartNewVisual( vtRotateVisual, vfTimer, 'снимаю пометку', 1);
+   DeleteMarker(Get_TipTex_Marker_lap,My_TipTex.TipTex_nrec);
+   var_nrec:=My_TipTex.TipTex_nrec
+   If (GetFirst My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex))) = tsOk
+    Do
+        {
+          DeleteMarker(Get_TipTex_Marker_lap,My_TipTex.TipTex_nrec);
+          if My_TipTex.TipTex_isLeaf = 0
+           {
+!            Message('не лист в цикле')
+            var_pred_TipTex_nrec:=My_TipTex.TipTex_nrec
+            My_UnMarkTree(var_pred_TipTex_nrec)
+            getFirst My_TipTex where ((var_pred_TipTex_nrec == My_TipTex.TipTex_nrec))
+           }
+        }
+        While (GetNext My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex)))= tsOk;
+   StopVisual('', 0);
+  }
+  else
+  {
+   StartNewVisual( vtRotateVisual, vfTimer, 'Помечаю', 1);
+   InsertMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+   var_nrec:=My_TipTex.TipTex_nrec
+   If (GetFirst My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex))) = tsOk
+    Do
+        {
+          InsertMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+          if My_TipTex.TipTex_isLeaf = 0
+           {
+!            Message('не лист в цикле')
+            var_pred_TipTex_nrec:=My_TipTex.TipTex_nrec
+            My_MarkTree(var_pred_TipTex_nrec)
+            getFirst My_TipTex where ((var_pred_TipTex_nrec == My_TipTex.TipTex_nrec))
+           }
+        }
+        While (GetNext My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex)))= tsOk;
+    StopVisual('', 0);
+   }
+  }
+  end;
+  if (TreeGetNext(Get_TipTex)=true) {};
+  TreeGetFirst(Get_TipTex)
+  RescanPanel(tnMy_TipTex);
+}
+
+cmSelectAll:
+{
+!  Message('MarkAll')
+   StartNewVisual( vtRotateVisual, vfTimer, 'Помечаю все', 1);
+ TreeGetFirst(Get_TipTex)
+_loop My_TipTex
+ {
+   InsertMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+   var_nrec:=My_TipTex.TipTex_nrec
+   If (GetFirst My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex))) = tsOk
+    Do
+        {
+          InsertMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+          if My_TipTex.TipTex_isLeaf = 0
+           {
+            var_pred_TipTex_nrec:=My_TipTex.TipTex_nrec
+            My_MarkTree(var_pred_TipTex_nrec)
+            getFirst My_TipTex where ((var_pred_TipTex_nrec == My_TipTex.TipTex_nrec))
+           }
+        }
+        While (GetNext My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex)))= tsOk;
+   GetFirst My_TipTex where ((var_nrec == My_TipTex.TipTex_nrec))
+ }
+   StopVisual('', 0);
+  RescanPanel(tnMy_TipTex);
+}
+cmUnselectAll:
+{
+ StartNewVisual( vtRotateVisual, vfTimer, 'Снимаю пометку со всех', 1);
+ ClearMarKer(Get_TipTex_Marker_lap)
+ RescanPanel(#My_TipTex);
+ StopVisual('', 0);
+}
+cmDone:
+{
+! Message('cmDone')
+ DoneMarker (Get_TipTex_Marker_lap,Name_Get_Tiptex_Marker_lap);
+}
+cmDefault:
+{
+ IF GetMarkerCount(Get_TipTex_Marker_lap) = 0
+  then
+   {
+    case CurTable of
+     #My_TipTex:
+     {
+      InsertMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+       var_nrec:=My_TipTex.TipTex_nrec
+      If (GetFirst My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex))) = tsOk
+      Do
+        {
+          InsertMarker(Get_TipTex_Marker_lap, My_TipTex.TipTex_nrec);
+          if My_TipTex.TipTex_isLeaf = 0
+           {
+!            Message('не лист в цикле')
+            var_pred_TipTex_nrec:=My_TipTex.TipTex_nrec
+            My_MarkTree(var_pred_TipTex_nrec)
+            getFirst My_TipTex where ((var_pred_TipTex_nrec == My_TipTex.TipTex_nrec))
+           }
+        }
+        While (GetNext My_TipTex where ((var_nrec == My_TipTex.TipTex_cTipTex)))= tsOk;
+      }
+   end;
+  RescanPanel(tnMy_TipTex);
+   }
+! message('Выбрано'+GetMarkerCount(Get_TipTex_Marker_lap));
+ CloseInterface(-1);
+}
+cmHotKeys :
+ {
+  PutHotCommand(RunMenu('dpPriceMenu'));
+ }
+!И в конце интерфейса добавляем описание контекстного меню
+end;
+end.
+!dpPriceMenu Menu
+!{
+!-'~Пометить все',cmSelectAll,'Пометить все',,
+!  '~+',kbGrayPlus,sci178EnEscIns;
+!-'~Снять пометку со всех',cmUnSelectAll,'Снять пометку со всех',,
+!  '~-',kbGrayMinus,sci178EnEscIns;
+!-'~Пометить/снять',cmMarkUnmark,'Пометить/Снять',,
+! '~Ins +/-',kbIns,scIntClass;
+!-'~раскрыть',cmOpenLevellapus,'раскрыть',,
+!'', kbCtrlEnter,sclapus;
+!-'~Закрыть',cmCompressLevel,'Закрыть',,
+!'~CTRL+BACKSPACE',kbCtrlBack,scIntClass;
+!}

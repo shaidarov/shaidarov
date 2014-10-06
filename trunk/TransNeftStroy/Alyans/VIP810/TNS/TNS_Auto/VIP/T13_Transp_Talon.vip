@@ -1,0 +1,959 @@
+#DEFINE Transp_GSM_FLT
+#include getkau.vih
+Interface Transp_Talon_13 '13 Ведомость движения талонов' EscClose ;
+table struct tmp_topl
+( pa :word
+, nrec:comp
+, cmc  :comp
+, toplivo_nrec :comp
+, cpodr:comp
+, vidt :double
+, LIMZAPL_DATEZAP :date
+, LIMZAPH_NUM :string[30]
+)
+with index
+( tmp_topl01 = pa +LIMZAPL_DATEZAP+cmc
+);
+var
+ DTB,DTE :date;
+ type_report :word;
+ filtr_type :word ;
+ wdt_zakup:date;
+ filtr_podr,filtr_post,filtr_groupmc, filtr_mc, filtr_grpodr, filtr_gsm  :string ;
+ cFiltr_mol :comp; Filtr_Mol :string;
+ filtr_type_post :word ; // для фильтра по типу поставки
+ tp_option:word; // опции
+ PodrMarker, PostMarker , GroupMcMarker , McMarker, Marker , GrPodrMarker , MrkCount_m:longint;
+ Item,ITEM_SB:comp;
+ MarkerKauName :string;
+ i,INDEXMRK: longint;
+ w_dmsum: array [1..10] of double;
+ iPodrFilterDef:PodrFilterDef;//функции по работе да с чем угодно
+ igetkau:getkau;
+ wglav_ing,wnach_cex,wglav_mex: string; 
+ type_sbor :word;
+#include excel_var.vpp 
+create view vTransp_Talon_13
+var 
+  WC_CREC:comp;
+  wc_party :comp;
+  wc_katmc :comp;
+  wc_podr  :comp;
+  wc_toplivo:comp
+from pick,sporder,katmc,katparty ,lschet,persons , groupmc
+// для поиска закупки
+,sporder sporder1, spsopr spsopr1, katotped katotped1
+,grpodr grpodr_f, katmc katmc_f ,katmc katmc_gr,katpodr KATPODR_GRPODR ,KATORG,katpodr ,GRPODR
+,TMPSALDO1
+,Toplivo , spkau , kated
+,tmp_topl
+,katmol
+where (( 7 == Pick.wlist
+and wc_toplivo == Toplivo.nrec
+and 0 == sporder.sp
+and pick.crec == sporder.cmc
+and wc_katmc == katmc.nrec
+and dtb <<= sporder.dord
+and dte >>= sporder.dord
+and wc_party == katparty.nrec
+and 0 == sporder1.sp
+and katparty.nrec == sporder1.cparty
+and 0 == sporder1.vidorder
+//and wdt_zakup <<= sporder1.dord
+and wc_katmc == sporder1.cmc(noindex)
+and 1 == sporder1.TIPORD(noindex)
+and sporder1.CSPSOPR == spsopr1.nrec 
+and spsopr1.cotped == katotped1.nrec
+and WC_CREC == lschet.nrec
+and lschet.tperson == persons.nrec
+and 'Автомобильные бензины' == groupmc.name
+and WC_CREC == grpodr_f.nrec
+and WC_CREC == katmc_f.nrec 
+and WC_CREC == KATPODR_GRPODR.nrec
+and WC_CREC == KATPODR.nrec
+and WC_CREC == KATORG.nrec
+and WC_CREC == GRPODR.nrec
+and WC_CREC == spkau.nrec
+and wc_crec == kated.nrec
+and item_sb == katmc_gr.cgroupmc
+
+));
+
+
+//where ((
+//#include transp_link.vpp
+//))
+;
+
+#include excel_fun.vpp
+#include marker_my.vpp
+#include tmp_sbor.vpp
+#include Filtr_GSM2MC.Vpp
+Procedure Zaglushka ;
+{ exit;
+  Pic2Mark(PodrMarker,11)
+  Shap_Init(0 ) ;
+  Shap_Add(0,'','',0,0,0)
+  ShapSummAdd(0,0)
+  Sbor_AddNrec(0,//const wpa :word ;
+  '',//const wsortname :string ;
+  '','',//const wname1 :string ;const wname2:string ;
+  0,0,0,0 //const wsu1:double ;const wsu2:double;const wsu3:double ; wcrec :comp  
+  )
+}
+//==================================
+// сохранение параметров
+//==================================
+Procedure SaveParam ;
+{ SaveMyDsk(dtb,'T13_GSM_13_dtb')
+  SaveMyDsk(dte,'T13_GSM_13_dte')
+  SaveMyDsk(filtr_type,'Pochta_Mc_Move_filtr')
+  SaveMyDsk(logfilekl,'T13_GSM_13_logfilekl')
+  SaveMyDsk(wglav_ing,'T13_GSM_13_wglav_ing')
+  SaveMyDsk(wnach_cex,'T13_GSM_13_wnach_cex')
+  SaveMyDsk(wglav_mex,'T13_GSM_13_wglav_mex')
+  SaveMyDsk(type_sbor,'T14_GSM_14_type_sbor')
+  SaveMyDsk(type_report,'T13_GSM_13_type_report')
+  
+} //Procedure SaveParam ;
+//==================================
+// чтение параметров
+//==================================
+Procedure ReadParam ;
+var wwkl :boolean ;
+{ 
+  if Not ReadMyDsk(dtb,'T13_GSM_13_dtb',wwkl) dtb:=date(1,month(cur_date),year(cur_date))
+  if Not ReadMyDsk(dte,'T13_GSM_13_dte',wwkl) dte:=date(last_day(cur_date),month(cur_date),year(cur_date))
+  if not ReadMyDsk(filtr_type,'Pochta_Mc_Move_filtr',false)
+  if Not ReadMyDsk(logfilekl,'T13_GSM_13_logfilekl',wwkl) logfilekl:=false ;
+  if Not ReadMyDsk(wglav_ing,'T13_GSM_13_wglav_ing',wwkl) wglav_ing:=''
+  if Not ReadMyDsk(wnach_cex,'T13_GSM_13_wnach_cex',wwkl) wnach_cex:=''
+  if Not ReadMyDsk(wglav_mex,'T13_GSM_13_wglav_mex',wwkl) wglav_mex:=''
+  if Not ReadMyDsk(type_sbor,'T14_GSM_13_type_sbor',wwkl) type_sbor:=1;
+  if Not ReadMyDsk(type_report,'T13_GSM_13_type_report',wwkl) type_report:=1;
+
+} //Procedure ReadParam ;
+//======================================
+Procedure InsertGroupIntoMCMarker;
+{ _loop katmc_gr
+  { InsertMarker(McMarker,katmc_gr.nrec)
+  }
+} //Procedure InsertGroupIntoMCMarker;
+//======================================
+
+//===============================
+// найти номинал талонов
+//===============================
+Function FindEDZakup :double;
+{ FindEDZakup:=0;
+  if getfirst katparty=0
+  { //wdt_zakup:=date(katparty.CREATEDATETIME)
+    //wdt_zakup:=StrToDate(_DateTimeToStr(katparty.CREATEDATETIME, 'DD/MM/YYYY'   )  , 'DD/MM/YYYY')
+    wdt_zakup:=sub_day(StrToDate(substr(katparty.name,1,10) , 'DD/MM/YYYY'),40)
+  }
+  if getfirst fastfirstrow sporder1=0
+    if getfirst  fastfirstrow  spsopr1=0
+     if getfirst  fastfirstrow  Katotped1=0
+        FindEDZakup:=Katotped1.koef
+  if FindEDZakup=1 or FindEDZakup=0 then FindEDZakup:=1;  
+  
+} //Function FindEDZakup :boolean;
+//===============================
+Function CheckParty :boolean;
+{ CheckParty:=false
+  if getfirst katparty<>0 then exit;
+  if coTXOGetExtAttr('KATPARTY','УТ_ГСМ_Считать_талоном',katparty.nrec)>0
+     CheckParty:=True;
+  
+  /*
+  if  (katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON2')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON3')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON4')
+    or katparty.CORGPAR=coGetTune('RARS_TRANSP.CORG_TALON5')
+  )
+  then 
+  { if getfirst fastfirstrow sporder1=0
+      if getfirst  fastfirstrow  spsopr1=0
+      { if coTXOGetExtAttr('SPSOPR','УТ_ГСМ_Считать_талоном',spsopr1.nrec) >0
+          CheckParty:=true
+      }    
+  } 
+  */
+}
+
+//===============================
+Function Add_Sum (ww_kluch :string; ww_tp: word; wkol_talon:double; wkol_litr:double) : boolean;
+{ Add_Sum:=false;
+  ww_kluch:=replace(ww_kluch,'по талонам','')
+  Sbor_Add(0,ww_kluch,'','' ,0,0,0)
+  case ww_tp of 
+  1:
+  {  vtmp_shap.tmp_Sbor.dmsum[1]:=vtmp_shap.tmp_Sbor.dmsum[1]+wkol_talon 
+     vtmp_shap.tmp_Sbor.dmsum[2]:=vtmp_shap.tmp_Sbor.dmsum[2]+wkol_litr
+  }   
+  2:
+  {  vtmp_shap.tmp_Sbor.dmsum[3]:=vtmp_shap.tmp_Sbor.dmsum[3]+wkol_talon 
+     vtmp_shap.tmp_Sbor.dmsum[4]:=vtmp_shap.tmp_Sbor.dmsum[4]+wkol_litr
+  }   
+  3:
+  {  vtmp_shap.tmp_Sbor.dmsum[5]:=vtmp_shap.tmp_Sbor.dmsum[5]+wkol_talon 
+     vtmp_shap.tmp_Sbor.dmsum[6]:=vtmp_shap.tmp_Sbor.dmsum[6]+wkol_litr
+  }
+  end;   
+  vtmp_shap.update current tmp_Sbor ;    
+  Add_Sum:=true;
+}
+Function Getkatmcname :string;
+{ Getkatmcname:=katmc.name
+  wc_toplivo:=coTXOGetExtAttr('KATMC','УТ_ГСМ_Считать_топливом',katmc.nrec)
+  if getfirst toplivo=0
+    Getkatmcname:=toplivo.name
+
+}
+Function Sbor_Toplivo : boolean;
+var wc_myorg:comp;
+    w_talon:double;
+    ww_key:string;
+{ Sbor_Toplivo:=false;
+  delete all tmp_topl;
+  if not inextvisual('Сбор по ЛЗК') then exit;
+  wc_myorg:=coGetTune('MYORG'); 
+  Insert tmp_topl
+  select
+  0 //pa :word;
+, LIMZAPL.NREC  
+, Toplivo.CKATMC //cmc  :comp
+, toplivo.nrec
+, Transp.cpodr //cpodr:comp
+, LIMZAPL.KOL //vidt :double
+, LIMZAPL.DATEZAP
+, LIMZAPH.NUM
+ from LIMZAPL,Toplivo,Transp,LIMZAPH,Katpodr
+ where
+ ((   dtb    <<=  LIMZAPL.DATEZAP    
+   and dte    >>=  LIMZAPL.DATEZAP  
+   and 0 == LIMZAPH.WHATIS (noindex) 
+   and LIMZAPL.CLIMZAP   /== LIMZAPH.nrec  
+   and (LIMZAPH.CORG<>0 and LIMZAPH.CORG<>wc_myorg) 
+     //LIMZAPH.cPodrFrom  == Katpodr.Nrec  and
+   and LIMZAPL.CTRANSP    == Transp.nrec     
+   and Transp.cpodr == KatPodr.nrec
+   and LIMZAPL.CTOPLIVO  /== Toplivo.Nrec  
+ )) ;
+ mylogwrite(false,'Sbor_Toplivo '+string(recordsintable(#tmp_topl)))
+  _loop tmp_topl where (( 0 == tmp_topl.pa ))
+  { if not nextvisual then exit;
+  
+    set wc_podr :=tmp_topl.cpodr
+    set wc_katmc:=tmp_topl.cmc ;
+    //wdt:=tmp_topl.LIMZAPL_DATEZAP
+    mylogwrite(false,tmp_topl.LIMZAPH_NUM)
+    if getfirst katmc<>0 then continue;
+    if (filtr_type and 1)>0
+    { if not  FoundMarker(PodrMarker, wc_podr) then continue ;
+    }
+    if (filtr_type and 4)>0
+    { // if not  FoundMarker(MCMarker, wc_katmc) then continue ;
+      if not  CheckFltGsm(tmp_topl.Toplivo_nrec) then continue
+    }
+    if (filtr_type and 2)>0
+    { if not  FoundMarker(GroupMCMarker, katmc.cgroupmc) then continue ;
+    }
+    w_talon:=0;
+    mylogwrite(false,' прошли фильтр' +string(tmp_topl.vidt)+','+katmc.name)
+//Function Add_Sum (ww_kluch :string; ww_tp: word; wkol_talon:double; wkol_litr:double) : boolean;
+    WC_CREC:=coTXOGetExtAttr('LIMZAPL','Номинал талона',tmp_topl.nrec)
+//    if getfirst spkau=0
+//      w_talon:=word(spkau.code) ;
+    if getfirst kated=0
+      w_talon:=word(substr(kated.name,1,pos(' ',kated.name)-1)) ;
+
+    if w_talon=0 then w_talon:=1;
+    ww_key:=Getkatmcname+if(w_talon<>1,', '+string(w_talon)+' л','')
+    Add_Sum(ww_key,3,tmp_topl.vidt/w_talon,tmp_topl.vidt)
+ 
+    
+  }
+  Sbor_Toplivo:=true;
+} //Function Sbor_Toplivo : boolean;
+
+//===============================
+Function SborData: boolean;
+var w_talon:double;
+    ww_key:string;
+{ SborData:=false;
+  Resetbounds(#pick)
+  // наполнить Pick дл расчета сальдо
+  Sbor_init(0)
+  if (filtr_type and 1)<>0
+  { Mark2Pic(PodrMarker,11) ;
+  } //if (filtr_type and 1)<>0
+  else
+  { if (filtr_type and 16)>0
+    { ClearMarker(PodrMarker)
+      MrkCount_m := GetMarkerCount(grPodrMarker) ;
+      for(i:=0;i<MrkCount_m;i:=i+1)
+      { if (GetMarker(grPodrMarker, i, Item))
+        { if getfirst grpodr_f=0
+          { _loop katpodr_grpodr
+            { InsertMarker(PodrMarker,katpodr_grpodr.nrec)
+            }
+          } 
+        } //if (GetMarker(grPodrMarker, i, Item))
+      } //for(i:=0;i<MrkCount_m;i:=i+1)
+      filtr_type:=filtr_type or 1
+      Mark2Pic(PodrMarker,11) ;      
+    }  
+  } // else if (filtr_type and 1)<>0
+  if (filtr_type and 4)<>0
+  { Filtr_Gsm2Mc //Mark2Pic(MCMarker,7) ;
+  } //if (filtr_type and 2)<>0
+  else
+  { if (filtr_type and 2)<>0
+    { delete pick where (( 7 == wlist ));
+      MrkCount_m := GetMarkerCount(GroupMCMarker) ;
+      ClearMarker(MCMarker)
+      for(i:=0;i<MrkCount_m;i:=i+1)
+      { if (GetMarker(GroupMcMarker, i, Item))
+        {  set Item_SB:=Item;
+           mylogwrite(false,'Дополняем МЦ группами МЦ '+string(Item_SB))
+           InsertGroupIntoMCMarker ;
+        }
+      }
+      Mark2Pic(MCMarker,7) ;
+      filtr_type:=filtr_type +4
+    }  
+    MrkCount_m := GetMarkerCount(MCMarker) ;
+    filtr_mc:='выбрано '+string(MrkCount_m)+' матценностей'
+  }
+  if (filtr_type and 4)=0
+  {  message('Фильтр по МЦ обязателен!!!')
+     exit;
+  }
+  delete all TmpSaldo1 ;
+  Store_Init ;
+  Store_ReInit ;
+  Store_TypeOstatki(True) ; 
+  //Store_ForceInVal(boGetTune('OPER.MULTICURRREG'));
+  Store_SkladProizv(0);
+  Mylogwrite(false,'Расчет остатков')
+  Store_Run ( DTB, if((filtr_type and 4)=0,comp(0),comp(-2)) 
+       ,if((filtr_type and 1)=0,comp(0),comp(-2)),comp(0)
+       ,0 // по партии
+        ,true, true,true  ) ;
+  if Store_WasStopped then
+  { message('Расчет остатков прерван', mfInformation+mfOkButton);
+    Store_Done;
+    Exit;
+  }
+  Rereadrecord(#TmpSaldo1)     
+  _loop  TmpSaldo1  ordered by index TmpSaldo101 
+  { if not nextvisual then exit 
+    if TmpSaldo1.kol=0 then continue;
+    set wc_podr :=TmpSaldo1.cpodr
+    set wc_katmc:=TmpSaldo1.cmc ;
+    set wc_party:=TmpSaldo1.cparty ;
+    MyLogWrite(false,'остатки='+string(TmpSaldo1.kol)+'=МЦ='+katmc.name+'=партия='+katparty.name)
+    if cFiltr_Mol>0
+    { if tmpSaldo1.cmol<>cFiltr_Mol then continue
+    }
+    if not CheckParty then continue; // проверим не талоны ли это
+
+    if getfirst fastfirstrow katmc<>0 then continue;
+    if (filtr_type and 2)>0
+    { if not  FoundMarker(GroupMCMarker, katmc.cgroupmc) then continue ;
+    }
+    w_talon:=FindEDZakup;
+//    if w_talon=0 then w_talon:=10;
+    if w_talon=0 then w_talon:=1;
+    ww_key:=Getkatmcname+if(w_talon<>1,', '+string(w_talon)+' л','')
+    
+    Add_Sum(ww_key,1,TmpSaldo1.kol/w_talon,TmpSaldo1.kol)
+   
+  }
+  Store_Done;
+  PushBounds(#Pick)
+  _loop Pick
+  { set wc_katmc:=Pick.crec ;
+    if getfirst fastfirstrow katmc<>0 then continue;
+    //if pos('ТАЛОН',upcase(katmc.name)) =0 then continue; 
+    if not nextvisual then exit;
+    _loop sporder
+    { if type_sbor=1 and sporder.vidorder<>0 then continue;
+      set wc_podr:=sporder.ccpodr
+      set wc_katmc:=sporder.cmc ;
+      set wc_party:=sporder.cparty ;
+      if cFiltr_Mol>0
+      { if sporder.ccmol<>cFiltr_Mol then continue
+      }
+      if not CheckParty then continue; // проверим не талоны ли это
+      if sporder.kol=0 then continue;
+      MyLogWrite(false,'ордер ' +Datetostr(sporder.dord,'от DD/MM/YYYY')+', баркод='+katmc.barkod+',партия='+katparty.name)
+      if (filtr_type and 1)>0
+      { if not  FoundMarker(PodrMarker, wc_podr) then continue ;
+      }
+
+      if (filtr_type and 2)>0
+      { if not  FoundMarker(GroupMCMarker, katmc.cgroupmc) then continue ;
+      }
+      MyLogWrite(false,'1111 ')
+   
+      w_talon:=FindEDZakup;
+//      if w_talon=0 then w_talon:=10;
+      if w_talon=0 then w_talon:=1;
+      ww_key:=Getkatmcname+if(w_talon<>1,', '+string(w_talon)+' л','')
+      Add_Sum(ww_key,if(sporder.vidorder=0,2,3),sporder.kol/w_talon,sporder.kol)
+    }
+  }
+  if type_sbor=1
+  { if not Sbor_Toplivo then exit;
+  }
+  SborData:=true;
+}
+Procedure My_XlMerge;
+{ xlMergeCells(wexrow, 2,wexrow, 7)
+  xlMergeCells(wexrow,12,wexrow,13)
+  xlMergeCells(wexrow,14,wexrow,17)
+  xlMergeCells(wexrow,18,wexrow,19)
+  xlMergeCells(wexrow,20,wexrow,23)
+}
+//==================================
+// печать
+//==================================
+Function PrintDoc : boolean ;
+var  wstr,wpodr:string ; 
+    wnpp :longint ;
+    wkol :double;
+    
+{ PrintDoc:=false ;
+  vtmp_rep1.wwpa:=0;
+  if vtmp_rep1.getfirst tmp_sbor<>0
+  { message('Нет данных')
+  }
+  for(i:=1;i<=200;i:=i+1) w_dmsum[i]:=0 ;
+  matrixkl:=False;
+  wexrow:=5;wexcol:=2
+  MyPutExcel(DateToStr(cur_date,'DD'),10,0,-1,-1);
+  wexcol:=4
+  MyPutExcel(DateToStr(cur_date,'mon'),10,0,-1,-1);
+  wexcol:=6;
+  MyPutExcel(DateToStr(cur_date,'YYYY'),10,0,-1,-1);
+  wexcol:=16;
+  MyPutExcel(DateToStr(cur_date,'DD'),10,0,-1,-1);
+  wexcol:=18;
+  MyPutExcel(DateToStr(cur_date,'mon'),10,0,-1,-1);
+  wexcol:=21;
+  MyPutExcel(DateToStr(cur_date,'YYYY'),10,0,-1,-1);
+  
+  wexrow:=3;wexcol:=1
+  MyPutExcel(sGetTune('MYORG'),10,0,-1,-1);  //
+  wexcol:=15
+  MyPutExcel(sGetTune('MYORG'),10,0,-1,-1);  //
+  wexrow:=4;wexcol:=20
+  MyPutExcel(iPodrFilterDef.MyGetInitial(sGetTune('BOSS'),false),10,0,-1,-1);  //
+  wexrow:=4;wexcol:=5
+  MyPutExcel(iPodrFilterDef.MyGetInitial(wglav_ing,false),10,0,-1,-1);  //
+  wexrow:=12;wexcol:=2
+  MyPutExcel(DateToStr(dtb,'за период с DD/MM/YYYY по')+DateToStr(dte,'DD/MM/YYYY'),10,0,-1,-1);  //
+  
+  //вывод данных
+  HeaderStrCount :=17 ;
+  wexrow:=HeaderStrCount ;
+  wkol:=0
+  vtmp_rep1._loop tmp_sbor
+  {  if not nextvisual then exit;
+     wexrow:=wexrow+1;wexcol:=2 ;
+     MyPutExcel(vtmp_rep1.tmp_sbor.sortname,10,0,-1,-1);//
+     vtmp_rep1.tmp_sbor.dmsum[7]:=vtmp_rep1.tmp_sbor.dmsum[1]+vtmp_rep1.tmp_sbor.dmsum[3]-vtmp_rep1.tmp_sbor.dmsum[5]
+     vtmp_rep1.tmp_sbor.dmsum[8]:=vtmp_rep1.tmp_sbor.dmsum[2]+vtmp_rep1.tmp_sbor.dmsum[4]-vtmp_rep1.tmp_sbor.dmsum[6]
+     wexcol:=8 ; 
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[1],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[2],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[3],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[4],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[5],0,10,0,-1,-1);//
+     wexcol:=14; 
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[6],0,10,0,-1,-1);//
+     wexcol:=18; 
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[7],0,10,0,-1,-1);//
+     wexcol:=20; 
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[8],0,10,0,-1,-1);//
+     My_XlMerge
+     for(i:=1;i<=8;i:=i+1)
+       w_dmsum[i]:=w_dmsum[i]+vtmp_rep1.tmp_sbor.dmsum[i]
+  }
+  //wexrow:=HeaderStrCount-1 ;
+  wexrow:=wexrow+1 ; wexcol:=2;
+  // вывод итогов
+  MyPutExcel('Итого',10,0,-1,-1);//
+  wexcol:=8 ; 
+  MyPutExcelNumber(w_dmsum[1],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[2],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[3],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[4],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[5],0,10,0,-1,-1);//
+  wexcol:=14; 
+  MyPutExcelNumber(w_dmsum[6],0,10,0,-1,-1);//
+  wexcol:=18; 
+  MyPutExcelNumber(w_dmsum[7],0,10,0,-1,-1);//
+  wexcol:=20; 
+  MyPutExcelNumber(w_dmsum[8],0,10,0,-1,-1);//
+  My_XlMerge;
+  MyxlFrameCells(63, 2, 1, 1,HeaderStrCount,1,wexrow,23); 
+  xlSetFontStyle(1, wexrow, 1, wexrow,23)
+
+  wexrow:=wexrow+2 ; wexcol:=2;
+  MyPutExcel('Начальник  ЦТТ и СТ:',10,0,-1,-1);
+  wexcol:=9
+  MyPutExcel(iPodrFilterDef.MyGetInitial(wnach_cex,false),10,0,-1,-1);
+  MyxlFrameCells(xlBorderB, 2, 1, 1,wexrow,5,wexrow,8); 
+
+
+  wexrow:=wexrow+2 ; wexcol:=2;
+  MyPutExcel('Механик  АЗС(ЦТТиСТ):',10,0,-1,-1);
+  wexcol:=9
+  MyPutExcel(iPodrFilterDef.MyGetInitial(wglav_mex,false),10,0,-1,-1);
+  MyxlFrameCells(xlBorderB, 2, 1, 1,wexrow,5,wexrow,8); 
+
+  wexrow:=wexrow+2 ; wexcol:=1;
+  MyPutExcel('"',10,0,-1,-1);
+  MyPutExcel(DateToStr(cur_date,'DD'),10,0,-1,-1);
+  MyPutExcel('"',10,0,-1,-1);
+  MyPutExcel(DateToStr(cur_date,'mon'),10,0,-1,-1);
+  wexcol:=6;
+  MyPutExcel(DateToStr(cur_date,'YYYY г.'),10,0,-1,-1);
+  
+  PrintDoc:=true ;
+
+} //Function PrintDoc : boolean ;
+//==================================
+// печать
+//==================================
+Function PrintDoc1 : boolean ;
+var  wstr,wpodr:string ; 
+    wnpp :longint ;
+    wkol :double;
+    wwexcol: longint;
+{ PrintDoc1:=false ;
+  vtmp_rep1.wwpa:=0;
+  if vtmp_rep1.getfirst tmp_sbor<>0
+  { message('Нет данных')
+  }
+  for(i:=1;i<=200;i:=i+1) w_dmsum[i]:=0 ;
+  matrixkl:=False;
+  wexrow:=5;wexcol:=1
+  MyPutExcel(DateToStr(cur_date,'"DD" mon YYYYY г.'),10,0,-1,-1);
+  wexcol:=9;
+  MyPutExcel(DateToStr(cur_date,'"DD" mon YYYYY г.'),10,0,-1,-1);
+  
+  
+  wexrow:=3;wexcol:=1
+  MyPutExcel(sGetTune('MYORG'),10,0,-1,-1);  //
+  wexcol:=9
+  MyPutExcel(sGetTune('MYORG'),10,0,-1,-1);  //
+  wexrow:=4;wexcol:=9
+  MyPutExcel('_______________________'+iPodrFilterDef.MyGetInitial(sGetTune('BOSS'),false),10,0,-1,-1);  //
+  wexrow:=4;wexcol:=1
+  MyPutExcel('_______________________'+iPodrFilterDef.MyGetInitial(wglav_ing,false),10,0,-1,-1);  //
+  wexrow:=12;wexcol:=1
+  MyPutExcel(DateToStr(dtb,'за период с DD/MM/YYYY по')+DateToStr(dte,'DD/MM/YYYY'),10,0,-1,-1);  //
+  
+  //вывод данных
+  HeaderStrCount :=17 ;
+  wexrow:=HeaderStrCount ;
+  wkol:=0
+  wwexcol:=0
+  vtmp_rep1._loop tmp_sbor
+  {  if not nextvisual then exit;
+     wexrow:=16
+     wwexcol:=wwexcol+2;
+     wexcol:=wwexcol;
+     xlMergeCells(16, wwexcol,16,wwexcol+1 )
+     MyPutExcel(vtmp_rep1.tmp_sbor.sortname,10,0,-1,-1);//
+     wexrow:=wexrow+1;
+     wexcol:=wwexcol
+     MyPutExcel('литр',10,0,-1,-1);//
+     MyPutExcel('шт.',10,0,-1,-1);//
+     
+     vtmp_rep1.tmp_sbor.dmsum[7]:=vtmp_rep1.tmp_sbor.dmsum[1]+vtmp_rep1.tmp_sbor.dmsum[3]-vtmp_rep1.tmp_sbor.dmsum[5]
+     vtmp_rep1.tmp_sbor.dmsum[8]:=vtmp_rep1.tmp_sbor.dmsum[2]+vtmp_rep1.tmp_sbor.dmsum[4]-vtmp_rep1.tmp_sbor.dmsum[6]
+     wexrow:=wexrow+1;
+     wexcol:=wwexcol
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[2],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[1],0,10,0,-1,-1);//
+     wexrow:=wexrow+1;
+     wexcol:=wwexcol
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[4],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[3],0,10,0,-1,-1);//
+     wexrow:=wexrow+1;
+     wexcol:=wwexcol
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[6],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[5],0,10,0,-1,-1);//
+     wexrow:=wexrow+1;
+     wexcol:=wwexcol
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[8],0,10,0,-1,-1);//
+     MyPutExcelNumber(vtmp_rep1.tmp_sbor.dmsum[7],0,10,0,-1,-1);//
+     for(i:=1;i<=8;i:=i+1)
+       w_dmsum[i]:=w_dmsum[i]+vtmp_rep1.tmp_sbor.dmsum[i]
+  }
+  //wexrow:=HeaderStrCount-1 ;
+  xlMergeCells(14, 2,14,wwexcol+3 )
+  xlMergeCells(15, 2,15,wwexcol+1 )
+  wexrow:=15; wwexcol:=wwexcol+2;
+  // вывод итогов
+  wexcol:=wwexcol;
+  xlMergeCells(15, wexcol,16,wexcol+1 )
+  MyPutExcel('Итого',10,0,-1,-1);//
+  wexrow:=17
+  wexcol:=wwexcol
+  MyPutExcel('литр',10,0,-1,-1);//
+  MyPutExcel('шт.',10,0,-1,-1);//
+  wexrow:=wexrow+1;
+  wexcol:=wwexcol
+  MyPutExcelNumber(w_dmsum[2],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[1],0,10,0,-1,-1);//
+  wexrow:=wexrow+1;
+  wexcol:=wwexcol
+  MyPutExcelNumber(w_dmsum[3],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[4],0,10,0,-1,-1);//
+  wexrow:=wexrow+1;
+  wexcol:=wwexcol
+  MyPutExcelNumber(w_dmsum[6],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[5],0,10,0,-1,-1);//
+  wexrow:=wexrow+1;
+  wexcol:=wwexcol
+  MyPutExcelNumber(w_dmsum[8],0,10,0,-1,-1);//
+  MyPutExcelNumber(w_dmsum[7],0,10,0,-1,-1);//
+  MyxlFrameCells(63, 2, 1, 1,14,1,wexrow,wexcol-1); 
+  xlSetFontStyle(1, 14, 1, wexrow,wexcol-1)
+
+  wexrow:=26 ; wexcol:=1;
+  MyPutExcel('Начальник  ЦТТ и СТ:________________________'+iPodrFilterDef.MyGetInitial(wnach_cex,false),10,0,-1,-1);
+  
+
+
+  wexrow:=wexrow+2 ; wexcol:=1;
+  MyPutExcel('Механик  АЗС(ЦТТиСТ):________________________'+iPodrFilterDef.MyGetInitial(wglav_mex,false),10,0,-1,-1);
+ 
+
+  wexrow:=wexrow+2 ; wexcol:=1;
+  MyPutExcel(DateToStr(cur_date,'"DD" mon YYYY г.'),10,0,-1,-1);
+
+  PrintDoc1:=true ;
+
+} //Function PrintDoc : boolean ;
+
+//==================================
+// отбор данных
+//==================================
+Function FormDoc : boolean ;
+var werr:word;
+{ FormDoc:=false ;
+  nmtemplate:='Avto_TalonMove.xls';
+  if type_report=1
+  { nmtemplate:='Avto_TalonMoveH.xls';
+  }
+  werr:=ExcelInit(nmtemplate,true,year(dtb))
+  if werr>0
+  { message('Ошибка инициализации Excel по шаблону '+nmtemplate) ;
+    exit ;
+  }
+  SaveParam ;
+  if not SborData then exit;
+  case type_report of 
+  1: FormDoc:=PrintDoc1 ;
+  else
+  { FormDoc:=PrintDoc ;
+  }
+  end;
+  MyXlEnd ;
+} //Function FormDoc : boolean ;
+//==================================
+// экранная форма задания параметров
+//==================================
+screen scrmain ;
+table katmc;
+fields
+  DTB :noprotect;
+  DTE :noprotect;
+  logfilekl:noprotect;
+  filtr_type :noprotect;
+  filtr_podr  : protect , pickbutton;
+  filtr_groupmc  : protect , pickbutton;
+  filtr_gsm  : protect , pickbutton;
+  filtr_mol : protect,pickbutton;
+
+  type_sbor : [list 0 'По расходным ордерам','По ЛЗК'],protect;
+  type_report:[List 0 'Нормальный', 'МЦ по горизонтали'],protect;
+  wglav_ing :noprotect , pickbutton;
+  wnach_cex :noprotect , pickbutton;
+  wglav_mex :noprotect , pickbutton;
+    Buttons
+      cmOk    ,,, 'Запустить'         ,hcNoContext ;   // Обработать 
+      cmCancel    ,,, 'Отмена' ,hcNoContext ;   // кнопка ВЫXОД
+<<
+  `Отчет о движении талонов за период`     
+  
+  `с` .@@@@@@@@@@@ `по` .@@@@@@@@@@@  
+  `Фильтры`                      [.] Отладка `      
+  [.] По подразделению  ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ 
+  [.] По группе МЦ      ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ 
+  [.] По матценности    ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  `Материально-отв.лицо`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  Расход собирать по .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  Вид отчета         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  Главный инженер  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ 
+  Начальник ЦТТиСТ .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  Главный механик  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                  
+  <. Сформировать .>      <.  Отмена      .>     
+
+>>
+end;//screen scrmain ;
+//==================================
+// дополнит.функция инициализации
+//==================================
+Function Dop_Init :boolean ;
+{  Dop_Init:=true ;
+   nmtemplate:='Avto_TalonMove.xls' ;
+   InitServTxo(0) 
+
+   ReadParam ;
+}
+//==================================
+// дополнит.функция выбора
+//==================================
+Function Dop_Pick :boolean ;
+{  Dop_Pick:=true ;
+}
+//==================================
+// дополнит.функция завершения
+//==================================
+Function Dop_Done :boolean ;
+{  Dop_Done :=true ;
+   DoneServTxo;
+   SaveParam ;
+}
+//==================================
+// дополнит.функция отработки enter
+//==================================
+Function Dop_Default :boolean ;
+{  Dop_Default:=true ;
+}
+Procedure MakeFiltr;
+{ MrkCount_m := GetMarkerCount(PodrMarker) ;
+  filtr_podr:='не задано'
+  if MrkCount_m=1
+  { if (GetMarker(PodrMarker, 0, wc_podr))
+     if getfirst katpodr where ((wc_podr == katpodr.nrec ))=0
+     { filtr_podr:=katpodr.name
+     }
+  }
+  else
+  if MrkCount_m>1
+  { filtr_podr:='выбрано '+string(MrkCount_m)+' подразделений'
+  }
+//-----------------------
+  MrkCount_m := GetMarkerCount(PostMarker) ;
+  filtr_post:='не задано'
+  if MrkCount_m=1
+  { if (GetMarker(PostMarker, 0, Item))
+     if getfirst katorg where ((Item == katorg.nrec ))=0
+     { filtr_post:=katorg.name
+     }
+  }
+  else
+  if MrkCount_m>1
+  { filtr_post:='выбрано '+string(MrkCount_m)+' поставщиков'
+  }  
+//-----------------------
+  MrkCount_m := GetMarkerCount(GroupMCMarker) ;
+  if MrkCount_m=0
+  { if getfirst groupmc=0
+    { InsertMarker(GroupMCMarker,groupmc.nrec)
+      MrkCount_m:=1;
+    }  
+  } 
+  filtr_groupmc:='не задано'
+  if MrkCount_m=1
+  { if (GetMarker(GroupMCMarker, 0, Item))
+     if getfirst GroupMC where ((Item == GroupMC.nrec ))=0
+     { filtr_groupmc:=GroupMC.name
+     }
+  }
+  else
+  if MrkCount_m>1
+  { filtr_groupmc:='выбрано '+string(MrkCount_m)+' групп МЦ'
+  } 
+//-----------------------
+  MrkCount_m := GetMarkerCount(McMarker) ;
+  filtr_mc:='не задано'
+  if MrkCount_m=1
+  { if (GetMarker(MCMarker, 0, Item))
+     if getfirst katmc_f where ((Item == katmc_f.nrec ))=0
+     { filtr_mc:=katmc_f.name
+     }
+  }
+  else
+  if MrkCount_m>1
+  { filtr_mc:='выбрано '+string(MrkCount_m)+' матценностей'
+  }  
+//-----------------------
+  MrkCount_m := GetMarkerCount(GrPodrMarker) ;
+  filtr_GrPodr:='не задано'
+  if MrkCount_m=1
+  { if (GetMarker(GrPodrMarker, 0, Item))
+     if getfirst GrPodr where ((Item == GrPodr.nrec ))=0
+     { filtr_GrPodr:=GrPodr.name
+     }
+  }
+  else
+  if MrkCount_m>1
+  { filtr_GrPodr:='выбрано '+string(MrkCount_m)+' групп подразделений'
+  }  
+  rescanpanel(#katmc)
+} //Procedure MakeFiltr;
+//========================
+Procedure InitGsmFiltr;
+var ww_kol_pick:word;
+{ FILTR_GSM:='не задано';
+  ww_kol_pick:=0;
+  _loop PICK where (( 19874 == Pick.wList ))
+  { ww_kol_pick:=ww_kol_pick+1
+    if ww_kol_pick=1
+    { if getfirst toplivo where (( pick.crec == toplivo.nrec ))=0
+         FILTR_GSM:=toplivo.name
+    }
+    else
+    { FILTR_GSM:='Выбрано '+string(ww_kol_pick)+' записей'
+    }
+  }
+} //Procedure InitGsmFiltr;
+//==================================
+// обработчик событий
+//==================================
+HandleEvent
+cmPick:
+{ case curfield of
+  #filtr_podr:
+  { MarkerKauName := iGetKau.GetMarkerName(2);
+    MarkCopyMyToCat(PodrMarker,MarkerKauName)
+    iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,2,wc_crec)
+    MarkCopyCatToMy(PodrMarker,MarkerKauName)
+    //Marker:=InitMarker(MarkerKauName, 8, 100, 10) ;
+    //message(MarkerKauName+' '+GetMarkerCount(Marker)) ;
+    //DoneMarker(Marker,'')
+    
+  }
+  #filtr_post:
+  { MarkerKauName := iGetKau.GetMarkerName(1);
+    MarkCopyMyToCat(PostMarker,MarkerKauName)
+    iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,1,wc_crec)
+    MarkCopyCatToMy(PostMarker,MarkerKauName)
+  }
+  #filtr_groupmc:
+  { MarkerKauName := iGetKau.GetMarkerName(8);
+    MarkCopyMyToCat(groupmcMarker,MarkerKauName)
+    iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,8,wc_crec)
+    MarkCopyCatToMy(groupmcMarker,MarkerKauName)
+  }
+  #filtr_mc:
+  { MarkerKauName := iGetKau.GetMarkerName(4);
+    MarkCopyMyToCat(mcMarker,MarkerKauName)
+    iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,4,wc_crec)
+    MarkCopyCatToMy(mcMarker,MarkerKauName)
+  }  
+  #filtr_gsm:
+  { RunInterface(M_TRANSP::GETSOMGSM,0)
+    InitGSMFiltr ;
+
+  }
+  #filtr_grpodr:
+  { MarkerKauName := iGetKau.GetMarkerName(81);
+    MarkCopyMyToCat(GrPodrMarker,MarkerKauName)
+    iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,81,wc_crec)
+    MarkCopyCatToMy(GrPodrMarker,MarkerKauName)
+  }
+   #Filtr_mol:
+   { iGetKau.GetCodeKau(cgiPick, cgKau_KatMol, cfiltr_mol)
+     if getfirst katmol where (( cFiltr_Mol == katmol.nrec ))=0
+         Filtr_Mol:=katmol.name
+   }
+  #wglav_ing,#wnach_cex,#wglav_mex:
+  { if RunInterface(M_TRANSP::GET_LSC ,WC_CREC,0,1)=cmDefault
+    { if getfirst lschet where (( WC_CREC == lschet.nrec ))=0
+        if getfirst persons=0
+        { case curfield of
+          #wglav_ing:wglav_ing:=persons.fio;
+          #wnach_cex:wnach_cex:=persons.fio;
+          #wglav_mex:wglav_mex:=persons.fio;
+          end;
+        }  
+     }   
+  } //#wglav_ing,#wnach_cex,#wglav_mex:
+  end;
+  MakeFiltr;
+
+} //cmPick:
+cmDelOnProtect:
+{ case curfield of 
+  #filtr_mol:
+  { filtr_mol:='';cFiltr_Mol:=0;
+  }
+  #filtr_podr: ClearMarker(PodrMarker) ;
+  #filtr_post: ClearMarker(PostMarker) ;
+  #filtr_groupmc: ClearMarker(groupmcMarker) ;
+  #filtr_mc  : ClearMarker(mcMarker) ;
+  #filtr_GrPodr: ClearMarker(GrPodrMarker) ;
+  end;
+  MakeFiltr;
+  rescanpanel(#katmc)
+}
+cmInit:
+{ DTB:=date(1,month(cur_date),year(cur_date)) ;
+  DTE:=date(last_day(dtb),month(cur_date),year(cur_date)) ;
+  ReadParam;
+  nmtemplate:='Avto_TalonMove.xls' ;
+  PostMarker:=InitMarker('PostMarker', 8, 100, 10) ;
+  PodrMarker:=InitMarker('PodrMarker', 8, 100, 10) ;
+  GroupMCMarker:=InitMarker('GroupMCMarker', 8, 100, 10) ;
+  MCMarker:=InitMarker('MCMarker', 8, 100, 10) ;
+  GrPodrMarker:=InitMarker('GrPodrMarker', 8, 100, 10) ;
+  if GetMarkerCount(PodrMarker)=0
+  { insertmarker(PodrMarker,cogettune('RARS_TRANSP.cSklad_GSM'))
+  }
+  filtr_type:=filtr_type or 1;
+
+  cFiltr_Mol:=coGetTune('RARS_TRANSP.cSklad_GsmMol')
+  Filtr_Mol:=sGetTune('RARS_TRANSP.cSklad_GsmMol')
+  MakeFiltr;
+  InitGsmFiltr;
+  InitServTxo(0)
+
+} //cmInit:
+cmOk:
+{ StartNewVisual(vtNumericVisual,vfTimer+vfBreak+vfConfirm,
+                'Идет сбор...', 0) ;
+  
+  SaveParam;              
+  FormDoc;
+  STopVisual('',0)
+  if VisualizationActive
+    STopVisual('',0)
+  
+}
+cmDone:
+{ DoneMarker(PodrMarker,'PodrMarker')
+  DoneMarker(PostMarker,'PostMarker')
+  DoneMarker(GroupMCMarker,'GroupMCMarker')
+  DoneMarker(MCMarker,'MCMarker')
+  DoneMarker(GrPodrMarker,'GrPodrMarker')
+  Zaglushka;
+  DoneServTxo
+}
+end;
+
+end.

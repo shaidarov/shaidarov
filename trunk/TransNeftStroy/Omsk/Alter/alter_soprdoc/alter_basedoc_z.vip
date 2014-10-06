@@ -1,0 +1,95 @@
+// ДО на закупку---------------------------------------------------------------------------------------------
+
+#component "L_BASEDOC"
+
+alter interface VSCHETB;
+
+Create view
+from
+attrnam attrnamob,
+attrval attrvalob,
+DOCSZATR,
+KITKAU
+;
+
+procedure update_basedocb;
+ {
+    if getfirst attrnamob where ((     word(1102)                 == attrnamob.wtable
+                                and 'Объекты строительства'     == attrnamob.name)) = tsok
+     {
+     if  getfirst attrvalob where ((   word(1102)              == attrvalob.wtable
+                                 and basedoc.nrec           == attrvalob.crec
+                                 and attrnamob.nrec           == attrvalob.cattrnam )) = tsok
+      {
+       _loop spstep
+         {
+          if getfirst specmtr where ((word(1104) == SPECMTR.COTABLE
+                                      and spstep.nrec == SPECMTR.CSPEC
+                                     )) <> tsok
+          {
+          ClearBuffer(#SPECMTR);
+          SPECMTR.COTABLE   := word(1104);
+          SPECMTR.CSPEC     := spstep.nrec;
+          SPECMTR.CSALDTUNE := 013F00000000000Bh;
+          SPECMTR.COBJ      := attrvalob.vcomp;
+          SPECMTR.CKAU[1]   := 013E000000000015h;
+          insert current SPECMTR;
+
+          ClearBuffer(#DOCSZATR);
+          DOCSZATR.TIDK        := word(41);
+          DOCSZATR.CDOC        := basedoc.nrec;
+          DOCSZATR.CADDSUMTUNE := 013E000000000015h;
+          DOCSZATR.CUKS        := attrvalob.vcomp;
+          DOCSZATR.DDOC        := basedoc.ddoc
+          insert current DOCSZATR;
+
+          ClearBuffer(#KITKAU);
+          KITKAU.CSALDTUNE := 013F00000000000Bh;
+          KITKAU.COBJ      := attrvalob.vcomp;
+          KITKAU.CKAU[1]   := 013E000000000015h;
+          insert current KITKAU;
+          }
+          else
+           {
+            if attrvalob.vcomp <> SPECMTR.COBJ
+             {
+              if Message('Разные объекты в шапке документа и в позиции спецификации №'+spstep.npp+', изменить в спецификации?', YesNo) = cmYes
+              {
+              SPECMTR.COBJ      := attrvalob.vcomp;
+              update current SPECMTR;
+              DOCSZATR.CUKS        := attrvalob.vcomp;
+              update current DOCSZATR;
+              KITKAU.COBJ      := attrvalob.vcomp;
+              update current KITKAU;
+              }
+             }
+           }
+         }
+      }
+     }
+ }
+
+ Window  wVSchet
+
+
+HandleEvent
+
+cmDone:
+  {
+   update_basedocb;
+   if (inherited::handleEvent (cmDone) = heAbort )
+   Abort;
+
+  }
+
+cmValFld1:
+  {
+   update_basedocb
+   if (inherited::handleEvent (cmValFld1) = heAbort )
+   Abort;
+
+  }
+
+end;
+end;
+end.

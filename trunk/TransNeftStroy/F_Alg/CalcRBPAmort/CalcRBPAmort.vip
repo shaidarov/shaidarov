@@ -1,0 +1,271 @@
+#include CalcRBPAmort.vih
+#include ChgPar.vih
+
+#doc
+  Интерфейс для использования в алгоритмах расчета амортизации РБП
+#end
+Interface iCalcRBPAmort;
+
+table struct OstStoimTable
+(
+    NRec        : comp
+  , DatStart    : date
+  , DatEnd      : date
+  , SPI         : double // с начала эксплуатации
+  , Stoim       : double
+  , SumIzn      : double
+)
+with index
+(
+    OstStoimTable02 = NRec + DatStart + DatEnd
+);
+
+var iChgPar    : OsChgPar;
+!var tbKatOs    : type$KatOs;
+var tbSpKatOs  : type$SpKatOs;
+
+Create View
+
+as select *
+From
+    KatOS
+  , SpKatOS SpKatOSCur
+  , SpMoveOS
+  , SpMove
+  , OstStoimTable
+;
+
+function GetDateEnd (_BaseDate : date; _SPI : double) : date;
+{
+  var vDAYS            : longint;
+  var vDate_End        : date;
+  vDAYS     := trunc(round((round(_SPI,3) - trunc(round(_SPI,3)))*100,1)); // Дробная часть СПИ, количество дней
+  vDate_End := ADD_DAY(Sub_Day( ADD_MONTHS (_BaseDate, _SPI), 1), vDAYS); // Дата конца амортизации (прибавить к дате ввода СПИ, вычесть 1 день)
+  result := vDate_End;
+}
+
+//подсчет сумм по разницам
+function CalcRBPAmort(cSpKatosCur : comp) : double;
+  var
+    vOtchPerFirstDay : date;
+    vOtchPerLastDay  : date;
+    vDogovor_End     : date;
+    vOstSrok         : longint;
+    vAmortPart       : double;
+    vAmortFull       : double;
+    vOstStoim        : double;
+    vDatEnd          : date;
+    LogFilePath      : string;
+    _LogFlag         : boolean;
+{
+  _LogFlag := true; // если будет замедление, реализовать чтение этой настройки откуда нибудь
+
+  result := 0;
+
+  LoadVipInterface(iChgPar);
+
+  if (getfirst SpKatOSCur where ((cSpKatosCur == SpKatOSCur.nrec)) = tsOk)
+  {
+    if (getfirst KatOS where ((SpKatOSCur.cKatOS  == KatOS.nrec)) = tsOk)
+    { };
+
+    delete all OstStoimTable;
+
+    vOtchPerFirstDay := date(1, Month(KatOS.OtchPer), year(KatOS.OtchPer));
+    vOtchPerLastDay  := KatOS.OTCHPER;
+    if _LogFlag
+      LogFilePath      := GetStringParameter('Files','OutPutFilesDirectory',0) + 'iCalcRBPAmort\iCalcRBPAmort_' + DateToStr(vOtchPerLastDay, 'YYYY_MM') + '_#_' + KatOs.Innum + '.log';
+
+    if KatOS.DATEK <= vOtchPerLastDay // если дата ввода позднее чем текущий месяц, то амортизация нулю равна
+    {
+
+      if _LogFlag
+        if LogFilePath <> ''
+        {
+          DeleteFile(LogFilePath);
+          LogStrToFile(LogFilePath, '=========================================================================================');
+          LogStrToFile(LogFilePath, 'Расчет расходов периода по карточке РБП ' + KatOS.Innum );
+          LogStrToFile(LogFilePath, '=========================================================================================');
+        }
+
+      vDogovor_End := GetDateEnd(KatOS.DATEK, SpKatOSCur.SROKISP);
+
+      ClearBuffer(tnOstStoimTable);
+      OstStoimTable.NRec      := KatOS.NRec;
+      OstStoimTable.DatStart  := if (vOtchPerFirstDay > KatOS.DATEK, vOtchPerFirstDay, if (KatOS.DATEK <= vOtchPerLastDay, KatOS.DATEK, 0));
+      OstStoimTable.DatEnd    := if (vOtchPerLastDay < vDogovor_End, vOtchPerLastDay, vDogovor_End);
+      OstStoimTable.SPI       := SpKatOSCur.SrokIsp;
+      OstStoimTable.Stoim     := SpKatOSCur.Stoim;
+      OstStoimTable.SumIzn    := SpKatOSCur.SumIzn;
+      insert current OstStoimTable;
+
+      if OstStoimTable.SPI = 0
+      {
+        FreeVipInterface(iChgPar);
+        if _LogFlag
+          if LogFilePath <> ''
+            {
+              LogStrToFile(LogFilePath, 'СПИ установлен равным 0. Корректный расчет не возможен.');
+            }
+        exit;
+      }
+
+      // обработаем изменения стоимости
+      _loop backward SpMoveOS where (( word(3)                     == SpMoveOS.sysoper    // операции изменения стоимости
+                                   and SpKatOSCur.cNastrOS         == SpMoveOS.cNastrOS
+                                   and SpKatOSCur.cKatOS           == SpMoveOS.cKatOS
+                                   and vOtchPerFirstDay           <<= SpMoveOS.DatOb
+                                   and vOtchPerLastDay            >>= SpMoveOS.DatOb))
+      {
+        if (getfirst SpMove where ((     SpMoveOS.cSpMove == SpMove.NRec ))
+                                    and (SpMove.Proved = 1)
+           ) = tsOk  // Только проведенные
+        {
+          // разобьем существующий период на два
+          if getfirst OstStoimTable where ((
+                                                 KatOS.NRec      == OstStoimTable.NRec
+                                             and SpMoveOS.DatOb  >> OstStoimTable.DatStart
+                                             and SpMoveOS.DatOb <<= OstStoimTable.DatEnd (noindex)
+                                          )) = tsOk
+          {
+            vDatEnd := OstStoimTable.DatEnd;
+
+            OstStoimTable.DatStart  := OstStoimTable.DatStart;
+            OstStoimTable.DatEnd    := Add_Day(SpMoveOS.DatOb, -1);
+            update current OstStoimTable;
+
+            OstStoimTable.DatStart  := SpMoveOS.DatOb;
+            OstStoimTable.DatEnd    := vDatEnd;
+            insert current OstStoimTable;
+          }
+
+          // установим в предыдущих периодах предыдущее значение параметра
+          _loop OstStoimTable where ((
+                                                 KatOS.NRec     == OstStoimTable.NRec
+                                             and SpMoveOS.DatOb >> OstStoimTable.DatStart
+                                     ))
+          {
+            OstStoimTable.Stoim      := OstStoimTable.Stoim - (SpMoveOS.NewStoim - SpMoveOS.OldStoim);
+            OstStoimTable.SumIzn     := OstStoimTable.SumIzn - (SpMoveOS.NewSumIzn - SpMoveOS.OldSumIzn);
+            update current OstStoimTable;
+          }
+        }
+      }
+
+      // обработаем изменения СПИ
+      // обработаем изменения стоимости
+      _loop backward SpMoveOS where ((
+                                       SpKatOSCur.cNastrOS         == SpMoveOS.cNastrOS
+                                   and SpKatOSCur.cKatOS           == SpMoveOS.cKatOS
+                                   and vOtchPerFirstDay           <<= SpMoveOS.DatOb
+                                   and vOtchPerLastDay           >>= SpMoveOS.DatOb))
+      {
+        if (getfirst SpMove where ((     SpMoveOS.cSpMove == SpMove.NRec ))
+                                    and (SpMove.Proved = 1)
+           ) = tsOk  // Только проведенные
+        {
+
+          iChgPar.SetMoveOsRec(SpMoveOs.cMoveOs);
+          iChgPar.SetNastrOsRec(SpMoveOs.cNastrOs);
+          iChgPar.SetKatOsRec(SpMoveOs.cKatOs);
+
+          // если меняется СПИ
+          if iChgPar.isPresentParameterInOperation(cgOsChg_SrokIsp)
+          {
+            // ClearAdvRecord(tbKatOs);
+            ClearAdvRecord(tbSpKatOs);
+            //iChgPar.PutKatOsOldValues(tbKatOs);
+            iChgPar.PutSpKatOsOldValues(tbSpKatOs);
+
+            // разобьем существующий период на два
+            if getfirst OstStoimTable where ((
+                                                   KatOS.NRec      == OstStoimTable.NRec
+                                               and SpMoveOS.DatOb  >> OstStoimTable.DatStart
+                                               and SpMoveOS.DatOb <<= OstStoimTable.DatEnd (noindex)
+                                            )) = tsOk
+            {
+              vDatEnd := OstStoimTable.DatEnd;
+
+              OstStoimTable.DatStart  := OstStoimTable.DatStart;
+              OstStoimTable.DatEnd    := Add_Day(SpMoveOS.DatOb, -1);
+              update current OstStoimTable;
+
+              OstStoimTable.DatStart  := SpMoveOS.DatOb;
+              OstStoimTable.DatEnd    := vDatEnd;
+              insert current OstStoimTable;
+            }
+
+            // установим в предыдущих периодах предыдущее значение параметра
+            _loop OstStoimTable where ((
+                                                   KatOS.NRec     == OstStoimTable.NRec
+                                               and SpMoveOS.DatOb >> OstStoimTable.DatStart
+                                      ))
+            {
+              OstStoimTable.SPI      := tbSpKatOs.SrokIsp;
+              update current OstStoimTable;
+
+              if OstStoimTable.SPI = 0
+              {
+                FreeVipInterface(iChgPar);
+                if _LogFlag
+                  if LogFilePath <> ''
+                    {
+                      LogStrToFile(LogFilePath, 'СПИ установлен равным 0. Корректный расчет не возможен.');
+                    }
+                exit;
+              }
+
+            }
+          } // если меняется СПИ
+        }
+      }
+
+      vAmortFull := 0;
+      _loop OstStoimTable where (( KatOS.NRec == OstStoimTable.NRec ))
+      {
+        vOstStoim := OstStoimTable.Stoim - OstStoimTable.SumIzn - vAmortFull;
+        vOstSrok  := longint(GetDateEnd(KatOS.DATEK, OstStoimTable.SPI)) - longint(OstStoimTable.DatStart) + 1;
+        var vDaysAmortInMonth : longint;
+        vDaysAmortInMonth := longint(OstStoimTable.DatEnd) - longint(OstStoimTable.DatStart) + 1;
+        vAmortPart := vOstStoim * vDaysAmortInMonth / vOstSrok;
+
+        if _LogFlag
+          if LogFilePath <> ''
+          {
+            LogStrToFile(LogFilePath, 'Период                                 = ' + DateToStr (OstStoimTable.DatStart, 'DD.MM.YYYY') + '-' + DateToStr(OstStoimTable.DatEnd, 'DD.MM.YYYY'));
+            LogStrToFile(LogFilePath, 'СПИ, мес.дней                          = ' + LPad (OstStoimTable.SPI, 21));
+            LogStrToFile(LogFilePath, 'Остаточная стоимость на начало периода = ' + LPad (vOstStoim, 21) );
+            LogStrToFile(LogFilePath, '  первоначальная стоимость             = ' + LPad (OstStoimTable.Stoim, 21) );
+            LogStrToFile(LogFilePath, '  накопленный износ                    = ' + LPad (OstStoimTable.SumIzn, 21) );
+            LogStrToFile(LogFilePath, '  износ рассчитанный в периоде         = ' + LPad (vAmortFull, 21) );
+            LogStrToFile(LogFilePath, 'Остаточный срок на начало периода      = ' + LPad (vOstSrok, 21) );
+            LogStrToFile(LogFilePath, 'Дней амортизации в периоде             = ' + LPad (vDaysAmortInMonth, 21) );
+            LogStrToFile(LogFilePath, 'Амортизация за период                  = ' + LPad (vAmortPart, 21) );
+            LogStrToFile(LogFilePath, '=========================================================================================');
+          }
+
+        vAmortFull := vAmortFull + vAmortPart;
+      }
+
+      if vAmortFull > (SpKatOSCur.Stoim - SpKatOSCur.SumIzn)
+      {
+        LogStrToFile(LogFilePath,   'Амортизация за весь отчетный период    = ' + LPad (vAmortFull, 21) );
+        vAmortFull := (SpKatOSCur.Stoim - SpKatOSCur.SumIzn);
+        LogStrToFile(LogFilePath,   'Это больше чем остаточная стоимость.');
+        LogStrToFile(LogFilePath,   'Амортизация за весь отчетный период уменьшена до остаточной стоимости = ' + LPad (vAmortFull, 21)  );
+      }
+
+      result := vAmortFull;
+
+      if _LogFlag
+        if LogFilePath <> ''
+        {
+          LogStrToFile(LogFilePath,   'Итоговая амортизация за весь отчетный период = ' + LPad (vAmortFull, 15) );
+          LogStrToFile(LogFilePath,   '=========================================================================================');
+        }
+    }
+  };
+
+  FreeVipInterface(iChgPar);
+} //
+end.

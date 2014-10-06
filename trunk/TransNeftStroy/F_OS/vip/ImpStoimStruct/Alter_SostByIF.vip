@@ -1,0 +1,82 @@
+#include SostByIF.vih
+#include ExtAttr.Vih
+
+#doc
+  Состав стоимости ОС ( НМА ) по источникам финансирования
+#end
+Alter Interface SostByIF 'Состав стоимости по источникам финансирования' EscClose, cyan;
+show at (,,80,20);
+
+var AttrNameArray : array[1..8] of string;
+#include ExtAttr.var
+
+ExtendFormats StructSostByIF;
+
+//------------------------------------------------------------------------------
+Panel pnStructSostByIF;
+
+Browse StructSostByIF ('',hcOSIKMLvalueIFinput,sci1378Esc);
+  Table StoimStruct;
+Fields
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[1])          #3'Подразделения'         ('') : [20],  Protect, noPickButton;
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[2])          #3'Объект строительства'  ('') : [20],  Protect, noPickButton;
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[3])          #3'Элементы затрат'       ('') : [20],  Protect, noPickButton;
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[4])          #3'Виды продукции, работ, услуг' ('') : [20],  Protect, noPickButton;
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[5])          #3'Направление расходов'  ('') : [20],  Protect, noPickButton;
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[6])          #3'Признак входимости в налогооблагаемую базу' ('') : [20],  Protect, noPickButton;
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[7])          #3'Статьи затрат'         ('') : [20],  Protect, noPickButton;
+  oExtAttr.sGetAttr(coStoimStruct, StoimStruct.NRec, AttrNameArray[8])          #3'СчетЗатрат'            ('') : [20],  Protect, noPickButton;
+end;
+
+HandleEvent //panel pnStructSostByIF
+  cmPickAttr:
+  {
+    Inherited::HandleEvent(cmPickAttr);
+    RereadRecord(tnStoimStruct);
+  }
+
+  cmValue1:
+  {
+    RunInterface('User_ImportStoimStruct', cKatOs);
+    RereadRecord(tnStoimStruct);
+  }
+end; //HandleEvent panel pnStructSostByIF
+end; //panel pnStructSostByIF
+
+HandleEvent
+  cmInit:
+  {
+    AttrNameArray[1] := 'Подразделения';
+    AttrNameArray[2] := 'Объект строительства';
+    AttrNameArray[3] := 'Элементы затрат';
+    AttrNameArray[4] := 'Виды продукции, работ, услуг';
+    AttrNameArray[5] := 'Направление расходов'; // !!! нет такого атрибута
+    AttrNameArray[6] := 'Признак входимости в налогооблагаемую базу';
+    AttrNameArray[7] := 'Статьи затрат';
+    AttrNameArray[8] := 'СчетЗатрат';
+    inherited::HandleEvent(cmInit);
+  }
+
+  cmOnVipLoad:
+  {
+    AttrNameArray[1] := 'Подразделения';
+    AttrNameArray[2] := 'Объект строительства';
+    AttrNameArray[3] := 'Элементы затрат';
+    AttrNameArray[4] := 'Виды продукции, работ, услуг';
+    AttrNameArray[5] := 'Направление расходов'; // !!! нет такого атрибута
+    AttrNameArray[6] := 'Признак входимости в налогооблагаемую базу';
+    AttrNameArray[7] := 'Статьи затрат';
+    AttrNameArray[8] := 'СчетЗатрат';
+    inherited::HandleEvent(cmOnVipLoad);
+  }
+
+end;
+End.//interface
+
+SostByIF_HotKeys Menu
+{
+- 'Внешняя классификация', cmPickClass, 'Внешняя классификация', hcGkatalM1ExtClass, 'Alt+C', kbAltC, sci1Esc;
+- 'Внешние атрибуты', cmPickAttr, 'Заполнение внешних атрибутов', hcGkatalM1Attr, 'Alt+A', kbAltA, sci1Esc;
+- 'Импорт распределения из Excel', cmValue1, 'Импорт распределения из Excel', , , , sci1Esc;
+}
+

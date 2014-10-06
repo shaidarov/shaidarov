@@ -1,0 +1,233 @@
+/*
+
+объедининение групп МЦ
+
+*/
+Interface Merge_GroupMc 'Объединение групп МЦ' , EscClose ;
+create view vMerge_GroupMc
+var
+ c_groupmc_new , c_groupmc_old :comp ;
+ c_nrec:comp ;
+ c_kod :string[20] ;
+ logfilenm:string ;
+ w_kluch : word ;
+as select GroupMC_Old.name ,GroupMC_New.name
+from GroupMC GroupMC_Old, GroupMC GroupMC_New
+, Katmc ,SORTMC ,SPSORTMC ,STATUSMC
+, SPSTATMC,MASKMC,BOXIER,KATMBP,GROUPSFO
+, oborot , saldmoun , saldday
+, katmc katmc2(KATMC07)
+where ((
+    c_groupmc_new == GroupMC_New.nrec
+and c_groupmc_old == GroupMC_Old.nrec 
+))
+;
+procedure mylog(w:string) ;
+{ logstrtofile(logfilenm,w)
+
+}
+Procedure SaveParam ;
+{ SaveMyDsk(c_groupmc_new,'Merge_GroupMc_c_groupmc_new')
+  SaveMyDsk(c_groupmc_old,'Merge_GroupMc_c_groupmc_old')
+  SaveMyDsk(w_kluch,'Merge_GroupMc_w_kluch')
+}
+Procedure ReadParam ;
+{ if not ReadMyDsk(c_groupmc_new,'Merge_GroupMc_c_groupmc_new',true) c_groupmc_new:=0 ;
+  if not ReadMyDsk(c_groupmc_old,'Merge_GroupMc_c_groupmc_old',true) c_groupmc_old:=0 ;
+  if not ReadMyDsk(w_kluch,'Merge_GroupMc_w_kluch',true) w_kluch:=1 ;
+}
+//==========
+Procedure ChkBarkod ;
+var TmpBarKod ,TmpBarKod1 :string ;
+{ if bogettune('RGHTBL.NOUPDATE.KATMC') then exit ;
+  if trim(KATMC.OKDP)=''
+   TmpBarKod:=substr(KATMC.barkod,1,4)
+  else
+    TmpBarKod:=substr(padch(replace(KATMC.OKDP,'.',''),'0',4),1,4)
+  if isvalid(#groupmc_new)
+    TmpBarKod:=TmpBarKod+padch(GROUPMC_NEW.KOD,'0',8)
+  else
+    TmpBarKod:=TmpBarKod+padch('','0',8)
+  if substr(katmc.barkod,1,12)=TmpBarKod
+  { exit ;
+  }
+  if wgettune('FN.AVTONUM')<>0 // если нумерация по последним номерам в базе
+  { TmpBarKod1:=PadCh(TmpBarKod,'9',20)
+    if ( ( Getlast KatMC2 Where ((TmpBarKod               <<= KatMC2.BarKod
+                                 AND TmpBarKod1 >>= KatMC2.BarKod
+                                     )) AND (KatMc.Nrec <> KatMc2.Nrec)
+                                    ordered by index KATMC07
+                                     ) =tsOk )
+    { TmpBarKod:=NextNumstr(katmc2.barkod)
+      mylog(' Изменили баркод с '+katmc.barkod+' на '+ TmpBarKod+'/'+TmpBarKod1)
+    }
+    else
+    { TmpBarKod:=TmpBarKod+padch('','0',7)
+      TmpBarKod:=nextnumstr(TmpBarKod)
+    }
+  }  
+  else
+  {  TmpBarKod:=GETLASTNUMD_(44,TmpBarKod) ;
+  }
+  katmc.barkod:=TmpBarKod ;
+//  rescanpanel(#KATMC) ;
+}
+//============================
+#declare change_groupmc(tablename)
+  mylog('=======Обновляем #tablename ===========')
+  iNextVisual('Обновляем #tablename')
+  _loop fullcache #tablename where (( c_groupmc_old == #tablename.CGROUPMC(noindex) ))
+  { if not nextvisual
+    { exit
+    }
+    mylog('  Обновили #tablename Nrec='+string(#tablename.nrec,21,0))
+    #tablename.cgroupmc:=c_groupmc_new ;
+    if '#tablename'='KATMC'
+    { katmc.kgroupmc:=groupmc_new.kod
+      ChkBarkod ;
+    }
+    #tablename.cgroupmc:=c_groupmc_new ;
+    if '#tablename'='KATMBP'
+    { KATMBP.KODGR:=groupmc_new.kod
+    }
+    update current #tablename  ;
+  }
+#end
+#declare change_kau(tablename,kod_kau,field_tbl,field_kau , level)
+ mylog('=======Обновляем #tablename #field_kau===========')
+ iNextVisual('Обновляем #field_kau[#level]' )
+ _loop fullcache #tablename where (( #kod_kau == #field_tbl[#level] // (noindex)
+    and c_groupmc_old == #field_kau[#level] //(noindex)
+    ))
+ { if not nextvisual
+   { exit
+   }
+   update current #tablename set #field_kau[#level] := c_groupmc_new ;
+ }
+#end 
+//============================
+Function FormDoc :boolean ;
+{ FormDoc:=false
+  mylog('=================================')
+  mylog('=====Начали в '+datetostr(cur_date,'DD/MM/YYYY')+timetostr(cur_time,' HH:MM:SS')
+     +'============================')
+  if not isvalid(tngroupmc_new)
+  { message('Не задали новую группу')
+    exit ;
+  }   
+  if not isvalid(tngroupmc_old)
+  { message('Не задали старую группу')
+    exit ;
+  }   
+  mylog('=================================')
+  #change_groupmc(SORTMC)
+  #change_groupmc(SPSORTMC)
+  #change_groupmc(STATUSMC)
+  #change_groupmc(SPSTATMC)
+  #change_groupmc(KATMC)
+  #change_groupmc(MASKMC)
+  #change_groupmc(BOXIER)
+  #change_groupmc(KATMBP)
+  #change_groupmc(GROUPSFO)
+//============
+  if (w_kluch and 1)=1
+  {
+  #change_kau(oborot,8,oborot.tblos,oborot.kauos,1)  
+  #change_kau(oborot,8,oborot.tblos,oborot.kauos,2)  
+  #change_kau(oborot,8,oborot.tblos,oborot.kauos,3)  
+  #change_kau(oborot,8,oborot.tblos,oborot.kauos,4)  
+  #change_kau(oborot,8,oborot.tblos,oborot.kauos,5)  
+  #change_kau(oborot,8,oborot.tblos,oborot.kauos,6)  
+  #change_kau(oborot,8,oborot.tblks,oborot.kauks,1)  
+  #change_kau(oborot,8,oborot.tblks,oborot.kauks,2)  
+  #change_kau(oborot,8,oborot.tblks,oborot.kauks,3)  
+  #change_kau(oborot,8,oborot.tblks,oborot.kauks,4)  
+  #change_kau(oborot,8,oborot.tblks,oborot.kauks,5)  
+  #change_kau(oborot,8,oborot.tblks,oborot.kauks,6)  
+  //====================================
+  #change_kau(saldmoun,8,saldmoun.tblos,saldmoun.kauos,1)  
+  #change_kau(saldmoun,8,saldmoun.tblos,saldmoun.kauos,2)  
+  #change_kau(saldmoun,8,saldmoun.tblos,saldmoun.kauos,3)  
+  #change_kau(saldmoun,8,saldmoun.tblos,saldmoun.kauos,4)  
+  #change_kau(saldmoun,8,saldmoun.tblos,saldmoun.kauos,5)  
+  #change_kau(saldmoun,8,saldmoun.tblos,saldmoun.kauos,6)  
+  //====================================
+  #change_kau(saldday,8,saldday.tblos,saldday.kauos,1)  
+  #change_kau(saldday,8,saldday.tblos,saldday.kauos,2)  
+  #change_kau(saldday,8,saldday.tblos,saldday.kauos,3)  
+  #change_kau(saldday,8,saldday.tblos,saldday.kauos,4)  
+  #change_kau(saldday,8,saldday.tblos,saldday.kauos,5)  
+  #change_kau(saldday,8,saldday.tblos,saldday.kauos,6)  
+  }
+  mylog('=================================')
+  mylog('=====закончили в '+datetostr(cur_date,'DD/MM/YYYY')+timetostr(cur_time,' HH:MM:SS')
+              +'============================')
+  mylog('=================================')
+  if substr(GroupMc_old.name,length(GroupMc_old.name),1)<>'*'
+    update current GroupMc_old set GroupMc_old.name:=GroupMc_old.name+'*' ;
+  FormDoc:=True ;
+} //Function FormDoc ;
+
+screen scrmain    ;
+table groupmc_new ;
+Fields
+  groupmc_new.name : protect,pickbutton ;
+  groupmc_old.name : protect,pickbutton ;
+  w_kluch : noprotect ;
+buttons
+  cmOk, Default;
+  cmCancel;
+  cmValue1;
+
+<<
+ Группы МЦ
+ Новая   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Старая  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Дополнительно
+ [.] Проверять данные бухконтура `
+  
+ <.Заменить.>  <. Отмена .>  <.Очистить протокол.>
+>>
+end ; //screen scrmain    ;
+HandleEvent
+cmInit:
+{ ReadParam ;
+  logfilenm:=GetStringParameter('Files','OutputFilesDirectory',0)+
+     '\merge_groupmc.txt'
+} //cmInit:
+cmValue1:
+{ if fileexist(logfilenm) deletefile(logfilenm)
+}
+cmPick:
+{ case curfield of
+  #Groupmc_new.name :
+  { c_nrec:=c_groupmc_new
+    if RunInterface(L_MCU::GetGrMC,c_nrec,c_kod)=cmDefault
+    { set c_groupmc_new:=c_nrec ;
+    }
+  }
+  #Groupmc_old.name :
+  { c_nrec:=c_groupmc_old
+    if RunInterface(L_MCU::GetGrMC,c_nrec,c_kod)=cmDefault
+    { set c_groupmc_old:=c_nrec ;
+    }
+  }
+  end ;
+  rescanpanel(#Groupmc_new)
+} //cmPick:
+cmOk:
+{ SaveParam ;
+  StartNewVisual( vtNumericVisual, vfTimer, 'Помечаем записи', 1);
+  FormDoc ;
+  StopVisual('',0)
+  if fileexist(logfilenm)
+  {  ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+      logfilenm+' Протокол люъединения');
+  }    
+
+} //cmOk:
+end;
+end.
+  
+
+

@@ -1,0 +1,669 @@
+/*
+    
+
+*/
+#include CLSFUNCS.VIH // ф-ии пересканирования текущих л/с
+//#include PMNTENTS.VIH
+//#include Contexts.vih  // Контексты
+//#include AbsenceCoding.vih
+//#include TotalOrganizationAttributes.vih // работа с атрибутами организации
+//#include Marks.vih
+#include GtKauTbl.vih
+#include GetKau.Vih
+#include PodrFilterDef.vih // vip810/all
+//==================================
+#include FZ_21_BalansTabel.Vih
+//=====================================================================================================
+Interface FZ_21_BalansTabel 'FZ 21 Баланс рабочего времени и нарушения трудовой дисциплины' , EscClose,DoAccept,Cyan;
+//=====================================================================================================
+var  CLSF: CurLSFunctions;
+var  iGetKau   : GetKau;
+var  iPodrFilterDef:PodrFilterDef;
+var DA: IDepartmentAvailability(CurLSFunctions);
+var wsch,wsubsch:string[20];
+var kol_vixod :integer;
+//===============================
+// подсчитть неявки
+Function Calc_Neyavki:double;forward;
+// подсчитть явки
+Function Calc_yavki:double;forward;
+// печать данныъ
+Function PrintDoc_00(ww_type:word) : boolean;forward;
+create view
+var
+  Nreport :word; //7900
+  //fFltPodr,fFltKateg :string;
+  _PodrMArkerPointer        : Longint; // сам маркер
+  MarkerPodr,MarkerKateg    : LongInt ;
+  wNumPick:word;
+  dtb,dte: Date;
+  day_b, day_e:word;
+  w_YearRas , w_MesRas :word;
+  Lev1, Grp_Count: word;
+  CurCode
+ , CurFormatTree
+ , Len1
+ , Len2
+ , Len3
+                 : word;
+//--------------------------------------------------------------------------------
+
+  cRep
+, MainTree
+, TotalCol :longint;
+  CurGroup:comp;
+  wc_cut1,wc_cut2,wc_cut3,wc_cut4,wc_cut5,wc_cut6 : comp; // для встаки записи
+//============
+  type_report :word;  
+//====================
+ wc_podr :comp; 
+ w_kateg :word;
+  
+//============== для табеля
+ wc_Notation_V, wc_Notation_SP:comp; // ссылка на выходные
+#include excel_var.vpp
+as select 
+  UserDeskRep.nRep
+  ,   if (UserDeskRep.ResComp[1]<>0,KatPodr.Name,
+     if (UserDeskRep.ResWord[21]<>0,'множественный выбор ('+string(UserDeskRep.ResWord[21])+')','')) (fieldname=fFltPodr)
+  ,   if (UserDeskRep.ResComp[2]<>0,KlKatego.NAIKAT,
+     if (UserDeskRep.ResWord[22]<>0,'множественный выбор ('+string(UserDeskRep.ResWord[22])+')','')) (fieldname=fFltKatego)
+from 
+  UserDeskRep,KatPodr,KlKatego , lstab , perexod
+, lschet, persons  
+, Tobot
+, Tobot Tobot2
+, TempDescr
+//, TempDescr TempDescr2
+//, TempIer (TempIer06)
+, TMPKATALOG  ,TMPKATALOG TMPKATALOG1
+, spkau ,katstroy
+//======================
+, katpodr katpodr1 , klkatego klkatego1
+, PICKREP , Pick  , KATORGDESCR
+where ((  
+  NReport           == UserDeskRep.nRep
+and USERNAME == UserDeskRep.OwnName          
+and UserDeskRep.ResComp[1] == KatPodr.nrec
+and UserDeskRep.ResComp[2] == KlKatego.nrec
+and wc_podr == katpodr1.nrec
+and w_kateg == klkatego1.kod
+// табель
+and w_YearRas == lstab.yearn
+and w_MesRas == LsTab.mesn
+//and lstab.clschet == perexod.clsch
+//and dte>>=perexod.DATIZM
+//and sub_months(dtb,3)<<perexod.DATIZM
+    // зацепим нужные переходы за выбранный период
+    and lstab.cLSchet == PEREXOD.CLSCH
+    // учитываем все переходы вплоть до даты окончания просматриваемого периода
+    // (переход мог начаться раньше расматриваемого периода)
+    and dtb <<= PEREXOD.DATIZM
+    and dte >>= PEREXOD.DATIZM
+    // только имеющих продолжение в данном отрезке периода
+    and ((dtb <= PEREXOD.DATOK) or (longint(PEREXOD.DATOK) = 0))
+
+and lstab.clschet == lschet.nrec
+and lschet.tperson ==  persons.nrec 
+// временные таблицы
+//and CurCode                 == Tobot.Code
+and CurCode                 == TempDescr.Code
+and CurGroup                == TempDescr.cGroup
+
+//and TempDescr.nRec          == TempIer.cGroup
+and TempDescr.cRecKat       == Tobot2.nRec
+and 0 == Pick.wlist
+and UserName         == PickRep.OwnName
+));
+//==========
+  create view v1 as select UOWRKTABEL.NUM
+  from UOWRKTABEL
+//  where (( 'В' == UOWRKTABEL.NUM ))
+  ;
+//=============
+Var
+  //'Группировки в отчете
+    mLevel
+  , mTable
+  , mGrupSort
+  , mHierar
+  , mKol 
+  , mIeSvertka : Array [10] of word;
+var
+  mName :Array[10] of string; 
+var wNameGr:string;
+var dm_nrec:array [1..20] of comp;
+//=======================
+#include pmarker.vpp //vip_gal/vih
+#include excel_fun.vpp // all
+//=============================
+Procedure Zaglushka;
+{ exit;
+  //pmarker.vpp
+  DelPickRep(0);
+  CountPickRep(0)
+  //Marker2PickRep(mrkName : string; wList : word; var cRescomp : comp; var wNumPick : word);
+  Marker2PickRep('',0, wc_podr,  wNumPick );
+  Marker2PickRepEx('',0, wNumPick);
+  PickRep2Marker ('',0,0)
+  Pick2PickRepBody(false,0,0,wc_podr,wNumPick )
+  Pick2PickRep(0,0,wc_podr,wNumPick)
+  Pick2PickRepEx(0,0,wc_podr,wNumPick) 
+  PickRep2Pick(0,0,wc_podr)
+  DelPick(0);
+  SetKatOrgDescrMarker
+  CopyPickInMarker(0,'')
+  CopyMarkerInPick('',0,0) 
+} 
+//==============================
+window wnReport 'Отчет';
+//--------------------------------------------------------------------------------
+//-------------------------'Первая панель (группы)'-------------------------------
+
+Tree trTmpTree('Ctrl+P - Печать всего отчета, Alt+P - Печать с текущего уровня',, sci1EscTree);
+  Show at (,,, 10);
+  Table TempDescr;
+
+Fields
+
+  TempDescr.Name    'Наименование' ('Наименование',,)
+                    : [50], Protect;
+
+  TempDescr.Sum[3]  'Явочные дни' ('Явочные дни',,)
+                    : [16.2,'\2p[|-]366`666`666`666.88'], Skip;
+
+  Calc_Neyavki 'Всего неявок' ('Оплачено',,)
+                    : [16.2,'\2p[|-]366`666`666`666.88'], Skip;
+end;
+Screen scrRep01;
+  show at (,11,,);
+  Table TempDescr;
+Fields
+TempDescr.Sum[58]: [12.2,'\2p[|-]366`666`666.88'], protect;//Среднесписочная численность
+TempDescr.Sum[3]: [12.2,'\2p[|-]366`666`666.88'], protect;//Явочные дни    
+TempDescr.Sum[4]: [12.2,'\2p[|-]366`666`666.88'], protect;//Дни работы водителей на ремонте     .@@@@@@
+TempDescr.Sum[5]: [12.2,'\2p[|-]366`666`666.88'], protect;//Дни работы водителей у заказчика .@@@@@@
+TempDescr.Sum[6]: [12.2,'\2p[|-]366`666`666.88'], protect;//Служебная поездка (дни)          .@@@@@@
+TempDescr.Sum[7]: [12.2,'\2p[|-]366`666`666.88'], protect;//Оплата по среднему (дни)         .@@@@@@
+TempDescr.Sum[8]: [12.2,'\2p[|-]366`666`666.88'], protect;//Оплата по среднему берем. (дни)  .@@@@@@
+longint(TempDescr.Sum[49]) div 1000000: [12.2,'\2p[|-]366`666`666.88'], protect;//РО в выходные дни (часы)         .@@@@@@
+longint(TempDescr.Sum[50]) div 1000000: [12.2,'\2p[|-]366`666`666.88'], protect;//Продолжитель. работы в выходные  .@@@@@@ 
+TempDescr.Sum[41]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск по беременности и родам   .@@@@@@
+//----------------------------------------
+TempDescr.Sum[43]: [12.2,'\2p[|-]366`666`666.88'], protect;//Явочные часы                     .@@@@@@
+TempDescr.Sum[44]: [12.2,'\2p[|-]366`666`666.88'], protect;//Часы работы водителей на ремонте .@@@@@@    
+TempDescr.Sum[45]: [12.2,'\2p[|-]366`666`666.88'], protect;//Часы работы водителей у заказчика.@@@@@@
+TempDescr.Sum[46]: [12.2,'\2p[|-]366`666`666.88'], protect;//Служебная поездка (часы)         .@@@@@@
+TempDescr.Sum[47]: [12.2,'\2p[|-]366`666`666.88'], protect;//Оплата по среднему (часы)        .@@@@@@
+TempDescr.Sum[48]: [12.2,'\2p[|-]366`666`666.88'], protect;//Оплата по среднему беременным    .@@@@@@
+longint(TempDescr.Sum[49]) mod 1000000: [12.2,'\2p[|-]366`666`666.88'], protect;//РП в нерабочие праздничные дни (часы)  .@@@@@@
+longint(TempDescr.Sum[50]) mod 1000000: [12.2,'\2p[|-]366`666`666.88'], protect;//РП в выходные дни (часы)         .@@@@@@
+longint(TempDescr.Sum[51]) mod 1000000: [12.2,'\2p[|-]366`666`666.88'], protect;//РО в нерабочие праздничные дни (часы)           .@@@@@@
+longint(TempDescr.Sum[52]) mod 1000000: [12.2,'\2p[|-]366`666`666.88'], protect;//РО в выходные дни (часы)         .@@@@@@
+TempDescr.Sum[53]: [12.2,'\2p[|-]366`666`666.88'], protect;//Продолжитель. работы в выходные  .@@@@@@ 
+TempDescr.Sum[54]: [12.2,'\2p[|-]366`666`666.88'], protect;//Сверхурочные часы итого          .@@@@@@
+TempDescr.Sum[55]: [12.2,'\2p[|-]366`666`666.88'], protect;//Сверхурочные первые 2 часа       .@@@@@@
+TempDescr.Sum[56]: [12.2,'\2p[|-]366`666`666.88'], protect;//Сверхурочные свыше 2-х часов     .@@@@@@
+TempDescr.Sum[57]: [12.2,'\2p[|-]366`666`666.88'], protect;//Часы работы в ночное время       .@@@@@@
+//
+TempDescr.Sum[59]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск по уходу за реб.до 3-х лет.@@@@@@
+TempDescr.Sum[60]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск по беременности и родам   .@@@@@@
+TempDescr.Sum[ 1]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск по уходу за реб.до 1,5-х л.@@@@@@
+TempDescr.Sum[ 2]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск по уходу за реб.до 3-х лет.@@@@@@
+TempDescr.Sum[40]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск по беременности и родам   .@@@@@@
+TempDescr.Sum[42]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск по уходу за реб.до 1,5-х л.@@@@@@
+//=================
+TempDescr.Sum[09]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск, предусмотренный кол.договором                        .@@@@@@
+TempDescr.Sum[10]: [12.2,'\2p[|-]366`666`666.88'],protect;//Служебная командировка                                        .@@@@@@
+TempDescr.Sum[11]: [12.2,'\2p[|-]366`666`666.88'],protect;//Участие в конкурсах проф. мастерства и .т.д без выезда      .@@@@@@
+//-----------------------------------------
+TempDescr.Sum[12]: [12.2,'\2p[|-]366`666`666.88'],protect;//Невыходы на время исполнения гос.или обществ. обязан.        .@@@@@@
+TempDescr.Sum[13]: [12.2,'\2p[|-]366`666`666.88'],protect;//День сдачи крови и ее компонентов и доп.день                .@@@@@@
+TempDescr.Sum[14]: [12.2,'\2p[|-]366`666`666.88'],protect;//Дополнительные вых.дни лицам, осущ.уход за детьми-инвалидами.@@@@@@    
+TempDescr.Sum[15]: [12.2,'\2p[|-]366`666`666.88'],protect;//Время провед. обязат. медиц. обследования, 
+TempDescr.Sum[16]: [12.2,'\2p[|-]366`666`666.88'],protect;//Участие в работе комиссии по трудовым спорам                .@@@@@@
+//-------------------------------
+TempDescr.Sum[17]: [12.2,'\2p[|-]366`666`666.88'],protect;//Ежегодный основной оплачиваемый отпуск                                                         .@@@@@
+TempDescr.Sum[18]: [12.2,'\2p[|-]366`666`666.88'],protect;//Доп. отпуск в связи с обучением с сохранением среднего заработка работникам, совм. раб. с обуч..@@@@@@@   
+TempDescr.Sum[19]: [12.2,'\2p[|-]366`666`666.88'],protect;//Сокращенный раб.день для обучающихся без отрыва от произв. с частичным сохр. зар. платы        .@@@@@
+TempDescr.Sum[20]: [12.2,'\2p[|-]366`666`666.88'],protect;//Доп.отпуск, в связи с обучением (без сохр. ЗП)                                                 .@@@@@
+TempDescr.Sum[21]: [12.2,'\2p[|-]366`666`666.88'],protect;//Частично оплачиваемый день в неделю, предоставляемый работникам, совмещающим работу с обучением.@@@@@@@   
+TempDescr.Sum[22]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск без сохранения з/п, при условиях, предусмотр. действ. законодат.                        .@@@@@
+TempDescr.Sum[23]: [12.2,'\2p[|-]366`666`666.88'],protect;//Повышение квалификац. с отрывом от работы, семинары, краткосрочные курсы, обученре в УКК и др. .@@@@@@@   
+TempDescr.Sum[24]: [12.2,'\2p[|-]366`666`666.88'],protect;//Временная нетрудоспособность (кроме случаев, предусмотренных кодом "Т") 
+TempDescr.Sum[25]: [12.2,'\2p[|-]366`666`666.88'],protect;//Неявки по невыясн. причинам              (до выяснения обстоятельств)                 .@@@@@
+TempDescr.Sum[26]: [12.2,'\2p[|-]366`666`666.88'],protect;//Временная нетрудоспособность без назначения пособия в случаях, предусм. законодат.    .@@@@@
+TempDescr.Sum[27]: [12.2,'\2p[|-]366`666`666.88'],protect;//Доп. оплачиваемый отпуск за ненормир.раб.день                    .@@@@@
+TempDescr.Sum[28]: [12.2,'\2p[|-]366`666`666.88'],protect;//Доп.оплачиваемый отпуск участникам ликвидации ЧАЭС               .@@@@@
+TempDescr.Sum[29]: [12.2,'\2p[|-]366`666`666.88'],protect;//Доп.отпуск культурно- спортивные меропр. с сохр.з/п              .@@@@@
+TempDescr.Sum[30]: [12.2,'\2p[|-]366`666`666.88'],protect;//Доп.оплач. отпуск за вред.(опасные) условия труда                .@@@@@
+TempDescr.Sum[31]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отпуск без сохранения зар. платы, предоставленный работнику по разрешению администрации  .@@@@@@@ 
+TempDescr.Sum[32]: [12.2,'\2p[|-]366`666`666.88'],protect;//Ежегодный дополнительный отпуск без сохранения заработной платы  .@@@@@@@ 
+TempDescr.Sum[33]: [12.2,'\2p[|-]366`666`666.88'],protect;//Неявки по неуважительным причинам (арест и др.)                  .@@@@@
+TempDescr.Sum[34]: [12.2,'\2p[|-]366`666`666.88'],protect;//Отстранение от работы (недопущение к работе) по причинам, пред. закон. без начис. зар. платы  .@@@@@@@ 
+TempDescr.Sum[35]: [12.2,'\2p[|-]366`666`666.88'],protect;//Простои по вине работника                                        .@@@@@
+TempDescr.Sum[36]: [12.2,'\2p[|-]366`666`666.88'],protect;//Простои по причинам, не зависящим от работодателя и работника    .@@@@@
+TempDescr.Sum[37]: [12.2,'\2p[|-]366`666`666.88'],protect;//Простои по вине работодателя                                     .@@@@@
+TempDescr.Sum[38]: [12.2,'\2p[|-]366`666`666.88'],protect;//Время вынужденного прогула в случае признания увольнения, перевода на другую работу 
+TempDescr.Sum[39]: [12.2,'\2p[|-]366`666`666.88'],protect;//Прогулы (отсутствие на рабочем месте без уваж. причин в теч. времени, устан. закон.) .@@@@@@@
+<<                
+`Среднесписочная численность`    .@@@@@@@ 
+Явочные дни                      .@@@@@@@ Дни работы водителей на ремонте  .@@@@@@@ Дни работы водителей у заказчика .@@@@@@@
+Служебная поездка (дни)          .@@@@@@@ Оплата по среднему (дни)         .@@@@@@@ Оплата по среднему берем. (дни)  .@@@@@@@
+РП в выходные и праздничные дни  .@@@@@@@ РО в выходные и праздничные дни  .@@@@@@@
+----------------------------------------   Выходных                        .@@@@@@@
+`Число отработанных часов`                                                            
+Явочные часы                     .@@@@@@@ Часы работы водителей на ремонте .@@@@@@@ Часы работы водителей у заказчика.@@@@@@@
+Служебная поездка (часы)         .@@@@@@@ Оплата по среднему (часы)        .@@@@@@@ Оплата по среднему беременным    .@@@@@@@
+в т.ч сверхурочно                
+РП в нерабочие праздничные дни   .@@@@@@@ РП в выходные дни (часы)         .@@@@@@@ РО в нерабочие праздн.дни        .@@@@@@@
+РО в выходные дни (часы)         .@@@@@@@ Продолжитель. работы в выходные  .@@@@@@@ Сверхурочные часы итого          .@@@@@@@
+Сверхурочные первые 2 часа       .@@@@@@@ Сверхурочные свыше 2-х часов     .@@@@@@@ Часы работы в ночное время       .@@@@@@@
+`=============================ОЖ,ОЗ,ОР Кол-во дней================================`
+Отпуск по уходу за реб.до 3-х лет.@@@@@@@ Отпуск по беременности и родам   .@@@@@@@ Отпуск по уходу за реб.до 1,5-х л.@@@@@@@
+Списочная численность на конец месяца
+Отпуск по уходу за реб.до 3-х лет.@@@@@@@ Отпуск по беременности и родам   .@@@@@@@ Отпуск по уходу за реб.до 1,5-х л.@@@@@@@
+`========================================= Неявки ============================`
+Отпуск, предусмотренный кол.договором                        .@@@@@@@ Служебная командировка    .@@@@@@@
+Участие в конкурсах проф. мастерства и .т.д без выезда      .@@@@@@@
+-----------------------------------------
+Невыходы на время исполнения гос.или обществ. обязан. .@@@@@@@ День сдачи крови и ее компонентов и доп.день  .@@@@@@@
+Дополнительные вых.дни лицам, осущ.уход за детьми-инвалидами .@@@@@@@    
+Время провед. обязат. медиц. обследования,освобож. от работы  беременных в соотв. с мед. заключением    .@@@@@@@
+Участие в работе комиссии по трудовым спорам  .@@@@@@@
+-------------------------------
+Ежегодный основной оплачиваемый отпуск                                                         .@@@@@@@
+Доп. отпуск в связи с обучением с сохранением среднего заработка работникам, совм. раб. с обуч..@@@@@@@   
+Сокращенный раб.день для обучающихся без отрыва от произв. с частичным сохр. зар. платы        .@@@@@@@
+Доп.отпуск, в связи с обучением (без сохр. ЗП)                                                 .@@@@@@@
+Частично оплачиваемый день в неделю, предоставляемый работникам, совмещающим работу с обучением.@@@@@@@   
+Отпуск без сохранения з/п, при условиях, предусмотр. действ. законодат.                        .@@@@@@@
+Повышение квалификац. с отрывом от работы, семинары, краткосрочные курсы, обученре в УКК и др. .@@@@@@@   
+Временная нетрудоспособность (кроме случаев, предусмотренных кодом "Т") 
+с назначением пособия согласно законодательству          .@@@@@@@@
+Неявки по невыясн. причинам (до выяснения обстоятельств) .@@@@@@@@
+Временная нетрудоспособность без назначения пособия в случаях, предусм. законодат.    .@@@@@@@
+Доп. оплачиваемый отпуск за ненормир.раб.день       .@@@@@@@@ Доп.оплачиваемый отпуск участникам ликвидации ЧАЭС  .@@@@@@@@
+Доп.отпуск культурно- спортивные меропр. с сохр.з/п .@@@@@@@@ Доп.оплач. отпуск за вред.(опасные) условия труда   .@@@@@@@@
+Отпуск без сохранения зар. платы, предоставленный работнику по разрешению администрации  .@@@@@@@ 
+Ежегодный дополнительный отпуск без сохранения заработной платы  .@@@@@@@ 
+Неявки по неуважительным причинам (арест и др.)                  .@@@@@@@
+Отстранение от работы (недопущение к работе) по причинам, пред. закон. без начис. зар. платы  .@@@@@@@ 
+Простои по вине работника                                        .@@@@@@@
+Простои по причинам, не зависящим от работодателя и работника    .@@@@@@@
+Простои по вине работодателя                                     .@@@@@@@
+Время вынужденного прогула в случае признания увольнения, перевода на другую работу 
+или отстранения от работы незаконными, с восстановлением на прежней работе          .@@@@@@@@
+Прогулы (отсутствие на рабочем месте без уваж. причин в теч. времени, устан. закон.) .@@@@@@@
+>>
+end;
+HandleEvent
+cmHotKeys:
+{ PutCommand(RunMenu('mnFZ21_Print')) ;
+}
+cmValue2: PrintDoc_00(2);
+cmPrintDoc: 
+{ PrintDoc_00(0);
+}
+cmPlansNo:
+{ PrintDoc_00(1);
+}
+end; //HandleEvent
+end; //window wnReport  'Отчет;
+
+//=============================  
+#include FZ_21_BalansTabel.Vpp;  
+//=============================  
+
+//===============================
+Procedure MyCheckField;
+{ case UserDeskRep.ResWord[39] of
+  0: nmtemplate:='BMN_FZ_021_TabelBalans.xls';
+  end;
+  Rescanpanel(#UserDeskRep)
+}//Procedure MyCheckField;
+//==============================
+Window winParam 'Параметры отчета по балансу рабочего времени' (,, sci1Esc) EscClose, doAccept, Gray;
+ Show at (,,,);
+#declare _list_group 
+                          [List 0 'Нет'
+                                ,'По подразделению'
+                                ,'По категории'
+                                ,'По фикс.аналитикe(зависит от счета)'
+                                ,'По сотруднику'
+                                ], Protect;
+
+#end
+Screen scrParam (,,sci178Esc);
+ Show at (,,,);
+  Table UserDeskRep;
+  Fields
+   UserDeskRep.RepName    ('Наименование отчета',,) : NoProtect;
+//   UserDeskRep.dRep       ('Дата отчета',,) : [,'DD/MM/YYYY'],NoProtect;
+   UserDeskRep.ResDate[1] ('Дата начала отчетного периода',,) : [,'DD/MM/YYYY'],NoProtect;
+   UserDeskRep.ResDate[2] ('Дата окончания отчетного периода',,) : [,'DD/MM/YYYY'],NoProtect;
+   UserDeskRep.ResWord[39]('Вид отчета',,sci1378Esc) :
+                          [List 0 'Баланс отработанного времени'], Protect;
+   nmtemplate ('Наименование шаблона(Gal810\exe\XLS_ED)'):protect;                       
+   // Фильтры
+   UserDeskRep.ResWord[1] ('Установите фильтры',,) : NoProtect;
+   fFltPodr   ('Установите фильтр по подразделениям',,sci1378Esc) :  Protect;
+   fFltKatego ('Установите фильтр по категориям',,sci1378Esc) : Protect;
+   // Группировки
+   UserDeskRep.ResWord[11] ('Группировка 1',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[12] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[31] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[13] ('Группировка 2',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[14] ('Иерархия 2',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[32] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[15] ('Группировка 3',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[16] ('Иерархия 3',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[33] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[17] ('Группировка 4',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[18] ('Иерархия 4',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[34] ('Иерархия 1',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[19] ('Группировка 5',,sci1378Esc) : #_list_group
+   UserDeskRep.ResWord[20] ('Иерархия 5',,sci178Esc) : noprotect;
+   UserDeskRep.ResWord[35] ('Иерархия 5',,sci178Esc) : noprotect;
+
+   UserDeskRep.ResWord[40] ('Выводить параметры в шапке отчета',,sci178Esc) : NoProtect;
+//buttons
+//  cmvalue14;
+
+<<
+
+ `Наименование`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ 
+  По табелям за период:`с`.@@@@@@@@@@@ `по`.@@@@@@@@@@@
+ `Вид отчета`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Шаблон`      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ Фильтры
+ [.] по подразделению ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ [.] по категории     ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                                                    Вывести на уровне
+ `Группировки`                `Развернуть по иерархии(0 - нет)`  VVV
+ Уровень 1 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 2 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 3 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 4 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+ Уровень 5 .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    .@@@   .@@@
+
+ [.] вывод параметров в шапку отчета`
+ [.] объекты строит. разворачивать как кау`
+ [.] Отладочный протокол`
+ [.] Печатать детали(сотрудников)`
+ >>
+End;
+
+#undef _list_group
+
+
+HandleEvent // window
+cmInit:
+{
+  MyCheckField;
+}
+
+cmvalue14: // настройка печати
+{
+}
+
+cmDone :
+{
+
+ if ((IsNew) and (not IsModified))
+  {
+   SetModified(True);
+   UpDateTable;
+  };
+}
+
+End;  // HandleEvent
+End;  // window
+
+//========
+Panel pParamOtch;
+ Table UserDeskRep;
+HandleEvent  // panel
+ cmSetDefault:
+  {
+    ClearBuffer(tnUserDeskRep);
+    UserDeskRep.RepName := 'Баланс отработанного времени';
+    UserDeskRep.dRep    := Cur_Date;
+
+    UserDeskRep.ResDate[1] := date(1,month(cur_date),year(cur_date));
+    UserDeskRep.ResDate[2] := date(Last_Day(cur_date),month(cur_date),year(cur_date));
+
+    UserDeskRep.ResWord[1] := 0;
+  }
+
+ cmInsertRecord :
+   Insert Current UserDeskRep;
+
+ cmDeleteRecord :
+   if (Message(''#3'Удалить текущую запись?',YesNo) <> cmYes)
+    Abort
+   else
+     Delete Current UserDeskRep;
+
+ cmUpdateRecord :
+   Update Current UserDeskRep;
+cmPick:
+{  UpdateTable;
+/*
+
+        PickRep2Marker('MKatNazna', NReport*10+5, UserDeskRep.ResComp[5]);
+        if (RunInterface('GetSomKatNazna', Boolean(True), Comp(0)) <> cmCancel)
+         {
+          DelPickRep(NReport*10+5);
+          Marker2PickRep('MKatNazna', NReport*10+5, UserDeskRep.ResComp[5], wNumPick);
+          if (wNumPick > 1)
+           {
+             set UserDeskRep.ResWord[15] := NReport*10+5;
+             set UserDeskRep.ResWord[25] := wNumPick;
+           }
+          else
+           set UserDeskRep.ResWord[15] := 0;
+          RescanPanel(#UserDeskRep);
+*/
+    case curfield of
+    #fFltPodr:
+    {  PickRep2Marker('Z_KatPodr1', 1, UserDeskRep.ResComp[1]);
+        
+       _PodrMArkerPointer := CLSF.LoadFullCurrentDepartmentList;
+       iPodrFilterDef.MarkCopyCatToMy(_PodrMArkerPointer,'Z_KatPodr1')
+       if RunInterface('GetPodaLN',11, 0, 1)=cmDefault
+       { _PodrMArkerPointer := CLSF.LoadFullCurrentDepartmentList;
+         ///message('отобрали '+string(GetMarkerCount(_PodrMArkerPointer)))
+         iPodrFilterDef.MarkCopyMyToCat(_PodrMArkerPointer,'Z_KatPodr1')
+         //MarkerPodr :=InitMarker('Z_KatPodr', 8, 10, 10);
+         //message('отобрали '+string(GetMarkerCount(MarkerPodr)))
+         //DoneMarker(MarkerPodr,'Z_KatPodr')
+         DelPickRep(1)
+         Marker2PickRep('Z_KatPodr1',1, UserDeskRep.ResComp[1], wNumPick);
+         /*  _LOOP PickRep where (( UserName         == PickRep.OwnName      and
+                         UserDeskRep.nRec == PickRep.cUserDeskRep and
+                         1       == PickRep.wList ))
+            {  message('1 '+PickRep.wlist)
+            
+            }             
+         */
+         if (wNumPick > 1)
+           {
+             set UserDeskRep.ResWord[21] := wNumPick;
+           } 
+       }  
+    } //fFltPodr
+    #fFltKatego:
+    { PickRep2Marker('mkatego', 2, UserDeskRep.ResComp[2]);
+      Runinterface('GetKatego')//=cmDefault  - не возвращает
+      DelPickRep(2);
+      /*
+         Marker2PickRep('mKatego', 2, UserDeskRep.ResComp[2], wNumPick);
+         MarkerKateg :=InitMarker('mKatego', 8, 10, 10);
+         message('отобрали '+string(GetMarkerCount(MarkerKateg)))
+         DoneMarker(MarkerKateg,'mKatego')
+           _LOOP PickRep where (( UserName         == PickRep.OwnName      and
+                         UserDeskRep.nRec == PickRep.cUserDeskRep and
+                         2       == PickRep.wList ))
+            {  message('1 '+PickRep.crec)
+            
+            }             
+         
+        */               
+         if (wNumPick > 1)
+           {
+             set UserDeskRep.ResWord[22] := wNumPick;
+           } 
+            
+    } //fFltKateg
+    end; //case curfield of
+    RescanPanel(#UserDeskRep);
+    
+ }
+ cmDelOnProtect:
+ { UpdateTable;
+   case curfield of
+   #fFltPodr:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 1);
+                Set UserDeskRep.ResWord[21] := 0;
+                Set UserDeskRep.ResComp[1]  := 0;
+              }
+   }
+   #fFltKatego:
+   { if ( Message('Удалить выбор?', YesNo) = cmYes )
+              {
+                DelPickRep( 2);
+                Set UserDeskRep.ResWord[22] := 0;
+                Set UserDeskRep.ResComp[2]  := 0;
+              }
+   }
+   end;
+   ReScanPanel(#UserDeskRep)
+ } //cmDelOnProtect
+ cmCheckField:
+ { MyCheckField;
+ }         
+ cmPositionChanged:
+ { MyCheckField;
+ }
+ end;
+end;//Panel pParamOtch;
+ //--------------------------------------------------------------------------------
+
+Panel p1;
+  Table TempDescr;
+
+HandleEvent  // Panel p1
+
+cmTreeTop         : CurGroup := 0;
+
+cmTreeUp          : CurGroup := TempDescr.cGroup;
+
+cmTreeDown        : CurGroup := TempDescr.nRec;
+
+cmTreeNodeType    : if ( TempDescr.isLeaf = 1 )
+                      TreeSetNodeType(trTmpTree, 2);
+
+end;  // he Panel p1
+end;  // Panel p1
+
+
+//=======================================================================
+// Список настроек
+//=======================================================================
+Panel pOtchIspIski;
+ Table UserDeskRep;
+Browse brOtchIspIski('Enter - сформировать отчет',, sci1478EnEsc);
+ Show  at (,,,16);
+ Table UserDeskRep;
+ Fields
+  UserDeskRep.RepName    #3'Наименование отчета' :[45], Protect;
+  UserDeskRep.dRep       #3'Дата'  :[10,'DD/MM/YYYY'], Protect, Centered;
+  UserDeskRep.ResDate[1] #3'c'     :[10,'DD/MM/YYYY'], Protect, Centered;
+  UserDeskRep.ResDate[2] #3'по'    :[10,'DD/MM/YYYY'], Protect, Centered;
+ end; // browse
+
+Screen ButOtch;
+ Show  at (,17,,);
+Buttons
+  cmValue1, Default, , 'Сформировать отчет', , sci1Esc;
+  cmEdit,   , , 'Установка параметров отчета', , sci1Esc;
+  cmCancel, , , 'Отмена', , sci1Esc;
+
+<<
+
+    <.Сформировать.>       <.  Настройка .>       <.   Отмена   .>
+>>
+
+end; // screen
+
+ HandleEvent  // for panel
+  cmSetDefault:
+   {
+     SelectPanel(#UserDeskRep);
+     PutCommand(cmEdit);
+   }
+  cmDelOnProtect: abort;
+ end; // HandleEvent for panel
+End; // Panel
+
+//=========================================================================
+// Обработчик интерфейса
+//=========================================================================
+HandleEvent  // interface
+
+cmEdit: // Редактирование настройки
+ {
+   RunWindowModal(winParam);
+   UpdateTable;
+   RescanPanel(#UserDeskRep);
+ }
+
+cmInit :
+ { Zaglushka;
+   NReport := 7900;
+   CurCode := 7950;
+   SelectPanel(#UserDeskRep);
+   SelectField(#UserDeskRep.RepName);
+   CLSF.ReScan;
+   InitServTxo(0);
+   MainTree:=trTmpTree;
+   if fileexist('TreeRep.log') deletefile('TreeRep.log')
+ }
+cmValue1:
+  if (UpdateTable)
+  { PickRep2Marker('Z_KatPodr', 1, UserDeskRep.ResComp[1]);
+    PickRep2Marker('mkatego',   2, UserDeskRep.ResComp[2]);
+    MarkerPodr :=InitMarker('Z_KatPodr', 8, 10, 10);
+    MarkerKateg:=InitMarker('mkatego', 8, 10, 10);
+    StartNewVisual(vtNumericVisual,vfTimer+vfBreak,'Обработка...', vfTimer+vfBreak);
+    CreateReport;
+    if VisualizationActive
+      StopVisual('',0);
+    xlKillExcel;
+    DoneMarker(MarkerPodr,'')
+    DoneMarker(MarkerKateg,'')
+  }
+
+
+cmDefault:  // Enter
+  PutCommand(cmValue1);
+cmDone:
+{ DoneServTxo
+
+}
+
+End; // he interface
+End. // interface
+
+mnFZ21_Print Menu
+{
+- 'Печать документа',cmPrintDoc,'Печать документа',hcctxSoprPrintDoc,'Ctrl+P',kbCtrlP,sci1Esc;
+- 'Печать текущей ветки',cmPlansNo,'Печать документа  только текущей ветки',hcctxSoprPrintDoc,'Alt+P',kbAltP,sci1Esc;
+- 'Печать по развороту',cmValue2,'Печать документа только развернутых веток',hcctxSoprPrintDoc,'Alt+P',kbAltP,sci1Esc;
+-----------;
+}
+
+  

@@ -1,0 +1,550 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                                                  (c) корпорация ГАЛАКТИКА ║
+ ║ Версия        : 7.12                                                      ║
+ ║ Назначение    : Функции для связи модулей "Управление Транспортом" и      ║
+ ║                 "Управление ремонтами"                                    ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+#ifndef __AVTOFUNCS_VIH
+#define __AVTOFUNCS_VIH
+
+#ifdef ComponentVersion
+#Component "M_Transp"
+#endif
+
+Const
+  // Коды ошибок выполнения функций/процедур
+  ceNoError             = 0;
+  ceNoTransp            = 1;
+  ceNoShina             = 2;
+  ceNoFreeShina         = 21;
+  ceNoFreeShinaMar      = 22;
+  ceNoTranspShina       = 23;
+  ceNoTranspShinaDvige  = 24;
+  ceCancelShinaDel      = 25;
+  ceNoCompon            = 3;
+  ceNoFreeCompon        = 31;
+  ceNoTranspCompon      = 33;
+  ceNoTranspComponDvige = 34;
+  ceCancelComponDel     = 35;
+  ceNoMorale            = 4;
+  ceCancelCalcProbeg    = 5;
+  ceNoPutLst            = 6;
+  ceUnknownError        = 999;
+
+  // Коды полей группировки ТС
+  ctTipTex = 1;
+  ctMarka  = 2;
+
+  // Идентификаторы функций/процедур
+  cfSetComponTC             = 1;
+  cfDelComponTC             = 2;
+  cfCalcProbegTCCompA       = 3;
+  cfCalcProbegGroupTCA      = 4;
+  cfCalcProbegGroupTCGrafDn = 5;
+  cfGetProbegPLRet          = 6;
+end;
+
+#doc
+  Объектный интерфейс описывает функции для работы с транспортными средствами, шинами и комплектующими
+<br>
+#end
+ObjInterface oiAvtoFuncs;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegTCComp<br>
+<br>
+ Назначение:<br>
+   Расчет пробега ТС или его шин и комплектующих за период<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp   - ссылка на транспортное средство<br>
+   ipcCompon   - ссылка на шину/комплектующую (Если = 0, то расчет пробега ТС)<br>
+   ipwTypeComp - тип комплектующей: шины = Word(coShinaF), комплектующие = Word(coCompon))<br>
+   ipdBegDate  - начало периода пробега<br>
+   ipdEndDate  - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbeg    - пробег ТС или его шины/комплектующей<br>
+   opdEndProbeg - дата окончания пробега<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылок на ТС и шину/комплектующую<br>
+   2. Расчет пробега ТС или шины/комплектующей<br>
+<br>
+#end
+public Function CalcProbegTCComp(ipcTransp: Comp;
+                                 ipcCompon: Comp;
+                                 ipwTypeComp: Word;
+                                 ipdBegDate: Date;
+                                 ipdEndDate: Date;
+                                 Var opdEndProbeg: Date;
+                                 Var opfProbeg: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegGroupTC<br>
+<br>
+ Назначение:<br>
+   Расчет среднего пробега по группе ТС за период в километрах<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp  - ссылка на транспортное средство<br>
+   ipwTypeGr  - вид группировки (по какому полю группировать)<br>
+   ipdBegDate - начало периода пробега<br>
+   ipdEndDate - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbeg  - средний пробег ТС в километрах<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылки на ТС<br>
+   2. Расчет среднего пробега ТС<br>
+<br>
+#end
+public Function CalcProbegGroupTC(ipcTransp: Comp;
+                                  ipwTypeGr: Word;
+                                  ipdBegDate: Date;
+                                  ipdEndDate: Date;
+                                  Var opfProbeg: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция ChangeStateTransp<br>
+<br>
+ Назначение:<br>
+   Изменение состояния транспортного средства<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp - ссылка на транспортное средство<br>
+   ipcStatus - ссылка на статус объекта ремонта (KatNotes.NRec)<br>
+<br>
+ Результат:<br>
+   True - если изменение состояния произошло успешно<br>
+<br>
+ Алгоритм:<br>
+   Если значение функции ChangeStateTranspEx = ceNoError, то изменение состояния произошло успешно.<br>
+<br>
+#end
+public Function ChangeStateTransp(ipcTransp: Comp;
+                                  ipcStatus: Comp): Boolean;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция ChangeStateTranspEx<br>
+<br>
+ Назначение:<br>
+   Изменение состояния транспортного средства (ТС)<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp - ссылка на транспортное средство<br>
+   ipcStatus - ссылка на статус объекта ремонта (KatNotes.NRec)<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылок на ТС и состояние ТС:<br>
+        Если по ссылке не найдено ТС - выход с кодом ошибки ceNoTransp<br>
+        Если по ссылке не найдено состояние ТС - выход с кодом ошибки ceNoMorale<br>
+   2. Изменение последнего состояния ТС (завершение состояния)<br>
+   3. Добавление записи с новым состоянием ТС<br>
+   4. Проверка с другими состояниями на пересечение по времени<br>
+   5. Корректировка плановых наработок для ТС<br>
+   6. Корректировка табеля ТС<br>
+<br>
+#end
+public Function ChangeStateTranspEx(ipcTransp: Comp;
+                                    ipcStatus: Comp): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция ChangeStateComponTC<br>
+<br>
+ Назначение:<br>
+   Изменение состояния шины/комплектующей ТС<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp   - ссылка на транспортное средство<br>
+   ipcCompon   - ссылка на шину/комплектующую (Если = 0, то расчет пробега ТС)<br>
+   ipwTypeComp - тип комплектующей: шины = Word(coShinaF), комплектующие = Word(coCompon))<br>
+   ipwTypeOper - тип операции (0 - F7; 1 - F8)<br>
+<br>
+ Результат:<br>
+   True - если изменение состояния произошло успешно<br>
+<br>
+ Алгоритм:<br>
+   Если значение функции ChangeStateComponTCEx = ceNoError,
+   то изменение состояния произошло успешно.<br>
+<br>
+#end
+public Function ChangeStateComponTC(ipcTransp: Comp;
+                                    ipcCompon: Comp;
+                                    ipwTypeComp: Word;
+                                    ipwTypeOper: Word): Boolean;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция ChangeStateComponTCEx<br>
+<br>
+ Назначение:<br>
+   Изменение состояния шины/комплектующей ТС<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp   - ссылка на транспортное средство<br>
+   ipcCompon   - ссылка на шину/комплектующую (Если = 0, то расчет пробега ТС)<br>
+   ipwTypeComp - тип комплектующей: шины = Word(coShinaF), комплектующие = Word(coCompon))<br>
+   ipwTypeOper - тип операции (0 - F7; 1 - F8)<br>
+<br>
+ Результат:<br>
+   Если выполнение операции завершилось успешно, то значение функции
+   ChangeStateComponTCEx = ceNoError, иначе код ошибки.<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылки на ТС<br>
+      Если по ссылке не найдено ТС - выход с кодом ошибки ceNoTransp<br>
+   2. Выполнение заданной операции:<br>
+      F7 Закрепление шины/комплектующей - выполнение функции SetComponTC<br>
+      F8 Открепление шины/комплектующей - выполнение функции DelComponTC<br>
+<br>
+   Возвращаемое значение функции ChangeStateComponTCEx равно
+   результату выполнения функции SetComponTC/DelComponTC<br>
+<br>
+#end
+public Function ChangeStateComponTCEx(ipcTransp: Comp;
+                                      ipcCompon: Comp;
+                                      ipwTypeComp: Word;
+                                      ipwTypeOper: Word): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция SetComponTC<br>
+<br>
+ Назначение:<br>
+   Закрепление шины/комплектующей<br>
+<br>
+ Входные параметры:<br>
+   ipcCompon   - ссылка на шину/комплектующую<br>
+   ipwTypeComp - тип комплектующей: шины = Word(coShinaF), комплектующие = Word(coCompon))<br>
+<br>
+ Результат:<br>
+   Если закрепление шины/комплектующей произошло успешно -
+   возвращает ceNoError, иначе код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылок на шину/комплектующую<br>
+   1.1 Шины:<br>
+     Если в картотеке нет шины - выход с кодом ошибки ceNoShina<br>
+     Если шина закреплена за ТС - выход с кодом ошибки ceNoFreeShina<br>
+     Если в картотеке нет шины, указанной как основная в карточке ТС
+     - выход с кодом ошибки ceNoFreeShinaMar<br>
+   1.2 Комплектующие:<br>
+     Если в картотеке нет комплектующей - выход с кодом ошибки ceNoCompon<br>
+     Если комплектующая закреплена за ТС - выход с кодом ошибки ceNoFreeCompon<br>
+<br>
+   2. Закрепление шины/комплектующей за ТС<br>
+   2.1 Создается новая запись о движении шины/комплектующей<br>
+   2.2 Изменяется состояние шины/комплектующей (Закрепление)<br>
+<br>
+#end
+Function SetComponTC(ipcCompon: Comp;
+                     ipwTypeComp: Word): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция DelComponTC<br>
+<br>
+ Назначение:<br>
+   Открепление шины/комплектующей<br>
+<br>
+ Входные параметры:<br>
+   ipcCompon   - ссылка на шину/комплектующую<br>
+   ipwTypeComp - тип комплектующей: шины = Word(coShinaF), комплектующие = Word(coCompon))<br>
+<br>
+ Результат:<br>
+   Если открепление шины/комплектующей произошло успешно -
+   возвращает ceNoError, иначе код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылок на шину/комплектующую<br>
+   1.1 Шины:<br>
+     Если в картотеке нет шины - выход с кодом ошибки ceNoShina<br>
+     Если шина не закреплена за ТС - выход с кодом ошибки ceNoTranspShina<br>
+     Если нет записи о закреплении за ТС - выход с кодом ошибки ceNoTranspShinaDvige<br>
+   1.2 Комплектующие:<br>
+     Если в картотеке нет комплектующей - выход с кодом ошибки ceNoCompon<br>
+     Если комплектующая не закреплена за ТС - выход с кодом ошибки ceNoTranspCompon<br>
+     Если нет записи о закреплении за ТС - выход с кодом ошибки ceNoTranspComponDvige<br>
+<br>
+   2. Открепление шины/комплектующей за ТС<br>
+   2.1 Вызов окна для выбора варианта открепления шины/комплектующей<br>
+       При отмене выбора - выход с кодом ошибки ceCancelShinaDel/ceCancelComponDel<br>
+   2.2 Изменяется запись о движении шины/комплектующей (открепление)<br>
+   2.3 Создается новая запись о движении шины/комплектующей<br>
+   2.4 Изменяется состояние шины/комплектующей<br>
+<br>
+#end
+Function DelComponTC(ipcCompon: Comp;
+                     ipwTypeComp: Word): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция GetErrorDescr<br>
+<br>
+ Назначение:<br>
+   Возвращает текстовое описание ошибки по ее коду<br>
+<br>
+ Входные параметры:<br>
+   ipwError - код ошибки<br>
+<br>
+ Результат:<br>
+   Описание ошибки<br>
+<br>
+#end
+public Function GetErrorDescr(ipwError: Word): String;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegTCCompMCh<br>
+<br>
+ Назначение:<br>
+   Расчет пробега ТС и его шин и комплектующих за период в моточасах<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp   - ссылка на транспортное средство<br>
+   ipcCompon   - ссылка на шину/комплектующую (Если = 0, то расчет пробега ТС)<br>
+   ipwTypeComp - тип комплектующей: шины = Word(coShinaF), комплектующие = Word(coCompon))<br>
+   ipdBegDate  - начало периода пробега<br>
+   ipdEndDate  - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbeg    - пробег ТС или его шины/комплектующей в моточасах<br>
+   opdEndProbeg - дата окончания пробега<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылок на ТС и шину/комплектующую<br>
+   2. Расчет пробега ТС или шины/комплектующей<br>
+<br>
+#end
+public Function CalcProbegTCCompMCh(ipcTransp: Comp;
+                                    ipcCompon: Comp;
+                                    ipwTypeComp: Word;
+                                    ipdBegDate: Date;
+                                    ipdEndDate: Date;
+                                    Var opdEndProbeg: Date;
+                                    Var opfProbeg: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegTCCompA<br>
+<br>
+ Назначение:<br>
+   Расчет пробега ТС и его шин и комплектующих за период<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp   - ссылка на транспортное средство<br>
+   ipcCompon   - ссылка на шину/комплектующую (Если = 0, то расчет пробега ТС)<br>
+   ipwTypeComp - тип комплектующей: шины = Word(coShinaF), комплектующие = Word(coCompon))<br>
+   ipdBegDate  - начало периода пробега<br>
+   ipdEndDate  - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbegKM  - пробег ТС или его шины/комплектующей в километрах
+   opfProbegMCh - пробег ТС или его шины/комплектующей в моточасах
+   opfProbegDn  - пробег ТС или его шины/комплектующей в днях
+   opdEndProbeg - дата окончания пробега
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылок на ТС и шину/комплектующую<br>
+   2. Расчет пробега ТС или шины/комплектующей<br>
+<br>
+#end
+public Function CalcProbegTCCompA(ipcTransp: Comp;
+                                  ipcCompon: Comp;
+                                  ipwTypeComp: Word;
+                                  ipdBegDate: Date;
+                                  ipdEndDate: Date;
+                                  Var opdEndProbeg: Date;
+                                  Var opfProbegKM: Double;
+                                  Var opfProbegMCh: Double;
+                                  Var opfProbegDn: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegGroupTCMCh<br>
+<br>
+ Назначение:<br>
+   Расчет среднего пробега по группе ТС за период моточасах<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp  - ссылка на транспортное средство<br>
+   ipwTypeGr  - вид группировки (по какому полю группировать)<br>
+   ipdBegDate - начало периода пробега<br>
+   ipdEndDate - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbeg  - cредний пробег ТС в моточасах<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылки на ТС<br>
+   2. Расчет среднего пробега ТС<br>
+<br>
+#end
+public Function CalcProbegGroupTCMCh(ipcTransp: Comp;
+                                     ipwTypeGr: Word;
+                                     ipdBegDate: Date;
+                                     ipdEndDate: Date;
+                                     Var opfProbeg: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegGroupTCMDn<br>
+<br>
+ Назначение:<br>
+   Расчет среднего пробега по группе ТС за период днях<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp  - ссылка на транспортное средство<br>
+   ipwTypeGr  - вид группировки (по какому полю группировать)<br>
+   ipdBegDate - начало периода пробега<br>
+   ipdEndDate - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbeg  - cредний пробег ТС в днях<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылки на ТС<br>
+   2. Расчет среднего пробега ТС<br>
+<br>
+#end
+public Function CalcProbegGroupTCMDn(ipcTransp: Comp;
+                                     ipwTypeGr: Word;
+                                     ipdBegDate: Date;
+                                     ipdEndDate: Date;
+                                     Var opfProbeg: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegGroupTCGrafDn<br>
+<br>
+ Назначение:<br>
+   Расчет среднего пробега по группе ТС за период днях по графику ТС<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp  - ссылка на транспортное средство<br>
+   ipwTypeGr  - вид группировки (по какому полю группировать)<br>
+   ipdBegDate - начало периода пробега<br>
+   ipdEndDate - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbeg  - cредний пробег ТС в днях по графику ТС<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылки на ТС<br>
+   2. Расчет среднего пробега ТС<br>
+<br>
+#end
+public Function CalcProbegGroupTCGrafDn(ipcTransp: Comp;
+                                   ipwTypeGr: Word;
+                                   ipdBegDate: Date;
+                                   ipdEndDate: Date;
+                                   Var opfProbegDn: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция CalcProbegGroupTCA<br>
+<br>
+ Назначение:<br>
+   Расчет среднего пробега по группе ТС за период<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp  - ссылка на транспортное средство<br>
+   ipwTypeGr  - вид группировки (по какому полю группировать)<br>
+   ipdBegDate - начало периода пробега<br>
+   ipdEndDate - окончание периода пробега<br>
+<br>
+ Выходные параметры:<br>
+   opfProbegKM  - средний пробег ТС в километрах
+   opfProbegMCh - средний пробег ТС в моточасах
+   opfProbegDn  - средний пробег ТС в днях
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылки на ТС<br>
+   2. Расчет среднего пробега ТС<br>
+<br>
+#end
+public Function CalcProbegGroupTCA(ipcTransp: Comp;
+                                   ipwTypeGr: Word;
+                                   ipdBegDate: Date;
+                                   ipdEndDate: Date;
+                                   Var opfProbegKm: Double;
+                                   Var opfProbegMCh: Double;
+                                   Var opfProbegDn: Double): Word;
+
+//-----------------------------------------------------------------------------
+#doc
+ Функция GetProbegPLRet<br>
+<br>
+ Назначение:<br>
+   Получение показаний спидометра и счетчика моточасов при возвращении из
+   последнего ПЛ на заданную дату<br>
+<br>
+ Входные параметры:<br>
+   ipcTransp    - ссылка на транспортное средство<br>
+   ipdPLRetDate - дата возвращения в ПЛ<br>
+<br>
+ Выходные параметры:<br>
+   opfProbegKM  - показания спидометра при возвращении<br>
+   opfProbegMCh - показания счетчика моточасов при возвращении<br>
+<br>
+ Результат:<br>
+   Код ошибки<br>
+<br>
+ Алгоритм:<br>
+   1. Проверка ссылки на ТС<br>
+   2. Поиск последнего ПЛ<br>
+<br>
+#end
+public Function GetProbegPLRet(ipcTransp: Comp;
+                               ipdPLRetDate: Date;
+                               Var opfProbegKm: Double;
+                               Var opfProbegMCh: Double): Word;
+
+//-----------------------------------------------------------------------------
+
+end; // ObjInterface oAvtoFuncs;
+
+VipInterface viAvtoFuncs implements oiAvtoFuncs
+#ifdef ATL51
+  Licensed (FREE)
+#endif
+;
+
+#endif // __AVTOFUNCS_VIH

@@ -1,0 +1,85 @@
+// Накладная на склад-спецоснастка
+
+#component "L_SKLAD"
+
+alter interface SOPINMOV;
+
+var
+katsopr_nrec : comp;
+
+Create view t1
+from
+spsopr,
+mbpin,
+attrnam,
+attrval
+where ((
+             katsopr_nrec == spsopr.csopr
+         and 013F00000000000Bh == SPECMTR.CSALDTUNE
+         and word(1110) == SPECMTR.COTABLE
+         and spsopr.nrec == SPECMTR.CSPEC
+         and SPECMTR.COBJ == katstroy.nrec
+         and spsopr.nrec == mbpin.CMBPOUT
+         and word(3) == mbpin.instate  (noindex)
+         and word(2001)       == AttrNam.wTable
+         and 'Объект из складского учета'  == AttrNam.Name
+         and word(2001)       == AttrVal.wTable
+         and mbpin.nrec       == AttrVal.cRec
+         and AttrNam.Nrec     == AttrVal.cAttrNam
+      ))
+;
+
+
+ Window  EDITSOPR
+
+
+HandleEvent
+
+cmMAKEORDER:
+  {
+   if (inherited::handleEvent (cmMAKEORDER) = heAbort )
+   Abort;
+
+   katsopr_nrec:=katsopr.nrec;
+
+   t1._loop spsopr
+    {
+    if t1.getfirst specmtr = tsok
+     {
+      if t1.getfirst katstroy = tsok {}
+
+      if t1.getfirst mbpin = tsok
+       {
+
+      if t1.getfirst attrnam = tsok
+       {
+
+         if t1.getfirst attrval = tsok
+          {
+
+            if t1.attrval.vcomp <> t1.SPECMTR.COBJ
+             {
+
+             t1.attrval.vcomp:= t1.SPECMTR.COBJ;
+             t1.update current attrval;
+             }
+          }
+          else
+           {
+             t1.ClearBuffer(t1.tnattrval);
+             t1.AttrVal.wTable    := word(2001);
+             t1.AttrVal.cRec      := t1.mbpin.nrec
+             t1.AttrVal.cAttrNam  := t1.attrnam.nrec;
+             t1.AttrVal.Vcomp     := t1.katstroy.nrec;
+             t1.attrval.vstring  := t1.katstroy.code+','+t1.katstroy.name;
+             t1.insert current attrval;
+           }
+       }
+       }
+     }
+    }
+  }
+
+end;
+end;
+end.

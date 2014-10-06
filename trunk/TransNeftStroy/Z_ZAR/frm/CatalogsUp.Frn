@@ -1,0 +1,147 @@
+.create view vCat
+var
+  wwwkod :longint ;
+  wwwnrec:comp ;
+  podr_hist : boolean ;
+  podr_histdate :date ;
+from catalogs,catalogs catmain,tmp_podrier(tmp_podrier01) , cathist(CATHIST02)
+where
+((  wwwkod == catmain.syscode
+and wwwnrec == catalogs.nrec
+and wwwnrec == tmp_podrier.crec 
+and catalogs.nrec == CATHIST.CCAT
+and podr_histdate >>=CATHIST.DAT1
+
+)) ;
+! вернем код и наименование на заданном уровне
+.var
+  cat_dmnm : array [1..10] of string ;
+  wdmc:array [1..10] of comp ;
+.endvar
+!20070530
+.function CatGetKodNameHist(wlev :word;wwcode :string;wwname:string) :string ;
+var wstr,wstr1 :string ;
+begin
+ wstr:=wwcode
+ if wlev<3
+ { CatGetKodNameHist:=wstr ;
+   exit ;
+ }
+ if length(wwname)<6
+ { wstr:=pad(substr(wstr,1,20),20)+wwname ;
+ }
+ else
+ if  (pos('/',wwname)>3 and pos('/',wwname)<6)
+ { wstr:=trim(substr(wwname,1,pos('/',wwname)-1)) ;
+   wstr1:=substr(wwname,pos('/',wwname)+1,200) ;
+   if pos(wstr,wstr1)>0
+   { wstr:=trim(substr(wstr1,pos(wstr,wstr1),100))
+   }
+ }
+ else
+ if wlev<4 or (pos(' ',wwname)>0 and pos(' ',wwname)<5)
+ {  wstr:=substr(wwname,1,pos(' ',wwname)-1)
+ }
+ CatGetKodNameHist:=pad(substr(wstr,1,20),20)+wwname ;
+end.
+.Function CatGetLevel(kodspr:longint;wcnrec : comp ;wlev :word ) :string ;
+var 
+  kkk:word ;
+  wstr:string ;
+  wtmpnrec :comp ;
+  catlev_errchet :longint ;
+{ if wlev=0
+  { CatGetLevel:=pad('0000',10)+'Все предприятие' ;
+    exit ;
+  }
+  CatGetLevel:='???'
+  set vCat.wwwkod :=kodspr
+  set vCat.wwwnrec:=wcnrec 
+  if vcat.getfirst fastfirstrow tmp_podrier=0
+  { 
+    for(kkk:=1 ; kkk<=wlev ;kkk:=kkk+1)
+     cat_dmnm[kkk] :=vcat.tmp_podrier.dmpodrnm[kkk] ;
+    if logfilekl mylogwrite('!!!! '+cat_dmnm[wlev]+'=/='+wstr) ; 
+  }
+  else
+  { 
+    if (vCat.Getfirst fastfirstrow catalogs<>0)
+    { CatGetLevel:='??'+string(vCat.wwwkod) ;
+      exit ;
+    }
+    wstr:=pad(vcat.Catalogs.code,20)+vCat.Catalogs.name ;
+    if vCat.podr_hist
+    { if vCat.podr_histdate<>date(0,0,0)
+        if vcat.getlast cathist=0
+        {  //wstr:=pad(vcat.Catalogs.code,20)+vCat.cathist.name ;
+           wstr:=CatGetKodNameHist(11,vcat.Catalogs.code,vCat.cathist.name) ;
+        }
+    }
+    if (wlev>10) or (vCat.getfirst fastfirstrow catmain<>0)
+    { 
+//      CatGetLevel:=pad(vcat.Catalogs.code,20)+vCat.Catalogs.name ;
+      CatGetLevel:=wstr ;
+      exit ;
+    }
+
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    { //cat_dmnm[kkk] :=pad(vcat.Catalogs.code,20)+vcat.Catalogs.name ;
+      cat_dmnm[kkk] :=wstr ;
+      wdmc[kkk] :=wcnrec ;
+    }
+    catlev_errchet:=0 ;  
+    do {
+      inc(catlev_errchet) ;  // 100 уровней по дереву маловероятно
+      if catlev_errchet>100 
+      { exit ;
+      } ;  
+
+      wtmpnrec:=vCat.catalogs.cparent
+      if vCat.podr_hist
+      { if vCat.podr_histdate<>date(0,0,0)
+          if vcat.getlast cathist=0
+            wtmpnrec:=vCat.cathist.cparent
+      }
+      set vCat.wwwnrec:=wtmpnrec ;
+      if vCat.wwwnrec=vCat.catmain.nrec then break ; // дошли до ручки
+      if (vCat.wwwnrec<>0)
+      { if (vCat.getfirst catalogs<>0) then break ;
+        for(kkk:=10 ; kkk>=2 ;kkk:=kkk-1)
+        {  cat_dmnm[kkk] := cat_dmnm[kkk-1]
+           wdmc[kkk] :=wdmc[kkk-1]
+        }
+        cat_dmnm[1]:= pad(vcat.Catalogs.code,20)+vCat.Catalogs.name ;
+        if vCat.podr_hist
+        { if vCat.podr_histdate<>date(0,0,0)
+            if vcat.getlast cathist=0
+            {// cat_dmnm[1]:=pad(vcat.Catalogs.code,20)+vCat.cathist.name ;
+              cat_dmnm[1]:=CatGetKodNameHist(11,vcat.Catalogs.code,vCat.cathist.name) ;
+            }
+        }
+
+      } else break ;
+//    mylogwrite(pad(vcat.Catalogs.code,10)+vCat.Catalogs.name) ;
+    } while true ;
+    for(kkk:=1 ; kkk<=10 ;kkk:=kkk+1)
+    {  vcat.tmp_podrier.dmpodrnm[kkk]:=cat_dmnm[kkk]
+       vcat.tmp_podrier.dmpodr_c[kkk]:=wdmc[kkk]
+    }
+    vcat.tmp_podrier.crec:=wcnrec  ;
+    vcat.insert current tmp_podrier ;
+  }  
+  CatGetLevel:=cat_dmnm[wlev] ;
+  if logfilekl
+  { wstr:='' ;
+    for(kkk:=1 ; kkk<=wlev ;inc(kkk))
+     wstr:=wstr+cat_dmnm[kkk]+'/'
+    mylogwrite(vCat.Catalogs.name+'/'+cat_dmnm[wlev]+'=/='+wstr) ; 
+  
+  }
+ end.
+.Procedure CatGetLevelInit ;
+begin
+ vcat.resetbounds(vcat.tntmp_podrier)
+ vcat.delete all tmp_podrier ;
+ vcat.setbounds(vcat.tntmp_podrier)
+
+ end.

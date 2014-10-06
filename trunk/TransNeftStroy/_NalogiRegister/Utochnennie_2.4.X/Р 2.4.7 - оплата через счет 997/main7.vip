@@ -1,0 +1,61 @@
+#include NalFunc.vih
+Interface MainInt AlwaysReturn;
+create view
+var
+  dFrom,dTo,dSal:date;
+  Saldo, VsegoSumm999, VsegoUtoch997_34:double;
+  nRecCO            : comp;            // фильтр филиалы
+  iNalFunc : NalFunc_For_24XU;
+  FilialsName : string;
+  VidDecl : word;
+  DataProv : date;
+from
+//  TmpGRN
+ FPCO                                // фильтр филиалы
+ ,TabKatOS
+ ,TabStoimStruct
+where (( cgKau_FpCO == PickBuh.KodTable
+     and PickBuh.PickRec == FPCO.nRec ))       // фильтр филиалы
+;
+;
+HandleEvent
+cmInit:
+{
+    if ExistFile('C:\Log24x.log')
+    DeleteFile ('C:\Log24x.log');
+  // фильтр филиалы   --->>>
+//  if ( GetFirst FPCO where (( comp(0) == FPCO.cMain and 'Ф00' == FPCO.LevelCode )) = tsOk )
+  if not iNalFunc.RunTune(dFrom, dTo, VidDecl,DataProv)
+     exit;
+
+  if GetFirst PickBuh <> tsok
+  {
+    message('Центр ответственности (филиал) не выбран ');
+    exit;
+  }
+
+//   _Loop PickBuh
+//   if ( SubStr(FPCO.LevelCode,1,1) <> 'Ф' )
+//   {
+//     message('Выбран не филиал');
+//     exit;
+//   }
+//   else
+     FilialsName :=FilialsName+FPCO.name+',';
+   //фильтр филиалы
+   delete all from TabKatOS;
+   delete all from TabStoimStruct;
+
+  // RunDialog(C_COMMON::GetInterval,dFrom,dTo);
+   StartNewVisual( vtRotateVisual , vfTimer, 'Подготовка данных по регистру', 1);
+
+   RunInterface( CreateTabs, dFrom, dTo, VidDecl, DataProv, VsegoSumm999, VsegoUtoch997_34);
+   if (month(dTo)=12) dSal:=date(01,01,year(dTo)+1);
+   else dSal:=date(01,month(dTo)+1,year(dTo));
+   //RunInterface(CheckSaldo,dSal,Saldo);
+   Saldo:=15000;
+   RunInterface( CreateOtchet, dFrom, dTo,VidDecl, Saldo, FilialsName, VsegoSumm999,  VsegoUtoch997_34);      // фильтр филиалы  FPCO.name
+   StopVisual('', 0);
+}
+  end;
+end.

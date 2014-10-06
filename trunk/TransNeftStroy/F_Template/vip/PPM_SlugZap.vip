@@ -1,0 +1,299 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.80 - модуль "Макросы назначения"
+// макрос для _Назначение платежа по служебной записке
+//------------------------------------------------------------------------------
+#include PPMacros.vih  
+
+VipInterface PPM_SLZAP implements ObjPPMacros #Licensed_Free;
+
+#doc
+ макрос для Назначение платежа по служебной записке
+#end
+
+Interface PPM_SLZAP;
+
+Table Struct PPMDocInfo
+(
+  ProcDoc : string,
+  NumDoc1 : string,
+  NumDoc  : string,
+  dDoc1   : date,
+  dDoc    : date
+)
+With Index
+(
+  PPMDocInfo01 = dDoc + NumDoc+dDoc1 + NumDoc1
+);
+
+Create view MaView
+var
+  curTiDkUser : word;
+  curTiDkGal  : word;
+  curSoprDoc  : comp;
+
+  PFormat     : word;
+  PList       : word;
+  p_nazn,p_str      : string;
+  ExClass:iExtClass;
+  wTypeAttr:word;
+  piExAttr  : iExtAttr;
+  p_nrec,p_dog,p_appdog,pnr,
+  BaseDocNrec:comp;
+  m_app:boolean;
+  fL,f:longint;
+  m_sfn:boolean;
+
+As select *
+From
+  PlPor,
+  SoprHoz,
+  basedoc,
+  PPMDocInfo (PPMDocInfo01)
+Where ((
+      CurSoprDoc       == PlPor.Nrec
+  and CurTiDkUser      == SoprHoz.TipDoc
+  and CurSoprDoc       == SoprHoz.cSoprDoc
+  and SoprHoz.cPredoplDO == BaseDoc.Nrec
+
+))
+;
+var   m_sf,m_sfnrec :array[1..10] of string;
+
+Function GetInfo: string;
+{
+  GetInfo := 'Макрос для формирования назначения "ПО служебной записке"';
+}
+
+Function ParamMaster: string;
+{
+  // вызов окошка, чтобы помочь пользователю заполнить строку дополнительных параметров идентификатора
+  ParamMaster := '';
+}
+
+Function DocHandle: string;
+{
+  DocHandle := '';
+  var LYear, FrazaOt: string[3];
+  var Data: string;
+
+  Data := if(PPMDocInfo.dDoc1<>date(0,0,0),string(PPMDocInfo.dDoc1),'');
+  Data := Replace(Data, '/', '.');
+  DocHandle := DocHandle+if(PPMDocInfo.NumDoc1<>'',' по счету №'+PPMDocInfo.NumDoc1+
+     if(Data<>'',' от ' + Data+ 'г.','') 
+        ,'') ;
+  DocHandle := if(PPMDocInfo.ProcDoc<>'',PPMDocInfo.ProcDoc+'% ','')+DocHandle;
+}
+
+#declare mar_atr_dog_ligth(par,par2)
+      wTypeAttr:=ExClass.GetClassCode(coDOGOVOR,'Банковская гарантия');
+      if (wTypeAttr<>0)
+      {
+        p_str:=trim(ExClass.GetSegName(wTypeAttr,p_nrec));
+        if (#par=1 and p_str<>'') then m_app:=true;
+        if p_str='есть' then p_str:='';
+      }
+
+      p_str:=piExAttr.sGetAttr(coDOGOVOR, p_nrec, 'Тендер.Номер');
+      if (#par=1 and p_str<>'') then m_app:=true;
+
+      p_str:='';
+      wTypeAttr:=ExClass.GetClassCode(coDOGOVOR,'Тендер');
+      if (wTypeAttr<>0)
+      {
+        p_str:=trim(ExClass.GetSegName(wTypeAttr,p_nrec));
+        if (#par=1 and p_str<>'') then m_app:=true;
+      }
+
+      p_str:='';
+      wTypeAttr:=ExClass.GetClassCode(coDOGOVOR,'Генеральный полис страхования');
+      if (wTypeAttr<>0)
+      {
+        p_str:=trim(ExClass.GetSegName(wTypeAttr,p_nrec));
+        if (#par=1 and p_str<>'') then m_app:=true;
+        if p_str='есть' then p_str:='';
+      }
+      p_str:=piExAttr.sGetAttr(coDOGOVOR, p_nrec, 'Генеральный полис страхования.Номер');
+      if (#par=1 and p_str<>'') then m_app:=true;
+#end
+Function Culc(TiDkGal, TiDkUser: word; cSoprDoc: comp; PpmServer: ObjPPTemplate; 
+              isSyntaxCheck: boolean; var ErrDescr: string): string;
+{
+  Culc        := '';
+  curTiDkGal  := TiDkGal;
+  curSoprDoc  := cSoprDoc;
+  curTiDkUser := TiDkUser;
+
+  // //////////////////////////
+  if isSyntaxCheck
+    exit; // если проверка синтаксиса, то не надо запускать все расчеты (на выход), иначе -- надо
+  // //////////////////////////
+  delete all PPMDocInfo;
+  p_nazn:='';
+  p_str:='';
+  _try
+  {
+    _loop SoprHoz
+    {
+        if (GetFirst BaseDoc = tsOk)
+        {
+          BaseDocNrec:=BaseDoc.nrec;
+          //1.
+          p_str:='';
+          wTypeAttr:=ExClass.GetClassCode(coBASEDOC,'Категория платежа');
+          if (wTypeAttr<>0)
+          {
+            p_str:=trim(ExClass.GetSegName(wTypeAttr,BaseDocNrec));
+            p_nazn:=trim(ExClass.GetSegCode(wTypeAttr,BaseDocNrec));
+            if p_nazn='01' or p_nazn='03' then p_nazn:='Предоплата';
+            if p_nazn='02' or p_nazn='04' then p_nazn:='Погашение задолженности';
+            if p_nazn='05' then p_nazn:='Оплата';
+          }
+          //2.
+          p_nazn:=p_nazn+' '+BASEDOC.NAME;
+          //3.
+          p_nrec:=BASEDOC.cdogovor;
+          p_dog:=BASEDOC.cdogovor;
+          p_appdog:=BASEDOC.cappdogovor;
+
+          m_app:=false;
+          p_str:='';
+          if p_appdog<>0h
+          {
+            if (getfirst dogovor where ((p_appdog==dogovor.nrec))=tsOK)
+            {
+              p_nrec:=p_appdog;
+              #mar_atr_dog_ligth(1,Dogovor.cCurPodr)
+              //m_app определяется в _mar_atr_dog_
+            }
+          }
+          p_nrec:=p_dog;
+          if (getfirst dogovor where ((p_nrec==dogovor.nrec))=tsOK)
+          {
+            if instr('БезДоговора',dogovor.nodoc)=0 {
+              p_str:=dogovor.nodoc_ext+if(dogovor.nodoc_ext<>'','-','');
+              p_str:=p_str+if(substr(dogovor.nodoc,3,1)='/',substr(dogovor.nodoc,4,length(dogovor.nodoc)-3),dogovor.nodoc);
+              p_nazn:=p_nazn+' Дог.№'+p_str;
+              p_str:=datetostr(dogovor.ddoc,'DD.MM.YYYY');
+              p_nazn:=p_nazn+' от '+p_str;
+              p_str:='';
+              if (not m_app) {
+                #mar_atr_dog_ligth(2,Dogovor.cCurPodr)
+              }//if (not m_app) {
+            }
+          }
+
+          if p_appdog<>0h
+          {
+            if (getfirst dogovor where ((p_appdog==dogovor.nrec))=tsOK)
+            {
+              p_str:=' Спец.№';//03.12.2010- этот номер не нужен!!!+v21.dogovor.nodoc_ext+if(v21.dogovor.nodoc_ext<>'','-','');
+              p_str:=p_str+if(substr(dogovor.nodoc,3,1)='/',substr(dogovor.nodoc,4,length(dogovor.nodoc)-3),dogovor.nodoc);
+              p_nazn:=p_nazn+' '+p_str;
+              p_str:=datetostr(dogovor.ddoc,'DD.MM.YYYY');
+              p_nazn:=p_nazn+' от '+p_str;
+            }
+          }
+
+  ///////////////
+          p_nrec:=piExAttr.coGetAttr(coBASEDOC, BaseDocNrec, 'Связь с ДО');
+          p_str:='';
+          if p_nrec<>0h {
+              if (getfirst stepdoc where ((p_nrec==stepdoc.CBASEDOC))=tsOK) {
+                p_nrec:=stepdoc.nrec;
+                f:=1;fL:=1;
+                setlimit(m_sf,0);
+                setlimit(m_sfnrec,0);
+
+                _loop katsopr  where ((p_nrec==katsopr.cstepdoc))
+                {
+                  pnr:=katsopr.cSchfact;
+                  if (getfirst schfact where ((pnr==schfact.nrec))=tsOK) {
+                    f:=1;
+                    m_sfn:=false;
+                    while f<fL do begin
+                      if m_sfnrec[f]=pnr
+                      {
+                        m_sfn:=true;
+                        break;
+                      }
+                      f:=f+1;
+                    end;
+                    if not m_sfn
+                    {
+                      m_sfnrec[fL]:=pnr;
+                      m_sf[fL]:=schfact.num+' от'+datetostr(schfact.dfact,'DD.MM.YYYY');
+                      fL:=fL+1;
+                    }
+                  }//(vSF1.getfirst schfact
+                }//vSF._loop katsopr
+                if fl<>1 {
+                  f:=1;
+                  while f<fL do begin
+                    if length(m_sf[f])+length(p_str)<254
+                    then p_str:=p_str+if(p_str<>'',';','')+m_sf[f]
+                    else {
+                      message('Системная ошибка.1.0.!!!ПРЕВЫШЕНИЕ ДЛИНЫ СТРОКИ НАЗНАЧЕНИЯ ПЛАТЕЖА 255 символов!!!!'#13#10+
+                              'Рекомендуем обратиться к разработчикам!'#13#10+
+                              'Назначение платежа до устранения этой ошибки необходимо заполнить вручную!');    
+                      p_str:=p_str+'...';
+                      break;
+                    }
+                    f:=f+1;
+                  end;
+                  p_str:=' С/ф №'+p_str+'г.';
+                }//if fl<>1 {
+              }//if (vSTEP.getfirst stepdoc
+          }
+          if length(p_nazn)+length(p_str)<254
+          then p_nazn:=p_nazn+' '+p_str
+          else {
+            message('Системная ошибка.2.0.!!!ПРЕВЫШЕНИЕ ДЛИНЫ СТРОКИ НАЗНАЧЕНИЯ ПЛАТЕЖА 255 символов!!!!'#13#10+
+                    'Рекомендуем обратиться к разработчикам!'#13#10+
+                    'Назначение платежа до устранения этой ошибки необходимо заполнить вручную!');    
+
+          }
+  ///////////////////////--------------
+          //Culc:=p_nazn;
+          break;
+        }
+    }//_loop SoprHoz
+  }
+  _except
+    on ExStringOverflow: {
+      message('Системная ошибка.3.0.!!!ПРЕВЫШЕНИЕ ДЛИНЫ СТРОКИ НАЗНАЧЕНИЯ ПЛАТЕЖА 255 символов!!!!'#13#10+
+              'Рекомендуем обратиться к разработчикам!'#13#10+
+              'Назначение платежа до устранения этой ошибки необходимо заполнить вручную!');    
+    }
+    on ExInternalError: {
+      message('!!!Некоторая внутренняя ошибка VIP!!!!ExInternalError');    
+    }
+    on ExDataBase:{
+      message('!!!Некоторая ошибка БД!!!!ExDataBase');    
+    }
+    else {
+      message('!!!Некоторая прочие ошибки!!!!_except_else='+ExploreException);    
+    }
+  _finally
+  {
+    
+  }
+
+    if length(Culc)+length(p_nazn)  <= 248
+      Culc := Culc  +p_nazn+ '; ';
+  Culc := rTrim(Trim(Culc), ';');
+  if length(Culc)>=180
+  then message('!!!ВОЗМОЖНО ПРЕВЫШЕНИЕ ДЛИНЫ НАЗНАЧЕНИЯ ПЛАТЕЖА 210 символов!!!!',error);
+}
+
+HandleEvent // Interface
+
+cmOnVipLoad:
+{
+}
+
+cmOnVipUnload:
+{
+}
+End;
+End.

@@ -1,0 +1,20 @@
+!select * from x$journal where (date(1,1,2011)<=x$journal.Lastdate and date(31,1,2011)>=x$journal.lastdate) to dbf \\fs01-tns\apps\gal\Work\Support\Jornal\201101.dbf;
+
+!Select x$journal.nRec
+!delete x$journal
+!where (( date(01,01,2011) <<= x$journal.Lastdate    (noIndex)
+!     and date(31,01,2011) >>= x$journal.Lastdate    (noIndex)
+!      ))
+!;
+
+!import x$journal from dbf \\fs01-tns\apps\gal\Work\Support\Jornal\201101.dbf;
+
+
+        //Преобразование приказов на командировку в много этапный
+!update prikaz where prikaz.descr='NalivaykoSV' and prikaz.status=7 set prikaz.status:=5;
+!update prikaz where prikaz.descr='ProhorovaYG' and prikaz.status=7 set prikaz.status:=5;
+!update statlog where statlog.descr='ProhorovaYG'  and statlog.doctype='717' and statlog.newstatus=7 set statlog.newstatus:=5;
+!update statlog where statlog.descr='NalivaykoSV'  and statlog.doctype='717' and statlog.newstatus=7 set statlog.newstatus:=5;
+
+	//Замена аналитики в ЛС КАУ4 по АУП
+!update lschet where lschet.CPODR=0064000000030603h and lschet.CSCHETD=26 and lschet.CKAUD[4]=0064000000001681h set lschet.CKAUD[4]:=013E000000000239h;

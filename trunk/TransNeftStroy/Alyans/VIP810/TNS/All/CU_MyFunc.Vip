@@ -1,0 +1,339 @@
+//723790
+#include SaldTune.vih
+#include CU_MyFunc.Vih
+#include ShowKau.vpp
+
+#ifdef ComponentVersion
+#component "F_USERREPORT"
+#endif
+Interface Cu_MyFunc cacheable ;
+Function GetRoleName(aiNum : integer) : string;forward ;
+Function GetValue(aiNum : integer) : string;forward ;
+
+var otune:VipSaldTune ;
+
+create view vCu_MyFunc
+var
+  pwTable :word
+  pcSpec :comp ;
+  pwPr :word ;
+  i :word ;
+  wstr:string ;
+  vwSald :word ;
+as select
+  if(not IsValid(tnSaldTune), 'Объект целевого учета не привязан', SaldTune.Name) (FieldName = vsNameTune)
+, GetRoleName(1) (FieldName = vsRole1), GetRoleName(2) (FieldName = vsRole2)
+, GetRoleName(3) (FieldName = vsRole3), GetRoleName(4) (FieldName = vsRole4)
+, GetRoleName(5) (FieldName = vsRole5), GetRoleName(6) (FieldName = vsRole6)
+, GetRoleName(7) (FieldName = vsRole7), GetRoleName(8) (FieldName = vsRole8)
+, GetRoleName(9) (FieldName = vsRole9), GetRoleName(10) (FieldName = vsRole10)
+, GetValue(1) (FieldName = vsKau1), GetValue(2) (FieldName = vsKau2)
+, GetValue(3) (FieldName = vsKau3), GetValue(4) (FieldName = vsKau4)
+, GetValue(5) (FieldName = vsKau5), GetValue(6) (FieldName = vsKau6)
+, GetValue(7) (FieldName = vsKau7), GetValue(8) (FieldName = vsKau8)
+, GetValue(9) (FieldName = vsKau9), GetValue(10) (FieldName = vsKau10)
+
+, *
+
+from
+  SpecMTR, SpecMTR     SpecMTRForKit
+, SaldTune
+//, SaldTune    SaldTune2
+, fpstbud
+, KitKau, KitKau      SaveKitKau
+, AddSumTune, MTRAct      MTRActSrc, MTRAct      MTRActDst, SpDocSmeta
+,AttrNam , AttrVal
+where
+((
+      pwTable               == SpecMTR.coTable  
+   
+  and pcSpec                == SpecMTR.cSpec
+  and SpecMTR.cSaldTune     == SaldTune.nRec  
+  and SpecMTR.cSaldTune     == KitKau.cSaldTune
+  and SpecMTR.cObj          == KitKau.cObj
+  and SpecMTR.cKau[1]       == KitKau.cKau[1]  and SpecMTR.cKau[2]       == KitKau.cKau[2]
+  and SpecMTR.cKau[3]       == KitKau.cKau[3]  and SpecMTR.cKau[4]       == KitKau.cKau[4]
+  and SpecMTR.cKau[5]       == KitKau.cKau[5]  and SpecMTR.cKau[6]       == KitKau.cKau[6]
+  and SpecMTR.cKau[7]       == KitKau.cKau[7]  and SpecMTR.cKau[8]       == KitKau.cKau[8]
+  and SpecMTR.cKau[9]       == KitKau.cKau[9]  
+
+//Атрибуты   
+  and word(pwTable)      == ATTRNAM.WTABLE // Код таблицы
+  and 'Целевой учет'                  == ATTRNAM.NAME // Название атрибута
+  and ATTRNAM.WTABLE       == ATTRVAL.WTABLE // Код таблицы == Внутренний тип объекта
+  and pcSpec         == ATTRVAL.CREC // Номер записи == Код записи в таблице-объекте БД
+  and ATTRNAM.NREC         == ATTRVAL.CATTRNAM // NREC == Код названия аттрибута,ссылка на AttrNam
+
+  and KitKau.cSaldTune      == SpecMTRForKit.cSaldTune
+  and KitKau.cObj           == SpecMTRForKit.cObj  
+  and KitKau.cKau[1]        == SpecMTRForKit.cKau[1]
+  and KitKau.cKau[2]        == SpecMTRForKit.cKau[2]  and KitKau.cKau[3]        == SpecMTRForKit.cKau[3]
+  and KitKau.cKau[4]        == SpecMTRForKit.cKau[4]  and KitKau.cKau[5]        == SpecMTRForKit.cKau[5]
+  and KitKau.cKau[6]        == SpecMTRForKit.cKau[6]  and KitKau.cKau[7]        == SpecMTRForKit.cKau[7]
+  and KitKau.cKau[8]        == SpecMTRForKit.cKau[8]  and KitKau.cKau[9]        == SpecMTRForKit.cKau[9]
+
+  and word(3)               == AddSumTune.Tip  
+  and pwTable               == SpDocSmeta.coTable
+  and pcSpec                == SpDocSmeta.cSpec  
+  and word(613)             == MTRActSrc.VidSopr
+  and SaveKitKau.cSaldTune  == MTRActSrc.cSaldSrc  
+  and SaveKitKau.cObj       == MTRActSrc.cObjSrc
+  and SaveKitKau.cKau[1]    == MTRActSrc.cKauSrc[1]  and SaveKitKau.cKau[2]    == MTRActSrc.cKauSrc[2]
+  and SaveKitKau.cKau[3]    == MTRActSrc.cKauSrc[3]  and SaveKitKau.cKau[4]    == MTRActSrc.cKauSrc[4]
+  and SaveKitKau.cKau[5]    == MTRActSrc.cKauSrc[5]  and SaveKitKau.cKau[6]    == MTRActSrc.cKauSrc[6]
+  and SaveKitKau.cKau[7]    == MTRActSrc.cKauSrc[7]  and SaveKitKau.cKau[8]    == MTRActSrc.cKauSrc[8]
+  and SaveKitKau.cKau[9]    == MTRActSrc.cKauSrc[9]
+  and word(613)             == MTRActDst.VidSopr  
+  and SaveKitKau.cSaldTune  == MTRActDst.cSaldDst
+  and SaveKitKau.cObj       == MTRActDst.cObjDst  
+  and SaveKitKau.cKau[1]    == MTRActDst.cKauDst[1]
+  and SaveKitKau.cKau[2]    == MTRActDst.cKauDst[2]  and SaveKitKau.cKau[3]    == MTRActDst.cKauDst[3]
+  and SaveKitKau.cKau[4]    == MTRActDst.cKauDst[4]  and SaveKitKau.cKau[5]    == MTRActDst.cKauDst[5]
+  and SaveKitKau.cKau[6]    == MTRActDst.cKauDst[6]  and SaveKitKau.cKau[7]    == MTRActDst.cKauDst[7]
+  and SaveKitKau.cKau[8]    == MTRActDst.cKauDst[8]  and SaveKitKau.cKau[9]    == MTRActDst.cKauDst[9]
+))
+;
+//------------------------------------------------------------------------------
+// Наименование роли аналитики с заданным номером и типом объекта учета
+//------------------------------------------------------------------------------
+Function GetRoleName(aiNum : integer) : string;
+{ vwSald:=1 ;
+  if (vwSald <> 0)
+    GetRoleName := oTune.GetRoleName(aiNum);
+}
+
+Function GetRole(aiNum : integer) : string;
+{
+  GetRole := oTune.GetRoleName(aiNum);
+}
+
+//------------------------------------------------------------------------------
+// Значение заданной аналитики приемника/источника
+//------------------------------------------------------------------------------
+Function GetValue(aiNum : integer) : string;
+{
+  GetValue := #ShowKau(oTune.GetGrKau(aiNum), if(aiNum = 1, SpecMTR.cObj, SpecMTR.cKau[aiNum - 1]));
+}
+
+//запустить интерфейс для ввода объектов целевого учета
+Function Make_CU(wwtable:word ; wnrec :comp ; wtp :word ) : word ;
+{ Make_CU:=1 ;
+  pwTable :=wwtable ;
+  pcSpec  :=wnrec ;
+  Make_CU:=RunInterface('L_SALDOMTR::LINKMTR2SPEC', wwtable, wnrec, wtp )
+  pwPr :=wtp ;
+
+}
+//получить наименование  целевого учета
+Function GetCuName(wwtable:word ; wnrec :comp) :string ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  GetCuName:='?????'
+  if getfirst fastfirstrow SpecMTR<>0 then exit ;
+  GetCuName:=vsNameTune ;
+}
+//получить наименование аналитики  целевого учета
+Function GetCuKauName(wwtable:word ; wnrec :comp;wnum :word ) :string ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  GetCuKauName:='' ;
+  oTune.FindTune(SpecMTR.cSaldTune) ;
+  GetCuKauName:=GetValue(wnum) ;
+}
+//получить nrec аналитики  целевого учета
+Function GetCuKauNrec(wwtable:word ; wnrec :comp;wnum :word ) :string ;
+{ pwTable :=wwtable ;
+  pcSpec  :=wnrec ;
+//  wnum:=0 ;
+  GetCuKauNrec:=string(0) ;
+  if getfirst fastfirstrow SpecMtr=0
+  { GetCuKauNrec:=string(if(wNum = 1, SpecMTR.cObj, SpecMTR.cKau[wNum - 1]))
+  
+  }
+}
+// получить номер аналитики
+Function GetCuKauTbl(wwtable:word ; wnrec :comp;wnum :word ) :string ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  if getfirst fastfirstrow SpecMTR<>0 then exit ;
+  oTune.FindTune(SpecMTR.cSaldTune) ;
+  GetCuKauTbl:=oTune.GetGrKau(wNum) ;
+}
+//получить наименование всех аналитик  целевого учета
+Function GetCuKauNameAll(wwtable:word ; wnrec :comp ) :string ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  if getfirst fastfirstrow SpecMTR<>0 then exit ;
+  wstr:='' ;
+  for(i:=1;i<=9;i:=i+1) wstr:=wstr+GetCuKauName(wwtable,wnrec,i )+'/' ;
+  GetCuKauNameAll:=wstr ;
+}
+//получить код аналитики  целевого учета
+Function GetCuKauCode(wwtable:word ; wnrec :comp;wnum :word ) :string ;
+var wtbl :word ;
+    wwnrec: comp ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+//  wnum:=0 ;
+  GetCuKauCode:=''
+  if getfirst fastfirstrow SpecMTR<>0 then exit ;
+  oTune.FindTune(SpecMTR.cSaldTune) ;
+  wtbl := oTune.GetGrKau(wNum)
+  wwnrec:=if(wNum = 1, SpecMTR.cObj, SpecMTR.cKau[wNum - 1])
+  case wtbl of
+  20: {
+   if getfirst fpstbud where (( wwnrec == fpstbud.nrec ))=0 
+   then GetCuKauCode:=FPSTBUD.levelcode //ABBR 
+   else GetCuKauCode:='?';
+//GetCuKauCode:= if (GetAnyKau(word(0),wtbl,wwnrec), GivenAnName(6),'') // код на уровне
+  }
+  else
+  { GetCuKauCode:= if (GetAnyKau(word(0),wtbl,wwnrec), GivenAnName(2) 
+//   trim(GivenAnName(4))+'/'+trim(GivenAnName(5))+'/'+trim(GivenAnName(6))
+  ,'')
+  }
+  end ;
+ ;
+}
+//получить коды всей аналитики  целевого учета
+Function GetCuKauCodeAll(wwtable:word ; wnrec :comp ) :string ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  if getfirst fastfirstrow SpecMTR<>0 then exit ;
+  wstr:='' ;
+  for(i:=1;i<=9;i:=i+1) wstr:=wstr+GetCuKauCode(wwtable,wnrec,i )+'/' ;
+  GetCuKauCodeAll:=wstr ;
+
+}
+//получить наименование роли  аналитики  целевого учета
+Function GetCuKauNameRoll(wwtable:word ; wnrec :comp ; wnum :word ) :string ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  if getfirst fastfirstrow SpecMTR<>0 then exit ;
+  oTune.FindTune(SpecMTR.cSaldTune) ;
+  GetCuKauNameRoll:=GetRole(wnum) ;
+}
+
+Function GetCuKauNameRollAll(wwtable:word ; wnrec :comp  ) :string ;
+{ set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  wstr:='' ;
+  for(i:=1;i<=9;i:=i+1) wstr:=wstr+GetCuKauNameRoll(wwtable,wnrec,i )+'/' ;
+  GetCuKauNameRollAll:=wstr ;
+
+}
+// скопировать объект целевого учета
+Function CuCopy(wwtable:word ; wnrec :comp ;
+                      wwtableTo:word ; wnrecTo :comp ) :boolean ; 
+{ 
+  CuCopy:=false ;
+  if wwtable=0 then exit ;
+  if wwtableto=0 then exit ;
+  
+  set pwTable :=wwtableTo ;
+  set pcSpec  :=wnrecTo ;
+  if getfirst fastfirstrow SpecMTR=0
+  { do {
+      delete current SpecMTR ;
+    } while (getnext SpecMTR=0) ;
+      
+  }
+  if getfirst fastfirstrow SpecMTR<>0
+  { 
+    set pwTable :=wwtable ;
+    set pcSpec  :=wnrec ;
+    if getfirst fastfirstrow SpecMTR=0
+    {  
+     
+     SpecMTR.Nrec:= 0 ;
+     SpecMTR.coTable:=wwtableTo
+     SpecMTR.cSpec:=wnrecTo
+     insert current SpecMTR ;
+    }
+  }
+  CuCopy:=true ;
+}
+                      
+// скопировать внешний атрибут "Целевой учет"
+Function CuCopyAttr( wwtable:word ; wnrec :comp ;
+                      wwtableTo:word ; wnrecTo :comp ) :boolean ; 
+var wcattrnam :comp ;                      
+{ CuCopyAttr:=true ;
+  if not CuCopy(wwtable, wnrec, wwtableTo, wnrecTo) then exit ;
+  logstrtofile('!alg5100.txt','1 '+string(wwtable)+'/'+string(wnrec,21,0)+'/'+string(wwtableto)+'/'+string(wnrecto,21,0))
+  pwTable :=wwtable ;
+  pcSpec  :=wnrec ;
+  if getfirst AttrNam<>0
+  { logstrtofile('!alg5100.txt','Нет внешнего атрибута "Целевой учет" к таблице '+string(wwtable) ) ;
+    logstrtofile('!alg5100.txt','2')
+    exit ;
+  }
+  
+  if getfirst AttrVal<>0
+  { 
+    logstrtofile('!alg5100.txt','3')
+    exit ;
+  }
+  
+  wstr:='???'
+  
+  set pwTable :=wwtableTo ;
+  set pcSpec  :=wnrecTo ;
+  if getfirst AttrNam<>0
+  { logstrtofile('!alg5100.txt','Нет внешнего атрибута "Целевой учет" к таблице '+string(wwtableTo) ) ;
+    logstrtofile('!alg5100.txt','4')
+    exit ;
+  }
+  wcattrnam:=AttrNam.nrec ;
+  logstrtofile('!alg5100.txt','5')
+  if getfirst AttrVal=0
+  { delete current AttrVal ;
+   logstrtofile('!alg5100.txt','6')
+  }
+  set pwTable :=wwtable ;
+  set pcSpec  :=wnrec ;
+  if getfirst AttrNam=0
+  {
+    logstrtofile('!alg5100.txt','7')
+    if getfirst AttrVal=0
+    { logstrtofile('!alg5100.txt','8')
+      AttrVal.nrec:=0
+      ATTRVAL.CATTRNAM:=wcattrnam ;
+      AttrVal.wtable:=wwtableto
+      AttrVal.crec:=wnrecto ; 
+      insert current AttrVal ;
+    }
+    logstrtofile('!alg5100.txt','9')
+/*
+---------------------------
+Ошибка
+---------------------------
+ Ошибка N 5.
+ Дублированное значение при уникальном ключе.
+ 
+ В таблице ATTRVAL повторяются значения полей
+ WTABLE : "1707",
+ CREC : "281474976710660",
+ CATTRNAM : "281474976710661",
+ VDOUBLE : "0.0",
+
+ что противоречит описанной в словаре уникальности
+ и
+---------------------------
+Да   Нет   
+---------------------------
+*/    
+  } else exit ;
+ logstrtofile('!alg5100.txt','10')
+  CuCopyAttr:=true ;
+}
+HandleEvent
+cmInit: {}
+cmOnVipLoad :
+{ InitServTxo(0)
+}
+cmOnVipUnLoad :
+{ DoneServTxo ;
+}
+end;
+end.

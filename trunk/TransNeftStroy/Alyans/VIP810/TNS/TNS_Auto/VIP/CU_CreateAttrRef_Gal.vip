@@ -1,0 +1,247 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Версия      : 8.10
+// Назначение  : Создание атрибутов типа ссылка (не аналитика)             
+//------------------------------------------------------------------------------
+#include GetAttrTable.vih
+#include CU_MyFunc.Vih // мое
+#include AdrFunc.vih //адресс
+
+#ifdef ComponentVersion
+#component "C_EXTCLASS"
+#endif
+
+VipInterface CreateAttrRef_GalMy implements ObjCreateAttrRefPlugin licensed (FREE);
+
+//------------------------------------------------------------------------------
+Handler with replace Gal_CreateAttrRefTableMy on extensionPoint  epCreateAttrRefTable (AttrRef : ObjGetAttrTable) [10] // было 11
+Action
+{
+   Result := true;
+   var ifc : CreateAttrRef_GalMy;
+   ifc.AddAttrRefTable (AttrRef);
+}
+
+
+//------------------------------------------------------------------------------
+Handler with replace Gal_PickTableRefMy on extensionPoint  epPickTableRef (_coTable: word; _cAttrVal: comp) [10]
+Action
+{
+   case _coTable of 
+   coSpecMTR,coNORMSFO,1504..1507,coStErr
+    ,coPutLst , coToplivo  :
+   { var ifc : CreateAttrRef_GalMy;
+     Result := not ifc.PickValueRef (_coTable, _cAttrVal);
+     Result := False ;
+     
+   }
+   else Result:=true ;
+   end ;
+}
+
+
+// ObjCreateAttrRefPlugin - вызвается интерфейсом GetAttrTable для создания ссылок на таблицы не являющиеся аналитикой.
+// CreateAttrRef_Gal  реализация объектного интерфейса ObjCreateAttrRefPlugin, чтобы дополнить список ссылок.
+
+#doc
+Создание атрибутов типа ссылка (не аналитика)           
+#end
+//========================================
+Interface CreateAttrRef_GalMy;
+var vcu:Cu_myfunc   ;
+var iAdrFunc : AddressFunc;
+//#include KatKodFunc.var
+var
+  cPlansSch : tNRec;
+  wkod_err :word ;
+Create view
+var
+  w_cAttrVal:comp
+  wrec:comp ;
+  wc_org:comp;
+  sOKATO:string;
+From
+  AttrVal
+ ,SpecMTR
+ ,NORMSFO
+ ,KatKod
+ ,PodrInfo
+ ,PutLst
+ ,Toplivo
+where ((
+  wrec == normsfo.nrec
+and wrec == SpecMTR.nrec  
+and wrec == katkod.nrec
+and wrec == PutLst.nrec
+and wrec == Toplivo.nrec
+and wc_org == PodrInfo.cPodr
+and w_cAttrVal == AttrVal.nrec
+)) 
+;
+
+// Определение ОКАТО организации
+function GetOrgOKATO(cOrg: comp): boolean;
+{ wc_org:=cOrg;
+  GetOrgOKATO := false;
+  if (cOrg <> 0)
+    if (GetFirst PodrInfo  = tsOk) //where (( cOrg == PodrInfo.cPodr ))
+      if (PodrInfo.OKATO <> '')
+      {
+        set sOKATO := PodrInfo.OKATO;
+        GetOrgOKATO := true;
+      }
+}
+
+
+//  AttrRef ссылка на интерфейс GetAttrTable
+Public Procedure AddAttrRefTable (AttrRef : ObjGetAttrTable);
+{
+  AttrRef.AddTable (coSpecMTR);
+  AttrRef.AddTable (coNORMSFO);
+  AttrRef.AddTable (coPutLst);
+  AttrRef.AddTable (coToplivo);
+  // для налоговых кодов  в платежке
+  AttrRef.AddTable (1504); //ПП_Статус_налогового_лица
+  AttrRef.AddTable (1505); //ПП_Код_бюджетной_классификации
+  AttrRef.AddTable (coSterr); //ПП_ОКАТО
+  AttrRef.AddTable (1506); //ПП_Основание_налогового_платежа
+  //AttrRef.AddTable (40005); //ПП_Налоговый_период
+  //AttrRef.AddTable (40006); //ПП_Номер_налогового_документа
+  //AttrRef.AddTable (40007); //ПП_дата_налогового_документа
+  AttrRef.AddTable (1507); //ПП_Тип_налогового_платежа
+
+}
+
+//  Реализация интерфейса вызова для таблицы
+Public  Function PickValueRef (_coTable: word; _cAttrVal: comp): boolean;
+{
+
+  PickValueRef:=false;
+
+  if (getFirst fastfirstrow AttrVal where ((_cAttrVal == AttrVal.nRec)) <> tsOk)
+     Exit;
+  wrec:=AttrVal.vComp
+  case _coTable of
+    coNORMSFO:
+    {  //Интерфейс выбора норм выдачи СФО. Поддерживается иерархия по строковому коду нормы.
+       //Параметры ,c1 : Comp ,s1 : String [20] 
+
+       if runinterface('F_SFO::GETNORMSFO',wrec,'' )= cmDefault
+       { AttrVal.vComp:=wrec
+         if getfirst  fastfirstrow normsfo where (( wrec == normsfo.nrec ))=0
+           AttrVal.vString :=NORMSFO.NAME
+         PickValueRef:=true;
+       }  
+    }
+    coSpecMTR:
+    { wkod_err:=vcu.Make_CU( AttrVal.wtable, Attrval.crec, 10 )
+      if true //wkod_err<>cmCanCel
+      { AttrVal.vComp:=Attrval.crec
+        AttrVal.vString :=vcu.GetCuName(AttrVal.wtable,Attrval.crec)+'/'+vCu.GetCuKauNameAll(AttrVal.wtable,Attrval.crec) ;
+        PickValueRef:=true;
+      }
+    }
+    coPutLst: // путевой лист
+    { /*
+    p1 : Comp //ссылка на средство
+    p3 : Word //// статус путевого (7 - выписан для распределения)      -0???
+                      // 8 - все путевые по ТС (включая архив)
+
+    p2 : Comp //ссылка на путевой
+    Param_Org : Comp 
+    BegDate : Date 
+    EndDate : Date 
+    wFlag : Word 
+    sDSKName : String 
+   */
+      if Runinterface('M_TRANSP::GET_PUT',0,0,wrec,cogettune('MYORG'),sub_day(cur_date,365),add_day(cur_date,2),0,'')=cmDefault
+      { AttrVal.vComp:=wrec
+        if getfirst  fastfirstrow PutLst =0
+           AttrVal.vString :=PutLst.NPL+if(PUTLST.NSERIA<>'',', серия '+PUTLST.NSERIA,'')+DateToStr(PutLst.DATPL,' от DD/MM/YYYY г')
+        PickValueRef:=true;
+      }
+    }
+    coToplivo: // топливо
+    { if Runinterface('M_TRANSP::GET_GSM',wrec,0)=cmDefault
+      { AttrVal.vComp:=wrec
+        if getfirst  fastfirstrow Toplivo =0
+           AttrVal.vString :=TOPLIVO.NAME+'/'+Toplivo.KODGSM
+        PickValueRef:=true;
+      }
+    }
+    1504: //ПП_Статус_налогового_лица
+    { if (RunInterface(F_KATKOD::KatKod, cgiPick, cgKatKod_StatPl, wrec, 0, 0, 0) <> cmCancel)
+        if (GetFirst KatKod where (( wrec == KatKod.nRec )) = tsOk)
+        { AttrVal.vComp:=wrec
+          AttrVal.vString :=KatKod.Name ;
+          PickValueRef:=true;
+        }
+    }
+    1505: //ПП_Код_бюджетной_классификации
+    {
+      if (RunInterface(F_KATKOD::KatKod, cgiPick, cgKatKod_KBK, wrec, 0, 0, 0) <> cmCancel)
+        if (GetFirst KatKod where (( wrec == KatKod.nRec )) = tsOk)
+        { AttrVal.vComp:=wrec
+          AttrVal.vString :=KatKod.Name ;
+          PickValueRef:=true;
+        }
+    }
+    coSterr://ПП_ОКАТО
+    { if (sGetTune('eTaxRu.TuneOKATO') <> '')
+      {
+          AttrVal.vString := sGetTune('eTaxRu.TuneOKATO');
+          PickValueRef:=true;
+      }
+      else
+       if (GetOrgOKATO(coGetTune('MyOrg')))
+       {  AttrVal.vString := sOKATO;
+          PickValueRef:=true;
+       }   
+       else
+       {  if (RunInterface('Z_STAFF::TerrCatalog', -10, wrec, 0)  <> cmCancel)
+          {
+            AttrVal.vComp:=wrec
+            AttrVal.vString :=iAdrFunc.GetOKATO(wrec) ;
+            PickValueRef:=true;  
+          }
+       }
+    } //40003
+    1506: //ПП_Основание_налогового_платежа
+    {
+      if (RunInterface(F_KATKOD::KatKod, cgiPick, cgKatKod_OPN, wrec, 0, 0, 0) <> cmCancel)
+        if (GetFirst KatKod where (( wrec == KatKod.nRec )) = tsOk)
+        { AttrVal.vComp:=wrec
+          AttrVal.vString :=KatKod.Name ;
+          PickValueRef:=true;
+        }
+    }
+    //40005: //ПП_Налоговый_период
+    //40006: //ПП_Номер_налогового_документа
+    //40007: //ПП_дата_налогового_документа
+    1507: //sTypePl ПП_Тип_налогового_платежа
+    {
+      if (RunInterface(F_KATKOD::KatKod, cgiPick, cgKatKod_TPN, wrec, 0, 0, 0) <> cmCancel)
+        if (GetFirst KatKod where (( wrec == KatKod.nRec )) = tsOk)
+        { AttrVal.vComp:=wrec
+          AttrVal.vString :=KatKod.Name ;
+          PickValueRef:=true;
+        }
+    }
+    else  // Если нет интерфейса выбора
+    {
+    }
+  end; // case
+
+  if ( PickValueRef )
+  {
+    var err : word;
+    err := Update current AttrVal
+    if err <> 0
+    {
+      Message ('Ошибка N ' + string(err) + ' обновления записи в таблице AttrVal.');
+      exit;
+    }
+  }
+
+}
+end. // интерфейс

@@ -1,0 +1,160 @@
+interface Add_TY_Perexod 'Заполнение ТУ в переходах по объектам';
+show at (5,1,58,8);
+var
+ date1, date2 : DATE;
+ i : BYTE;
+ p2, p3, cTY, cpdr, cgrp : COMP;
+ p1 : WORD;
+ sTY : String;
+ b : boolean;
+ Dummy : Word;
+ auser : String;
+ ar_cKau : array [1..6] of comp;
+ ar_wKau : array [1..6] of word;
+
+create view
+as select * from ATTRVAL, Perexod
+where
+   ((
+       p1 == ATTRVAL.WTABLE and
+       p2 == ATTRVAL.CREC and
+       p3 == ATTRVAL.CATTRNAM
+   ));
+
+create view t2
+as select * from CATALOGS
+where
+   ((
+       4001695FC8EE87AFh == CATALOGS.MAINLINK(noindex) and
+       sTY == CATALOGS.CODE(noindex)
+   ));
+
+create view t3
+as select * from KATPODR
+where
+   ((
+       cpdr == KATPODR.nrec
+   ));
+
+Create view t4
+as select * from Pick
+where
+   ((
+      word(11)  == Pick.wlist and
+      cpdr  == Pick.cRec
+   ));
+
+create view t9
+as Select * from KATLINK
+Where((auser==KATLINK.OWNNAME and 1414==KATLINK.CODETABLE and cgrp==KATLINK.CREC(noindex)));
+
+screen scr1;
+fields
+  Date1 ('Дата начала        ', ,    sci13Esc) : NoProtect, PickButton;
+  Date2 ('Дата окончания     ', ,    sci13Esc) : NoProtect, PickButton;
+
+buttons
+  cmOK;
+  cmCancel;
+<<
+    Дата с .@@@@@@@@@@@@@@ по .@@@@@@@@@@@@@@
+
+
+    <.Выполнить.>                        <.Выход.>
+>>
+end;
+
+handleevent
+cmInit:
+{
+}
+cmPick :
+{
+  case CurField of
+  # date1 :{}
+  # date2 :{}
+  end;
+}
+cmok:
+{
+  auser:=TranslatePath('%USER%');
+  Runinterface(z_Katpodr::GetAnyPodr,Dummy,14);
+  If (InitWorkingTable) {}
+  _loop perexod where((date1<<=Perexod.DATIZM and date2>>=Perexod.datok(noindex)))
+  {
+     b:=false;
+     cpdr:=Perexod.CEXP;
+     if t3.getfirst KATPODR = tsok
+     {
+       cgrp:=t3.KATPODR.CGRPODR;
+     }
+     cpdr:=0;
+     If (t9.getfirst KATLINK= tsok)
+     {
+       If (LoadWorkingTable(perexod.CLSCH, month(Perexod.DATIZM), year(Perexod.DATIZM)) = 0)
+       {
+         cpdr:=WT_GetDepartment(day(perexod.datizm));
+         if WT_CopyAnalytics(day(perexod.datizm), ar_wKau, ar_cKau) {}
+       }
+       if (t4.getfirst Pick= tsok) {b:=true;}
+     };
+
+   if b=true
+   {
+     p2:=0;
+     sTY:='';
+     cTY:=0;
+     for (i := 1; i<=6; i := i+1)
+     {
+       if(ar_wKau[i]=40)
+       {
+         p2:=ar_cKau[i];
+       }
+     }
+     p1:=2101;
+     p3:=013E0000000002A4h;
+     if getfirst ATTRVAL = tsok
+     {
+       sTY:=trim(ATTRVAL.VSTRING);
+       if t2.getfirst CATALOGS = tsok
+       {
+         cTY:=t2.CATALOGS.nrec;
+       }
+     }
+     p1:=15002;
+     p2:= perexod.nrec;
+     p3:=013E000000000213h;
+     if getfirst ATTRVAL = tsok   //Если запись есть, то модифицируем
+     {
+       ATTRVAL.VSTRING := cTY;
+       update current ATTRVAL;
+       PEREXOD.FLAGS2 := PEREXOD.FLAGS2 or pchTerrUsl;
+       update current PEREXOD;
+     }
+     else                            //Если записей нет, то вставляем
+     {
+       ClearBuffer(#ATTRVAL);
+       ATTRVAL.NREC   := 0;
+       ATTRVAL.WTABLE := p1;
+       ATTRVAL.CREC := p2;
+       ATTRVAL.CATTRNAM  := p3;
+       ATTRVAL.VSTRING := cTY;
+       insert current ATTRVAL;
+       PEREXOD.FLAGS2 := PEREXOD.FLAGS2 or pchTerrUsl;
+       update current PEREXOD;
+     }
+   }
+  }
+  DoneWorkingTable;
+  message('Заполнение территориальных условий завершено!');
+}
+cmdone:
+{
+}
+cmCancel:
+{
+  CloseInterface(cmOk);
+}
+end;
+
+end.

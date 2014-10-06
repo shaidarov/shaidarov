@@ -1,0 +1,113 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface TXO_PolnDlPost implements ObjTxoIdentPlugin Licensed(Free);
+
+Interface TXO_PolnDlPost;
+var
+  curSoprHoz : comp;
+  nrec_katnotes_dn : comp;
+create view
+as select
+  *
+from
+ SoprHoz
+,KatSopr
+,katsopr katsopr_storno  
+,soprhoz soprhoz_storno  
+,oborot  oborot_storno  
+,katsopr katsopr_dn
+,katnotes  
+,katnotes katnotes_storno 
+,oborot
+where
+((
+       curSoprHoz        == SoprHoz.nRec 
+))
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Алгоритм для формирования дополнительных проводок по документам с длительным поступлением в Актах на сбыт';
+}
+
+function ParamMaster : string;
+{
+  ParamMaster := '';
+}
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+   TxoAllowRecallStoreCycles(hTxo);
+   curSoprHoz := buf.cSoprHoz;
+   //если существует и включена настройка "Использование функционала быстрого закрытия периода"
+   if ExistTune('DOC.SD.FASTCLOSE.USE')
+    {
+   if boGetTune('DOC.SD.FASTCLOSE.USE')
+    {
+   if getfirst SoprHoz = tsOK
+    {
+   if getfirst KatSopr where ((SoprHoz.csoprdoc  == katsopr.nrec)) = tsOk
+    {
+   if getfirst Katnotes where ((KatSopr.cNote == Katnotes.nrec)) = tsOk
+    {
+   if Katnotes.code = '5.3.2'
+    {
+     nrec_katnotes_dn := 0; 
+     if getfirst katsopr_dn where ((katsopr.cadoc == katsopr_dn.nrec)) = tsok
+      {
+       nrec_katnotes_dn := KatSopr_dn.cNote;
+      }
+
+      if getfirst katsopr_storno where ((     katsopr.cadoc == katsopr_storno.cadoc
+                                          and KatSopr_storno.cNote == Katnotes_storno.nrec 
+                                          and '5.2' == Katnotes_storno.code (noindex)
+                                       ))  = tsOk
+      {
+       if getfirst soprhoz_storno where ((    word(211) == soprhoz_storno.tipdoc
+                                          and katsopr_storno.nrec == soprhoz_storno.csoprdoc
+                                        )) = tsOk
+        {
+         _loop oborot_storno where ((soprhoz_storno.nrec == oborot_storno.csoprhoz))
+          {
+           ClearBuffer(#oborot);
+           oborot.Buffer    := oborot_storno.Buffer    ;
+           oborot.Nrec      := comp(0)                 ;
+           oborot.CSOPRDOC  := Katsopr.nrec            ; 
+           oborot.CSOPRHOZ  := SoprHoz.nrec            ; 
+           oborot.DESCR     := sGetTune( 'USER.DESCR') ; 
+           oborot.DESGR     := sGetTune( 'USER.DESGR') ; 
+           oborot.NODOK     := katsopr.nsopr           ; 
+           oborot.SUMOB     := (-1)*oborot_storno.SUMOB; 
+           oborot.KOL       := (-1)*oborot_storno.KOL  ; 
+           oborot.VHPROP    := '-'                     ; 
+           oborot.CNOTE     := nrec_katnotes_dn        ; 
+           if insert current oborot = tsok {}
+
+           ClearBuffer(#oborot);
+           oborot.Buffer    := oborot_storno.Buffer    ;
+           oborot.Nrec      := comp(0)                 ;
+           oborot.CSOPRDOC  := Katsopr.nrec     ; 
+           oborot.CSOPRHOZ  := SoprHoz.nrec     ; 
+           oborot.DESCR     := sGetTune( 'USER.DESCR'); 
+           oborot.DESGR     := sGetTune( 'USER.DESGR'); 
+           oborot.DATOB     := katsopr.dopr            ; 
+           oborot.DATAOT    := katsopr.dopr            ;  
+           oborot.NODOK     := katsopr.nsopr           ; 
+           oborot.VHPROP    := '-'                     ; 
+           if insert current oborot = tsok {}
+          }
+        }
+      }
+    }
+    }
+    }
+    }
+    }
+    }
+}
+
+handleevent
+end;
+
+end.

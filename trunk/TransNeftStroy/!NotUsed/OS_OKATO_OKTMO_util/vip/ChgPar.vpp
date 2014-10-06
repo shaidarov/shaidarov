@@ -1,0 +1,108 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║ Система       : Основные средства                                         ║
+ ║ Назначение    : Работа с дополнительными изменяемыми параметрами ИК       ║
+ ║                 по операциям ОС, НМА                                      ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+#ifdef __NeedLoadOsChgPar__
+create view loEnt
+var 
+  cMoveOsNRec : comp;
+from 
+  OsChgPar, 
+  FpAreaBoxRec
+where
+(( cMoveOsNRec == OsChgPar.cMoveOs ));
+
+// ---------------------------------------------------------------------------
+// Загрузка данных из хранилища в таблицу в памяти.
+// Если данные уже загружены, то используются старые данные.
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pcMoveOsNRec - ссылка на операцию для загрузки данных.
+// ---------------------------------------------------------------------------
+function LoadOsChgPar(pcMoveOsNRec : comp) : boolean;
+{
+  LoadOsChgPar := true;
+
+  loEnt.cMoveOsNRec := pcMoveOsNRec;
+  loEnt.delete OsChgPar where (( pcMoveOsNRec == OsChgPar.cMoveOs ));
+
+  LoadOsChgPar := false;
+  
+  _try
+  {
+    var CurEntity : rcFpEntity;
+    CurEntity.w := OsChgParEntity;
+    CurEntity.c := pcMoveOsNRec;
+    pAddFld.InitEnt(CurEntity);
+
+    if not pAddFld.GetTblBoxRec(cgChgParTbl)
+      exit;
+    loEnt._loop FpAreaBoxRec
+    {
+      if ( loEnt.FpAreaBoxRec.cRec = 0 )
+        continue;
+      loEnt.ClearBuffer(loEnt.tnOsChgPar);
+      pAddFld.WordGetTblFld(   cgChgParTbl, loEnt.FpAreaBoxRec.cRec, cgChgParWType,   loEnt.OsChgPar.wType   );
+      pAddFld.CompGetTblFld(   cgChgParTbl, loEnt.FpAreaBoxRec.cRec, cgChgParCMoveOs, loEnt.OsChgPar.cMoveOs );
+      pAddFld.CompGetTblFld(   cgChgParTbl, loEnt.FpAreaBoxRec.cRec, cgChgParCNastrOs,loEnt.OsChgPar.cNastrOs);
+      pAddFld.CompGetTblFld(   cgChgParTbl, loEnt.FpAreaBoxRec.cRec, cgChgParCKatOs,  loEnt.OsChgPar.cKatOs  );
+      pAddFld.WordGetTblFld(   cgChgParTbl, loEnt.FpAreaBoxRec.cRec, cgChgParParCode, loEnt.OsChgPar.ParCode );
+      pAddFld.CompGetTblFld(   cgChgParTbl, loEnt.FpAreaBoxRec.cRec, cgChgParCValue,  loEnt.OsChgPar.cValue  );
+      pAddFld.DoubleGetTblFld( cgChgParTbl, loEnt.FpAreaBoxRec.cRec, cgChgParDValue,  loEnt.OsChgPar.dValue  );
+      loEnt.insert current OsChgPar;
+    }
+
+    pAddFld.DoneEnt(CurEntity);
+
+    LoadOsChgPar := true;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::LoadOsChgPar:'+ExploreException);}
+}
+#end // __NeedLoadOsChgPar__
+#ifdef __NeedSaveOsChgPar__
+// ---------------------------------------------------------------------------
+// Сохранение данных в хранилище и очистка данных в памяти.
+// ---------------------------------------------------------------------------
+// Передаваемые параметры:
+//     pcMoveOsNRec - ссылка на операцию для сохранения данных.
+// ---------------------------------------------------------------------------
+function SaveOsChgPar(pcMoveOsNRec : comp) : boolean;
+{
+!fplog('SaveOsChgPar(' + string(pcMoveOsNRec) + ')');
+  SaveOsChgPar := false;
+  
+  _try
+  {
+    loEnt.cMoveOsNRec := pcMoveOsNRec;
+  
+    var CurEntity : rcFpEntity;
+    CurEntity.w := OsChgParEntity;
+    CurEntity.c := pcMoveOsNRec;
+    pAddFld.InitEnt(CurEntity);
+
+    pAddFld.DelTbl(cgChgParTbl)
+    var cTmpNRec : comp; cTmpNRec := 5;
+    loEnt._loop OsChgPar
+    {
+      pAddFld.WordSetTblFld(   cgChgParTbl, cTmpNRec, cgChgParWType,   loEnt.OsChgPar.wType   );
+      pAddFld.CompSetTblFld(   cgChgParTbl, cTmpNRec, cgChgParCMoveOs, loEnt.OsChgPar.cMoveOs );
+      pAddFld.CompSetTblFld(   cgChgParTbl, cTmpNRec, cgChgParCNastrOs,loEnt.OsChgPar.cNastrOs);
+      pAddFld.CompSetTblFld(   cgChgParTbl, cTmpNRec, cgChgParCKatOs,  loEnt.OsChgPar.cKatOs  );
+      pAddFld.WordSetTblFld(   cgChgParTbl, cTmpNRec, cgChgParParCode, loEnt.OsChgPar.ParCode );
+      pAddFld.CompSetTblFld(   cgChgParTbl, cTmpNRec, cgChgParCValue,  loEnt.OsChgPar.cValue  );
+      pAddFld.DoubleSetTblFld( cgChgParTbl, cTmpNRec, cgChgParDValue,  loEnt.OsChgPar.dValue  );
+      cTmpNRec := cTmpNRec + 1;
+    }
+    loEnt.delete OsChgPar where (( pcMoveOsNRec == OsChgPar.cMoveOs ));
+    pAddFld.DoneEnt(CurEntity);
+
+    SaveOsChgPar := true;
+  }
+  _except
+  on ExDataBase : { FPLog('ChgPar::SaveOsChgPar:'+ExploreException);}
+}
+#end // __NeedSaveOsChgPar__

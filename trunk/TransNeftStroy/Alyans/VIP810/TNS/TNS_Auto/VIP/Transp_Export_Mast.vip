@@ -1,0 +1,433 @@
+#include getkau.vih
+
+#include CU_MyFunc.vih
+
+Interface Transp_Export_Mast 'Выгрузка в МАСТ' EscClose ;
+
+table struct transp_mast
+(   sortname :string[200],
+    Transp_Nomer :string [20],
+    Transp_nrec       : Comp   , //Nrec ТС
+    Transp_CMARKA     : Comp   , //Nrec Марка Ам
+    Transp_Marka      : String[100] , //Марка Ам
+    KatOs_InNum       : String[100] , //инв. номер
+    Tiptex_nrec       : comp , // tiptex.nrec
+    Tiptex_ctiptex    : comp ,
+    Tiptex_Name       : String[100] , //Тип Тс
+    Katpodr_Nrec      : Comp   , //Nrec Подразделения
+    Katpodr_Name      : String , //Наименование Подразделения
+    transp_godv :date ,    // год выпуска
+    transp_datok :Date ,  //дата поступления
+    transp_datv :date  ,  // дата выбытия
+    KLASSDRIVE_NAME :string[40],     //transp.KLASSIF5 == morale.nrec 'M_TRANSP::KAR_WPS.WIN_ANALITIC.SWIN_ANALITIC.KLASSDRIVE.NAME - аналитический разрез, тип двигателя
+    category :string[100],
+    spec_purpose :string[100],
+    transp_firm :string[50],
+    chas_firm :string[50],
+    zav_nomer :string[50],
+    vin :string[50],
+    dvig_nomer :string[50],
+    chass_nomer :string[50],
+    kuzov_nomer :string[50],
+    dvig_marka :string[50],
+    dvig_type :string[50],
+    eco_class :string[50],
+    empty_massa :double,
+    max_massa :double,
+    dvig_volume :double,
+    dvig_power_ls :double,
+    dvig_power_kvt :double,
+    kpp_type :string[50],
+    privod :string[50],
+    kpp_levels :word,
+    dvig_cyl :word,
+    dvig_cyl_place :string[50],
+    transp_color :string[40],
+    transp_color_grp :string[40],
+    inomarka :string[10],
+    doc_reg_nomer :string[20],
+    doc_reg_ser :string[20],
+    doc_reg_date :date,
+    doc_pts_nomer :string[20],
+    doc_pts_ser :string[20],
+    doc_pts_date :date,
+    doc_cnf_nomer :string[20],
+    doc_cnf_date :date,
+    izg_name :string[255],
+    izg_country :string[255],
+    oper_keep :string[50],
+    oper_keep_date :date,
+    base_keep_out :string[255],
+    pos_tex_tabel :string[50],
+    podr_name :string[100],
+    sup_name : string[255],
+    balans_summa :double,
+    rest_summa :double,
+    kod_okof :string[40],
+    plan_spis_date :date,
+    podr_attach :string[100],
+    note :string[255],
+    mast_id :string[50]
+)
+with index
+(  index1 = sortname + transp_cmarka + transp_nomer
+  ,index2 = sortname +  transp_nomer
+  ,index3 = Transp_nrec
+  ,index4 = Tiptex_ctiptex
+) ;
+
+var igetkau : getkau;
+#include excel_var.vpp
+
+create view
+var
+ tp_report :word ;
+//для фильтров
+  filtr_type :word ;
+  filtr_podr:string ;
+  Marker_podr, IndexNoOt : longint ;
+as select transp_mast.transp_nrec
+from transp_mast,
+transp,
+katpodr,
+morale,
+autodoc autodoc1,
+waydoc waydoc1,
+marka,
+tiptex,
+markomp,
+autodoc autodoc2,
+waydoc waydoc2,
+katorg,
+marcomp,
+pick
+where ((
+transp.cpodr == katpodr.nrec
+and transp.klassif5 == morale.nrec
+and transp.nrec == autodoc1.cvehicle
+and waydoc1.nrec == autodoc1.cwaydoc (noindex)
+and 0 == waydoc1.whatis
+and 'СВР' == waydoc1.code
+and transp.nrec == autodoc2.cvehicle
+and waydoc2.nrec == autodoc2.cwaydoc (noindex)
+and 0 == waydoc2.whatis
+and 'ОДБ' == waydoc2.code
+and transp.cmarka == marka.nrec
+and transp.ctiptex == tiptex.nrec
+and transp.cmarakk == markomp.nrec
+and transp.izgnrec == katorg.nrec
+and transp.cnomdvig == marcomp.nrec
+));
+
+#include excel_fun.vpp
+#include marker_my.vpp
+
+//==================================
+// сохранение параметров
+//==================================
+Procedure SaveParam ;
+{ SaveMyDsk(filtr_podr,'Avto_mast_filtr')
+} //Procedure SaveParam ;
+//==================================
+// чтение параметров
+//==================================
+Procedure ReadParam ;
+var wwkl :boolean ;
+{ if Not ReadMyDsk(filtr_podr,'Avto_mast_filtr',wwkl) filtr_type:=0 ;
+} //Procedure ReadParam ;
+
+//==================================
+// печать
+//==================================
+Function PrintDoc : boolean ;
+var werr:word ;
+    wstr,wpodr:string ; 
+    wnpp :longint ;
+{ PrintDoc:=false ;
+  nmtemplate:='Avto_Mast.xls';
+  if getfirst transp<>0
+  { message('не нашли подходящих транспортных средств')
+    exit ;
+  }
+  werr:=ExcelInit(nmtemplate,true,2009);
+  if werr>0
+  { message('Ошибка инициализации Excel по шаблону '+nmtemplate) ;
+    exit ;
+  }
+  
+  //вывод данных
+  HeaderStrCount :=3 ;
+  wexrow:=HeaderStrCount+1 ;
+  MyXlCreaMatrix(10000,100)
+  wexrow:=wexrow-1 ;
+  wnpp:=0;
+  _loop transp_mast ordered by index Index1
+  {  if not nextvisual then exit;
+     mylogwrite(false,' '+transp_mast.transp_nomer)
+     wexrow:=wexrow+1;wexcol:=1 ;
+     wnpp:=wnpp+1;
+     MyPutExcelNumber(wnpp,0,8,0,-1,-1);//1     //№ п/п
+     MyPutExcel(transp_mast.transp_nomer,8,0,-1,-1);//гос номер
+     MyPutExcel(transp_mast.transp_firm,8,0,-1,-1);//марка
+     MyPutExcel(transp_mast.transp_marka,8,0,-1,-1);//модель
+     MyPutExcel(transp_mast.transp_marka,8,0,-1,-1);//марка модель ПТС
+     MyPutExcel(transp_mast.chas_firm,8,0,-1,-1);//базовое шасси
+     MyPutExcel(datetostr(transp_mast.transp_godv,'YYYY'),8,0,-1,-1);//год выпуска
+     MyPutExcel(transp_mast.category,8,0,-1,-1);//категория
+     MyPutExcel(transp_mast.tiptex_name,8,0,-1,-1);//тип тс
+     MyPutExcel(transp_mast.spec_purpose,8,0,-1,-1);//спец назначение
+     MyPutExcel(transp_mast.katos_innum,8,0,-1,-1);//инв номер
+     MyPutExcel(transp_mast.zav_nomer,8,0,-1,-1);//зав номер
+     MyPutExcel(transp_mast.vin,8,0,-1,-1);//VIN
+     MyPutExcel(transp_mast.dvig_nomer,8,0,-1,-1);//Номер двигателя
+     MyPutExcel(transp_mast.chass_nomer,8,0,-1,-1);//номер шасси
+     MyPutExcel(transp_mast.kuzov_nomer,8,0,-1,-1);//номер кузова
+     MyPutExcel(transp_mast.dvig_marka,8,0,-1,-1);//модель двигателя
+     MyPutExcel(transp_mast.dvig_type,8,0,-1,-1);//тип двигателя
+     MyPutExcel(transp_mast.eco_class,8,0,-1,-1);//эколог класс
+     MyPutExcel(string(transp_mast.empty_massa),8,0,-1,-1);//масса без нагрузки
+     MyPutExcel(string(transp_mast.max_massa),8,0,-1,-1);//макс масса
+     MyPutExcel(string(transp_mast.dvig_volume),8,0,-1,-1);//объем двигателя
+     MyPutExcel(string(transp_mast.dvig_power_ls),8,0,-1,-1);//мощн двигателя лс
+     MyPutExcel(string(transp_mast.dvig_power_kvt),8,0,-1,-1);//мощн двиг квт
+     MyPutExcel(transp_mast.kpp_type,8,0,-1,-1);//вид КПП
+     MyPutExcel(transp_mast.privod,8,0,-1,-1);//привод
+     MyPutExcel(transp_mast.kpp_levels,8,0,-1,-1);//количество передач
+     MyPutExcel(transp_mast.dvig_cyl,8,0,-1,-1);//количество цилиндров
+     MyPutExcel(transp_mast.dvig_cyl_place,8,0,-1,-1);//располож цилиндров
+     MyPutExcel(transp_mast.transp_color,8,0,-1,-1);//цвет
+     MyPutExcel(transp_mast.transp_color_grp,8,0,-1,-1);//группа цветов
+     MyPutExcel(transp_mast.inomarka,8,0,-1,-1);//иномарка
+     MyPutExcel(transp_mast.doc_reg_nomer,8,0,-1,-1);//свидетельство о регистрации номер
+     MyPutExcel(transp_mast.doc_reg_ser,8,0,-1,-1);//свидетельство о регистрации серия
+     MyPutExcel(replace(datetostr(transp_mast.doc_reg_date, 'DD.MM.YYYY'),'ДД.ММ.ГГГГ',''),8,0,-1,-1);//свидетельство о регистрации дата
+     MyPutExcel(transp_mast.doc_pts_nomer,8,0,-1,-1);//ПТС номер
+     MyPutExcel(transp_mast.doc_pts_ser,8,0,-1,-1);//ПТС серия
+     MyPutExcel(datetostr(transp_mast.doc_pts_date, 'DD.MM.YYYY'),8,0,-1,-1);//ПТС дата
+     MyPutExcel(transp_mast.doc_cnf_nomer,8,0,-1,-1);//номер одобрения
+     MyPutExcel(replace(datetostr(transp_mast.doc_cnf_date, 'DD.MM.YYYY'),'ДД.ММ.ГГГГ',''),8,0,-1,-1);//дата одобрения
+     MyPutExcel(transp_mast.izg_name,8,0,-1,-1);//завод изготов
+     MyPutExcel(transp_mast.izg_country,8,0,-1,-1);//страна изготов
+     MyPutExcel(transp_mast.sup_name,8,0,-1,-1);//поставщик
+     MyPutExcel(replace(datetostr(transp_mast.transp_datok, 'DD.MM.YYYY'),'DD.MM.YYYY',''),8,0,-1,-1);//дата одобрения
+     MyPutExcel(transp_mast.oper_keep,8,0,-1,-1);//дата учета тс
+     MyPutExcel(replace(datetostr(transp_mast.oper_keep_date, 'DD.MM.YYYY'),'ДД.ММ.ГГГГ',''),8,0,-1,-1);//дата учета тс
+     MyPutExcel(transp_mast.base_keep_out,8,0,-1,-1);//причина снятия с учета
+     MyPutExcel(transp_mast.pos_tex_tabel,8,0,-1,-1);//код позиции в табеле техоснащенности
+     MyPutExcel(transp_mast.katpodr_name,8,0,-1,-1);//тип подразделения
+     MyPutExcelNumber(transp_mast.balans_summa,2,8,0,-1,-1);//баланс стоимость
+     MyPutExcelNumber(transp_mast.rest_summa,2,8,0,-1,-1);//остаточ стоимость
+     MyPutExcel(transp_mast.kod_okof ,8,0,-1,-1);//код окоф
+     MyPutExcel(replace(datetostr(transp_mast.plan_spis_date, 'DD.MM.YYYY'),'ДД.ММ.ГГГГ',''),8,0,-1,-1);//дата учета тс
+     MyPutExcel(transp_mast.podr_attach,8,0,-1,-1);//служба закрепления
+     MyPutExcel(transp_mast.note,8,0,-1,-1);//примечание
+     MyPutExcel(transp_mast.mast_id,8,0,-1,-1);//ИД
+  } //_loop My_WorkGsm where (( 1 == My_WorkGsm.pa))  ordered by index Index4
+  wexrow:=wexrow+1 ;
+  
+  MyxlWriteMatrix(wexrow);
+  xlFreeMatrix;
+  matrixkl:=False;
+  // вывод итогов
+
+  PrintDoc:=true ;
+
+} //Function PrintDoc : boolean ;
+//==================================
+// отбор данных
+//==================================
+//SborPostav
+//▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+Function getTransp:boolean;
+var
+    w_pa: integer;
+    w_katstroy: string;
+    w_MnPlan:comp;
+    w_grpMCTNF_name:string;
+    w_grpMCTNF_top_name:string;
+    w_grpMC_top_name:string;
+    w_kat_zak, w_kat_zakTNF:double;
+    w_doc:string;
+    w_MNPLAN_name:string;
+    w_MNPLAN_obj:string;
+    w_MNPLAN_fpco:string;
+    w_MNPLAN_year:string;
+    w_MNPLAN_otdel:string;
+    w_fpco1:string;
+    w_pid:string;
+    w_str:string;
+    w_sklad:string;
+{ getTransp:=false
+  _loop transp
+  {
+    if (filtr_type and 1)>0
+    {  if not SearchMarker(Marker_podr,transp.cpodr,IndexNoOt) then continue;
+    }
+    if not nextvisual then exit ;
+    insert into  transp_mast set
+            transp_mast.sortname := transp.nomer,
+            transp_mast.Transp_Nomer := transp.nomer,
+            transp_mast.Transp_nrec := transp.nrec, //Nrec ТС
+            transp_mast.Transp_CMARKA := transp.cmarka, //Nrec Марка Ам
+            transp_mast.Transp_Marka := marka.nm, //Марка Ам
+            transp_mast.KatOs_InNum := transp.innum, //инв. номер
+            transp_mast.Tiptex_nrec := transp.ctiptex, // tiptex.nrec
+            transp_mast.Tiptex_ctiptex := tiptex.ctiptex,
+            transp_mast.Tiptex_Name := tiptex.name, //Тип Тс
+            transp_mast.Katpodr_Nrec := transp.cpodr, //Nrec Подразделения
+            transp_mast.Katpodr_Name := katpodr.name, //Наименование Подразделения
+            transp_mast.transp_godv := transp.godv,// год выпуска
+            transp_mast.transp_datok := transp.datok ,  //дата поступления
+            transp_mast.transp_datv := to_date(0,0,0)  ,  // дата выбытия
+            transp_mast.category := case(transp.probegakk;
+                                          0 : 'Вне категорий',
+                                          1 : 'A',
+                                          2 : 'B',
+                                          3 : 'C',
+                                          4 : 'D',
+                                          5 : 'E',
+                                          6 : 'прицеп';
+                                          ''),
+            transp_mast.spec_purpose := '',
+            transp_mast.transp_firm := katorg.name,
+            transp_mast.chas_firm := katorg.name,
+            transp_mast.zav_nomer := transp.zavnom,
+            transp_mast.vin :='',
+            transp_mast.dvig_nomer := transp.nomdvig,
+            transp_mast.chass_nomer := transp.nomchas,
+            transp_mast.kuzov_nomer := transp.nomkuz,
+            transp_mast.dvig_marka := marcomp.name,
+            transp_mast.dvig_type := morale.name,
+            transp_mast.eco_class := transp.wdop6,
+            transp_mast.empty_massa := transp.weight,
+            transp_mast.max_massa := transp.dop6,
+            transp_mast.dvig_volume := transp.timeakk,
+            transp_mast.dvig_power_ls := transp.forcels,
+            transp_mast.dvig_power_kvt := transp.forcekvt,
+            transp_mast.kpp_type := '',
+            transp_mast.privod := '',
+            transp_mast.kpp_levels := 0,
+            transp_mast.dvig_cyl := 0,
+            transp_mast.dvig_cyl_place := '',
+            transp_mast.transp_color := transp.izgname,
+            transp_mast.transp_color_grp := '',
+            transp_mast.inomarka := '',
+            transp_mast.doc_reg_nomer := autodoc1.nom_doc,
+            transp_mast.doc_reg_ser := autodoc1.tip_doc,
+            transp_mast.doc_reg_date := autodoc1.actionbeg,
+            transp_mast.doc_pts_nomer := transp.passport,
+            transp_mast.doc_pts_ser := transp.trannom,
+            transp_mast.doc_pts_date := transp.datakk,
+            transp_mast.doc_cnf_nomer := autodoc2.nom_doc,
+            transp_mast.doc_cnf_date := autodoc2.actionbeg,
+            transp_mast.izg_name := '',
+            transp_mast.izg_country := '',
+            transp_mast.oper_keep := '',
+            transp_mast.oper_keep_date := to_date(0,0,0),
+            transp_mast.base_keep_out := '',
+            transp_mast.pos_tex_tabel := '',
+            transp_mast.balans_summa := 0,
+            transp_mast.rest_summa := 0,
+            transp_mast.kod_okof := '',
+            transp_mast.plan_spis_date := to_date(0,0,0),
+            transp_mast.podr_attach := '',
+            transp_mast.note := '',
+            transp_mast.mast_id := '' ;
+       MyLogWrite(false,'   транспорт= '+transp_mast.transp_nomer );
+  } //
+  getTransp:=true;
+} //SborPostav
+
+Function FormDoc : boolean ;
+{ FormDoc:=false ;
+  SaveParam ;
+  GetTransp;
+  FormDoc:=PrintDoc ;
+  MyXlEnd ;
+} //Function FormDoc : boolean ;
+//==================================
+// экранная форма задания параметров
+//==================================
+screen scrmain ;
+table transp ;
+fields
+ tp_report : [list 1 'Выгрузка в МАСТ'] , protect ;
+ logfilekl : noprotect ;
+  filtr_type :noprotect ;
+  filtr_podr ('Подразделение') : protect , pickbutton ;
+buttons
+  cmOk, Default;
+  cmCancel;
+<<
+  `Тип отчета`   .@@@@@@@@@@@@@@@@@@@@@@@@@@ [.] отладка`
+  `Фильтры`
+  [.] По подразделению`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ <. Отчет .>  <. Отмена .>
+>>
+end;
+Procedure MakeFiltr;
+var
+  MrkCount : LongInt ;
+  Item     : Comp ;
+{ //===============
+  MrkCount := GetMarkerCount(Marker_podr) ;
+  filtr_podr:='не задано'
+  if MrkCount=1
+  { if (GetMarker(Marker_podr, 0, Item))
+     if getfirst katpodr where ((Item == katpodr.nrec ))=0
+     { filtr_podr:=katpodr.name ;
+     }
+  }
+  else
+  if MrkCount>1
+  { filtr_podr:='выбрано '+string(MrkCount)+' записей'
+  }
+  //===============
+  rescanpanel(#transp)
+}
+//==================================
+// обработчик событий
+//==================================
+HandleEvent
+cmInit :
+{ ReadParam ;
+  Marker_podr:=InitMarker('Marker_podr', 8, 200, 10) ;
+  MakeFiltr
+}
+cmDone:
+{
+  DoneMarker(Marker_podr,'Marker_podr')
+}
+cmPick:
+{ var wnrec:comp ;
+  wnrec:=0 ;
+  var MarkerKauName:string ;
+  var Marker:string ;
+  case curfield of
+  #filtr_podr:
+  {  MarkerKauName := iGetKau.GetMarkerName(2 );
+     MarkCopyMyToCat(Marker_podr,MarkerKauName)
+     iGetKau.GetCodeKau(cgiPickMult or cgiNotClear,2,wnrec);
+     MarkCopyCatToMy(Marker_podr,MarkerKauName)
+  }
+  end ;
+  MakeFiltr
+}
+cmOk :
+{ SaveParam ;
+  StartNewVisual( vtNumericVisual, vfTimer+vfBreak, 'Сбор данных', 1);
+  if fileexist(logfilenm) deletefile(logfilenm)
+  InitServTxo(0)
+  FormDoc ;
+  DoneServTxo
+  XLKillExcel ;
+  StopVisual('',0)
+  if fileexist(logfilenm)
+  {  ProcessText(logfilenm,vfNewTitle+vfEscable+vfMacroSize+vfRunModal,
+      logfilenm+' Протокол формирования');
+  }
+  CloseInterface(cmDone)
+} //cmOk:
+end ;
+end.

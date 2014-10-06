@@ -1,0 +1,85 @@
+
+#include SverkaMC.vpp
+
+Interface CuAnalitikPick 'Выбор аналитики ЦУ', DoAccept, Cyan, EscClose;
+show at(,,65,14);
+
+create view
+var
+  cSaldTune: comp;
+  wKau: word;
+  wKauLevel: word;
+
+as select
+  SaldTune.*,
+  KatKau.*,
+  tmpAnCU.*
+
+from
+  SaldTune,
+  KatKau,
+  tmpAnCU (INDEX01)
+;
+  
+parameters
+  cSaldTune,
+  wKau,
+  wKauLevel;
+
+function InsertAnInTmp(_Name: string; _wKau, _wLevel: word): boolean;
+{
+  ClearBuffer(#tmpAnCU);
+  tmpAnCU.Name := _Name;
+  tmpAnCU.wTbl := _wKau;
+  tmpAnCU.wLevel := _wLevel;
+  Result := insert current tmpAnCU = tsOk;
+}
+
+procedure GetAnalitik;
+var
+  cnt  : integer;
+  _wKau : array[1..10] of word;
+{
+  delete all tmpAnCU;
+
+  if GetFirst SaldTune where (( cSaldTune == SaldTune.nRec )) = tsOk
+  {
+    _wKau[1] := SaldTune.wObj;         // Объект строительства
+
+    for (cnt := 1; cnt <= 9; Inc(cnt)) // Все уровни КАУ
+      _wKau[cnt + 1] := SaldTune.wKau[cnt];
+
+    for (cnt := 1; cnt <= 10; Inc(cnt))
+    {
+      if _wKau[cnt] > 0
+        if GetFirst KatKau where ((_wKau[cnt] == KatKau.KodGroup)) = tsOk
+          InsertAnInTmp(KatKau.Name, KatKau.KodGroup, cnt);
+    }
+    
+    SetTitle('Выбор аналитики ЦУ (' + SaldTune.Name + ')');
+    if GetFirst tmpAnCU = tsOk {};
+  }
+}
+
+browse brMain (,,sci1Esc);
+table tmpAnCU;
+fields
+  tmpAnCU.Name  #3'Наименование' ('Наименование') : [35], Protect;
+  tmpAnCU.wTbl  #3'Код' ('Код') : [5], Protect;
+  tmpAnCU.wLevel  #3'Уровень': [5], Protect;
+end;
+
+HandleEvent
+  cmInit:
+  {
+    GetAnalitik;
+  }
+  
+  cmDefault:
+  {
+    wKau := tmpAnCU.wTbl;
+    wKauLevel := tmpAnCU.wLevel;
+  }
+end;// HandleEvent
+
+end.

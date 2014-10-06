@@ -1,0 +1,82 @@
+// проотец-зачатель Auth. Perevoz S.A.
+//#include Z_Zar.VIl
+
+Interface GetRuk_Dol 'Параметры отчёта';
+show at (5,1,82,8);
+Create View
+var
+  PersFIORuk:string;
+  PersNrec:comp;
+  DolRuk:string;
+  DoverRuk:string;
+as select * from Persons, APPOINTMENTS, Catalogs
+where ((PersNrec==Persons.nrec and
+        Persons.APPOINTCUR==APPOINTMENTS.nrec and
+        APPOINTMENTS.POST==Catalogs.nrec))
+;
+
+Screen S1;
+Fields
+  PersFIORuk: noprotect, PickButton;
+  DolRuk   : noprotect;
+  DoverRuk :noprotect;
+buttons
+  cmOk, Default;
+<<
+ `Руководитель предприятия:`       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Должность руководителя:`         .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Доверенность:`                   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+                              <.   ОК   .>
+>>
+End;
+
+//=========================
+Procedure SaveParam ;
+{ 
+  SaveMyDsk(PersFIORuk,'AktSpis_PersFIORuk');
+  SaveMyDsk(dolRuk,'AktSpis_dolRuk');
+  SaveMyDsk(DoverRuk,'AktSpis_doverRuk');
+}
+//=========================
+Procedure ReadParam ;
+{ 
+  ReadMyDsk(PersFIORuk,'AktSpis_PersFIORuk',false);
+  ReadMyDsk(dolRuk,    'AktSpis_dolRuk',    false);
+  ReadMyDsk(DoverRuk,  'AktSpis_doverRuk',  false);
+}
+//=========================
+handleevent
+   cmInit:
+   {
+     DoverRuk := '';
+     ReadParam;
+     if PersFIORuk=''
+     {
+       PersFIORuk:=sgettune('BOSS');
+       PersNrec:=cogettune('BOSS');
+       if (getfirst fastfirstrow persons=tsok)
+       if (getfirst fastfirstrow catalogs=tsok) {DolRuk:=catalogs.name;}
+     }
+     RereadRecord;
+   }
+   cmPick:
+   {
+     case curField of
+     #PersFIORuk:
+     {
+        RunInterface('PickFioM', 0, 0, PersNrec,0, 0);
+        if (getfirst fastfirstrow persons=tsok) {PersFIORuk:=persons.fio;}
+        if (getfirst fastfirstrow catalogs=tsok) {DolRuk:=catalogs.name;}
+     }
+     end;
+     RereadRecord;
+   }
+   cmOk:
+   {
+     SaveParam ;
+     CloseInterface(1);
+   }
+end;
+End.

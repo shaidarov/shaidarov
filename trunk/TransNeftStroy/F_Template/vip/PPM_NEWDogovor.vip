@@ -1,0 +1,220 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 5.80 - модуль "Макросы назначения"
+// Список договоров (Macros API)
+//------------------------------------------------------------------------------
+
+#include PPMacros.vih  
+
+VipInterface PPM_NEWDogovor implements ObjPPMacros #Licensed_Free;
+
+#doc
+ Список договоров (Macros API)
+#end
+
+Interface PPM_NEWDogovor;
+
+Table Struct PPMDocInfo
+(
+  NumDoc1 : string,
+  NumDoc  : string,
+  dDoc1   : date,
+  dDoc    : date
+)
+With Index
+(
+  PPMDocInfo01 = dDoc + NumDoc,
+  PPMDocInfo02 = dDoc1 + NumDoc1
+);
+
+Create view DogovorView
+var
+  curTiDkUser : word;
+  curTiDkGal  : word;
+  curSoprDoc  : comp;
+  PFormat     : word;
+  PList       : word;
+As select *
+From
+  PlPor,
+  SoprHoz,
+  Dogovor,
+  PPMDocInfo (PPMDocInfo01)
+Where ((
+      CurSoprDoc       == PlPor.Nrec
+  and CurTiDkUser      == SoprHoz.TipDoc
+  and CurSoprDoc       == SoprHoz.cSoprDoc
+  and SoprHoz.CDOGOVOR == Dogovor.Nrec
+))
+;
+
+Function GetInfo: string;
+{
+  GetInfo := 'Список договоров(расширенные возможности)';
+}
+
+Window wParam 'Параметры макроса NEWDogovor' ('',, sci1EnEsc) EscClose, DoAccept;
+  Show at(,, 80, 6);
+
+Screen scParam;
+Fields
+  PFormat ('Выберите формат вывода реквизитов'):
+      [LIST 3 'Номер Входящий + Дата создания',
+            4 'Номер Входящий',
+            0 'Номер Внутренний + Дата заключения',
+            1 'Номер Внутренний',
+            2 'Дата заключения ',
+            5 'Дата создания '
+      ],      Protect;
+
+  PList ('Выберите формат списка результатов'):
+      [LIST 0 'Все',
+            1 'Первый',
+            2 'Последний'], Protect;
+<<
+
+  `Формат`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  `Список`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+>>
+End; // scParam
+End; // wParam
+
+Function ParamMaster: string;
+{
+  // вызов окошка, чтобы помочь пользователю заполнить строку дополнительных параметров идентификатора
+  ParamMaster := '';
+  if (RunWindowModal(wParam) = cmDefault)
+  {
+    PackFields;
+    case PFormat of
+      0: ParamMaster := '';
+      1: ParamMaster := '[Формат:Н]';
+      2: ParamMaster := '[Формат:ДД]';
+      3: ParamMaster := '[Формат:Т]';
+      4: ParamMaster := '[Формат:К]';
+      5: ParamMaster := '[Формат:ДД2]';
+    end;
+    case PList of
+      0: ParamMaster := ParamMaster + '';
+      1: ParamMaster := ParamMaster + '[Список:Перв]';
+      2: ParamMaster := ParamMaster + '[Список:Послед]';
+    end;
+  }
+}
+
+Procedure ParamParser(PpmServer: ObjPPTemplate; var Err: string);
+{
+  PFormat := 0; // значение по умолч. 1-го пар-ра
+  PList   := 0; // значение по умолч. 2-го пар-ра
+  var i: word;
+  for(i := 1; i <= PPmServer.ParamCount; i := i + 1)
+  { // message('удачно.'+upcase(PPMServer.ParamName(i)),OkButton);
+    case upcase(PPMServer.ParamName(i)) of
+      'ФОРМАТ':
+        case upcase(PPMServer.ParamValue(i)) of
+          'Н':  PFormat := 1;
+          'ДД': PFormat := 2;
+          'Т':  PFormat := 3;
+          'К':  PFormat := 4;
+          'ДД2':  PFormat := 5;
+        end;
+      'СПИСОК':
+        case upcase(PPMServer.ParamValue(i)) of
+          'ПЕРВ':   PList := 1;
+          'ПОСЛЕД': PList := 2;
+        end;
+    else
+    {
+      Err := PPMServer.ParamName(i);
+      exit;
+    }
+    end;
+  }
+}
+
+Function DocHandle: string;
+{
+  DocHandle := '';
+  var LYear, FrazaOt: string[3];
+  var Data: string;
+  if (wGetTune('Country') = ccUkr)
+  {
+    LYear   := 'р.';
+    FrazaOt := 'вiд'
+  }
+  else
+  {
+    LYear   := 'г.';
+    FrazaOt := 'от'
+  }
+  if (PFormat>=0 and PFormat<=2)
+    Data := if(PPMDocInfo.dDoc<>date(0,0,0),string(PPMDocInfo.dDoc),'');
+  if (PFormat>=3 and PFormat<=5)
+    Data := if(PPMDocInfo.dDoc1<>date(0,0,0),string(PPMDocInfo.dDoc1),'');
+  Data := Replace(Data, '/', '.');
+  case PFormat of
+    0: DocHandle := PPMDocInfo.NumDoc + if(Data<>'',' ' + FrazaOt + ' ' + Data+ ' ' + LYear,'') ;
+    1: DocHandle := PPMDocInfo.NumDoc;
+    2: DocHandle := if(Data<>'',Data + ' ','');
+ // 2: DocHandle := Data + LYear;
+    3: DocHandle := PPMDocInfo.NumDoc1 + if(Data<>'',' ' + FrazaOt + ' ' + Data+ ' ' + LYear,'') ;
+    4: DocHandle := PPMDocInfo.NumDoc1;
+    5: DocHandle := if(Data<>'',Data + ' ','');
+  end;
+}
+
+Function Culc(TiDkGal, TiDkUser: word; cSoprDoc: comp; PpmServer: ObjPPTemplate; 
+              isSyntaxCheck: boolean; var ErrDescr: string): string;
+{
+  Culc        := '';
+  curTiDkGal  := TiDkGal;
+  curSoprDoc  := cSoprDoc;
+  curTiDkUser := TiDkUser;
+  ParamParser(PpmServer, ErrDescr);
+  // //////////////////////////
+  if isSyntaxCheck
+    exit; // если проверка синтаксиса, то не надо запускать все расчеты (на выход), иначе -- надо
+  // //////////////////////////
+  delete all PPMDocInfo;
+  _loop SoprHoz
+  {
+    if (GetFirst Dogovor = tsOk)
+    {
+      PPMDocInfo.NumDoc  := Dogovor.NoDoc;//Внутренний номер
+      PPMDocInfo.dDoc    := Dogovor.dDoc;//от(Внутренний номер)-дата заключения договора
+      PPMDocInfo.NumDoc1 := Dogovor.NoDoc_Ext; //Входящий номер
+      PPMDocInfo.dDoc1    := DOGOVOR.DINPUT;//Дата создания договора
+      insert current PPMDocInfo;
+    }
+  }
+  case PList of
+    0:
+    {
+      _loop PPMDocInfo
+        if length(Culc) + length(DocHandle) <= 248
+          Culc := Culc + DocHandle + '; ';
+    }
+    1:
+      if (GetFirst PPMDocInfo = tsOK)
+        if length(Culc) + length(DocHandle) <= 248
+          Culc := Culc + DocHandle + '; ';
+    2:
+      if (GetLast PPMDocInfo = tsOK)
+        if length(Culc) + length(DocHandle) <= 248
+          Culc := Culc + DocHandle + '; ';
+  end;
+  Culc := rTrim(Trim(Culc), ';');
+}
+
+HandleEvent // Interface
+
+cmOnVipLoad:
+{
+}
+
+cmOnVipUnload:
+{
+}
+End;
+End.

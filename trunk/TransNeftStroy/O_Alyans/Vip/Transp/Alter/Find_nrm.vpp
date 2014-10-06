@@ -1,0 +1,538 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 1994,97 корпорация ГАЛАКТИКА                      ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Автотранспорт                                             ║
+ ║ Версия        : 5.80                                                      ║
+ ║ Назначение    : Поиск норм в путевом листе и отчете по ГСМ (Avt_rep)      ║
+ ║ Ответственный : Лисица Наталья Михайловна                                 ║
+ ║ Параметры     : нет                                                       ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+
+Procedure Find_norma_Date;
+Begin
+    TsFlag := 1 ;
+    If SysTran.Temp5 = 0  // по марке
+    {  tsFlag :=  GetFirst NormGsm Where
+               ((
+#ifDef Gal7_1
+                  MetodTc          == NormGsm.WhatIs    And
+#end
+                  PutGsm.cToplivo  == NormGsm.cToplivo  And
+                  Transp.Nrec      == NormGsm.cTransp   And
+                  0                == NormGsm.cSpecob   And
+                  0                == NormGsm.cMarAvt   And
+                  0                == NormGsm.cVidGsm   And
+                  PutGsm.TipGsm    == NormGsm.AimGsm (noindex)  And
+                  NRecPos          == NormGsm.cVal   (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+                )) ;
+     }           
+     Else
+     {  tsFlag :=  GetFirst NormGsm Where
+               ((
+#ifDef Gal7_1
+                  MetodTc          == NormGsm.WhatIs    And
+#end
+                  Toplivo.cVidGsm  == NormGsm.cVidGsm   And
+                  Transp.Nrec      == NormGsm.cTransp   And
+                  0                == NormGsm.cSpecOb   And
+                  0                == NormGsm.cMarAvt   And
+                  0                == NormGsm.cToplivo  And
+                  PutGsm.TipGsm    == NormGsm.AimGsm (noindex) and
+                  NRecPos          == NormGsm.cVal (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+                ))  ;
+      }          
+     If tSFlag <> tsOk
+//увы для средства не нашли и ищем в общем справочнике
+     If SysTran.Temp5 = 0  // по марке
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cVidGsm  And
+                0                == NormGsm.cSpecOb  And
+                Transp.cMarka    == NormGsm.cMarka   And
+                PutGsm.cToplivo  == NormGsm.cToplivo And
+                NRecPos          == NormGsm.cVal (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+     }         
+     Else
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cSpecOb  And
+                Transp.cMarka    == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  And
+                NRecPos          == NormGsm.cVal (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+     }         
+End ;
+Procedure Find_norma_Agt_Date ;
+Begin
+    TsFlag := 1 ;
+// для спецоборудования
+    If Putgsm.cAgregat <> 0
+    {
+     if GetFirst ShinPut_Find where ((
+      3                 == ShinPut_Find.Shi_akk  and
+      putlst.nrec       == ShinPut_Find.cPutlst  and
+      Putgsm.cAgregat   == ShinPut_Find.cShinaf (noindex))) = tsok
+     { }
+     If SysTran.Temp5 = 0  // по марке
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                comp(0)          == NormGsm.cMarAvt  And
+                ShinPut_Find.cTransp  == NormGsm.cTransp  And
+                0                == NormGsm.cVidGsm  And
+                Compon_Spec.ccompon == NormGsm.cSpecOb  And
+                0                == NormGsm.cMarka   And
+                PutGsm.cToplivo  == NormGsm.cToplivo and
+                NRecPos          == NormGsm.cVal (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+     }         
+     Else
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                comp(0)          == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                ShinPut_Find.cTransp  == NormGsm.cTransp  And
+                Compon_Spec.ccompon  == NormGsm.cSpecob  And
+                0                == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  and
+                NRecPos          == NormGsm.cVal (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+     }         
+     If tSFlag <> tsOk
+//увы для средства не нашли и ищем в общем справочнике
+     If SysTran.Temp5 = 0  // по марке
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cVidGsm  And
+                Compon_Spec.cMarComp  == NormGsm.cSpecOb  And
+                0                == NormGsm.cMarka   And
+                PutGsm.cToplivo  == NormGsm.cToplivo and
+                NRecPos          == NormGsm.cVal (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+     }         
+     Else
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                0                == NormGsm.cTransp  And
+                Compon_Spec.cMarComp  == NormGsm.cSpecob  And
+                0                == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  and
+                NRecPos          == NormGsm.cVal (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+     }         
+      Exit ;
+    }
+End ;
+Procedure Find_norma_Mar_Date ;
+Begin
+    TsFlag := 1 ;
+// по маршруту и в зависимости от  NRecPos - по прицепу
+// для средства на маршрут не задаются - > ищем в общем справочнике
+      If SysTran.Temp5 = 0  // по марке
+      { tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+               MetodTc           == NormGsm.WhatIs    And
+#end
+               WayWpsGsm.cMaravt == NormGsm.cMarAvt  And
+               0                 == NormGsm.cTransp  And
+               0                 == NormGsm.cVidGsm  And
+               0                 == NormGsm.cSpecOb  And
+               Transp.cMarka     == NormGsm.cMarka   And
+               PutGsm.cToplivo   == NormGsm.cToplivo and
+               NRecPos           == NormGsm.cVal (noindex)      and
+               NRecPos_Uch       == NormGsm.cWayPath  (noindex) and
+               NRecPos_Usl       == NormGsm.cWorkAvt  (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+             )) ;
+     }        
+     Else
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                WayWpsGsm.cMaravt   == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cSpecob  And
+                Transp.cMarka    == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  and
+                NRecPos          == NormGsm.cVal (noindex)  and
+                NRecPos_Uch      == NormGsm.cWayPath  (noindex) and
+                NRecPos_Usl      == NormGsm.cWorkAvt  (noindex)
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+      }        
+      Exit ;
+End ;
+Procedure Find_norma_Mar_NoTc_Date ;
+Begin
+    TsFlag := 1 ;
+      If SysTran.Temp5 = 0  // по марке
+      { tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+               MetodTc           == NormGsm.WhatIs    And
+#end
+               WayWpsGsm.cMaravt == NormGsm.cMarAvt   And
+               PutGsm.cToplivo   == NormGsm.cToplivo  And
+               0                 == NormGsm.cTransp   And
+               0                 == NormGsm.cSpecOb   And
+               0                 == NormGsm.cMarka    And
+               0                 == NormGsm.cVidGsm
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+             )) ;
+     }        
+     Else
+     {  tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs      And
+#end
+                WayWpsGsm.cMaravt   == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo    And
+                0                == NormGsm.cTransp     And
+                0                == NormGsm.cSpecob     And
+                0                == NormGsm.cMarka      And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm
+             And  Putlst.ExitDn    >>= NormGsm.DatBeg (noindex)
+             And  Putlst.ExitDn    <<= NormGsm.DatEnd (noindex)
+              )) ;
+     }
+      Exit ;
+End ;
+
+Procedure Find_norma;
+Begin
+    TsFlag := 1 ;
+    If SysTran.Temp5 = 0  // по марке
+       tsFlag :=  GetFirst NormGsm Where
+               ((
+#ifDef Gal7_1
+                  MetodTc          == NormGsm.WhatIs    And
+#end
+                  PutGsm.cToplivo  == NormGsm.cToplivo  And
+                  Transp.Nrec      == NormGsm.cTransp   And
+                  0                == NormGsm.cSpecob   And
+                  0                == NormGsm.cMarAvt   And
+                  0                == NormGsm.cVidGsm   And
+                  PutGsm.TipGsm    == NormGsm.AimGsm (noindex) and
+                  NRecPos          == NormGsm.cVal (noindex)
+                )) ;
+     Else
+       tsFlag :=  GetFirst NormGsm Where
+               ((
+#ifDef Gal7_1
+                  MetodTc          == NormGsm.WhatIs    And
+#end
+                  Toplivo.cVidGsm  == NormGsm.cVidGsm   And
+                  Transp.Nrec      == NormGsm.cTransp   And
+                  0                == NormGsm.cSpecOb   And
+                  0                == NormGsm.cMarAvt   And
+                  0                == NormGsm.cToplivo  And
+                  PutGsm.TipGsm    == NormGsm.AimGsm (noindex) and
+                  NRecPos          == NormGsm.cVal (noindex)
+                ))  ;
+     If tSFlag <> tsOk
+//увы для средства не нашли и ищем в общем справочнике
+     If SysTran.Temp5 = 0  // по марке
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cVidGsm  And
+                0                == NormGsm.cSpecOb  And
+                Transp.cMarka    == NormGsm.cMarka   And
+                PutGsm.cToplivo  == NormGsm.cToplivo And
+                NRecPos          == NormGsm.cVal (noindex)
+              )) ;
+     Else
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cSpecOb  And
+                Transp.cMarka    == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  And
+                NRecPos          == NormGsm.cVal (noindex)
+              )) ;
+End ;
+Procedure Find_norma_Agt ;
+Begin
+    TsFlag := 1 ;
+// для спецоборудования
+    If Putgsm.cAgregat <> 0
+    {
+     if GetFirst ShinPut_Find where ((
+      3                 == ShinPut_Find.Shi_akk  and
+      putlst.nrec       == ShinPut_Find.cPutlst  and
+      Putgsm.cAgregat   == ShinPut_Find.cShinaf (noindex))) = tsok
+     { }
+     If SysTran.Temp5 = 0  // по марке
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                comp(0)          == NormGsm.cMarAvt  And
+                ShinPut_Find.cTransp  == NormGsm.cTransp  And
+                0                == NormGsm.cVidGsm  And
+                Compon_Spec.ccompon == NormGsm.cSpecOb  And
+                0                == NormGsm.cMarka   And
+                PutGsm.cToplivo  == NormGsm.cToplivo and
+                NRecPos          == NormGsm.cVal (noindex)
+              )) ;
+     Else
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                comp(0)          == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                ShinPut_Find.cTransp  == NormGsm.cTransp  And
+                Compon_Spec.ccompon  == NormGsm.cSpecob  And
+                0                == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  and
+                NRecPos          == NormGsm.cVal (noindex)
+              )) ;
+     If tSFlag <> tsOk
+//увы для средства не нашли и ищем в общем справочнике
+     If SysTran.Temp5 = 0  // по марке
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cVidGsm  And
+                Compon_Spec.cMarComp  == NormGsm.cSpecOb  And
+                0                == NormGsm.cMarka   And
+                PutGsm.cToplivo  == NormGsm.cToplivo and
+                NRecPos          == NormGsm.cVal (noindex)
+
+              )) ;
+     Else
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                0                == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                0                == NormGsm.cTransp  And
+                Compon_Spec.cMarComp  == NormGsm.cSpecob  And
+                0                == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  and
+                NRecPos          == NormGsm.cVal (noindex)
+              )) ;
+      Exit ;
+    }
+End ;
+Procedure Find_norma_Mar ;
+Begin
+    TsFlag := 1 ;
+// по маршруту и в зависимости от  NRecPos - по прицепу
+// для средства на маршрут не задаются - > ищем в общем справочнике
+      If SysTran.Temp5 = 0  // по марке
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+               MetodTc           == NormGsm.WhatIs    And
+#end
+               WayWpsGsm.cMaravt == NormGsm.cMarAvt  And
+               0                 == NormGsm.cTransp  And
+               0                 == NormGsm.cVidGsm  And
+               0                 == NormGsm.cSpecOb  And
+               Transp.cMarka     == NormGsm.cMarka   And
+               PutGsm.cToplivo   == NormGsm.cToplivo and
+               NRecPos           == NormGsm.cVal (noindex)      and
+               NRecPos_Uch       == NormGsm.cWayPath  (noindex) and
+               NRecPos_Usl       == NormGsm.cWorkAvt  (noindex)
+             )) ;
+     Else
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs    And
+#end
+                WayWpsGsm.cMaravt   == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo And
+                0                == NormGsm.cTransp  And
+                0                == NormGsm.cSpecob  And
+                Transp.cMarka    == NormGsm.cMarka   And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm  and
+                NRecPos          == NormGsm.cVal (noindex)  and
+                NRecPos_Uch      == NormGsm.cWayPath  (noindex) and
+                NRecPos_Usl      == NormGsm.cWorkAvt  (noindex)
+              )) 
+      Exit ;
+End ;
+Procedure Find_norma_Mar_NoTc ;
+Begin
+    TsFlag := 1 ;
+      If SysTran.Temp5 = 0  // по марке
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+               MetodTc           == NormGsm.WhatIs    And
+#end
+               WayWpsGsm.cMaravt == NormGsm.cMarAvt   And
+               PutGsm.cToplivo   == NormGsm.cToplivo  And
+               0                 == NormGsm.cTransp   And
+               0                 == NormGsm.cSpecOb   And
+               0                 == NormGsm.cMarka    And
+               0                 == NormGsm.cVidGsm
+             )) 
+     Else
+       tsFlag :=  GetFirst NormGsm Where
+             ((
+#ifDef Gal7_1
+                MetodTc          == NormGsm.WhatIs      And
+#end
+                WayWpsGsm.cMaravt   == NormGsm.cMarAvt  And
+                0                == NormGsm.cToplivo    And
+                0                == NormGsm.cTransp     And
+                0                == NormGsm.cSpecob     And
+                0                == NormGsm.cMarka      And
+                Toplivo.cVidGsm  == NormGsm.cVidGsm
+              )) ;
+
+      Exit ;
+End ;
+
+Procedure Find_Norma_all ;
+begin
+  if wGetTune('TranspPlGsm.NormaDate') = 0
+    {
+      If Putgsm.cAgregat <> 0
+      {
+         NRecPos := 0;
+         Find_Norma_Agt;
+      }
+      else
+      {
+        if Putgsm.EdinRas = 0 or  Putgsm.EdinRas = 4 or Putgsm.EdinRas = 5
+// без учета марки прицепа...
+           NRecPos := 0;
+        else
+           NRecPos := PutGsm.CardRec;  // МАРКА ПРИЦЕПА
+        if Putgsm.EdinRas = 6
+           NRecPos_usl := PutGsm.cRashDoc;  //УСЛУГА
+        else
+           NRecPos_usl := 0;
+        if Putgsm.EdinRas = 3 or  Putgsm.EdinRas = 5
+           NRecPos_Uch := Putgsm.cMaravt;
+        else
+           NRecPos_Uch := 0;
+        if Putgsm.EdinRas = 2 or  Putgsm.EdinRas = 4
+           Find_Norma_Mar
+        else
+        if Putgsm.EdinRas = 3 or  Putgsm.EdinRas = 5
+           Find_Norma_Mar;
+        else
+        if Putgsm.EdinRas = 6
+           Find_Norma_Mar;
+        else
+        if Putgsm.EdinRas = 7
+           Find_Norma_Mar_NoTC;
+        else
+           Find_Norma;
+       }
+    }
+    else
+    {
+      If Putgsm.cAgregat <> 0
+      {
+         NRecPos := 0;
+         Find_Norma_Agt_Date;
+      }
+      else
+      {
+        if Putgsm.EdinRas = 0 or  Putgsm.EdinRas = 4 or Putgsm.EdinRas = 5
+// без учета марки прицепа...
+           NRecPos := 0;
+        else
+           NRecPos := PutGsm.CardRec;  // МАРКА ПРИЦЕПА
+        if Putgsm.EdinRas = 6
+           NRecPos_usl := PutGsm.cRashDoc;  //УСЛУГА
+        else
+           NRecPos_usl := 0;
+        if Putgsm.EdinRas = 3 or  Putgsm.EdinRas = 5
+           NRecPos_Uch := Putgsm.cMaravt;
+        else
+           NRecPos_Uch := 0;
+        if Putgsm.EdinRas = 2 or  Putgsm.EdinRas = 4
+           Find_Norma_Mar_Date
+        else
+        if Putgsm.EdinRas = 3 or  Putgsm.EdinRas = 5
+           Find_Norma_Mar_Date;
+        else
+        if Putgsm.EdinRas = 6
+           Find_Norma_Mar_Date;
+        else
+        if Putgsm.EdinRas = 7
+           Find_Norma_Mar_NoTC_Date;
+        else
+           Find_Norma_Date;
+       }
+    }
+
+end;

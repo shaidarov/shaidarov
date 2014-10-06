@@ -1,0 +1,928 @@
+var
+  //m_sDocument : string;//  строковое описание документа для вывода в протокол
+  m_dDocument : date;
+  m_NumbDocument : string[40];
+  m_cDocument : comp;
+  m_bDocumentError : boolean; //есть ли ошибка в документе при предварительной проверке
+  m_bGenerateLogFileSys, m_bGenerateLogFile : boolean;//для вывода в протокол шапки
+  m_bError : boolean; // глобальная для определения были ли ошибки по всему dbf
+  m_sImportDir : string; // директория импорта
+  m_sExportDir: string; // директория экспорта
+  m_wAnalitik : longint;
+#ifdef ImportToDB
+  m_sBadDbfName : string;//текущее имя dbf файла c не импортированными данными
+  m_cStateOfBadRec : comp;// настройка состояния "Не импортирован"
+#end
+
+
+Function GetFolderDB : string;
+{
+  case wGetTune('Integrator.TypeDB') of
+  cg_DBAgent     : result := 'Agent';
+  cg_DBPrincipal : result := 'Principal';
+  end;
+}
+
+Function GetNameDB : string;
+{
+  case wGetTune('Integrator.TypeDB') of
+  cg_DBAgent     : result := cg_cnDBAgent;
+  cg_DBPrincipal : result := cg_cnDBPrincipal;
+  end;
+}
+// протокол  по умолчанию , который формируется если нет настроек
+function GetSysProtokolByAction(wTypeAction : word) : string;
+{
+  case wTypeAction of
+  cg_Exp : result := NameExportSysLog;
+  cg_Imp : result := NameImportSysLog;
+  end;
+}
+
+procedure GenerateLogFileSys(sStr : string; sFile : string; wTypeAction : word);
+{
+  _try
+  {
+    var sFileProt : string;
+    sFileProt := GetStringParameter('Files', 'OutputFilesDirectory', 0) + GetSysProtokolByAction(wTypeAction);
+    if (not m_bGenerateLogFileSys)
+    {
+      LogStrToFile(sFileProt,
+                   Oem2Ansi('────────────────────────────────────────────────────────────────────────'));
+      LogStrToFile(sFileProt,
+                   Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' |   Дата : ' + DateToStr(Cur_Date, 'DD/MM/YYYY   Day')));
+      LogStrToFile(sFileProt,
+                   Oem2Ansi('────────────────────────────────────────────────────────────────────────'));
+      m_bGenerateLogFileSys := true;
+    }
+    LogStrToFile(sFileProt, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | ' + sStr));
+    if (sFile <> '')
+      LogStrToFile(sFileProt, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' |   ' + sFile));
+  }
+  _except
+  else
+  {
+
+  }
+}
+
+function GetDirImport(wTidkGal : word) : string;
+{
+  result := ADDSLASHTOPATH(m_sImportDir) + string(wTidkGal)+ '\';
+}
+
+function GetDirExport(wTidkGal: word): string;
+{
+  result := ADDSLASHTOPATH(m_sExportDir) + string(wTidkGal) + '\';
+}
+
+function Reverse(sStr : string) : string;
+var
+  sResult : string;
+  i : word;
+{
+  sResult := '';
+  for (i := 1; i<=Length (sStr); i := i+1)
+   sResult := sStr[i] + sResult;
+  result := sResult;
+}
+
+#ifdef ImportToDB
+// добавление имен файлов dbf для импорта в таблицу в памяти для сортировки
+Procedure AddFileToTMP;
+var
+  sFileMask, sSourceName, sRevSourceName : string;
+  nBegPos : longint;
+  sNameTable : string;
+{
+  delete all tmp_impfile;
+  sNameTable := 'KatSopr';//поумолчанию в БД агента всегда будет эта таблица
+//  if (wGetTune('Integrator.TypeDB') = cg_DBPrincipal)
+  {
+    case m_wTidkGal of
+    cgDoc_0400 : sNameTable := 'Dogovor';
+    cgDoc_0150,
+    cgDoc_0250 : sNameTable := 'SklOrder';
+    else   sNameTable := 'KatSopr';//поумолчанию в БД агента всегда будет эта таблица
+    end;
+  }
+
+  sFileMask := GetDirImport(m_wTidkGal) + string(m_wTidkGal) + '*_' + sNameTable + '.dbf';
+  StartNewVisual(vtRotateVisual, vfTimer, 'Поиск файлов импорта для документа "' + vKatDocList.KatDoc.Name + '"', 1);
+  if (FindFirstFileCli(sFileMask, sSourceName))
+  {
+    do
+    {
+      NextVisual;
+      vImp.tmp_impfile.name := sNameTable;
+      vImp.tmp_impfile.wCode :=  m_wTidkGal;        /*директория импорта*/            /*тип документа*/   /*дата вырезается*/
+      sRevSourceName := Reverse(sSourceName);
+      nBegPos := length(GetDirImport(m_wTidkGal)) + length(m_wTidkGal) + 2;
+      vImp.tmp_impfile.sDate := substr(sSourceName, nBegPos, length(sRevSourceName) - pos('_', sRevSourceName) - nBegPos + 1);
+      vImp.tmp_impfile.sFullName := sSourceName;
+      vImp.insert current tmp_impfile;
+    } While (FindNextFileCli(sSourceName) );
+    DoneFileFinderCli;
+  }
+  StopVisual('', 0);
+}
+
+function GetFileProtokol(wTidkGal : word) : string;
+{
+  result := ADDSLASHTOPATH(m_sImportDir) + GetFolderDB + '\' + string(wTidkGal)+ '\' + string(wTidkGal) + '_' + m_sDate + '_import.log';
+}
+#else
+function GetFileProtokol(wTidkGal : word) : string;
+{
+  result := ADDSLASHTOPATH(m_sExportDir) + GetFolderDB + '\' + string(wTidkGal)+ '\' + string(wTidkGal) + '_' + m_sDate + '_export.log';
+}
+#end
+// генерация информации в протокол
+Function GenerateLogFile(wTidkGal : word; sMsg : string; wTypeMsg : word;
+#ifdef ImportToDB
+wTypeAction : word = cg_Imp
+#else
+wTypeAction : word = cg_Exp
+#end
+) : string;
+var
+  sFile, sMessage : string;
+{
+  sFile := GetFileProtokol(wTidkGal);
+  result := sFile;
+  _try
+  {
+    sMessage := sMsg;
+    case wTypeMsg of
+    cg_ImportSuccess   : {}
+    cg_ImportNoSuccess : {sMessage := sMessage + ' не импортирован'; m_bError := true;}
+    cg_ImportError     :
+    {
+    };
+    cg_ImportCount     : {};
+    cg_ExportSuccess   : sMessage := sMessage + ' экспортирован';
+    cg_ExportNoSuccess : {sMessage := sMessage + ' не экспортирован'; m_bError := true;}
+    cg_ExportError     : {};
+    cg_ExportCount     : {};
+    cg_ExportNoSuccessReason : { m_bError := true;};
+    else
+    {
+      sMessage := sMessage + '. Неизвестная операция.';
+      m_bError := true;
+    }
+    end
+    if (not m_bGenerateLogFile)
+    {
+      LogStrToFile(sFile,
+                   Oem2Ansi('────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'));
+      LogStrToFile(sFile,
+                   Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' |   Дата : ' + DateToStr(Cur_Date, 'DD/MM/YYYY   Day')));
+      LogStrToFile(sFile,
+                   Oem2Ansi('────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'));
+      LogStrToFile(sFile,
+                   Oem2Ansi(' Время   | Результат | Тип  | Дата док.  | Номер                                    | Описание результата'));
+      LogStrToFile(sFile,
+                   Oem2Ansi('────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'));
+      m_bGenerateLogFile := true;
+    }
+
+    if (wTypeMsg = cg_ImportError)
+    {
+      if (not m_bDocumentError)
+      {
+        LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | Проблема  | ' + Lpad(string(wTidkGal), 4) + ' | ' +
+                          DateToStr(m_dDocument, 'DD/MM/YYYY') + ' | ' + Pad(m_NumbDocument, 40) + ' | не импортирован'));
+        m_bDocumentError := true;
+      }
+      LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | ' + Pad('', 9) + ' |      |            | ' + Pad('', 40) + ' | ' + sMsg));
+    }
+    else if (wTypeMsg = cg_ImportSuccess)
+      LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | Успешно   | ' + Lpad(string(wTidkGal), 4) + ' | ' +
+                          DateToStr(m_dDocument, 'DD/MM/YYYY') + ' | ' + Pad(m_NumbDocument, 40) + ' | импортирован'));
+    else if ( wTypeMsg = cg_ImportCount)
+      LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | ' + sMsg));
+    else if ( wTypeMsg = cg_ExportCount)
+      LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | ' + sMsg));
+    else if (wTypeMsg = cg_ExportSuccess)
+      LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | Успешно   | ' + Lpad(string(wTidkGal), 4) + ' | ' +
+                          DateToStr(m_dDocument, 'DD/MM/YYYY') + ' | ' + Pad(m_NumbDocument, 40) + ' | экспортирован'));
+    else if (wTypeMsg = cg_ExportNoSuccessReason)
+      LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' | Проблема  | ' + Lpad(string(wTidkGal), 4) + ' | ' +
+                          DateToStr(m_dDocument, 'DD/MM/YYYY') + ' | ' + Pad(m_NumbDocument, 40) + ' | не экспортирован. Не задана причина возврата.'));
+    else
+      LogStrToFile(sFile, Oem2Ansi(TimeToStr(Cur_Time, 'HH:MM:SS') + ' |' + Pad('', 9) + ' |      |            | ' + Pad('', 40) + ' | ' + sMsg));
+  }
+  _except
+    on ExFile :
+      GenerateLogFileSys('Ошибка ' + ExploreException + '. ' + sMessage, sFile, wTypeAction);
+  _finally
+  {
+  }
+}
+
+Function SendMailExpImp(sFileAttach : string; sSubject : string; bExistError : boolean = false) : boolean;
+{
+  result := false;
+  if (wGetTune('Integrator.SendMessage') = cg_NeverSend) exit;
+
+  if (sGetTune('INTEGRATOR.EMAIL') = '') exit;
+
+  if (    (wGetTune('Integrator.SendMessage') = cg_OnlySendError)
+      and (not bExistError)) exit;
+
+  CreateMail(sGetTune('INTEGRATOR.EMAIL'), '', sSubject);
+  AddAttachFrom(sFileAttach);
+  SendMail;
+
+  result := true;
+}
+
+#declare IsValidKauMac(cRec,Table,FieldName,ValueName,FieldCode,ValueCode,sClassifier,sDetailDocInfo)
+  if (vCheckCatalogs.getFirst #Table where ((#cRec == #Table.nRec )) = tsOK)
+  {
+    if (#ValueName <> vCheckCatalogs.#Table.#FieldName)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  #sClassifier Аналитика. Не совпадает наименование ' + #ValueName + '.' +
+                                  #sDetailDocInfo + '. ' +
+                                  'Nrec: ' + string(#cRec), cg_ImportError);
+    }
+    if (#ValueCode <> vCheckCatalogs.#Table.#FieldCode)
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  #sClassifier Аналитика. Не совпадает код ' + #ValueCode + '.' +
+                                  #sDetailDocInfo + '. ' +
+                                  'Nrec: ' + string(#cRec), cg_ImportError);
+    }
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  #sClassifier Аналитика. Не найден в БД. ' +
+                                  #sDetailDocInfo + '. ' +
+                                  'Nrec: ' + string(#cRec), cg_ImportError);
+  }
+#end
+#ifdef ImportToDB
+// проверка валидации значений кау
+Function IsValidKau(_wKau: word; cRec : comp; _Name : String; _Code: string; sDetailInfo : string) : boolean;
+var bError : boolean;
+{
+  result := false;
+  if (_wKau = 0 or cRec = 0) exit;
+  case _wKau of
+  cgKau_ObjBuild:
+  {
+    #IsValidKauMac(cRec,KatStroy,Name,_Name,Code,_Code,Объект строительства,sDetailInfo)
+  }
+  cgKau_StZatr:
+  {
+    #IsValidKauMac(cRec,AddSumTune,Name,_Name,Code,_Code,Статья затрат,sDetailInfo)
+  }
+  cgKau_KatOrg:
+  {
+    #IsValidKauMac(cRec,KatOrg,Name,_Name,Code,_Code,Контрагент,sDetailInfo)
+  }
+  cgKau_KatPodr:
+  {
+    #IsValidKauMac(cRec,KatPodr,Name,_Name,Code,_Code,Подразделение,sDetailInfo)
+  }
+  cgKau_KatParty:
+  {
+    #IsValidKauMac(cRec,KatParty,Name,_Name,Kod,_Code,Партия,sDetailInfo)
+  }
+  cgKau_KatMOL:
+  {
+    #IsValidKauMac(cRec,KatMol,Name,_Name,Kod,_Code,Партия,sDetailInfo)
+  }
+  cgKau_KatMc:
+  {
+    #IsValidKauMac(cRec,KatMc,Name,_Name,BARKOD,_Code,МЦ,sDetailInfo)
+  }
+  cgKau_KatUsl:
+  {
+    #IsValidKauMac(cRec,KatUsl,Name,_Name,Kod,_Code,Услуга,sDetailInfo)
+  }
+  cgKau_FpCO:
+  {
+    #IsValidKauMac(cRec,FpCO,Name,_Name,CODE,_Code,ЦО,sDetailInfo)
+  }
+  cgKau_GroupUsl :
+  {
+    #IsValidKauMac(cRec,GroupUsl,Name,_Name,Kod,_Code,Группа услуг,sDetailInfo)
+  }
+  cgKau_GroupMC :
+  {
+    #IsValidKauMac(cRec,GroupMC,Name,_Name,Kod,_Code,Группа МЦ,sDetailInfo)
+  }
+  cgKau_GroupParty :
+  {
+    #IsValidKauMac(cRec,GroupParty,Name,_Name,Kod,_Code,Группа партий,sDetailInfo)
+  }
+  cgKau_TypeMC  :
+  {
+    #IsValidKauMac(cRec,TypeMC,Name,_Name,Kod,_Code,Типы МЦ,sDetailInfo)
+  }
+  cgKau_Persons :
+  {
+    #IsValidKauMac(cRec,Persons,FIO,_Name,TABNMB,_Code,Сотрудники предприятия,sDetailInfo)
+  }
+  cgKau_Dogovor :
+  {
+    if (vCheckCatalogs.getFirst Dogovor1 where ((cRec == Dogovor1.nRec )) = tsOK)
+    {
+      if (_Name <> vCheckCatalogs.Dogovor1.NODOC_EXT)
+      {
+        result := true;
+        GenerateLogFile(m_wTidkGal, '  Договор Аналитика. Не совпадает номер ' + _Name + '.' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+      }
+      if (_Code <> datetostr(vCheckCatalogs.Dogovor1.DDOC, 'DD.MM.YYYY'))
+      {
+        result := true;
+        GenerateLogFile(m_wTidkGal, '  Договор Аналитика. Не совпадает дата ' + _Code + '.' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+      }
+    }
+    else
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Договор Аналитика. Не найден в БД. ' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+  cgKau_SchFact :
+  {
+    if (vCheckCatalogs.getFirst SchFact1 where ((cRec == SchFact1.nRec )) = tsOK)
+    {
+      if (_Name <> vCheckCatalogs.SchFact1.NUM)
+      {
+        result := true;
+        GenerateLogFile(m_wTidkGal, '  СФ Аналитика. Не совпадает номер ' + _Name + '.' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+      }
+      if (_Code <> datetostr(vCheckCatalogs.SchFact1.DFACT, 'DD.MM.YYYY'))
+      {
+        result := true;
+        GenerateLogFile(m_wTidkGal, '  СФ Аналитика. Не совпадает дата ' + _Code + '.' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+      }
+    }
+    else
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  СФ Аналитика. Не найден в БД. ' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+  cgKau_KatSopr :
+  {
+    if (vCheckCatalogs.getFirst KatSopr1 where ((cRec == KatSopr1.nRec )) = tsOK)
+    {
+      if (_Name <> vCheckCatalogs.KatSopr1.nSopr)
+      {
+        result := true;
+        GenerateLogFile(m_wTidkGal, '  Накладная/акт Аналитика. Не совпадает номер ' + _Name + '.' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+      }
+      if (_Code <> datetostr(vCheckCatalogs.KatSopr1.dSopr, 'DD.MM.YYYY'))
+      {
+        result := true;
+        GenerateLogFile(m_wTidkGal, '  Накладная/акт Аналитика. Не совпадает дата ' + _Code + '.' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+      }
+    }
+    else
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Накладная/акт Аналитика. Не найден в БД. ' +
+                                    sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+/*  cgKau_KlVal :
+  {
+    #IsValidKauMac(cRec,KlVal,Name,_Name,Kod,_Code,Валюта,sDetailInfo)
+  }*/
+/*
+
+  :*/
+  5021 : {}// добавлена из тестеров
+  else
+  {
+    if (_wKau >= 10000)
+    {
+      #IsValidKauMac(cRec,SpKau,Name,_Name,CODE,_Code,Пользовательская аналитика,sDetailInfo)
+    }
+    else
+    {
+      result := true;
+      GenerateLogFile(m_wTidkGal, '  Аналитика. Не найден в БД с кодом ' + string(_wKau) + '. ' +
+                                     sDetailInfo + '. ' +
+                                    'Nrec: ' + string(cRec), cg_ImportError);
+    }
+  }
+  end;
+}
+
+function IsValidKlVal(coTable : word; cRec : comp; sDetailInfo : string): boolean;
+{
+  result := false;
+  if (cRec = 0)
+    exit;
+
+  if (GetFirst tmpKlVal where ((cRec == tmpKlVal.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Валюта. ' +
+                                'Невозможно прочитать данные из dbf файла. ' +
+                                 sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+
+  var sISO : string; sISO := tmpKlVal.ISO;
+  if (vCheckCatalogs.GetFirst tmpKlValMy where ((sISO == tmpKlValMy.ISO)) = tsOk)
+  {
+    case coTable of
+#ifdef Principal
+    coPaySchem :
+    {
+      SchemeAvan.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current SchemeAvan = tsOk) {}
+    }
+    coPaySchem + 1:
+    {
+      SchemePay.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current SchemePay = tsOk) {}
+    }
+    coPaySchem + 2:
+    {
+      SchemeAdd.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current SchemeAdd = tsOk) {}
+    }
+    coPlanPays :
+    {
+      PlanPaysAvan.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current PlanPaysAvan = tsOk) {}
+    }
+    coPlanPays + 1:
+    {
+      PlanPaysPay.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current PlanPaysPay = tsOk) {}
+    }
+    coPlanPays + 2:
+    {
+      PlanPaysAdd.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current PlanPaysAdd = tsOk) {}
+    }
+    coDogovor :
+    {
+      tmpDogovorDoc.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpDogovorDoc = tsOk) {}
+    }
+    coSpDocNal :
+    {
+      tmpSpDocNal.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpSpDocNal = tsOk) {}
+    }
+    coSpSopr :
+    {
+      tmpSpSopr.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpSpSopr = tsOk) {}
+    }
+    coSpSchF   :
+    {
+      tmpSpSchF.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpSpSchF = tsOk) {}
+    }
+    coSpStep :
+    {
+      tmpSpStep.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpSpStep = tsOk) {}
+    }
+    coCalPlan :
+    {
+      tmpCalPlanDoc.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpCalPlanDoc = tsOk) {}
+    }
+    coKatSopr:
+    {
+      tmpKatSopr.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpKatSopr = tsOk) {}
+    }
+    coSchFact:
+    {
+      tmpSchFact.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpSchFact = tsOk) {}
+    }
+    coSpOrder:
+    {
+      tmpSpOrder.cVal := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpSpOrder = tsOk) {}
+    }
+#end
+#ifdef Agent
+    coOborot :
+    {
+      tmpOborot.KODVALUT := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpOborot = tsOk) {}
+    }
+    coOborot + 1 :
+    {
+      tmpOborot.CONVVAL := vCheckCatalogs.tmpKlValMy.Nrec;
+      if (update current tmpOborot = tsOk) {}
+    }
+#end
+    end;
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Валюта. Не найден в БД. ' +
+                                  sDetailInfo + '. ' +
+                                  'ISO: ' + sISO, cg_ImportError);
+  }
+}
+
+function IsValidKatNotes(coTable : word; cRec : comp; sDetailInfo : string): boolean;
+{
+  result := false;
+  if (cRec = 0)
+    exit;
+
+  if (GetFirst tmpKatNotes where ((cRec == tmpKatNotes.nRec)) <> tsOk)
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Статус. ' +
+                                'Невозможно прочитать данные из dbf файла. ' +
+                                 sDetailInfo + '. ' +
+                                'Nrec: ' + string(cRec), cg_ImportError);
+    exit;
+  }
+
+  var wStatus, wVidDoc : word;
+  wStatus := tmpKatNotes.Status;
+  wVidDoc := tmpKatNotes.VidDoc;
+  var sName, sCode : string; sName := tmpKatNotes.Name; sCode := tmpKatNotes.Code;
+  if (vCheckCatalogs.GetFirst tmpKatNotesMy where ((wStatus == tmpKatNotesMy.Status
+                                                and wVidDoc == tmpKatNotesMy.VidDoc
+                                                and sName == tmpKatNotesMy.Name)) = tsOk)
+  {
+    if (cRec = vCheckCatalogs.tmpKatNotesMy.Nrec) exit;
+
+    case coTable of
+#ifdef Principal
+    coDogovor :
+    {
+      tmpDogovorDoc.cNote := vCheckCatalogs.tmpKatNotesMy.Nrec;
+      if (update current tmpDogovorDoc = tsOk) {}
+    }
+    coCalPlan :
+    {
+      tmpCalPlanDoc.cNote := vCheckCatalogs.tmpKatNotesMy.Nrec;
+      if (update current tmpCalPlanDoc = tsOk) {}
+    }
+    coKatSopr :
+    {
+      tmpKatSopr.cNote := vCheckCatalogs.tmpKatNotesMy.Nrec;
+      if (update current tmpKatSopr = tsOk) {}
+    }
+    coBaseDoc :
+    {
+      tmpBaseDoc.cNote := vCheckCatalogs.tmpKatNotesMy.Nrec;
+      if (update current tmpBaseDoc = tsOk) {}
+    }
+#end
+#ifdef Agent
+    coOborot :
+    {
+      tmpOborot.cNote := vCheckCatalogs.tmpKatNotesMy.Nrec;
+      if (update current tmpOborot = tsOk) {}
+    }
+#end
+    end;
+  }
+  else
+  {
+    result := true;
+    GenerateLogFile(m_wTidkGal, '  Статус. Не найден в БД. ' +
+                                  sDetailInfo + '. ' +
+                                  'Status: ' + string(wStatus) + ' Code: ' + sCode +  ' Name: ' +sName , cg_ImportError);
+  }
+}
+
+Function InsertKlVal(hMarker : longint; sDbfName : string) : boolean;//9
+{
+  result := false;
+  if (not ExistFile(sDbfName))
+  {
+    result := true;
+    exit;
+  }
+
+  DBFKlVal := DBFOpen(sDbfName, stOpenRead);
+
+  if (DBFKlVal = 0)
+    Exit;
+
+  StartNewVisual(vtRotateVisual, vfTimer + vfScreenBottom, 'Загрузка данных из файла "' + sDbfName + '"', 1);
+  if (DBFGetFirst(DBFKlVal) = tsOk)
+  do
+  {
+    NextVisual;
+    ClearBuffer(#tmpKlVal);
+    tmpKlVal.NREC := comp(DBFGetFieldValue(DBFKlVal, 'NREC'));
+    tmpKlVal.DOLLAR := DBFGetFieldValue(DBFKlVal, 'DOLLAR');
+    tmpKlVal.ISO := DBFGetFieldValue(DBFKlVal, 'ISO');
+    insert current tmpKlVal;
+  }
+  while DBFGetNext(DBFKlVal) = tsOk;
+  StopVisual('', 0);
+  result := true;
+}
+
+Function InsertKatNotes(hMarker : longint; sDbfName : string) : boolean;//11
+{
+  result := false;
+  if (not ExistFile(sDbfName))
+  {
+    result := true;
+    exit;
+  }
+
+  DBFKatNotes := DBFOpen(sDbfName, stOpenRead);
+
+  if (DBFKatNotes = 0)
+    Exit;
+
+  StartNewVisual(vtRotateVisual, vfTimer + vfScreenBottom, 'Загрузка данных из файла "' + sDbfName + '"', 1);
+  if (DBFGetFirst(DBFKatNotes) = tsOk)
+  do
+  {
+    NextVisual;
+    ClearBuffer(#tmpKatNotes);
+    tmpKatNotes.NREC := comp(DBFGetFieldValue(DBFKatNotes, 'NREC'));
+    tmpKatNotes.NAME := DBFGetFieldValue(DBFKatNotes, 'NAME');
+    tmpKatNotes.CODE := DBFGetFieldValue(DBFKatNotes, 'CODE');
+    tmpKatNotes.STATUS := word(DBFGetFieldValue(DBFKatNotes, 'STATUS'));
+    tmpKatNotes.VIDDOC := word(DBFGetFieldValue(DBFKatNotes, 'VIDDOC'));
+
+    insert current tmpKatNotes;
+  }
+  while DBFGetNext(DBFKatNotes) = tsOk;
+  StopVisual('', 0);
+  result := true;
+}
+
+// удаление или копирование обработанных dbf файлов
+Procedure IsDelFileImport(bDel : boolean; sDir : string; sDate : string);
+{
+  var sFileName, sFile: string;
+  sFile := GetFirstFile(sDir, sDate + '*.db*');
+
+  while (sFile <> strDataIsEmpty) do
+  {
+    if (bDel)
+      DeleteFile(sFile);
+    else
+    {
+      sFileName := SubStr(sFile, length(sDir) + 1, length(sFile) - length(sDir));
+      CopyMoveFile(sFile, sDir + 'Archive\' + sFileName, true, ecmfServerFrom/*для 2-х игнорируется, но поставил , чтобы не было предупреждение */);
+    }
+    sFile := GetNextFile;
+  }
+}
+// создание файла для ответа на документы в случае наличия не импортированных документов
+Function CreateBadDocDbf(wType: word; sTable : string; sDate : string) : longInt;
+var sDbfName : string;
+{
+  result := 0;
+  m_sBadDbfName := GetDirExport(wType) + string(wType) + '_' + sDate + '_' + sTable + '.tmp';
+  DBFBADDOC := DBFOpen(m_sBadDbfName, stCreate);
+  if (DBFBADDOC = 0) exit;
+
+  DBFAddField(DBFBADDOC, 'NREC', DbChar, 20, 0);
+  DBFAddField(DBFBADDOC, 'STATE', DbChar, 20, 0);
+  case wType of
+  cgDoc_0150,
+  cgDoc_0250 :
+  {
+    DBFAddField(DBFBADDOC, 'DORD', DbDate, 8, 0);
+    DBFAddField(DBFBADDOC, 'NORDER', DbChar, 40, 0);
+  }
+  else
+  {
+    DBFAddField(DBFBADDOC, 'DSOPR', DbDate, 8, 0);
+    DBFAddField(DBFBADDOC, 'NSOPR', DbChar, 40, 0);
+  }
+  end;
+  result := DBFBADDOC;
+}
+#ifdef Principal
+Procedure InsertKatSoprBadDocToDbf(Buf : type$p_tmpKatSopr);
+{
+  dbfPutFieldValue(DBFBADDOC, 'NREC', string(Buf.Nrec));
+  dbfPutFieldValue(DBFBADDOC, 'STATE', string(m_cStateOfBadRec));
+  dbfPutFieldValue(DBFBADDOC, 'DSOPR', DateToStr(buf.DSOPR, 'YYYYMMDD'));
+  dbfPutFieldValue(DBFBADDOC, 'NSOPR', string(Buf.NSOPR));
+  DBFInsertRecord(DBFBADDOC);
+}
+
+Procedure InsertSklOrderBadDocToDbf(Buf : type$p_tmpSklOrder);
+{
+  dbfPutFieldValue(DBFBADDOC, 'NREC', string(buf.Nrec));
+  dbfPutFieldValue(DBFBADDOC, 'STATE', string(m_cStateOfBadRec));
+  dbfPutFieldValue(DBFBADDOC, 'DORD', DateToStr(buf.DORD, 'YYYYMMDD'));
+  dbfPutFieldValue(DBFBADDOC, 'NORDER', string(buf.NORDER));
+  DBFInsertRecord(DBFBADDOC);
+}
+#else
+Procedure InsertBadDocToDbf(wTidkGal : word; Buf : type$p_tmpMain);
+{
+  dbfPutFieldValue(DBFBADDOC, 'NREC', string(Buf.Nrec));
+  dbfPutFieldValue(DBFBADDOC, 'STATE', string(m_cStateOfBadRec));
+  case wTidkGal of
+  cgDoc_0150,
+  cgDoc_0250 :
+  {
+    dbfPutFieldValue(DBFBADDOC, 'DORD', DateToStr(buf.DDATE, 'YYYYMMDD'));
+    dbfPutFieldValue(DBFBADDOC, 'NORDER', string(Buf.NUMB));
+  }
+  else
+  {
+    dbfPutFieldValue(DBFBADDOC, 'DSOPR', DateToStr(buf.DDATE, 'YYYYMMDD'));
+    dbfPutFieldValue(DBFBADDOC, 'NSOPR', string(Buf.NUMB));
+  }
+  end;
+  DBFInsertRecord(DBFBADDOC);
+}
+#end
+#else
+//генерация имени DBF файла
+Function GenegateDbfName(wType : word; sTable : string;sDate : string) : string;
+{
+  // для главных файлов изначально даем расширение tmp, чтобы неполучилось ситуации
+  // что файл для экспорта еще не подготовлен, а импорт его уже обрабатывает
+  result := GetDirExport(wType) + string(wType) + '_' + sDate + '_' + sTable + if(sTable = 'DogovorDoc' or sTable = 'KatSopr', '.tmp', '.dbf');
+}
+
+Function CreateKlValDbf(wType: word; sTable : string;sDate : string) : longInt;
+var  FileDbf : longInt;
+{
+  result := 0;
+  sDbfName := GenegateDbfName(wType, sTable, sDate);
+  FileDbf := DBFOpen(sDbfName, stCreate);
+  if (FileDbf = 0)
+    exit;
+
+  DBFAddField(FileDBF, 'NREC', DbChar, 20, 0);
+  DBFAddField(FileDBF, 'DOLLAR', DbChar, 30, 0);
+  DBFAddField(FileDBF, 'ISO', DbChar, 10, 0);
+  result := FileDBF;
+}
+
+Procedure InsertKlValToDbf(buf : type$p_KlVal);
+{
+  if (FoundMarker(hMarkKlVal, buf.nRec))
+    exit;
+
+  InsertMarker(hMarkKlVal, buf.nRec);
+  dbfPutFieldValue(FileDBFKlVal,'NREC', string(buf.nRec));
+  dbfPutFieldValue(FileDBFKlVal,'DOLLAR', buf.DOLLAR);
+  dbfPutFieldValue(FileDBFKlVal,'ISO', buf.ISO);
+  DBFInsertRecord(FileDBFKlVal);
+}
+
+Function CreateKatNotesDbf(wType: word; sTable : string;sDate : string) : longInt;
+var  FileDbf : longInt;
+{
+  result := 0;
+  sDbfName := GenegateDbfName(wType, sTable, sDate);
+  FileDbf := DBFOpen(sDbfName, stCreate);
+  if (FileDbf = 0)
+    exit;
+
+  DBFAddField(FileDBF, 'NREC', DbChar, 20, 0);
+  DBFAddField(FileDBF, 'NAME', DbChar, 80, 0);
+  DBFAddField(FileDBF, 'CODE', DbChar, 20, 0);
+  DBFAddField(FileDBF, 'STATUS', DbNum, 8, 0);
+  DBFAddField(FileDBF, 'VIDDOC', DbNum, 8, 0);
+  result := FileDBF;
+}
+Procedure InsertKatNotesToDbf(buf : type$p_KatNotes);
+{
+  if (FoundMarker(hMarkNotes, buf.nRec))
+    exit;
+
+  InsertMarker(hMarkNotes, buf.nRec);
+  dbfPutFieldValue(FileDBFKatNotes,'NREC', string(buf.nRec));
+  dbfPutFieldValue(FileDBFKatNotes,'NAME', buf.NAME);
+  dbfPutFieldValue(FileDBFKatNotes,'CODE', buf.CODE);
+  dbfPutFieldValue(FileDBFKatNotes,'STATUS', string(buf.STATUS));
+  dbfPutFieldValue(FileDBFKatNotes,'VIDDOC', string(buf.VIDDOC));
+  DBFInsertRecord(FileDBFKatNotes);
+}
+
+procedure FindRecodsByStatus(WTABLE : word; wTidkGal : word; cStatus : comp);
+var
+  lQuery : longint;
+  objQuery : IQuery;
+{
+  lQuery := 0;
+  delete all mtListRec;
+  case WTABLE of
+  coKatSopr :
+  {
+    sqlAddStr(lQuery, 'select a.cRec cRec from AttrVal a join KatSopr b on (a.cRec = b.Nrec and b.VIDSOPR = ' + string(wTidkGal)+ ')');
+    sqlAddStr(lQuery, 'where (a.CATTRNAM = #comp(' + string(m_cAttrNum) + '))');
+    sqlAddStr(lQuery, '  and (a.WTABLE = ' + string(coKatSopr) + ') ');
+    sqlAddStr(lQuery, '  and (a.VCOMP = #comp(' + cStatus + '))');
+    objQuery := queryManager.createQuery(lQuery);
+  }
+  coDogovor :
+  {
+    sqlAddStr(lQuery, 'select a.cRec cRec from AttrVal a join Dogovor b on (a.cRec = b.Nrec)');
+    sqlAddStr(lQuery, 'where (a.CATTRNAM = #comp(' + string(m_cAttrNum) + ')) ');
+    sqlAddStr(lQuery, '  and (a.WTABLE = ' + string(coDogovor) + ') ');
+    sqlAddStr(lQuery, '  and (a.VCOMP = #comp(' + cStatus + '))');
+    objQuery := queryManager.createQuery(lQuery);
+  }
+  coSklOrder :
+  {
+    var nVIDORDER : word;
+    case wTidkGal of
+    cgDoc_0150 : nVIDORDER := 0;
+    cgDoc_0250 : nVIDORDER := 1;
+    end;
+
+    sqlAddStr(lQuery, 'select a.cRec cRec from AttrVal a join SklOrder b on (a.cRec     = b.Nrec');
+    sqlAddStr(lQuery, '                                                  and b.VIDORDER = ' + string(nVIDORDER));//приход/расход
+//    sqlAddStr(lQuery, '                                                  and b.TIPORD   = 4');//только переоценка
+    sqlAddStr(lQuery, '                                                  and ((b.SP       = 0) or (b.SP       = 3))');//склад и УКС
+    sqlAddStr(lQuery, '                                                  and b.cSopr       = #comp(0))');//ссылки на накладную нет
+    sqlAddStr(lQuery, 'where (a.CATTRNAM = #comp(' + string(m_cAttrNum) + ')) ');
+    sqlAddStr(lQuery, '  and (a.WTABLE = ' + string(coSklOrder) + ') ');
+    sqlAddStr(lQuery, '  and (a.VCOMP = #comp(' + cStatus + '))');
+    objQuery := queryManager.createQuery(lQuery);
+  }
+  end;
+  // выполнение самого запроса
+  if (objQuery.execute.ErrorCode = tsOk)
+    sqlCopyInto(objQuery, #mtListRec, true);
+}
+#end
+
+procedure ChangeStatusAfterExport(cNotesAfter : comp; cDoc : comp; WTABLE : word);
+{
+  case WTABLE of
+  coKatSopr :
+  {
+    oExtAttr.coSetAttrID(coKatSopr, cDoc, m_cAttrNum, cNotesAfter, ShowKau(m_wAnalitik, cNotesAfter));
+  }
+  coDogovor :
+  {
+    oExtAttr.coSetAttrID(coDogovor, cDoc, m_cAttrNum, cNotesAfter, ShowKau(m_wAnalitik, cNotesAfter));
+  }
+  coSklOrder :
+  {
+    oExtAttr.coSetAttrID(coSklOrder, cDoc, m_cAttrNum, cNotesAfter, ShowKau(m_wAnalitik, cNotesAfter));
+  }
+  end;
+}
+#declare SetDescrAndGrSecr(NameTable)
+if (wGetTune('Integrator.MayChangeDescr') <> cg_NeverSet)
+{
+   if (wGetTune('Integrator.MayChangeDescr') = cg_OnlyDescr)
+     #NameTable.DESCR := sGetTune('Integrator.Descr');
+   else if (wGetTune('Integrator.MayChangeDescr') = cg_OnlyGrDescr)
+     #NameTable.DESGR := sGetTune('Integrator.DesGr');
+   else
+   {
+     #NameTable.DESCR := sGetTune('Integrator.Descr');
+     #NameTable.DESGR := sGetTune('Integrator.DesGr');
+   }
+}
+#end
+
+Function CheckOperClosePeriod(_dat : date) : boolean;
+{
+  result := true;
+  var tmpDat : date;   TmpDat := dGetTune('Oper.DateClosePeriod');
+  var tmpNN  : word;   tmpNN  := wGetTune('Oper.ModifyInClosePeriod');
+  if (_dat   = ZeroDate)     // дата документа не определена
+     or (tmpNN  = 0)         // разрешать модификацию данных в закр.периоде
+     or (TmpDat = ZeroDate)  // закрытый период не определен
+    Exit;
+  if (_dat > TmpDat)  //дата документа не попадает в закр.период
+    Exit;
+ result := false;
+}

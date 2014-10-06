@@ -1,0 +1,128 @@
+#include TxoApi.vih // Подключение интерфейса TxoApi
+
+VipInterface txo_plpor_pers implements ObjTxoIdentPlugin;
+
+Interface txo_plpor_pers;
+var
+  CurSoprHoz, katorg_nrec : comp  ;
+  pay,konv   : word  ;
+
+create view
+as select
+soprhoz.nrec
+from
+  SoprHoz,
+  DOCPODOT,
+  SPPLBAN,
+  katorg,
+  sbban,
+  shtraf
+;
+
+
+function GetInfo : string;
+{
+   GetInfo := 'Определение аналитики по сотрудникам из реестра к платежному поручению';
+}
+
+
+Window wParam 'Задайте параметры идентификатора &VIP[Obj:"txo_plpor_pers"]' (,,) EscClose;
+  Show at (2,30,60,40);
+    Screen scParam (,,);
+
+      Fields
+
+        Konv        : noprotect;
+
+ <<
+
+          `          Параметры расчета:                           `
+
+           (.) YES                                                `
+           (.) NOT                                                `
+
+  1. Если параметр [YES], то алгоритм передает в режим 1 аналитику
+  по сотруднику и оргнанизацию из реестра к платежному поручению.
+  2. Если параметр [NO], то алгоритм не работает )))
+
+ >>
+
+End;
+
+
+HandleEvent // window
+ cmInit :
+         {
+           konv    := 0;
+         }
+ cmDefault : CloseWindow(wParam);
+End;  // HandleEvent
+End;  // window
+
+function ParamMaster : string;
+{
+   RunWindow(wParam);
+   PackFields;
+   case konv of
+     0  : ParamMaster := '[YES:]';
+     1  : ParamMaster := '[NOT:]';
+
+
+   end;
+
+}
+
+
+procedure StoreCycles(hTxo : longint; buf : TTxoApiInfoDoc);
+{
+
+  TxoAllowRecallStoreCycles(hTxo);
+
+   CurSoprHoz := buf.cSoprHoz;                      // позиционирование на SoprHoz
+
+     case TxoParamName(hTxo,1) of
+      'YES'       : {pay:=word(1);}
+      'NOT'       : {pay:=word(2);}
+
+      end;
+
+      TxoBodyClear(hTxo);
+
+
+    if (pay=word(1))
+      {
+       if getfirst soprhoz where ((CurSoprHoz  == SoprHoz.Nrec)) = tsok
+        {
+         _loop DOCPODOT  where ((
+                                    word(3)           == docpodot.tipdoc
+                                and Soprhoz.csoprdoc  == DOCPODOT.CPRDOC
+                               ))
+          {
+           _loop SPPLBAN where ((docpodot.CVTDOC == SPPLBAN.CSBBAN))
+
+            {
+
+             if getfirst sbban where ((docpodot.CVTDOC   == SBBAN.nrec)) = tsok
+
+             if getfirst shtraf   where ((
+                                              SPPLBAN.CLSCH == shtraf.CLSCH
+                                          and sbban.cpol == shtraf.cpol (noindex)
+                                         )) = tsok
+
+             if getfirst katorg where ((shtraf.CKAUK[1] == katorg.nrec)) = tsok
+             {
+             TxoBodyAddKau(hTxo, wflkau_mode1, 1, katorg.nrec);
+             }
+             TxoBodyAddKau(hTxo, wflkau_mode1, 3, SPPLBAN.TPERSON);
+             TxoBodySetSum(hTxo, SPPLBAN.sumopl, 0, 0);
+             TxoBodyInsert(hTxo);
+            }
+          }
+        }
+     }
+}
+
+handleevent
+end;
+
+end.

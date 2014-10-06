@@ -1,0 +1,265 @@
+/*
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║                     (c) 2005 корпорация ГАЛАКТИКА                         ║
+ ║ Проект        : ГАЛАКТИКА                                                 ║
+ ║ Система       : Управление транспортом                                    ║
+ ║ Версия        : 7.12                                                      ║
+ ║ Назначение    : Сигнатуры сервисных функций для ТС                        ║
+ ║ Ответственный : Жилко Дмитрий Витальевич (HATTER)                         ║
+ ║ Параметры     : есть                                                      ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+Const
+  // Коды записей истории ТС
+//  cowTransp= 0; - не используется
+  cowTranspHistNomer = 1; // изменение гос. номера
+  cowTranspHistPodr  = 2; // изменение подразделения эксплуатации
+  cowTranspHistPodrBalans  = 3; // изменение подразделения баланса
+  cowTranspHistMol  = 6; // изменение мол
+  cowTranspHistGodV = 4; // дата выпуска
+  cowTranspHistDatOk = 5; // дата использования
+
+end;
+
+
+#ifndef _TranspService_
+#define _TranspService_
+
+ObjInterface objTranspService;
+
+// определение валидности заданного ГСМ для заданной ТС
+Function CheckFuelPermissionForTransp (acToplivo: comp; acTransp: comp): word;
+
+// вернуть кол-во пассажирских мест
+Function GetPassengerPlaces (acTransp: comp): word;
+
+// удаление проданых билетов по заданному пункту движения ТС
+// подсчет освободившихся пассажирских мест
+Function DelShinPutCalcPlaces(acWayItem: comp ): double;
+
+// удаление маршрутных пунктов в ПЛ
+// подсчет освободившихся пассажирских мест
+Function DelWayItemCalcPlaces(acPutLst: comp ): double;
+
+// печать формы ОС-4а
+Function TranspPrintOsOne(acTransp: comp) : word;
+
+// переустановка шин на ТС
+Function ChangeShina (awMode: word; acTransp: comp; awCurShinState: word; adTypeMove: date): word;
+
+// разница дат и времени
+Function TranspSubDateTime(adBegDate:date; adEndDate:date; adBegTime:time; adEndTime:time):double;
+
+// поиск бака для заданного ГСМ для заданной ТС
+Function FindGasTankByGSM (awFlag: word; acToplivo: comp; acTransp: comp): word;
+
+// поиск ГСМ по баку для заданной МЦ
+Function FindGSMByGasTank (awFlag: word; awTank: word; acTransp: comp): comp;
+
+// поиск ГСМ по таблице коэффициентов  для заданной МЦ
+Function FindGSMByTablChange (acToplivo: comp): comp;
+
+// создание записи истории ТС
+// Входные данные:
+//   acTransp - ссылка на ТС
+//   adBegDate - дата формирования записи истории ТС
+//   awTipHistory - тип записи истории
+//   awTipInsert - добавление с запросом
+// Результат: nRec записи истории
+function InsertTranspHistory (acTransp: comp; adBegDate : date; awTipHistory : word; awTipInsert: word): comp;
+
+// создание всех типов записей истории ТС
+// Входные данные:
+//   acTransp - ссылка на ТС
+//   adBegDate - дата формирования записи истории ТС
+// Результат: код ошибки
+Function InsertTranspAllHistory (acTransp: comp; adBegDate : date): word;
+
+// поиск последней записи движения ТС (проверка существования записей истории ТС)
+// Входные данные:
+//   acTransp - ссылка на ТС
+//   awTipHistory - тип записи истории
+// Результат: ссылка на последнюю запись
+Function FindTranspHistory (acTransp: comp; awTipHistory : word): comp;
+
+// определение типа ТС для записи истории
+// Входные данные:
+//   awTipTCBD - запись истории в БД
+// Результат: тип ТС (ТС или прицеп и т.п.)
+Function HistoryToMainTipTC(awTipTCBD : word): word;
+
+// формирование типа записи истории для любого вида ТС
+// Входные данные:
+//   awTipTC - тип ТС (ТС или прицеп и т.п.)
+//   awTipHistory - тип записи истории ( 1 - изменение гос номера)
+// Результат: запись истории для БД
+Function BuildTipHistoryTC(awTipTC : word; awTipHistory : word ): word;
+
+// определение типа записи истории
+// Входные данные:
+//   awTipTCBD - запись истории в БД
+// Результат: тип записи истории ( 1 - изменение гос номера)
+Function HistoryTCToTipHistoryTC(awTipTCBD : word): word;
+
+// обновление гос. номера ТС
+// Входные данные:
+//   acTransp - ссылка на запись ТС для изменения
+//   asNomer - новое значение гос. номера
+// Результат:
+Function UpdateNomer (acTransp: comp; asNomer: string): boolean;
+
+// обновление подразделения эксплуатации
+// Входные данные:
+//   acTransp - ссылка на запись ТС для изменения
+//   acPodr   - ссылка на новое значение подразделения
+// Результат:
+Function UpdatecPodr(acTransp: comp; acPodr : comp): boolean;
+
+// обновление подразделения баланса
+// Входные данные:
+//   acTransp - ссылка на запись ТС для изменения
+//   acPodr   - ссылка на новое значение подразделения
+// Результат:
+Function UpdatecPodrBalans(acTransp: comp; acPodr : comp): boolean;
+
+// обновление Мол
+// Входные данные:
+//   acTransp - ссылка на запись ТС для изменения
+//   acMol   - ссылка на мол
+// Результат:
+Function UpdatecMol (acTransp: comp; acMol : comp): boolean;
+
+// возвращает гос. номер на определенную дату
+// Входные данные:
+//   acTransp - ссылка на запись ТС для изменения
+//   adDate - дата, на которую нужно вывести номер
+// Результат:
+Function FindTranspNomer (acTransp: comp; adDate: date): string;
+
+Function FindTranspPodr (acTransp: comp; adDate: date): string;
+
+Function FindTranspPodrNrec (acTransp: comp; adDate: date): comp;
+
+Function FindTranspHistNrecPodr (acPutlst: comp; adDate: date): comp;
+
+// возвращает cсылку на подразделении эксплуатации истории на определенную дату
+// Входные данные:
+//   acPutlst - ссылка на запись ПЛ
+//   adDate - дата, на которую нужно получить подразделение
+// Результат: ссылка на запись истории
+
+Function UpdatePLHistNrecPodr (BegDate: date; EndDate: date; acTransp : comp; acPodr : comp): boolean;
+
+Function UpdatePLPodrSomeTc (acTransp : comp; BegDate: date): boolean;
+
+Function UpdatePLPodrZakSomeTc (acTransp : comp; BegDate: date): boolean;
+
+Function FindTranspHistnRec (acTransp: comp; adDate: date; awTipHistory : word): comp;
+
+// определение запись шапки ТС или Истории ТС
+// Входные данные:
+//   awTipTCBD - тип ТС
+// Результат: true - основная; false - запись истории
+
+
+Function HistoryOrMainTipTC(awTipTCBD : word) : boolean;
+
+// формирование вида транспорта по типу ТС
+// Входные данные:
+//   awTipTCBD - тип ТС
+// Результат: вид ТС (авто, жд, прочие)
+Function TipTCToMetodTC(awTipTCBD : word) : word;
+
+// обновление подразделения по всех записях истории
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   acPodr - ссылка на новое подразделение
+// Результат:
+Function UpdateAllHistcPodr(acTransp: comp; acPodr : comp): word;
+
+// обновление Типа ТС для всех записей истории
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   awTipTCBD - тип ТС
+//   awTipHistory - тип записи истории ТС
+// Результат:
+Function UpdateHistTipTC (acTransp: comp; awTipTCBD : word; awTipHistory : word ):word;
+
+// обновление данных о подразделении в шинах установленных и закрепленных на ТС
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   acPodr   - ссылка на подразделение
+//   awTypePodr - тип операции (1 - обновление, 2 - добаление)
+//   adHistDate - дата создания записей движения
+// Результат:
+Function TranspPodrShina( acTransp: comp; acPodr: comp; awTypePodr: word; adHistDate: date): boolean;
+
+// обновление данных о подразделении в комплектующей установленных на ТС
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   acPodr   - ссылка на подразделение
+//   awTypePodr - тип операции (1 - обновление, 2 - добаление)
+//   adHistDate - дата создания записей движения
+// Результат:
+Function TranspPodrCompon( acTransp: comp; acPodr: comp; awTypePodr: word; adHistDate: date): boolean;
+
+// обновление данных о подразделении в ТС, комплектующей и шине
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   acPodr   - ссылка на подразделение
+//   awMsg    - выводить сообщение
+//   adHistDate - дата создания записей движения
+// Результат:
+Function TranspUpdatePodrComponShina( acTransp: comp; acPodr: comp; awMsg : word; adHistDate: date) : boolean;
+
+// Входные данные:
+//   awTipTC - тип ТС в БД
+//   awCase  - падеж
+//   awCount - число
+//   awShort - сокращененная форма
+// Результат:
+//   возвращает наименование типа ТС в различных падежах, числах и полная или сокращенная форма
+Function TipTCName (awTipTC : word; awCase: word; awCount: word; awShort : boolean ): string;
+
+// Входные данные:
+//   awTipTC - тип записи в БД
+// Результат:
+//   возвращает тип записи ТС (0,3) или Прицеп (1, 4)
+Function TcOrTrl( awTipTCBD: word ): word;
+
+// удаление записей истории ТС заданного типа истории
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   awTipHistory - тип записи истории ТС
+// Результат:
+Function DeleteTranspHistory (acTransp: comp; awTipHistory : word): boolean;
+
+// удаление всех записей истории ТС
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+// Результат:
+Function DeleteTranspAllHistory (acTransp: comp): word;
+
+// обновление данных ТС после выбора марки
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   acMarka - ссылка на марку ТС
+// Результат:
+Function UpdateMarka (acTransp : comp; acMarka : comp): word;
+
+// обновление полей карточки ОС (KatOS)
+// Входные данные:
+//   acTransp - ссылка на запись ТС
+//   awField - код поля для обновления
+// Результат:
+Function UpdateFldKatOs(acTransp : comp; awField : word): word;
+
+End; // ObjInterface objTranspService
+
+VipInterface TranspService implements objTranspService
+#ifdef ATL51
+  licensed (FREE)
+#end
+;
+
+#end

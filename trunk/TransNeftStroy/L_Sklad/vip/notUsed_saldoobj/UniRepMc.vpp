@@ -1,0 +1,1525 @@
+// значения типа t с номером i
+#declare GetDataField(t,i)
+(
+  if(#t=1,tmp_data.kValue[#i],
+  if(#t=2,tmp_data.nValue[#i],
+  if(#t=3,tmp_data.sOther[#i],''
+))))
+#end
+#declare GetDataNumField(t,i)
+double(
+  if(#t=4,double(tmp_data.Kol[#i]),
+  if(#t=5,double(tmp_data.Price[#i]),
+  if(#t=6,double(tmp_data.Summa[#i]),0
+))))
+#end
+#declare GetGroupNumField(t,i)
+double(
+  if(#t=4,tmp_group.Kol[#i],
+  if(#t=5,if(tmp_group.Kol[#i]=0,0,tmp_group.Summa[#i]/tmp_group.Kol[#i]),
+  if(#t=6,tmp_group.Summa[#i],0
+))))
+#end
+
+!-------------------------------------------------------------------------------
+// Функции для winCfgSelect и winCfgEdit
+!-------------------------------------------------------------------------------
+Function GetTypeReport(wT : word): string;
+{
+  GetTypeReport:='';
+  Case wT of
+    0: GetTypeReport:='Только сальдо';
+    1: GetTypeReport:='Только приходы';
+    2: GetTypeReport:='Только расходы';
+    3: GetTypeReport:='Приходы и расходы';
+    4: GetTypeReport:='Сальдо и движение';
+    5: GetTypeReport:='Сальдо и движение с расшифровкой';
+    6: GetTypeReport:='Сравнение сальдо';
+  end;
+}
+!-------------------------------------------------------------------------------
+Function GetTypeSaldo(wT : word): string;
+{
+  GetTypeSaldo:='';
+  Case wT of
+    0: GetTypeSaldo:='По документам';
+    1: GetTypeSaldo:='По остаткам МТР';
+  end;
+}
+!-------------------------------------------------------------------------------
+Function GetOneGroup(wG : word): string;
+{
+  GetOneGroup:='нет';
+  Case wG of
+    1: GetOneGroup:='Склад';
+    2: GetOneGroup:='МОЛ';
+    3: GetOneGroup:='МЦ';
+    4: GetOneGroup:='Партия';
+    5: GetOneGroup:='ЦУ1';
+    6: GetOneGroup:='ЦУ2';
+    7: GetOneGroup:='ЦУ3';
+    8: GetOneGroup:='ЦУ4';
+    9: GetOneGroup:='ЦУ5';
+   10: GetOneGroup:='ЦУ6';
+   11: GetOneGroup:='ЦУ7';
+   12: GetOneGroup:='ЦУ8';
+   13: GetOneGroup:='Складской док-т';
+   14: GetOneGroup:='Сопровод.док-т';
+   15: GetOneGroup:='Организация';
+   16: GetOneGroup:='ТипМЦ';
+  end;
+}
+!-------------------------------------------------------------------------------
+Function GetAllGroup: string;
+{
+  Var i : integer;
+  GetAllGroup:='';
+  For (i:=6;i<=10;i:=i+1)
+  Case OborCfg.wFilter[i] of
+    1: GetAllGroup:=GetAllGroup+' \ Склад';
+    2: GetAllGroup:=GetAllGroup+' \ МОЛ';
+    3: GetAllGroup:=GetAllGroup+' \ МЦ';
+    4: GetAllGroup:=GetAllGroup+' \ Партия';
+    5: GetAllGroup:=GetAllGroup+' \ ЦУ1';
+    6: GetAllGroup:=GetAllGroup+' \ ЦУ2';
+    7: GetAllGroup:=GetAllGroup+' \ ЦУ3';
+    8: GetAllGroup:=GetAllGroup+' \ ЦУ4';
+    9: GetAllGroup:=GetAllGroup+' \ ЦУ5';
+   10: GetAllGroup:=GetAllGroup+' \ ЦУ6';
+   11: GetAllGroup:=GetAllGroup+' \ ЦУ7';
+   12: GetAllGroup:=GetAllGroup+' \ ЦУ8';
+   13: GetAllGroup:=GetAllGroup+' \ Скл.док';
+   14: GetAllGroup:=GetAllGroup+' \ Сопр.док';
+   15: GetAllGroup:=GetAllGroup+' \ Организац';
+   16: GetAllGroup:=GetAllGroup+' \ ТипМЦ';
+  end;
+  GetAllGroup:=Trim(SubStr(GetAllGroup,4,250));
+  GetAllGroup:=If(Trim(GetAllGroup)='','Нет',GetAllGroup);
+}
+!-------------------------------------------------------------------------------
+Procedure SetEmpty(wFld : word);
+{
+  tmp_data.kValue[wFld]:='<нет>';
+  tmp_data.nValue[wFld]:='<неопределенное значение>';
+}
+!-------------------------------------------------------------------------------
+Function isDoocen : boolean;
+{
+  isDoocen:=false;
+  if ((SpOrder.tipOrd>=4) and (SpOrder.tipOrd<=7))
+  then isDoocen:= true;
+}
+Function VidDoocen : word;//pavel
+{
+//Все дооценочные ордера у нас создаются как приходные в системе. Для расходных дооценок служит Атрибут
+  VidDoocen:=0;
+  if (((SpOrder.tipOrd>=4) and (SpOrder.tipOrd<=7)) )
+    if isvalidall(#ATTRVAL)
+      if ATTRVAL.vComp=1
+        VidDoocen:=1;
+}
+!-------------------------------------------------------------------------------
+
+Function GetTOrdStr: string;
+{
+  if getfirst KatDoc where ((SklOrder.cSopr==KatSopr.nRec and KatSopr.VidSopr==KatDoc.TidkGal))=tsOk
+  {
+    GetTOrdStr:=if(SklOrder.VidOrder=0, 'Приходный', 'Расходный')+' ордер от '+DateToStr(SklOrder.dOrd,'DD.MM.YYYY')+' по документу "'+KatDoc.Name+'"';
+    Exit;
+  }
+  GetTOrdStr:='';
+  case SklOrder.TipOrd of
+     1 : GetTOrdStr:=if(SklOrder.VidOrder=0, 'Приходный', 'Расходный')+' ордер';
+     2 : GetTOrdStr:=if(SklOrder.Sp=0, 'Операция с производством', 'Операция со складом');
+     3 : GetTOrdStr:='Внутреннее перемещение';
+     4 : GetTOrdStr:='Переоценка';
+     5 : GetTOrdStr:='Предыдущая переоценка';
+     6 : GetTOrdStr:='Дооценка до цены последнего приобретения';
+     7 : GetTOrdStr:='Дооценка готовой продукции';
+    10 : GetTOrdStr:=if(SklOrder.VidOrder=0, 'Розничная торговля', '');
+    15 : GetTOrdStr:=if(SklOrder.VidOrder=0, 'Остатки на дату удаления старой информации', '');
+  end;
+  GetTOrdStr:=GetTOrdStr+' от '+DateToStr(SklOrder.dOrd,'DD.MM.YYYY');
+}
+!-------------------------------------------------------------------------------
+Procedure AddOneRecord(_pDooc:byte;cPodr, cMol, cMc,cType, cParty, cTune, cObj, cKau1, cKau2, cKau3, cKau4, cKau5, cKau6, cKau7, cDoc, cSopr, cOrg : comp; wType : word;_dOrd:date);
+{
+  var iKau : word;
+  var wKau : word;
+  // функция заполнения аналитики wKau значением tmp_data.cValue[iKau]
+#declare GetKauValue(w,n)
+  if #w=2 // подразделения
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst KatPodr where ((tmp_data.cValue[#n]==KatPodr.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=KatPodr.Kod;
+        tmp_data.nValue[#n]:=KatPodr.Name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=60  // МОЛ
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst KatMol where ((tmp_data.cValue[#n]==KatMol.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=KatMol.Kod;
+        tmp_data.nValue[#n]:=KatMol.Name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=4  // МЦ
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst KatMc where ((tmp_data.cValue[#n]==KatMc.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=KatMc.BarKod;
+        tmp_data.nValue[#n]:=KatMc.Name;
+        if #n=3
+        {
+          tmp_data.sOther[1]:=KatEd.Name;
+          if OborCfg.wFilter[11]=1//Производство
+          {
+            if (getfirst katotped where ((
+                     1                    ==  katotped.prmc
+                and  katmc.nrec           ==  katotped.cMcUsl
+                and  1                    ==  katotped.pr))=tsOK)
+            {
+              tmp_data.sOther[1]:=Katotped.name;
+              sporder_koef:=if(katotped.koef<>0,katotped.koef,1);
+            }
+          }
+          tmp_data.sOther[6]:=KatMc.kGroupMc;
+          //2010tmp_data.sOther[9]:=typeMC.name;//07/12/2009
+          //2010tmp_data.sOther[10]:=TYPEMC.KOD;//07/12/2009
+
+        }
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=5008  // Тип МЦ
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst TypeMCGr where ((tmp_data.cValue[#n]==TypeMCGr.nRec))=tsOk
+      {
+          tmp_data.kValue[#n]:=TYPEMCGr.KOD;
+          tmp_data.nValue[#n]:=typeMCGr.name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=10  // Партия
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst KatParty where ((tmp_data.cValue[#n]==KatParty.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=KatParty.Kod;
+        tmp_data.nValue[#n]:=KatParty.Name;
+        if #n=4
+        {
+          if instr('_',KatParty.Kod)=0
+            tmp_data.sOther[5]:=substr(KatParty.Name,1,10);
+          else
+            tmp_data.sOther[5]:='01/01/'+substr(KatParty.Name,1,4);
+        }
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=40  // Объект строительства
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst KatStroy where ((tmp_data.cValue[#n]==KatStroy.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=KatStroy.Code;
+        tmp_data.nValue[#n]:=KatStroy.Name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=73  // Статья в строительстве
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst AddSumTune where ((tmp_data.cValue[#n]==AddSumTune.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=AddSumTune.Code;
+        tmp_data.nValue[#n]:=AddSumTune.Name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=22  // Центр ответственности
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst Fpco where ((tmp_data.cValue[#n]==Fpco.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=Fpco.Code;
+        tmp_data.nValue[#n]:=Fpco.Name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=21  // Период планирования
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst FpPeriod where ((tmp_data.cValue[#n]==FpPeriod.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=FpPeriod.Code;
+        tmp_data.nValue[#n]:=FpPeriod.Name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w=5013  // Транспорт
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst TRANSP where ((tmp_data.cValue[#n]==TRANSP.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=TRANSP.NOMER;
+        tmp_data.nValue[#n]:=TRANSP.MARKA;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+  if #w>10000  // Пользовательская
+  {
+    if tmp_data.cValue[#n]<>0h
+      if getfirst SpKau where ((tmp_data.cValue[#n]==SpKau.nRec))=tsOk
+      {
+        tmp_data.kValue[#n]:=SpKau.Code;
+        tmp_data.nValue[#n]:=SpKau.Name;
+      }
+      else SetEmpty(#n);
+    else SetEmpty(#n);
+  }
+
+#end
+
+  if (getfirst tmp_data where ((word(if(wType<3,0,1)) == tmp_data.isNoSaldo
+                                          //04/2010 and _pDooc  == tmp_data.pDooc//Раздельно надо только движение показывать!!!!
+                                          and cPodr  == tmp_data.cValue[1]
+                                          and cMol   == tmp_data.cValue[2]
+                                          and cMc    == tmp_data.cValue[3]
+                                          and cParty == tmp_data.cValue[4]
+                                          and cObj   == tmp_data.cValue[5]
+                                          and cKau1  == tmp_data.cValue[6]
+                                          and cKau2  == tmp_data.cValue[7]
+                                          and cKau3  == tmp_data.cValue[8]
+                                          and cKau4  == tmp_data.cValue[9]
+                                          and cKau5  == tmp_data.cValue[10]
+                                          and cKau6  == tmp_data.cValue[11]
+                                          and cKau7  == tmp_data.cValue[12]
+                                          and comp(if(wType<3,0h,cDoc))  == tmp_data.cValue[13]
+                                          and comp(if(wType<3,0h,cSopr)) == tmp_data.cValue[14]
+                                          and comp(if(wType<3,0h,cOrg))  == tmp_data.cValue[15]
+                                          and cType== tmp_data.cValue[16]//2010
+                             ))<>tsOk)
+  {
+    ClearBuffer(#tmp_data);
+    tmp_data.nRec:=GetNextNrec(#tmp_data,0);
+    tmp_data.isNoSaldo:=if(wType<3,0,1);
+    tmp_data.pDooc    :=_pDooc;
+    tmp_data.cValue[1]:=cPodr;
+    tmp_data.cValue[2]:=cMol;
+    tmp_data.cValue[3]:=cMc;
+    tmp_data.cValue[16]:=cType;
+    tmp_data.cValue[4]:=cParty;
+    tmp_data.cValue[5]:=cObj;
+    tmp_data.cValue[6]:=cKau1;
+    tmp_data.cValue[7]:=cKau2;
+    tmp_data.cValue[8]:=cKau3;
+    tmp_data.cValue[9]:=cKau4;
+    tmp_data.cValue[10]:=cKau5;
+    tmp_data.cValue[11]:=cKau6;
+    tmp_data.cValue[12]:=cKau7;
+    sporder_koef:=1;
+    if wType>2
+    {
+      tmp_data.cValue[13]:=cDoc;
+      tmp_data.cValue[14]:=cSopr;
+      tmp_data.cValue[15]:=cOrg;
+    }
+    tmp_data.sOther[4]:=DateToStr(_dOrd,'DD.MM.YYYY');
+    /*2010-bistro
+    if getfirst SklOrder where ((cDoc==SklOrder.nRec))=tsOk
+      tmp_data.sOther[4]:=DateToStr(SklOrder.dOrd,'DD.MM.YYYY');
+    */
+    // подразделение
+    iKau:=1; wKau:=2;
+    #GetKauValue(wKau,iKau)
+    // МОЛ
+    iKau:=2; wKau:=60;
+    #GetKauValue(wKau,iKau)
+    // МЦ
+    iKau:=3; wKau:=4;
+    #GetKauValue(wKau,iKau)
+    //Тип МЦ
+    iKau:=16; wKau:=5008;
+    #GetKauValue(wKau,iKau)
+
+    // Партия
+    iKau:=4; wKau:=10;
+    #GetKauValue(wKau,iKau)
+    // определяем вид ЦУ
+    if getfirst SaldTune where ((cTune==SaldTune.nRec))=tsOk
+    {
+      tmp_data.sOther[7]:=SaldTune.code;
+      tmp_data.sOther[8]:=SaldTune.name;
+      // определяем объект
+      iKau:=5;
+      wKau:=SaldTune.wObj;
+      #GetKauValue(wKau,iKau)
+      for (iKau:=6; iKau<=12; iKau:=iKau+1)
+      {
+        wKau:=SaldTune.wKau[iKau-5];
+        #GetKauValue(wKau,iKau)
+      }
+    }
+    else
+    {
+      tmp_data.sOther[7]:='';
+      tmp_data.sOther[8]:='';
+    }
+    if tmp_data.cValue[13]<>0h
+      if getfirst SklOrder where ((tmp_data.cValue[13]==SklOrder.nRec))=tsOk
+      {
+        tmp_data.kValue[13]:=SklOrder.nOrder;
+        tmp_data.nValue[13]:=GetTOrdStr;
+        tmp_data.sOther[2]:=DateToStr(SklOrder.dOrd,'DD.MM.YYYY');
+      }
+    //   else SetEmpty(13);
+    // else SetEmpty(13);
+    if tmp_data.cValue[14]<>0h
+      if getfirst KatSopr where ((tmp_data.cValue[14]==KatSopr.nRec))=tsOk
+      {
+        tmp_data.kValue[14]:=KatSopr.nSopr;
+        tmp_data.nValue[14]:=KatDoc.Name+' от '+DateToStr(KatSopr.dSopr,'DD.MM.YYYY');
+        tmp_data.sOther[3]:=DateToStr(KatSopr.dSopr,'DD.MM.YYYY');
+      }
+    //   else SetEmpty(14);
+    // else SetEmpty(14);
+    if tmp_data.cValue[15]<>0h
+    {
+      c:=0h;
+      if getfirst SklOrder where ((SpOrder.cSklOrder==SklOrder.nRec))=tsOk
+        if getfirst KatSopr where ((SklOrder.cSopr==KatSopr.nRec))=tsOk
+          if getfirst KatOrg where ((KatSopr.cOrg==KatOrg.nRec))=tsOk
+            c:=KatOrg.nRec;
+      if c=0h
+      {
+        if wType=3
+          c:=KatSopr.cPodrFrom;
+        else
+          c:=KatSopr.cPodrTo;
+        if getfirst KatPodr where ((c==KatPodr.nRec))=tsOk
+        {
+          tmp_data.kValue[15]:=KatPodr.Kod;
+          tmp_data.nValue[15]:=KatPodr.Name;
+        }
+        else SetEmpty(15);
+      }
+      else
+      {
+        if getfirst KatOrg where ((tmp_data.cValue[15]==KatOrg.nRec))=tsOk
+        {
+          tmp_data.kValue[15]:=KatOrg.Unn;
+          tmp_data.nValue[15]:=Trim(KatOrg.TipOrg+' '+KatOrg.Name);
+        }
+        else SetEmpty(15);
+      }
+    }
+    else SetEmpty(15);
+
+    tmp_data.Kol[1]  :=0;
+    tmp_data.Kol[3]  :=0;
+    tmp_data.Kol[4]  :=0;
+    tmp_data.Kol[6]  :=sporder_koef;//20/10/2009
+
+    tmp_data.Summa[1]:=0;
+    tmp_data.Summa[3]:=0;
+    tmp_data.Summa[4]:=0;
+
+    insert current tmp_data;
+  }
+  // сальдо входящее
+  if wType=1
+  {
+    if OborCfg.wFilter[1]=0//По документам
+    {
+      tmp_data.Kol[1]  :=tmp_data.Kol[1]  +If(SpOrder.VidOrder=0,1,-1)*(sporder.kol/tmp_data.Kol[6]);
+  //    tmp_data.Summa[1]:=tmp_data.Summa[1]+If(SpOrder.VidOrder=0,1,-1)*If(isDoocen,if(VidDoocen=0,1,-1)*SpOrder.SrPrice,sporder.kol*SpOrder.SrPrice);
+      tmp_data.Summa[1]:=tmp_data.Summa[1]+If(SpOrder.VidOrder=0,1,-1)*If(isDoocen,SpOrder.SrPrice,sporder.kol*SpOrder.SrPrice);
+    }//if OborCfg.wFilter[1]=0//По документам
+    if OborCfg.wFilter[1]=1//По Сальдо МТР
+    {
+      tmp_data.Kol[1]  :=tmp_data.Kol[1]  +(SaldoObj.kol/tmp_data.Kol[6]);
+      tmp_data.Summa[1]:=tmp_data.Summa[1]+SaldoMc.SRPRICE*SaldoObj.kol;
+    }//if OborCfg.wFilter[1]=1//По Сальдо МТР
+  }
+  //message(isDoocen+'_'+VidDoocen+'_'+SpOrder.VidOrder+'_'+string(sklorder.norder,0,0)+'_'+string(SpOrder.SrPrice));
+  if isDoocen
+  {
+    // приходы
+    if wType=3
+    {
+      //!!!вся дооценка у нас в системе как приход отражается!!!
+      if VidDoocen=0 //приход
+      {
+        tmp_data.Kol[3]  :=tmp_data.Kol[3]+0;
+        tmp_data.Summa[3]:=tmp_data.Summa[3]+SpOrder.SrPrice;
+      }
+      else
+      {
+        tmp_data.Kol[4]  :=tmp_data.Kol[4]+0;
+        tmp_data.Summa[4]:=tmp_data.Summa[4]+((-1)*SpOrder.SrPrice);//Знак переворачиваем)))
+      }
+    }
+  }
+  else
+  {
+    // приходы
+    if wType=3
+    {
+      tmp_data.Kol[3]  :=tmp_data.Kol[3]  +If(SpOrder.VidOrder=0,1,0)*(sporder.kol/tmp_data.Kol[6]);
+      tmp_data.Summa[3]:=tmp_data.Summa[3]+If(SpOrder.VidOrder=0,1,0)*sporder.kol*SpOrder.SrPrice;
+    }
+    // расходы
+    if wType=4
+    {
+      tmp_data.Kol[4]  :=tmp_data.Kol[4]  +If(SpOrder.VidOrder=0,0,1)*(sporder.kol/tmp_data.Kol[6]);
+      tmp_data.Summa[4]:=tmp_data.Summa[4]+If(SpOrder.VidOrder=0,0,1)*sporder.kol*SpOrder.SrPrice;
+    }
+  }
+  update current tmp_data;
+}
+procedure  my_check_next_visual;
+begin
+  if ((not NextVisual) or m_break)
+  {
+    m_break:=true;
+    break;
+  };
+end;
+!-------------------------------------------------------------------------------
+Procedure CreateSaldoDoc(DatSal : date);
+{
+  m_break:=false;
+//по документам
+  StartNewVisual(vtRotateVisual,vfTimer+vfBreak+vfThread,'Расчет входящего сальдо...',50);
+  // фильтрация!!!
+  lMarker:=InitMarker(iGetKau.GetMarkerName(kauType), 8, 100, 10);
+  sporder_koef:=1;
+
+#declare m_CreateSaldoDoc(par)
+  _loop SpOrder where ((
+  #par
+
+//pavel OborCfg.wFilter[11]=0 - sklad
+//      OborCfg.wFilter[11]=1 - proizvodstvo
+//pavel
+  //2010-bistro and SpOrder.cmc==KatMcFlt.nrec
+  and
+  coSklOrder==ATTRVAL.wtable and  //Тип ордера дооценки (приход, расход)
+  sporder.CSKLORDER==ATTRVAL.crec and
+  myAtrTip==ATTRVAL.CATTRNAM
+ //<<
+  ))
+  {
+    my_check_next_visual;
+    //Фильтр по типу МЦ
+    if GetMarkerCount(lMarker)>0
+      if (not foundmarker(lMarker,KatMcFlt.cType))
+        then continue;
+    /*2010
+    w:=GetMarkerCount(lMarker);
+    if w>0
+      if isvalidall(tnSpecMtr)
+        if not SearchMarker(lMarker,SpecMtr.cKau[4],l)
+          Continue;
+    */
+    var p_dooc:byte;//2010-снова дооценка но уже нормальная
+    p_dooc:=if(isDoocen,1,0);
+    //<<Фильтр по типу МЦ
+    if isvalidall(tnSpecMtr)
+    {
+      AddOneRecord(p_dooc,SpOrder.ccPodr,SpOrder.ccMol,SpOrder.cMc,KatMcFlt.cType,SpOrder.cParty,SpecMtr.cSaldTune,SpecMtr.cObj,
+                   SpecMtr.cKau[1],SpecMtr.cKau[2],SpecMtr.cKau[3],SpecMtr.cKau[4],SpecMtr.cKau[5],SpecMtr.cKau[6],SpecMtr.cKau[7],
+                   SpOrder.cSklOrder,0h,0h,1,SpOrder.dord);
+    }
+    else
+    {
+      AddOneRecord(p_dooc,SpOrder.ccPodr,SpOrder.ccMol,SpOrder.cMc,KatMcFlt.cType,SpOrder.cParty,0h,0h,
+                   0h,0h,0h,0h,0h,0h,0h,SpOrder.cSklOrder,0h,0h,1,SpOrder.dord);
+
+    }
+    //
+  }
+#end
+  if w_ind=0
+  {
+    #m_CreateSaldoDoc(OborCfg.wFilter[11]==SpOrder.sp and DatSal>>SpOrder.dOrd)
+  }
+  if w_ind=1
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop SklOrderFlt
+      where ((
+      OborCfg.wFilter[11]==SklOrderFlt.sp and
+      _cMol==SklOrderFlt.cmol and
+      DatSal>>SklOrderFlt.dOrd
+      ))//SKLORDER04
+      {
+        my_check_next_visual;
+        //m_CreateSaldoDoc(and _cMol==SpOrder.ccMol(noindex) and DatSal>>SpOrder.dOrd)
+        #m_CreateSaldoDoc(SklOrderFlt.nrec==SpOrder.CSKLORDER)
+      }//_loop SklOrderFlt
+    }
+  }
+  if w_ind=2
+  {
+    _loop Pick where ((pickPodr==Pick.wList))
+    {
+      my_check_next_visual;
+      _cPOdr:=Pick.cRec;
+      _loop SklOrderFlt
+      where ((
+      OborCfg.wFilter[11]==SklOrderFlt.sp and
+      _cPOdr==SklOrderFlt.cPodr and
+      DatSal>>SklOrderFlt.dOrd
+      ))//SKLORDER0?
+      {
+        my_check_next_visual;
+        //m_CreateSaldoDoc(and _cPodr==SpOrder.ccPodr(noindex) and DatSal>>SpOrder.dOrd)
+        #m_CreateSaldoDoc(SklOrderFlt.nrec==SpOrder.CSKLORDER)
+      }//_loop SklOrderFlt
+    }
+  }
+  if w_ind=3
+  {
+    _loop Pick where ((pickMc==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMc:=Pick.cRec;
+      #m_CreateSaldoDoc(OborCfg.wFilter[11]==SpOrder.sp and _cMc==SpOrder.cMc and DatSal>>SpOrder.dOrd)
+    }
+  }
+  if w_ind=4
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick2 where ((pickMc==Pick2.wList))
+      {
+        my_check_next_visual;
+        _cMc:=Pick2.cRec;
+        #m_CreateSaldoDoc(OborCfg.wFilter[11]==SpOrder.sp and _cMol==SpOrder.ccMol and _cMC==SpOrder.cMc and DatSal>>SpOrder.dOrd)
+      }
+    }
+  }
+  if w_ind=5
+  {
+    _loop Pick where ((pickPodr==Pick.wList))
+    {
+      my_check_next_visual;
+      _cPOdr:=Pick.cRec;
+      _loop Pick2 where ((pickMc==Pick2.wList))
+      {
+        my_check_next_visual;
+        _cMc:=Pick2.cRec;
+        #m_CreateSaldoDoc(OborCfg.wFilter[11]==SpOrder.sp and _cPodr==SpOrder.ccPodr and _cMC==SpOrder.cMc and DatSal>>SpOrder.dOrd)
+      }
+    }
+  }
+  if w_ind=6
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick3 where ((pickPodr==Pick3.wList))
+      {
+        my_check_next_visual;
+        _cPOdr:=Pick3.cRec;
+        _loop Pick2 where ((pickMc==Pick2.wList))
+        {
+          my_check_next_visual;
+          _cMc:=Pick2.cRec;
+          #m_CreateSaldoDoc(OborCfg.wFilter[11]==SpOrder.sp and _cMol==SpOrder.ccMol and _cPodr==SpOrder.ccPodr and _cMC==SpOrder.cMc and DatSal>>SpOrder.dOrd)
+        }
+      }
+    }
+  }
+  if w_ind=7
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick3 where ((pickPodr==Pick3.wList))
+      {
+        my_check_next_visual;
+        _cPOdr:=Pick3.cRec;
+        _loop SklOrderFlt
+        where ((
+        OborCfg.wFilter[11]==SklOrderFlt.sp and
+        _cMol==SklOrderFlt.cMol and
+        _cPOdr==SklOrderFlt.cPodr and
+        DatSal>>SklOrderFlt.dOrd
+        ))//SKLORDER0?
+        {
+          my_check_next_visual;
+          //m_CreateSaldoDoc(and _cMol==SpOrder.ccMol(noindex) and _cPodr==SpOrder.ccPodr(noindex) and DatSal>>SpOrder.dOrd)
+          #m_CreateSaldoDoc(SklOrderFlt.nrec==SpOrder.CSKLORDER)
+        }
+      }
+    }
+  }
+  DoneMarker(lMarker, iGetKau.GetMarkerName(kauType));
+  StopVisual('',0);
+}
+!-------------------------------------------------------------------------------
+Procedure CreateSaldoSal(DatSal : date);
+var _w:word;
+{
+//по сальдо2010
+  m_break:=false;
+  StartNewVisual(vtRotateVisual,vfTimer+vfBreak+vfThread,'Расчет входящего сальдо по таблице сальдо...',50);
+  // фильтрация!!!
+  lMarker:=InitMarker(iGetKau.GetMarkerName(kauType), 8, 100, 10);
+  sporder_koef:=1;
+
+#declare m_CreateSaldoSal(par)
+_loop SALDTUNEREP
+{
+  _W:=SdvigSp+OborCfg.wFilter[11];
+  _loop SaldoRaz where ((
+  SALDTUNEREP.nrec==SaldoRaz.CSALDTUNE and
+  _W==SaldoRaz.wMode
+  #par
+
+//pavel OborCfg.wFilter[11]=0 - sklad
+//      OborCfg.wFilter[11]=1 - proizvodstvo
+//pavel
+  and SaldoRaz.cmc==KatMcFlt.nrec
+  and SaldoRaz.cKitkau==Kitkau.nrec
+ //<<
+  ))
+  {
+    my_check_next_visual;
+    if (getlast saldomc where ((
+      OborCfg.wFilter[11]==SaldoMC.sp and
+      SaldoRaz.cMc       ==SaldoMC.cMc and
+      SaldoRaz.cpodr     ==SaldoMC.cpodr and
+      SaldoRaz.cMol      ==SaldoMC.cMol and
+      SaldoRaz.cParty    ==SaldoMC.cParty and
+      DatSal             >>=SaldoMC.dSaldo ))=TsOk)
+    {
+      if (getlast  SaldoObj
+      where ((SaldoRaz.nrec==SaldoObj.cSaldoRaz
+                 and DatSal>>SaldoObj.DOPER
+      ))=TsOk)
+      {
+        NextVisual;
+        //Фильтр по типу МЦ
+        if GetMarkerCount(lMarker)>0
+          if (not foundmarker(lMarker,KatMcFlt.cType))
+            then continue;
+        //<<Фильтр по типу МЦ
+        if isvalidall(tnKitkau)
+        {
+          AddOneRecord(0,SaldoRaz.cPodr,SaldoRaz.cMol,SaldoRaz.cMc,KatMcFlt.cType,SaldoRaz.cParty,KitKau.cSaldTune,KitKau.cObj,
+                       KitKau.cKau[1],KitKau.cKau[2],KitKau.cKau[3],KitKau.cKau[4],KitKau.cKau[5],KitKau.cKau[6],KitKau.cKau[7],
+                       0h,0h,0h,1,SaldoObj.DOPER);
+        }
+        else
+        {
+          AddOneRecord(0,SaldoRaz.cPodr,SaldoRaz.cMol,SaldoRaz.cMc,KatMcFlt.cType,SaldoRaz.cParty,0h,0h,
+                       0h,0h,0h,0h,0h,0h,0h,0h,0h,0h,1,SaldoObj.DOPER);
+
+        }
+      }//if (getlast  SaldoObj
+    }//if (getlast saldomc where ((
+  }//_loop SaldoRaz where ((
+}//_loop SALDTUNE
+#end
+  if w_ind=0
+  {
+    #m_CreateSaldoSal(   )
+  }
+  if w_ind=1
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      #m_CreateSaldoSal(and _cMol==SaldoRaz.cMol)
+    }
+  }
+  if w_ind=2
+  {
+    _loop Pick where ((pickPodr==Pick.wList))
+    {
+      my_check_next_visual;
+      _cPOdr:=Pick.cRec;
+      #m_CreateSaldoSal(and _cPodr==SaldoRaz.cPodr)
+    }
+  }
+  if w_ind=3
+  {
+    _loop Pick where ((pickMc==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMc:=Pick.cRec;
+      #m_CreateSaldoSal(and _cMc==SaldoRaz.cMc)
+    }
+  }
+  if w_ind=4
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick2 where ((pickMc==Pick2.wList))
+      {
+        my_check_next_visual;
+        _cMc:=Pick2.cRec;
+        #m_CreateSaldoSal(and _cMol==SaldoRaz.cMol and _cMC==SaldoRaz.cMc)
+      }
+    }
+  }
+  if w_ind=5
+  {
+    _loop Pick where ((pickPodr==Pick.wList))
+    {
+      my_check_next_visual;
+      _cPOdr:=Pick.cRec;
+      _loop Pick2 where ((pickMc==Pick2.wList))
+      {
+        my_check_next_visual;
+        _cMc:=Pick2.cRec;
+        #m_CreateSaldoSal(and _cPodr==SaldoRaz.cPodr and _cMC==SaldoRaz.cMc)
+      }
+    }
+  }
+  if w_ind=6
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick3 where ((pickPodr==Pick3.wList))
+      {
+        my_check_next_visual;
+        _cPOdr:=Pick3.cRec;
+        _loop Pick2 where ((pickMc==Pick2.wList))
+        {
+          my_check_next_visual;
+          _cMc:=Pick2.cRec;
+          #m_CreateSaldoSal(and _cMC==SaldoRaz.cMc and _cPodr==SaldoRaz.cPodr and _cMol==SaldoRaz.cMol)
+        }
+      }
+    }
+  }
+  if w_ind=7
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick3 where ((pickPodr==Pick3.wList))
+      {
+        my_check_next_visual;
+        _cPOdr:=Pick3.cRec;
+        #m_CreateSaldoSal(and _cMol==SaldoRaz.cMol and _cPodr==SaldoRaz.cPodr)
+      }
+    }
+  }
+  DoneMarker(lMarker, iGetKau.GetMarkerName(kauType));
+  StopVisual('',0);
+}
+!-------------------------------------------------------------------------------
+Procedure CreateMovies(Dat1, Dat2 : date; wType : word);
+{
+  m_break:=false;
+  StartNewVisual(vtRotateVisual,vfTimer+vfBreak+vfThread,'Расчет '+if(wType=3,'приходов...','расходов...'),50);
+  // фильтрация!!!
+  lMarker:=InitMarker(iGetKau.GetMarkerName(kauType), 8, 100, 10);
+  sporder_koef:=1;
+#declare m_CreateMovies(par)
+  _loop SpOrder where ((OborCfg.wFilter[11]==SpOrder.sp
+  #par
+
+//pavel OborCfg.wFilter[11]=0 - sklad
+//      OborCfg.wFilter[11]=1 - proizvodstvo
+//pavel
+  //2010-bistro and SpOrder.cmc==KatMcFlt.nrec
+  and
+  coSklOrder==ATTRVAL.wtable and  //Тип ордера дооценки (приход, расход)
+  sporder.CSKLORDER==ATTRVAL.crec and
+  myAtrTip==ATTRVAL.CATTRNAM
+ //<<
+  ))
+  {
+    my_check_next_visual;
+    //Фильтр по типу МЦ
+    if GetMarkerCount(lMarker)>0
+      if (not foundmarker(lMarker,KatMcFlt.cType))
+        then continue;
+    //<<
+    c:=0h;
+    if getfirst SklOrder where ((SpOrder.cSklOrder==SklOrder.nRec))=tsOk
+      if getfirst KatSopr where ((SklOrder.cSopr==KatSopr.nRec))=tsOk
+        if getfirst KatOrg where ((KatSopr.cOrg==KatOrg.nRec))=tsOk
+          c:=KatOrg.nRec;
+
+    if wOrg>0
+    {
+      if c=0h then Continue;
+      if c<>0h
+        if getfirst PickZap where ((pickOrg==PickZap.wList and c==PickZap.cRec))<>tsOk
+          Continue;
+    }
+    if c=0h
+    {
+      if wType=3
+        c:=KatSopr.cPodrFrom;
+      else
+        c:=KatSopr.cPodrTo;
+    }
+    var p_dooc:byte;
+    p_dooc:=if(isDoocen,1,0);
+    if isvalidall(tnSpecMtr)
+    {
+
+      AddOneRecord(p_dooc,SpOrder.ccPodr,SpOrder.ccMol,SpOrder.cMc,KatMcFlt.cType, SpOrder.cParty,SpecMtr.cSaldTune,SpecMtr.cObj,
+                   SpecMtr.cKau[1],SpecMtr.cKau[2],SpecMtr.cKau[3],SpecMtr.cKau[4],SpecMtr.cKau[5],SpecMtr.cKau[6],SpecMtr.cKau[7],
+                   SpOrder.cSklOrder,KatSopr.nRec,c,wType,SpOrder.dord);
+      // проверяем наличие сальдо
+      If OborCfg.wFilter[0]=0 or OborCfg.wFilter[0]=4 or OborCfg.wFilter[0]=5
+        AddOneRecord(p_dooc,SpOrder.ccPodr,SpOrder.ccMol,SpOrder.cMc,KatMcFlt.cType,SpOrder.cParty,SpecMtr.cSaldTune,SpecMtr.cObj,
+                     SpecMtr.cKau[1],SpecMtr.cKau[2],SpecMtr.cKau[3],SpecMtr.cKau[4],SpecMtr.cKau[5],SpecMtr.cKau[6],SpecMtr.cKau[7],
+                     SpOrder.cSklOrder,0h,0h,0,SpOrder.dord);
+    }
+    else
+    {
+      AddOneRecord(p_dooc,SpOrder.ccPodr,SpOrder.ccMol,SpOrder.cMc,KatMcFlt.cType,SpOrder.cParty,0h,0h,
+                   0h,0h,0h,0h,0h,0h,0h,SpOrder.cSklOrder,KatSopr.nRec,c,wType,SpOrder.dord);
+      // проверяем наличие сальдо
+      If OborCfg.wFilter[0]=0 or OborCfg.wFilter[0]=4 or OborCfg.wFilter[0]=5
+        AddOneRecord(p_dooc,SpOrder.ccPodr,SpOrder.ccMol,SpOrder.cMc,KatMcFlt.cType,SpOrder.cParty,0h,0h,
+                     0h,0h,0h,0h,0h,0h,0h,SpOrder.cSklOrder,0h,0h,0,SpOrder.dord);
+    }
+    //
+  }
+#end
+  if w_ind=0
+  {
+    #m_CreateMovies(and word(wType-3)==SpOrder.VidOrder and Dat2>>=SpOrder.dOrd and Dat1<<=SpOrder.dOrd  )
+  }
+  if w_ind=1
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      #m_CreateMovies(and word(wType-3)==SpOrder.VidOrder   and Dat2>>=SpOrder.dOrd and Dat1<<=SpOrder.dOrd and _cMol==SpOrder.ccMol(noindex))
+    }
+  }
+  if w_ind=2
+  {
+    _loop Pick where ((pickPodr==Pick.wList))
+    {
+      my_check_next_visual;
+      _cPOdr:=Pick.cRec;
+      #m_CreateMovies(and word(wType-3)==SpOrder.VidOrder and Dat2>>=SpOrder.dOrd and Dat1<<=SpOrder.dOrd and _cPodr==SpOrder.ccPodr (noindex) )
+    }
+  }
+  if w_ind=3
+  {
+    _loop Pick where ((pickMc==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMc:=Pick.cRec;
+      #m_CreateMovies(and word(wType-3)==SpOrder.VidOrder and _cMc==SpOrder.cMc and Dat2>>=SpOrder.dOrd(noindex) and Dat1<<=SpOrder.dOrd(noindex))
+    }
+  }
+  if w_ind=4
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick2 where ((pickMc==Pick2.wList))
+      {
+        my_check_next_visual;
+        _cMc:=Pick2.cRec;
+        #m_CreateMovies( and _cMol==SpOrder.ccMol and _cMC==SpOrder.cMc and Dat2>>=SpOrder.dOrd and Dat1<<=SpOrder.dOrd and word(wType-3)==SpOrder.VidOrder(noindex))
+      }
+    }
+  }
+  if w_ind=5
+  {
+    _loop Pick where ((pickPodr==Pick.wList))
+    {
+      my_check_next_visual;
+      _cPOdr:=Pick.cRec;
+      _loop Pick2 where ((pickMc==Pick2.wList))
+      {
+        my_check_next_visual;
+        _cMc:=Pick2.cRec;
+        #m_CreateMovies(and _cPodr==SpOrder.ccPodr and _cMC==SpOrder.cMc and Dat2>>=SpOrder.dOrd and Dat1<<=SpOrder.dOrd and word(wType-3)==SpOrder.VidOrder(noindex) )
+      }
+    }
+  }
+  if w_ind=6
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick3 where ((pickPodr==Pick3.wList))
+      {
+        my_check_next_visual;
+        _cPOdr:=Pick3.cRec;
+        _loop Pick2 where ((pickMc==Pick2.wList))
+        {
+          my_check_next_visual;
+          _cMc:=Pick2.cRec;
+          #m_CreateMovies(and _cMol==SpOrder.ccMol and _cPodr==SpOrder.ccPodr and _cMC==SpOrder.cMc and Dat2>>=SpOrder.dOrd(noindex) and Dat1<<=SpOrder.dOrd(noindex) and word(wType-3)==SpOrder.VidOrder(noindex) )
+        }
+      }
+    }
+  }
+  if w_ind=7
+  {
+    _loop Pick where ((pickMOL==Pick.wList))
+    {
+      my_check_next_visual;
+      _cMol:=Pick.cRec;
+      _loop Pick3 where ((pickPodr==Pick3.wList))
+      {
+        my_check_next_visual;
+        _cPOdr:=Pick3.cRec;
+        #m_CreateMovies( and Dat2>>=SpOrder.dOrd and Dat1<<=SpOrder.dOrd and word(wType-3)==SpOrder.VidOrder(noindex) and _cMol==SpOrder.ccMol(noindex) and _cPodr==SpOrder.ccPodr(noindex))
+      }
+    }
+  }
+  DoneMarker(lMarker, iGetKau.GetMarkerName(kauType));
+  StopVisual('',0);
+}
+!-------------------------------------------------------------------------------
+Procedure CalcOutSaldo;
+{
+var sk3,sk4,ss3,ss4:double;
+  StartNewVisual(vtRotateVisual,vfTimer,'Расчет исходящего сальдо...',50);
+  // суммируем сальдо
+  _loop tmp_data where ((0==tmp_data.isNoSaldo))//Это сальдо
+  {
+    NextVisual;
+    l:=0;
+//    if tmp_data.pDooc=1 then continue;//Хотя тако и не должно было быть
+    //агрегация по полному разрезу...
+    _loop tmp_data1 where ((1==tmp_data1.isNoSaldo//Это НЕ сальдо(т.е. движение)
+       //2010-no_snp_dooc
+       //04/2010 and tmp_data.pDooc    ==tmp_data1.pDooc//2010-no_snp_dooc
+       and tmp_data.cValue[1]==tmp_data1.cValue[1]
+       and tmp_data.cValue[2]==tmp_data1.cValue[2]
+       and tmp_data.cValue[3]==tmp_data1.cValue[3]
+       and tmp_data.cValue[4]==tmp_data1.cValue[4]
+       and tmp_data.cValue[5]==tmp_data1.cValue[5]
+       and tmp_data.cValue[6]==tmp_data1.cValue[6]
+       and tmp_data.cValue[7]==tmp_data1.cValue[7]
+       and tmp_data.cValue[8]==tmp_data1.cValue[8]
+       and tmp_data.cValue[9]==tmp_data1.cValue[9]
+       and tmp_data.cValue[10]==tmp_data1.cValue[10]
+       and tmp_data.cValue[11]==tmp_data1.cValue[11]
+       and tmp_data.cValue[12]==tmp_data1.cValue[12]
+       and tmp_data.cValue[16]==tmp_data1.cValue[16]//2010- добавлен тип МЦ
+                           ))
+    {
+      l:=l+1;
+      tmp_data.Kol[3]:=tmp_data.Kol[3]+tmp_data1.Kol[3];
+      tmp_data.Kol[4]:=tmp_data.Kol[4]+tmp_data1.Kol[4];
+      tmp_data.Summa[3]:=tmp_data.Summa[3]+tmp_data1.Summa[3];
+      tmp_data.Summa[4]:=tmp_data.Summa[4]+tmp_data1.Summa[4];
+    }
+    //2010-no_snp_dooc
+    /*
+    if tmp_data.pDooc=0//Исходящее для дооценки НЕсчитаем !!!
+    {
+      //А здесь еще добавим дооценочку в нормальное сальдо!!!!!
+      sk3:=0;
+      sk4:=0;
+      ss3:=0;
+      ss4:=0;
+      _loop tmp_data1 where ((1==tmp_data1.isNoSaldo
+         and 1                 ==tmp_data1.pDooc
+         and tmp_data.cValue[1]==tmp_data1.cValue[1]
+         and tmp_data.cValue[2]==tmp_data1.cValue[2]
+         and tmp_data.cValue[3]==tmp_data1.cValue[3]
+         and tmp_data.cValue[4]==tmp_data1.cValue[4]
+         and tmp_data.cValue[5]==tmp_data1.cValue[5]
+         and tmp_data.cValue[6]==tmp_data1.cValue[6]
+         and tmp_data.cValue[7]==tmp_data1.cValue[7]
+         and tmp_data.cValue[8]==tmp_data1.cValue[8]
+         and tmp_data.cValue[9]==tmp_data1.cValue[9]
+         and tmp_data.cValue[10]==tmp_data1.cValue[10]
+         and tmp_data.cValue[11]==tmp_data1.cValue[11]
+         and tmp_data.cValue[12]==tmp_data1.cValue[12]
+                             ))
+      {
+        sk3:=sk3+tmp_data1.Kol[3];
+        sk4:=sk4+tmp_data1.Kol[4];
+        ss3:=ss3+tmp_data1.Summa[3];
+        ss4:=ss4+tmp_data1.Summa[4];
+      }
+      tmp_data.Kol[5]:=tmp_data.Kol[1]+tmp_data.Kol[3]-tmp_data.Kol[4]+sk3-sk4;
+      tmp_data.Summa[5]:=tmp_data.Summa[1]+tmp_data.Summa[3]-tmp_data.Summa[4]+ss3-ss4;
+    }//
+    //2010-no_snp_dooc
+    */
+    tmp_data.Kol[5]:=tmp_data.Kol[1]+tmp_data.Kol[3]-tmp_data.Kol[4];//2010-no_snp_dooc
+    tmp_data.Summa[5]:=tmp_data.Summa[1]+tmp_data.Summa[3]-tmp_data.Summa[4];//2010-no_snp_dooc
+    for (i:=1; i<=MaxSum; i:=i+1)
+    {
+      if wPriceSaldo=0 and OborCfg.wFilter[1]=0 {//По документам и не установлен флаг
+        tmp_data.Price[i]:=if(Abs(tmp_data.Summa[i])<minSum or Abs(tmp_data.Kol[i])<minKol,0,tmp_data.Summa[i]/tmp_data.Kol[i]);
+      }
+      else
+      {
+        if (i=1 or i=5) //Сальдо
+        {
+          if (i=1 and OborCfg.wFilter[1]=1) //По сальдо- цены только в исходящием считаем
+          {
+             tmp_data.Price[i]:=if(Abs(tmp_data.Summa[i])<minSum or Abs(tmp_data.Kol[i])<minKol,0,tmp_data.Summa[i]/tmp_data.Kol[i]);
+          }
+          else {
+            var my_dsalso:date;
+            my_dsalso:=if(i=1,DateBeg,add_day(DateEnd,1));
+            //if i=1 message(my_dsalso+'-'+tmp_data.Kol[i]+'->'+string(tmp_data.cValue[3],0,0)+'==SaldoMC.cMc'+string(tmp_data.cValue[1],0,0)+'==SaldoMC.cpodr'+string(tmp_data.cValue[2],0,0)+'==SaldoMC.cMol'+string(tmp_data.cValue[4],0,0)+'==SaldoMC.cParty');
+             //i=1 - Входящее
+             //i=5 - Исходящее
+            if (getlast saldomc where ((OborCfg.wFilter[11]==SaldoMC.sp and
+               tmp_data.cValue[3]==SaldoMC.cMc and
+               tmp_data.cValue[1]==SaldoMC.cpodr and
+               tmp_data.cValue[2]==SaldoMC.cMol and
+               tmp_data.cValue[4]==SaldoMC.cParty and
+               my_dsalso>>=SaldoMC.dSaldo))=TsOk)
+            {
+              //  message(SaldoMC.srprice+'-'+SaldoMC.kol);
+              //if tmp_data.pDooc=0 {
+                tmp_data.Price[i]:=if(Abs(tmp_data.Kol[i])<minKol,0,if(SaldoMC.kol=0,0,SaldoMC.srprice));
+                tmp_data.Summa[i]:=if(Abs(tmp_data.Kol[i])<minKol,0,tmp_data.kol[i]*if(SaldoMC.kol=0,0,SaldoMC.srprice));
+              //}
+            }//if (getlast saldomc
+          }//if (i=1 and OborCfg.wFilter[1]=1)
+        }
+        else
+        {
+          tmp_data.Price[i]:=if(Abs(tmp_data.Summa[i])<minSum or Abs(tmp_data.Kol[i])<minKol,0,tmp_data.Summa[i]/tmp_data.Kol[i]);
+        }
+      }
+      //08/2010
+      if Abs(tmp_data.Kol[i])<minKol then tmp_data.Kol[i]:=0;
+      if Abs(tmp_data.Summa[i])<minSum then tmp_data.Summa[i]:=0;
+      //<<
+    }
+//    message('Vh->'+tmp_data.Price[1]+'*'+tmp_data.Kol[1]+'='+tmp_data.Summa[1]);
+//    message('Ish->'+tmp_data.Price[5]+'*'+tmp_data.Kol[5]+'='+tmp_data.Summa[5]);
+    //if (l=0 //08/2010
+    if ((l=0 or OborCfg.wFilter[0]<>5)//08/2010
+           and Abs(tmp_data.Kol[1])<minKol and Abs(tmp_data.Summa[1])<minSum
+           and Abs(tmp_data.Kol[3])<minKol and Abs(tmp_data.Summa[3])<minSum
+           and Abs(tmp_data.Kol[4])<minKol and Abs(tmp_data.Summa[4])<minSum
+           and Abs(tmp_data.Kol[5])<minKol and Abs(tmp_data.Summa[5])<minSum)
+      tmp_data.isEmpty:=1;//тут пометились только записи сальдо (для случая наличия настроек с расшифровкой)
+    //if OborCfg.wFilter[0]<>5 {//Настройка без расшифровки
+    update current tmp_data;
+  }
+  if OborCfg.wFilter[0]=5 //08/2010-Вроде данные с 1==tmp_data.isNoSaldo только в настройке с расшифровкой используются...
+  _loop tmp_data where ((1==tmp_data.isNoSaldo))
+  {
+    NextVisual;
+    for (i:=1; i<=MaxSum; i:=i+1)
+    {
+      tmp_data.Price[i]:=if(Abs(tmp_data.Summa[i])<minSum or Abs(tmp_data.Kol[i])<minKol,0,tmp_data.Summa[i]/tmp_data.Kol[i]);
+      //08/2010
+      if Abs(tmp_data.Kol[i])<minKol then tmp_data.Kol[i]:=0;
+      if Abs(tmp_data.Summa[i])<minSum then tmp_data.Summa[i]:=0;
+      //<<
+    }
+    update current tmp_data;
+  }
+  delete from tmp_data where ((1==tmp_data.isEmpty));
+  StopVisual('',0);
+}
+!-------------------------------------------------------------------------------
+Procedure AddOneGroup(cL : integer; wS : word; c1,c2,c3,c4,c5 : comp; k1,k2,k3,k4,k5,n1,n2,n3,n4,n5,o : string);
+var m_upd: boolean;
+{
+  if getfirst tmp_group where ((cL==tmp_group.level
+                   and comp(c1)==tmp_group.cValue[1]
+                   and comp(c2)==tmp_group.cValue[2]
+                   and comp(c3)==tmp_group.cValue[3]
+                   and comp(c4)==tmp_group.cValue[4]
+                   and comp(c5)==tmp_group.cValue[5]
+                              ))<>tsOk
+  {
+    ClearBuffer(#tmp_group);
+    tmp_group.nRec:=GetNextNrec(#tmp_group,0);
+    tmp_group.level:=cL;
+    tmp_group.cValue[1]:=c1;
+    tmp_group.cValue[2]:=c2;
+    tmp_group.cValue[3]:=c3;
+    tmp_group.cValue[4]:=c4;
+    tmp_group.cValue[5]:=c5;
+    tmp_group.sValue[1]:=n1;
+    tmp_group.sValue[2]:=n2;
+    tmp_group.sValue[3]:=n3;
+    tmp_group.sValue[4]:=n4;
+    tmp_group.sValue[5]:=n5;
+    tmp_group.kValue[1]:=k1;
+    tmp_group.kValue[2]:=k2;
+    tmp_group.kValue[3]:=k3;
+    tmp_group.kValue[4]:=k4;
+    tmp_group.kValue[5]:=k5;
+    tmp_group.eValue[1]:=o;
+    tmp_group.name:=if(cL=0,'отчету',tmp_group.kValue[cL]+' '+tmp_group.sValue[cL]);
+    insert current tmp_group;
+  }
+  m_upd:=false;
+
+  if wS=0
+  for (i:=1; i<=MaxSum; i:=i+1)
+  {
+    tmp_group.Kol[i]:=tmp_group.Kol[i]+tmp_data.Kol[i];
+    tmp_group.Summa[i]:=tmp_group.Summa[i]+tmp_data.Summa[i];
+    //08/2010
+    if Abs(tmp_group.Kol[i])<minKol
+    {
+       tmp_group.Kol[i]:=0;
+    }
+    else m_upd:=true;
+    if Abs(tmp_group.Summa[i])<minSum
+    {
+       tmp_group.Summa[i]:=0;
+    }
+    else m_upd:=true;
+  }
+  //08/2010
+  tmp_data.cGroup:=tmp_group.nRec;//08/2010
+  //Дополнительно для опции "Только итоги", удалим лишние итоговые строки
+  //для случая когда задан режим отличный от режима "сальдо с расшифровкой",установлен крыжик - только итоги,
+  if (wOnlySum=1 and wS=0 and (not m_upd) and OborCfg.wFilter[0]<>5)
+  {
+    delete current tmp_group;
+    tmp_data.cGroup:=0h;
+  }
+  else update current tmp_group;
+
+  update current tmp_data;//08/2010
+}
+!-------------------------------------------------------------------------------
+Procedure AddSumGroup(cL : integer; c1,c2,c3,c4,c5 : comp);
+{
+  if getfirst tmp_group1 where ((cL==tmp_group1.level
+                    and comp(c1)==tmp_group1.cValue[1]
+                    and comp(c2)==tmp_group1.cValue[2]
+                    and comp(c3)==tmp_group1.cValue[3]
+                    and comp(c4)==tmp_group1.cValue[4]
+                    and comp(c5)==tmp_group1.cValue[5]
+                               ))<>tsOk
+  {
+    ClearBuffer(#tmp_group1);
+    tmp_group1.nRec:=GetNextNrec(#tmp_group1,0);
+    tmp_group1.level:=cL;
+    for (i:=1; i<=cL; i:=i+1)
+    {
+      tmp_group1.cValue[i]:=tmp_group.cValue[i];
+      tmp_group1.sValue[i]:=tmp_group.sValue[i];
+      tmp_group1.kValue[i]:=tmp_group.kValue[i];
+    }
+    tmp_group1.eValue[1]:=tmp_group.eValue[1];
+    tmp_group1.name:=if(cL=0,'отчету',tmp_group1.kValue[cL]+' '+tmp_group1.sValue[cL]);
+    insert current tmp_group1;
+  }
+  for (i:=1; i<=MaxSum; i:=i+1)
+  {
+    tmp_group1.Kol[i]  :=tmp_group1.Kol[i]  +tmp_group.Kol[i];
+    tmp_group1.Summa[i]:=tmp_group1.Summa[i]+tmp_group.Summa[i];
+  }
+  update current tmp_group1;
+  tmp_group.cRec:=tmp_group1.nRec;
+  update current tmp_group;
+}
+!-------------------------------------------------------------------------------
+/*
+Procedure OutputXlOneTitle(lev : word);
+{
+  xlStWriteToMatrix(row,1,PadCh('','.',lev)+string(lev)+'. '+tmp_group.name);
+  row:=row+1;
+}
+*/
+!-------------------------------------------------------------------------------
+Procedure OutputXlOneRow;
+{
+  if tmp_data.isNoSaldo=1 and OborCfg.wFilter[0]=5
+  { xlSetFontStyle(2,row+begin_row,1,row+begin_row,cntHead+1); xlSetFontSize(7,row+begin_row,1,row+begin_row,cntHead+1); }
+  _loop OborCfgCol where ((OborCfg.nRec==OborCfgCol.cOborCfg)) ordered by index OborCfgCol02
+  {
+    if Pos('0',OborCfgCol.Format)<>0 or Pos('#',OborCfgCol.Format)<>0
+      xlDoWriteToMatrix(row,OborCfgCol.nCol+1,#GetDataNumField(OborCfgCol.Attr[0],OborCfgCol.Attr[1]));
+    else
+      xlStWriteToMatrix(row,OborCfgCol.nCol+1,#GetDataField(OborCfgCol.Attr[0],OborCfgCol.Attr[1]));
+  }
+  row:=row+1;
+}
+!-------------------------------------------------------------------------------
+Procedure OutputXlOneSum(lev : word);
+{
+  xlStWriteToMatrix(row,1,if(lev=0,'',PadCh('','.',lev)+string(lev)+'. ')+'Итого'+if(OborCfg.wFilter[2]=0,'',' по '+tmp_group.name));
+  if wOnlySum=0 or lev=0 xlSetFontStyle(1,row+begin_row,1,row+begin_row,cntHead+1);
+  if lev=0 xlSetFontSize(9,row+begin_row,1,row+begin_row,cntHead+1);
+  _loop OborCfgCol where ((OborCfg.nRec==OborCfgCol.cOborCfg)) ordered by index OborCfgCol02
+  {
+    if OborCfgCol.Attr[3]<>0
+    {
+      if Pos('0',OborCfgCol.Format)<>0 or Pos('#',OborCfgCol.Format)<>0
+        xlDoWriteToMatrix(row,OborCfgCol.nCol+1,#GetGroupNumField(OborCfgCol.Attr[0],OborCfgCol.Attr[1]));
+      else
+      {
+        // OborCfgCol.Attr[0] - тип записи 1-код,2-название,3-прочие
+        // OborCfgCol.Attr[1] - номер колонки = номер группы, если <=12
+        // OborCfg.wFilter[6-10] группировки 1-5
+        s:='';
+        if OborCfgCol.Attr[0]=3 and OborCfgCol.Attr[1]=1
+          s:=tmp_group.eValue[1];
+        else
+        for (i:=1; i<=MaxGroup; i:=i+1)
+          if OborCfg.wFilter[5+i]=OborCfgCol.Attr[1]
+          {
+            Case OborCfgCol.Attr[0] of
+            1: s:=tmp_group.kValue[i];
+            2: s:=tmp_group.sValue[i];
+            end;
+          }
+        xlStWriteToMatrix(row,OborCfgCol.nCol+1,s);
+      }
+    }
+  }
+  row:=row+1;
+}
+!-------------------------------------------------------------------------------
+Procedure RecursLevel(lev : word; rec : comp);
+{
+  var curRec : comp;
+  var curlev : word;
+  if lev>cntLevel
+  {
+    // выводим строки данных
+    if wOnlySum=0
+      _loop tmp_data where ((rec==tmp_data.cGroup)) ordered by index tmp_data1
+      {
+        OutputXlOneRow;
+      }
+    // выводим итог по 0 уровню
+    if lev=0 OutputXlOneSum(0);
+  }
+  else
+    _loop tmp_group where ((lev==tmp_group.level and rec==tmp_group.cRec)) ordered by index tmp_group1
+    {
+      // выводим заголовок
+      // If wOnlySum=0 and lev>0 OutputXlOneTitle(lev);
+      // падаем в рекурсию
+      curRec:=tmp_group.nRec;
+      curLev:=lev+1;
+      RecursLevel(curlev,curRec);
+      // выводим итог по уровню
+      if getfirst tmp_group where ((curRec==tmp_group.nRec))=tsOk
+        OutputXlOneSum(lev);
+    }
+}
+!-------------------------------------------------------------------------------
+Procedure CreateReportLoop(wS : word);
+{
+  Var cVal : array [1..MaxGroup] of comp;
+  Var sKod : array [1..MaxGroup] of string;
+  Var sNam : array [1..MaxGroup] of string;
+  Var sOth : array [1..MaxGroup] of string;
+
+  sOth[1]:=tmp_data.sOther[1];
+  for (i:=1; i<=MaxGroup; i:=i+1)
+  {
+    cVal[i]:=if(OborCfg.wFilter[i+5]>0,tmp_data.cValue[OborCfg.wFilter[i+5]],0h);
+    sKod[i]:=if(OborCfg.wFilter[i+5]>0,tmp_data.kValue[OborCfg.wFilter[i+5]],'');
+    sNam[i]:=if(OborCfg.wFilter[i+5]>0,tmp_data.nValue[OborCfg.wFilter[i+5]],'');
+    // if(OborCfg.wFilter[i+5]=3) sOth[1]:=tmp_data.sOther[1];
+  }
+  AddOneGroup(cntLevel,wS,cVal[1],cVal[2],cVal[3],cVal[4],cVal[5],
+                          sKod[1],sKod[2],sKod[3],sKod[4],sKod[5],
+                          sNam[1],sNam[2],sNam[3],sNam[4],sNam[5],sOth[1]);
+  //08/2010-перенес в AddOneGroup
+  //tmp_data.cGroup:=tmp_group.nRec;
+  //update current tmp_data;
+  //<<
+  cntData:=cntData+1;
+}
+!-------------------------------------------------------------------------------
+Procedure CreateReport;
+{
+  Var cVal : array [1..MaxGroup] of comp;
+  Var sVal : array [1..MaxGroup] of string;
+  Var curLevel,ColRep,RowRep : integer;
+  var m_dot, m_upd:boolean;
+  m_dot:=false;
+  ColRep:=OborCfg.wFilter[15];
+  RowRep:=OborCfg.wFilter[16];
+  if ColRep=0 then ColRep:=1;
+  if RowRep=0 then RowRep:=1;
+
+  StartNewVisual(vtRotateVisual,vfTimer,'Суммирование записей по группировкам...',50);
+  // создаем уникальные записи по группировкам
+  cntData:=0;
+  cntGroup:=0;
+  cntHead:=0;
+  _loop OborCfgCol where ((OborCfg.nRec==OborCfgCol.cOborCfg)) ordered by index OborCfgCol02
+    cntHead:=OborCfgCol.nCol;
+  if OborCfg.wFilter[0]=0 or OborCfg.wFilter[0]=4 or OborCfg.wFilter[0]=5
+  {
+    _loop tmp_data where ((0==tmp_data.isNoSaldo))
+      CreateReportLoop(0);
+    if OborCfg.wFilter[0]=5
+      _loop tmp_data where ((1==tmp_data.isNoSaldo))
+        CreateReportLoop(1);
+  }
+  else
+  {
+    _loop tmp_data
+      CreateReportLoop(0);
+  }
+  // суммируем итоги по уровням
+  if cntLevel>0
+  {
+    For(curLevel:=cntLevel; curLevel>0; curLevel:=curLevel-1)
+      external _loop tmp_group where ((curLevel==tmp_group.level))
+      {
+        For (i:=1; i<=MaxGroup; i:=i+1) cVal[i]:=0h;
+        For (i:=1; i<curLevel; i:=i+1)  cVal[i]:=tmp_group.cValue[i];
+        AddSumGroup(curLevel-1,cVal[1],cVal[2],cVal[3],cVal[4],cVal[5]);
+      }
+  }
+  //08/2010
+  /*
+  _loop tmp_group {
+    cntGroup:=cntGroup+1;
+  }
+  */
+  cntGroup:=recordsintable(#tmp_group);//08/2010
+  //<<
+  StopVisual('',0);
+  // Вывод в Excel
+  StartNewVisual(vtRotateVisual,vfTimer,'Формирование Excel таблицы...',50);
+  rowMax:=if(wOnlySum=1,cntGroup,cntGroup+cntData);
+  if rowMax>65000 Message('Количество строк отчета '+rowMax+', возможны проблемы!');
+
+  if OborCfg.Column<>'' {
+    XLCreateNewExcelWithTemplate(OborCfg.Column,true);
+    m_dot:=true;
+    if (not xlIsExcelValid)
+    {
+      message('Ошибки при вызове Exel!файл шаблона не обработан'+Chr(13)+'Обратитесь к системному администратору',OkButton+error);
+      exit;
+      abort;
+    }
+  }
+  else {
+    // открыть файл
+    xlCreateExcel('',true);
+    RowRep:=11;
+    ColRep:=1;
+  }
+  xlCreateMatrix(rowMax+RowRep,cntHead+ColRep);
+  if (not m_dot) {
+    xlSetFontStyle(1,1,1,1,cntHead+1)
+    // заголовок
+    s:=GetAllGroup;
+    xlStWriteToMatrix(1,1,OborCfg.RepName+' (по '+If(OborCfg.wFilter[0]=0,
+                          'сальдо) на '+DateToStr(DateBeg,'DD.MM.YYYY'),
+                          if(OborCfg.wFilter[0]=1,'приходам)',if(OborCfg.wFilter[0]=2,'расходам)',if(OborCfg.wFilter[0]=3,'движению)',if(OborCfg.wFilter[0]=4,'сальдо и движению)',''))))+
+                          ' за период с '+DateToStr(DateBeg,'DD.MM.YYYY')+' по '+DateToStr(DateEnd,'DD.MM.YYYY'))+' года.');
+    xlStWriteToMatrix(2,1,'Группировка: '+s+'. '+if(wOnlySum=1,'Только итоги.',''));
+    xlStWriteToMatrix(3,1,'Фильтрация данных:');
+    xlStWriteToMatrix(4,1,'склад:');  xlStWriteToMatrix(4,2,sPodr);
+    xlStWriteToMatrix(5,1,'МОЛ:');    xlStWriteToMatrix(5,2,sMOL);
+    xlStWriteToMatrix(6,1,'МЦ:');     xlStWriteToMatrix(6,2,sMc);
+    xlStWriteToMatrix(7,1,'ТипМЦ:');   xlStWriteToMatrix(7,2,stype);
+    xlStWriteToMatrix(8,1,'орг.:');   xlStWriteToMatrix(8,2,if(wOrg=0,'',sOrg));
+    xlStWriteToMatrix(10,1,'Уровень');
+    xlSetNumberFormat('@',10,1,rowMax+11,1);
+    xlSetNumberFormat('@',10,1,11,cntHead+1);
+    // форматирование
+    xlFreeze(12,1);
+    xlSetFontSize(8,4,1,rowMax+11,cntHead+1);
+    xlWrapText(10,2,rowMax+11,cntHead+1);
+    xlAlignCellsEx(1,1,10,1,rowMax+11,cntHead+1);
+    xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,10,1,rowMax+11,cntHead+1);
+    _loop OborCfgCol where ((OborCfg.nRec==OborCfgCol.cOborCfg)) ordered by index OborCfgCol02
+    {
+      xlSetColumnWidth(OborCfgCol.Attr[2],5,OborCfgCol.nCol+1,5,OborCfgCol.nCol+1);
+      xlSetNumberFormat(OborCfgCol.Format,12,OborCfgCol.nCol+1,rowMax+11,OborCfgCol.nCol+1);
+      xlStWriteToMatrix(10,OborCfgCol.nCol+1,OborCfgCol.NameGroup);
+      xlStWriteToMatrix(11,OborCfgCol.nCol+1,OborCfgCol.SortName);
+    }
+  }
+  begin_row:=0;
+  if (m_dot)
+  { row:=1
+    begin_row:=RowRep-1;
+    xlFrameCells(1 or 2 or 4 or 8 or 16 or 32,2,0,0,RowRep,ColRep,rowMax+RowRep-1,cntHead+ColRep);
+    //Заполняем шапку тупо...
+    p_str:=' с '+DateToStr(DateBeg,'DD.MM.YYYY')+' по '+DateToStr(DateEnd,'DD.MM.YYYY');
+    xlSetCellStringValue(p_str, 7, 4 , 7, 7 );
+    xlSetCellStringValue(sPodr, 5, 4 , 5, 7 );
+    xlSetCellStringValue(sMOL , 5, 9 , 5, 11 );
+    p_str:=iStrFunc.GetFIO(sMOL);
+    xlSetCellStringValue(p_str , 1, 19 , 1, 19 );//19- колонка системная
+    p_str:=iStrFunc.GetFIO(sGettune('BOSS'));
+    xlSetCellStringValue(p_str , 5, 13 , 5, 15 );
+    p_str:='';
+    If (getfirst persons where ((coGettune('BOSS')==persons.nrec))=tsOK)
+    {
+      If (getfirst appointments where ((persons.APPOINTCUR==appointments.nrec))=tsOK)
+      {
+        If (getfirst catalogs where ((Appointments.Post ==catalogs.nrec))=tsOK)
+        {
+          p_str:=catalogs.name;
+        }
+      }
+    }
+    xlSetCellStringValue(p_str , 2, 13 , 2, 15 );
+  }
+  else row:=RowRep;
+
+  // основной цикл по таблицам
+  RecursLevel(0,0h);
+  // закрыть файл
+  if (m_dot)
+  then xlWriteMatrixToExcel(RowRep,ColRep)
+  else xlWriteMatrixToExcel(1,1);
+
+  xlFreeMatrix;
+  if (m_dot) {
+    RowRep:=rowMax+ RowRep+5;
+    xlRunMacro('AfterPrint'+'(' +RowRep +')');
+  }
+
+  xlKillExcel;
+  StopVisual('',0);
+}

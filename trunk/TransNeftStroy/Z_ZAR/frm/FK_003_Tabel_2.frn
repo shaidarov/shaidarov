@@ -1,0 +1,1681 @@
+#DEFINE _NEW_T13_
+! 10000023
+! 2009.3.1. расходы на оплату труда (тарифные ставки, должностные оклады, доплаты, надбавки и т.д.)
+! 2009.01 Транспортировка нефти
+#include excel_fun.frn
+.var
+FlHalf,flfound,flJavka,flIsRP,flObjStroyOk,flgNotFilled: Boolean
+ObjStr1:comp;
+ww_nrec :comp;
+ww_koddays : string;
+I,i1,i1_1,i2,i3,j,perehod,perehodback,perehodlast,Dayback,irp,iro,irg : integer;
+irsv1: integer;irsv2: integer;
+cntd:word;
+kl_persons:boolean;
+kl_videyat:boolean;
+Razrjad : string;
+Oklad, ObjStroyName,ObjStroyCode:string;
+PodrNrec1,RukNrec1,RukNrec2:comp;
+Pred1,Podr1,FIOruk1,DolRuk1,FIORuk2,DOlRuk2:string[100];
+flRazb:word;
+
+GroupArray: array[1..10] of string ;
+
+CodeTable:array [1..310] of string;
+ChasTable:array [1..310] of string;
+Symbjav:array [1..80] of string;
+DaySjav:array [1..80] of word;
+chasjav:array [1..80] of double;
+Symbnejav:array [1..80] of string;
+DaySnejav:array [1..80] of word;
+chasnejav:array [1..80] of double;
+RazrjadPer : array [1..10] of string;
+OkladPer : array [1..10] of string;
+DolPer : array [1..10] of string;
+PerPolDays: array [1..10] of integer;
+VtPolDays: array [1..10] of integer;
+AllDays: array [1..10] of integer;
+PerPolChas: array [1..10] of double ;//integer;
+VtPolChas: array [1..10] of double ;//integer;
+AllChas: array [1..10] of double ;//integer;
+wVidDeyat: array[1..10] of string ;
+flObjStroyOk3:array [1..31] of boolean;
+flObjStroyOk2 : array [1..10] of boolean;
+kauFilter :word; // для сравнения с маской фильтра
+PerehodDays2:array [1..31] of integer;  // Значения перехода в каждый день
+AnCode:word;
+mode_gr:word; // режим сбора группировки
+dateb,datee :date ;
+// 20081003
+  Type_tabel : word ; // тип табеля 0 - старый
+  Group_tbl : word ; // тип группировки
+  w_num :longint ;
+  iGetKau : GetKau ;
+  MarkerKauName :array[0..4] of string ;
+  Marker:  array[0..4] of longint ;
+  IndexNoOt:longint ;
+  it_PerPolDays : double ;
+  it_PerPolchas : double ; 
+  it_VtPolDays  : double ;
+  It_VtPolChas  : double ;
+  IT_AllDays    : double ;
+  IT_AllChas    : double ;
+  jav_col : longint ;
+  nejav_col :longint ;
+  wjav_col : longint ;
+  wnejav_col :longint ;
+  dm_days_k : array [1..31] of string; // соберем суюда дни командировок
+Symbjav_it:array [1..80] of string;
+DaySjav_it:array [1..80] of word;
+chasjav_it:array [1..80] of double;
+Symbnejav_it:array [1..80] of string;
+DaySnejav_it:array [1..80] of word;
+chasnejav_it:array [1..80] of double;
+Change : Array[1..10] of comp;
+  rep_month , rep_year : word ;
+  
+  // для работы с итогами
+  iFZ_21_BalansTabel:FZ_21_BalansTabel;
+  ie_analitik:word;
+   KL_A_ITOG, KL_A_obst :boolean;
+   sort_fio : word;
+   
+// ==============
+  b_kateg:word
+  b_tbl:word;
+  b_ckaud:comp;
+  b_taxrate:double
+  b_cappoint:double   
+   
+.endvar
+!========================================= 
+.create view tv1
+Var DatePerehod:date;
+    tabnomer1:string;
+    wc_katpodr :comp;
+as select persons.nrec from persons, appointments, appointments appper,apphist(APPHISTBYDREC) 
+  , catalogs, lschet 
+  , KLKATEGO,KLKATEGO KLKATEGO_APP,KLKATEGO KLKATEGO_PER,perexod
+  , katpodr
+// приказы на отклонения
+   , contdoc ,SALSCALE
+   , UOWRKTABEL UO_90
+   , UOWRKTABEL UO_99
+   , UOWRKTABEL UO_100
+   , lstabmsk
+// для поиска должности
+ , catalogs cat_dolg , catalogs cat_dolg_main
+ , tmp_staffkau , klfilter,staffstruct 
+Where ((
+#IFDEF _NEW_T13_
+      comp(lschnum)  == lschet.nrec 
+  and comp(lschnum) == lstab.clschet
+#ELSE  
+  longint(tabnomer1)==lstab.tabn and lstab.clschet==lschet.nrec
+#ENDIF
+        and -22 == cat_dolg_main.syscode
+        and 0 == cat_dolg.lpr
+        and cat_dolg_main.nrec == cat_dolg.mainlink
+        and Dolg == cat_dolg.name//(noindex)
+        and lschet.tperson==persons.nrec and persons.APPOINTCUR==appointments.nrec
+        and lschet.nrec== perexod.clsch
+        and Perexod.OldcLsch == OtpDop.Nrec
+
+        and rep_year ==lstab.Yearn 
+        and rep_month==lstab.mesn
+        and lstab.nrec==variance.clstab and variance.cuo==UOWRKTABEL.nrec
+        and lstab.nrec == lstabmsk.clstab
+        //and lstab.kateg == KLKATEGO.kod
+        and b_kateg == KLKATEGO.kod
+        and perexod.kateg ==KLKATEGO_PER.kod
+        and appper.EMPCATEGORY ==KLKATEGO_APP.NREC
+        and appper.staffstr == staffstruct.nrec
+        and appper.nrec == apphist.cappoint
+        and DatePerehod >>=apphist.drec
+        and  staffstruct.CPODR /== klfilter.nrec
+        and klfilter.ckaud[1] == spkau.nrec 
+        // для учета приказов на неявки
+        and 90 == contdoc.TYPEOPER
+        and contdoc.nrec ==  SALSCALE.cunit
+        and 0 == SalScale.wTblCode
+        and date(i1,rep_month,rep_year)==SALSCALE.lastdate(noindex)
+        and comp(SalScale.Lastuser) == UO_90.nrec
+        and rep_year ==lstab.Yearn 
+        and rep_month==lstab.mesn
+        //  and LSTAB.DAYS[i1] == uo_99.num
+        and ww_koddays == uo_99.num
+        and ww_nrec == uo_100.nrec
+        //приказы на командировки
+        and 1 == SPPRIKAZ.tipdoc
+        and lschet.nrec == SPPRIKAZ.clsch
+        //and dtb_k<<= SPPRIKAZ.DDOC - надо как то ограничить
+        and sub_months(dateb,3)<<= SPPRIKAZ.DDOC
+        and SPPRIKAZ.CPRIKAZ == PRIKAZ.NREC  
+        //     set wdtb:=PRIKAZ.DSTART 
+        //    set wdte:=PRIKAZ.DEND 
+        and wc_katpodr == katpodr.nrec 
+        and 1  == KATKAU.sysnum   
+        and 0  == KATKAU.ISACTIVE
+        and 'Профессия/Вид деятельности' == KatKau.Name
+    ));
+!========================================= 
+.create view tv2 
+Var Rejim2:word;
+As select klndr.nrec from klndr 
+where ((Rejim2==klndr.REJIM 
+        and rep_year==klndr.YEARK 
+        and rep_month==klndr.MonthK));
+!========================================= 
+.create view tv3
+Var PersNrec:comp;
+    LSCHNREC:comp;
+    AppCurrent:comp;
+As select appointments.nrec 
+from appointments(APNTBYPERSON),catalogs, apphist(APPHISTBYDREC) 
+  ,KLKATEGO KLKATEGO_APP
+where (( PersNrec==appointments.person
+  and dateb >>= appointments.appointdate
+//  and datee >>= appointments.appointdate
+  and appointments.EMPCATEGORY ==KLKATEGO_APP.NREC
+  and appointments.nrec == apphist.cappoint
+  and dateb >>=apphist.drec
+)) and 
+(
+( 
+   (appointments.lprizn<>2 and ( appointments.dismissdate=date(0,0,0) or appointments.dismissdate >= dateb ) )
+or (appointments.lprizn=2 and (appointments.DATEEND=date(0,0,0) or appointments. DATEEND >= dateb ))
+)
+//lschnum
+and (LSCHNREC=appointments.caddnrec2 //20100628 - показывать только на этот лиц.счет!  or appointments.lprizn=100
+and  appointments.lprizn<>100
+) //надо подхватить предыдущие назначения при повторном приеме 
+)
+;
+!order by appointments.person,appointments.appointdate;
+!========================================= 
+.create view tv_mark
+as select formarks.choice
+from formarks,tmp_podrmarkzp tmp_podrmark, katpodr
+where (( coLSCHET == formarks.choice 
+
+)) ;
+!========================================= 
+.create view tv4 
+var
+ wcrec :comp
+as select katstroy.nrec from katstroy,spkau,katos
+where (( wcrec == katos.nrec
+and wcrec == katstroy.nrec
+and wcrec == spkau.nrec
+))
+;
+!========================================= 
+.create view tv5 as select tmp_t13.* from tmp_t13(tmp_t13_01)
+, tmp_t13 tmp_t13_tabn(tmp_t13_01),tmp_t13 tmp_t13_it,tmp_t13 tmp_t13_print
+where (( 1 == tmp_t13.pa
+and 0 == tmp_t13_tabn.pa
+and tmp_t13.sortname == tmp_t13_tabn.sortname
+and 2 == tmp_t13_it.pa
+)) ;
+!========================================= 
+.create view vTobot as select tobot.* from tobot;
+!========================================= 
+#include tmp_sbor.frn
+!========================================= 
+#include FK_003_Tabel_Buh.Frn
+!========================================= 
+! Получить коды аналитик
+!========================================= 
+.Function GetCodeGrKau(const w:word) :word;
+begin 
+  case w of
+  0: { GetCodeGrKau:=myCodeKauObjStroy; }
+  1: { GetCodeGrKau:=myCodeKauRBP; }
+  2: { GetCodeGrKau:=myCodeKauVidD; }
+  3: { GetCodeGrKau:=myCodeKauVidStrah; }
+  4: { GetCodeGrKau:=15; } // основные средства
+  end;
+ end.
+!===================================
+.Function GetVidDeyat(ww_type:word) : string;
+var
+  ww_i,ww_k:word;
+  wdm_tbld:array [1..6] of word;
+  wdm_ckaud:array [1..6] of comp;
+  ww_schet,ww_subsch:string;
+  wtbl:word;
+  wckau:comp;
+begin 
+  GetVidDeyat:=''
+  ww_schet:='';ww_subsch:='';
+  case ww_type of
+  0:
+  { for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1) { wdm_tbld[ww_i]:=tv1.lschet.tbld[ww_i];  wdm_ckaud[ww_i]:=tv1.lschet.ckaud[ww_i]  ;}
+    ww_schet:=tv1.lschet.cschetd;ww_subsch:=tv1.lschet.csubschd;
+  }
+  1:
+  { for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1) { wdm_tbld[ww_i]:=tv1.lstab.tbld[ww_i];   wdm_ckaud[ww_i]:=tv1.lstab.ckaud[ww_i]  ;}
+    ww_schet:=tv1.lstab.cschetd;ww_subsch:=tv1.lstab.csubschd;
+  }
+  2: 
+  { for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1) { wdm_tbld[ww_i]:=tv1.perexod.tbld[ww_i]; wdm_ckaud[ww_i]:=tv1.perexod.ckaud[ww_i];}
+    ww_schet:=tv1.perexod.cschetd;ww_subsch:=tv1.perexod.csubschd;
+  }
+  3: 
+  { for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1) { wdm_tbld[ww_i]:=tv1.klfilter.tbld[ww_i]; wdm_ckaud[ww_i]:=tv1.klfilter.ckaud[ww_i];}
+    ww_schet:=tv1.lschet.cschetd;ww_subsch:=tv1.lschet.csubschd;
+  }
+  end;
+  if ww_schet='23' and ww_subsch='03'
+  { GetVidDeyat:=if(GetAnyKAU(0, wdm_tbld[4], wdm_ckaud[4]), GivenAnName(1), '')+', '+if(GetAnyKAU(0, wdm_tbld[6], wdm_ckaud[6]), GivenAnName(1), '');;
+  
+  }
+  else
+  { wtbl:=wdm_tbld[1];wckau:=wdm_ckaud[1]
+    if (not kl_videyat) 
+    { if tv1.getfirst tmp_staffkau where (( wtbl == tmp_staffkau.tbl and
+       wckau ==tmp_staffkau.ckau ))=0 then exit;
+    }
+    tv4.wcrec:=wckau;
+    if wtbl <100 or (wtbl>5000 and wtbl<6000)
+    { GetVidDeyat:=if(GetAnyKAU(0, wdm_tbld[1], wdm_ckaud[1]), GivenAnName(1), '');
+    }
+    else
+    {
+      if tv4.getfirst spkau where (( wckau == spkau.nrec and wtbl == spkau.kodgrkau(noindex) ))=0
+        GetVidDeyat:=tv4.spkau.code +' - '+ tv4.spkau.name //+if(kl_videyat,'!!!','???')+'/'+ww_schet+'/'+ww_subsch;
+    }
+    
+  }      
+ end.   
+!========================================= 
+.Procedure LogUserName(w:string);
+begin
+ exit;
+ if username='test' //
+ { logstrtofile('!FK003_TB.txt',w)
+ }
+ end.
+!========================================= 
+.Function FormGroupName(const ww_type:word;const ww_kateg:string):string;
+var ww_i,ww_k:word;
+    ww_nmanal :string;
+    wdm_tbld:array [1..6] of word;
+    wdm_ckaud:array [1..6] of comp;
+begin
+ FormGroupName:=''
+ if Group_tbl=0 then exit;
+ if Group_tbl=1 then { FormGroupName:=ww_kateg;exit;}
+ LogUserName('FormGroupName==='+string(ww_type)+'/'+string(mode_gr)+'/'+string(tv1.lstab.nrec))
+ ww_nmanal:=''
+ if Group_tbl>=2 and Group_tbl<=4
+ { case ww_type of
+   0: for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1) { wdm_tbld[ww_i]:=tv1.lschet.tbld[ww_i];  wdm_ckaud[ww_i]:=tv1.lschet.ckaud[ww_i]  ;}
+   1: for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1) { wdm_tbld[ww_i]:=tv1.lstab.tbld[ww_i];   wdm_ckaud[ww_i]:=tv1.lstab.ckaud[ww_i]  ;}
+   2: for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1) { wdm_tbld[ww_i]:=tv1.perexod.tbld[ww_i]; wdm_ckaud[ww_i]:=tv1.perexod.ckaud[ww_i];}
+   else exit;
+   end;
+   LogUserName(string(wdm_tbld[1])+'/'+string(wdm_ckaud[1]))
+   for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1)
+   { for(ww_k:=0;ww_k<=4;ww_k:=ww_k+1)
+     { if ((mode_gr shr ww_k) and 1)>0
+       { if wdm_tbld[ww_i]=GetCodeGrKau(ww_k)
+         {  ww_nmanal:=ww_nmanal+if(GetAnyKAU(0, wdm_tbld[ww_i], wdm_ckaud[ww_i]), GivenAnName(1), '')+' ;'
+            LogUserName(ww_nmanal)
+         }
+       }
+     }
+   } //for(ww_i:=1;ww_i<=6;ww_i:=ww_i+1)
+ } //if Group_tbl>1 and Group_tbl<=3
+ if Group_tbl>=5 and Group_tbl<=6 // подразделение
+ { case ww_type of
+   0: tv1.wc_katpodr :=tv1.lschet.cex;
+   1: tv1.wc_katpodr :=tv1.lstab.cexoz;
+   2: tv1.wc_katpodr :=tv1.perexod.CEXP;
+   end;
+   if tv1.getfirst katpodr=0
+   { ww_nmanal:=tv1.katpodr.name;
+   }
+ }
+ if ww_nmanal='' then ww_nmanal:=' Прочие'
+ case Group_tbl of
+ 2:FormGroupName:=ww_nmanal;  //'По аналитикам'
+ 3:FormGroupName:=ww_nmanal+', '+ww_kateg; //,'По аналитикам+категории'
+ 4:FormGroupName:=ww_kateg+', '+ww_nmanal; //,'По категориям+аналитики'
+ 5:FormGroupName:=ww_nmanal;//Подраздеделение
+ 6:FormGroupName:=ww_nmanal+', '+ww_kateg;//Подраздеделение + категория
+ end;
+ end.
+!===================================================== 
+! Запихать в дерево
+!===================================================== 
+.Function A_AddToTree(wCurCode:word):boolean;
+var wc_cut1,wc_cut2,wc_cut3,wc_cut4,wc_cut5,wc_cut6:comp;
+    wwsch,wwsub :string[20];
+    wwkateg :word;
+    ww_levkau:word;
+    wnmlevel:string;
+    wwtbl:word;
+    wwckau:comp;
+    ii3 :word ;
+
+begin
+  A_AddToTree:=false;
+  wwsch:=''; wwsub:='';
+  if Change[i3+1]>0
+  { if tv1.getfirst perexod where (( Change[i3+1]==perexod.nrec ))=0
+    { wwsch:=tv1.perexod.cschetd; wwsub:=tv1.perexod.csubschd
+    }
+    else Change[i3+1]:=0;
+  }
+  MyLogWrite('A_AddToTree 01 '+string(i3))
+  if Change[i3+1]=0
+  { if tv1.getfirst lstab=0
+    { wwsch:=tv1.lstab.cschetd; wwsub:=tv1.lstab.csubschd
+      ww_levkau:=iFZ_21_BalansTabel.Analitik_GetLevel(wwsch,wwsub);
+      wwkateg:=tv1.lstab.kateg;
+    } 
+  }
+  wc_cut3:=0;wc_cut4:=0;wc_cut5:=0;wc_cut6:=0;
+  
+  ww_levkau:=iFZ_21_BalansTabel.Analitik_GetLevel(wwsch,wwsub);
+  wwtbl  :=if(Change[i3+1]=0,b_tbl,tv1.perexod.tbld[ww_levkau]);
+  wwckau :=if(Change[i3+1]=0,b_ckaud,tv1.perexod.ckaud[ww_levkau]);
+  wwkateg:=if(Change[i3+1]=0,b_kateg,tv1.perexod.kateg);
+  wc_cut1:=iFZ_21_BalansTabel.GETKATEGNREC(wwkateg)
+  MyLogWrite('A_AddToTree 02 wwtbl='+string(wwtbl)+', wwckau='+string(wwckau)+', ww_levkau='+string(ww_levkau)
+     +', wwsch='+wwsch+', wwsub='+wwsub)
+//Function Analitik_InsValue(wCurCode:word; ww_tbl :word ;ww_ckau:comp; 
+//         wie:word;const wsvertka :word; var ww_name:string;ww_option:word) :comp;
+  
+  wc_cut2:=iFZ_21_BalansTabel.Analitik_InsValue(wCurCode,wwtbl,wwckau,ie_analitik,ie_analitik,wnmlevel,if(KL_A_obst,1,0));
+  mylogwrite('Разрез категори='+string(wwkateg)+', аналитика='+wnmlevel+', '+string(wwtbl)+', '+string(wwckau)+', '+string(wc_cut2))
+  if wcurcode=7902
+  {  wc_cut1:=wc_cut2;
+     wc_cut2:=0;
+  
+  }
+  MyLogWrite('A_AddToTree 03')
+  if vTobot.getfirst Tobot where ((  
+       wc_cut1 ==  ToBot.cut[1] and wc_cut2 ==  ToBot.cut[2] 
+   and wc_cut3 ==  ToBot.cut[3] and wc_cut4 ==  ToBot.cut[4] 
+   and wc_cut5 ==  ToBot.cut[5] and wc_cut6 ==  ToBot.cut[6] 
+   and wCurCode == Tobot.Code(noindex)
+   ))<>0
+  { vtobot.clearbuffer(vtobot.tntobot);
+    vtobot.Tobot.nrec :=0;
+    vtobot.Tobot.IsLeaf    := 0;
+    vtobot.Tobot.code       :=wCurCode;
+    vtobot.Tobot.mSpDoc    :=  0 //Lstab.NRec;                                  // ссылка на базовый док-т
+    vtobot.Tobot.NameGroup := wnmlevel //wnmlevel; // наименование на самом нижнем уровне
+    vtobot.Tobot.SortName  := wnmlevel //wnmlevel;
+    vtobot.ToBot.cut[1]:=wc_cut1;vtobot.Tobot.Group[1]:=wc_cut1;
+    vtobot.ToBot.cut[2]:=wc_cut2;vtobot.Tobot.Group[2]:=wc_cut2;
+    vtobot.ToBot.cut[3]:=wc_cut3;vtobot.Tobot.Group[3]:=wc_cut3;
+    vtobot.ToBot.cut[4]:=wc_cut4;vtobot.Tobot.Group[4]:=wc_cut4; 
+    vtobot.ToBot.cut[5]:=wc_cut5;vtobot.Tobot.Group[5]:=wc_cut5;
+    vtobot.ToBot.cut[6]:=wc_cut6;vtobot.Tobot.Group[6]:=wc_cut6;
+    vtobot.insert current ToBot;
+  }
+  MyLogWrite('A_AddToTree 04,'+vtobot.Tobot.NameGroup)
+  vTobot.Tobot.Sum[1]:=vTobot.Tobot.Sum[1]+tv5.tmp_t13.perpol_dn
+  vTobot.Tobot.Sum[2]:=vTobot.Tobot.Sum[2]+tv5.tmp_t13.itogo_dn
+  vTobot.Tobot.Sum[3]:=vTobot.Tobot.Sum[3]+tv5.tmp_t13.perpol_ch
+  vTobot.Tobot.Sum[4]:=vTobot.Tobot.Sum[4]+tv5.tmp_t13.itogo_ch
+  for(i2:=1;i2<=8;i2:=i2+1)
+  { if tv5.tmp_t13.jav[i2]='' then break
+    For (ii3:=1;ii3<=tv5.tmp_t13_print.jav_count;inc(ii3))
+    { if tv5.tmp_t13_print.jav[ii3]='' then break;
+      if ii3>16 then break;
+      if tv5.tmp_t13.jav[i2]=tv5.tmp_t13_print.jav[ii3]
+      {  vTobot.Tobot.Sum[5+(ii3-1)*2]:=vTobot.Tobot.Sum[5+(ii3-1)*2]+tv5.tmp_t13.jav_DayS[i2]
+         vTobot.Tobot.Sum[6+(ii3-1)*2]:=vTobot.Tobot.Sum[6+(ii3-1)*2]+tv5.tmp_t13.jav_chas[i2]
+         mylogwrite(tv5.tmp_t13_print.jav[ii3]+'  Дни='+string(tv5.tmp_t13.jav_DayS[i2])+',часы='+string(tv5.tmp_t13.jav_chas[i2])
+          +'/'+string(5+(ii3-1)*2)+'/'+string(i2)+'/'+string(ii3)+'/'+tv5.tmp_t13_print.jav[ii3]+'/'+string(tv5.tmp_t13_print.jav_count))
+
+      }
+    }
+  }
+  MyLogWrite('A_AddToTree 05')
+  for(i2:=1;i2<=8;i2:=i2+1)
+  { if tv5.tmp_t13.nejav[i2]='' then break
+    For (ii3:=1;ii3<=tv5.tmp_t13_print.nejav_count;inc(ii3))
+    { if tv5.tmp_t13_print.nejav[ii3]='' then break;
+      if ii3>24 then break;
+      if tv5.tmp_t13.nejav[i2]=tv5.tmp_t13_print.nejav[ii3]
+      {  vTobot.Tobot.Sum[4+32+ii3]:=vTobot.Tobot.Sum[4+32+ii3]+tv5.tmp_t13.nejav_DayS[i2]*1000000
+         vTobot.Tobot.Sum[4+32+ii3]:=vTobot.Tobot.Sum[4+32+ii3]+tv5.tmp_t13.nejav_ChaS[i2]
+         mylogwrite(tv5.tmp_t13_print.jav[ii3]+'  Дни='+string(tv5.tmp_t13.nejav_DayS[i2])+',часы='+string(tv5.tmp_t13.nejav_chas[i2])+'/'+string(4+32+ii3))
+      }
+    }
+  }
+  vtobot.update current Tobot;  
+  A_AddToTree:=True;
+  MyLogWrite('A_AddToTree 05')
+
+ end. 
+!========================================= 
+.Procedure MakeFilterStr ;
+var wi,wgr:word;
+begin
+  ObjStroyName:='';
+  ObjStroyCode:='';
+  for(wi:=0;wi<=4;wi:=wi+1)
+  { wgr:= GetCodeGrKau(wi)
+    if ((AnCode shr wi) and 1)>0
+    { ObjStr1:=0;
+      GetMarker(Marker[wi],0,ObjStr1)
+      Case wgr of
+      #myCodeKauObjStroy:
+       {
+         If (tv4.getfirst katstroy where ((ObjStr1==katstroy.nrec))=tsOk )
+         { ObjStroyName:=ObjStroyName+string(wgr)+', '+ tv4.katstroy.code+', '+ tv4.katstroy.name+';';
+         }
+       }
+      15:
+      { If (tv4.getfirst katos where ((ObjStr1==katos.nrec))=tsOk )
+         { ObjStroyName:=ObjStroyName+string(wgr)+', '+ tv4.katos.innum+', '+ tv4.katos.nameos+';';
+         }
+      }   
+      else
+      {
+         If (tv4.getfirst spkau where ((ObjStr1==spkau.nrec))=tsOk )
+         { ObjStroyName:=ObjStroyName+string(wgr)+', '+ tv4.spkau.code+', '+ tv4.spkau.name+';';
+         }
+      }   
+      End;
+    } //if ((AnCode shr wi) and 1)>0
+  }  //for(wi:=0;wi<=4;wi<=4)
+ end.
+!========================================= 
+.Function ChkFilterKau(const wtbl :word;const wckau:comp):boolean;
+var wi:word;
+begin
+ ChkFilterKau:=false;
+ for(wi:=0;wi<=4;wi:=wi+1)
+ { 
+   if ((AnCode shr wi) and 1)>0
+   { if wtbl=GetCodeGrKau(wi)
+     {  kauFilter:=kauFilter+(1 shl wi) 
+        if not SearchMarker(Marker[wi],wckau,IndexNoOt) then exit;
+        
+     }
+     
+   }  
+ }
+ ChkFilterKau:=True;
+ end.
+.function IsJavka(priz:word):boolean;
+Begin
+  /*
+  If (priz>=128) priz:=priz-128;
+  If (priz>=64) priz:=priz-64;
+  If (priz>=32) priz:=priz-32;
+  If (priz>=16) priz:=priz-16;
+  If (priz>=8) priz:=priz-8;
+  If (priz>=4) priz:=priz-4;
+  If (priz>=2) 
+  */
+  if (priz and 2)>0
+    IsJavka:=true else IsJavka:=false;
+End.
+!========================================= 
+.Procedure ItAdd_JavNeJav ;
+var ii3 : word ;
+begin
+For (ii3:=1+8*i3;ii3<=8*(i3+1);inc(ii3))
+{ if SymbJav[ii3]<>''
+  { For (i2:=1;i2<=80;inc(i2))
+    { if SymbJav[ii3]=SymbJav_IT[i2] or SymbJav_IT[i2]=''
+      { if SymbJav_IT[i2]='' 
+        { SymbJav_IT[i2]:=SymbJav[ii3]
+          jav_col:=jav_col+1 ;
+        }  
+        DaysJav_IT[i2]:=DaysJav_IT[i2]+DaysJav[ii3];
+        Chasjav_IT[i2]:=Chasjav_IT[i2]+Chasjav[ii3];
+        break ;
+      } 
+    }
+  }
+  if SymbNeJav[ii3]<>''
+  { For (i2:=1;i2<=80;inc(i2))
+    { if SymbNeJav[ii3]=SymbNeJav_IT[i2] or SymbNeJav_IT[i2]=''
+      { if SymbNeJav_IT[i2]='' 
+        { SymbNeJav_IT[i2]:=SymbNeJav[ii3]
+          nejav_col:=nejav_col+1 ;
+        }  
+        DaysneJav_IT[i2]:=DaysneJav_IT[i2]+DaysneJav[ii3];
+        Chasnejav_IT[i2]:=Chasnejav_IT[i2]+Chasnejav[ii3]; 
+        break ;
+      } 
+    }
+  }
+  if SymbJav[ii3]='' and SymbNeJav[ii3]='' then break ;
+
+}
+ end. 
+!========================================= 
+.Procedure CalcMassiv ;
+var  ww_levkau:word;
+begin
+Oklad:='';Razrjad:='';
+// Инициализация массивов
+For (i3:=1;i3<=10;inc(i3)) { PerPolDays[i3]:=0;PerpolChas[i3]:=0;VtPolDays[i3]:=0;VtpolChas[i3]:=0;AllDays[i3]:=0;AllChas[i3]:=0; GroupArray[i3]:='' }
+For (i3:=1;i3<=31;inc(i3))
+{ PerehodDays2[i3]:=99999;
+  dm_days_k[i3]:='';
+}
+For (i1_1:=0;i1_1<=9;inc(i1_1))
+
+  For (i1:=1;i1<=31;inc(i1))
+    { 
+      If ( flhalf and i1>15 )
+        codeTable[i1+31*i1_1]:=''
+      else
+        codeTable[i1+31*i1_1]:='X'
+      ChasTable[i1+31*i1_1]:=''; 
+    }
+For (i2:=1;i2<=10;inc(i2))
+{ flObjStroyOk2[i2]:=false;
+  wVidDeyat[i2]:='';
+  Change[i2]:=0;//признак по переходу или нет
+}
+For (i2:=1;i2<=80;inc(i2))
+{ SymbJav[i2]:='';DaysJav[i2]:=0;Chasjav[i2]:=0;
+  SymbneJav[i2]:='';DaysneJav[i2]:=0;Chasnejav[i2]:=0; 
+}
+tv1.tabnomer1:=tabn;
+If (tv1.getfirst lstab=tsOk)
+{ //20091201 отработаем 2 табеля по одному табельному
+  MyLogWrite('CalcMassiv begin '+string(tv1.lstab.tabn)+'/'+tv1.lstab.strtabn)
+  // старый вариант - поиск по табельному номеру
+#IFNDEF _NEW_T13_
+  if (tv1.getnext lstab=tsOk) and (tv1.getfirst cat_dolg=tsOk)
+  { var kl_find_next :boolean ;
+    kl_find_next:=false
+    
+    tv1._loop lstab
+    { if tv1.getfirst lschet=0
+      { if tv1.lschet.cappoint=tv1.cat_dolg.nrec
+        { kl_find_next:=true
+          break
+        }
+      }  
+    }  
+    if not kl_find_next
+    { If (tv1.getfirst lstab=tsOk) {}
+    }
+  } //if (tv1.getnext lstab=tsOk)
+  else  If (tv1.getfirst lstab=tsOk) {}
+#ENDIF  
+  If (tv1.getfirst lstabmsk=tsOk){}
+  
+  //запомни сначала по табелю
+  ww_levkau:=iFZ_21_BalansTabel.Analitik_GetLevel(tv1.perexod.cschetd, tv1.perexod.csubschd );
+  b_kateg:=tv1.lstab.kateg;
+  if ww_levkau>0
+  { b_ckaud:=tv1.lstab.ckaud[ww_levkau];
+    b_tbl:=tv1.lstab.tbld[ww_levkau]
+  }
+  else
+  { b_ckaud:=0
+    b_tbl:=0
+  }  
+  b_taxrate  :=tv1.lstab.tarif
+  b_cappoint :=tv1.lstab.cAppoint;
+  DolPer[1]:=Dolg;
+  DolPer[2]:=Dolg;
+  
+  Perehod:=0;Perehodlast:=0;Perehodback:=0;Dayback:=0;
+  MyLogWrite('CalcMassiv 001')
+  If (tv1.getfirst lschet=tsOk and tv1.getfirst persons=tsOk )
+  {
+    Tv3.lschnrec:=tv1.lschet.nrec;
+    Tv3.persnrec:=tv1.persons.nrec;
+  MyLogWrite('CalcMassiv 001_001')
+    if tv1.getlast perexod where (( lschet.nrec== perexod.clsch
+//      and date(1,rep_month,rep_year) >>=perexod.datizm
+      and date(1,rep_month,rep_year) >>perexod.datizm
+      and (  //ищем переход который началася в прошлом месяце , но не закончился, при этом он не может слишком давно
+          perexod.DATOK>=date(1,rep_month,rep_year) or perexod.DATOK=date(0,0,0)
+      and (  (perexod.DATOK=date(0,0,0) and  perexod.datizm >=sub_months(date(1,rep_month,rep_year),2) )
+              or perexod.DATOK<>date(0,0,0)
+          )  
+      )
+      
+    
+    )) =0
+    {
+     Change[1]:=tv1.perexod.nrec; 
+          
+     ww_levkau:=iFZ_21_BalansTabel.Analitik_GetLevel(tv1.perexod.cschetd, tv1.perexod.csubschd );
+     b_kateg:=tv1.perexod.kateg;
+     b_ckaud:=tv1.perexod.ckaud[ww_levkau];
+     b_tbl:=tv1.perexod.tbld[ww_levkau]
+     b_taxrate  :=tv1.perexod.tarif
+     b_cappoint:=tv1.perexod.cAppoint;
+
+     RazrjadPer[1]:= if(tv1.perexod.razr <> 0 , string(tv1.perexod.razr)+' разряда','');
+      OkladPer[1]:= 'долж.оклад: '+string(tv1.lschet.tarif)+' руб.';
+     wVidDeyat[1]:=GetVidDeyat(2)
+      If (tv1.perexod.DATOK>tv1.perexod.datizm 
+        and tv1.perexod.DATOK<Date(cntd, rep_month,rep_year)
+        and tv1.perexod.DATOK>Date(1, rep_month,rep_year)) 
+      { 
+        DayBack:=Day(tv1.perexod.DATOK)+1;
+        Perehodback:=Perehod+1;
+      }
+      If (tv1.getfirst catalogs where ((perexod.cappoint==catalogs.nrec))=tsOk )
+      {  DolPer[1]:=tv1.catalogs.name;
+         DolPer[2]:=Dolg; 
+      }
+      MyLogWrite('CalcMassiv 001_002')
+           
+    }
+    else
+    {
+     MyLogWrite('CalcMassiv 001_003')
+     RazrjadPer[1]:= if(tv1.lschet.razr <> 0 , string(tv1.lschet.razr)+' разряда','');
+     OkladPer[1]:= 'долж.оклад: '+string(tv1.lschet.tarif)+' руб.';
+     wVidDeyat[1]:=GetVidDeyat(1)
+    }
+    RazrjadPer[2]:= RazrjadPer[1];
+    OkladPer[2]:=OkladPer[1]
+    wVidDeyat[2]:=wVidDeyat[1]    
+    MyLogWrite('CalcMassiv 001_004')
+
+    Tv3.appCurrent:=tv1.persons.appointcur;
+    if type_tabel=1 or type_tabel=2 
+    { if Group_tbl=1 and (tv1.getfirst KLKATEGO=0)
+      {  //GroupArray[1]:=string(tv1.lstab.kateg,2)+' '+tv1.KLKATEGO.NAIKAT ;
+         GroupArray[1]:=string(tv1.KLKATEGO.KOD,2)+' '+tv1.KLKATEGO.NAIKAT ;
+         GroupArray[2]:=GroupArray[1];
+      }
+      if Group_tbl>1 and (tv1.getfirst KLKATEGO=0)
+      { GroupArray[1]:=FormGroupName(1,string(tv1.KLKATEGO.KOD,2)+' '+tv1.KLKATEGO.NAIKAT)
+        GroupArray[2]:=GroupArray[1];
+      }
+    } 
+    MyLogWrite('CalcMassiv 001_005')
+    If flRazb=1 and (tv3.getlast appointments=tsOk)
+    { 
+      DolPer[1]:=Dolg;
+      DolPer[2]:=Dolg;
+      If (tv3.appointments.Dateend>tv3.appointments.appointdate 
+        and tv3.appointments.Dateend<Date(cntd, rep_month,rep_year)
+        and tv3.appointments.Dateend>Date(1, rep_month,rep_year)) 
+      { 
+        DayBack:=Day(tv3.appointments.Dateend)+1;
+        Perehodback:=Perehod+1;
+        If (tv3.getfirst catalogs where ((appointments.post==catalogs.nrec))=tsOk )
+        {  DolPer[1]:=tv3.catalogs.name;
+           DolPer[2]:=Dolg; }
+        Else
+        {  DolPer[1]:=Dolg;
+        }
+        if type_tabel=1 or type_tabel=2
+        { if Group_tbl=1 and (tv3.getfirst KLKATEGO_APP=0)
+              GroupArray[1]:=string(tv3.KLKATEGO_APP.KOD,2)+' '+tv3.KLKATEGO_APP.NAIKAT ;
+          if Group_tbl>1 and (tv1.getfirst KLKATEGO_APP=0)
+          { GroupArray[1]:=FormGroupName(1,string(tv3.KLKATEGO_APP.KOD,2)+' '+tv3.KLKATEGO_APP.NAIKAT)
+            
+          }
+        } 
+        
+      }
+     MyLogWrite('CalcMassiv 001_006')
+      OkladPer[1]:= 'долж.оклад: '+string(tv3.appointments.taxrate)+' руб.';
+//      OkladPer[2]:=OkladPer[1] ;
+      RazrjadPer[1]:= if(tv3.appointments.category <> 0 , string(tv3.appointments.category)+' разряда','');
+      if tv3.getlast apphist=0
+      { OkladPer[1]:= 'долж.оклад: '+string(tv3.apphist.taxrate)+' руб.';
+        RazrjadPer[1]:= if(tv3.apphist.category <> 0 , string(tv3.apphist.category)+' разряда','');
+      }  
+      
+    }
+    //========
+    if false
+    { 
+      DolPer[1]:=Dolg;
+      DolPer[2]:=Dolg;
+      If (tv3.getfirst appointments where ((AppCurrent==appointments.nrec))=tsOk)
+      { OkladPer[1]:= 'долж.оклад: '+string(tv3.appointments.taxrate)+' руб.';
+//        OkladPer[2]:=OkladPer[1]
+        RazrjadPer[1]:= if(tv3.appointments.category <> 0 , string(tv3.appointments.category)+' разряда','');
+        if tv3.getlast apphist=0
+        { OkladPer[1]:= 'долж.оклад: '+string(tv3.apphist.taxrate)+' руб.';
+          RazrjadPer[1]:= if(tv3.apphist.category <> 0 , string(tv3.apphist.category)+' разряда','');
+        }  
+      }
+       
+    }
+  }
+  MyLogWrite('CalcMassiv 002')
+  MyLogWrite('Должность 0= '+DolPer[1]+', оклад='+string(OkladPer[1])+','+string(RazrjadPer[1]))
+
+  mylogwrite('LoadworkingTable')
+  LoadWorkingTable(tv1.lstab.CLSCHET,rep_month, rep_year);
+  // соберем дни командировок
+  tv1._loop fullcache spprikaz
+  { if tv1.getfirst prikaz=0
+    { if tv1.PRIKAZ.DSTART>datee then continue;
+      if tv1.PRIKAZ.DSTART<date(1,1,2000) then continue;
+      if tv1.PRIKAZ.DEND<dateb then continue;
+      if (tv1.PRIKAZ.STATUS=0 or tv1.PRIKAZ.STATUS=3)then continue;  // Муренина АВ - обходим Командировки в статусе оформляемые
+      i1:=if(tv1.PRIKAZ.DSTART<dateb,day(dateb),day(tv1.PRIKAZ.DSTART))
+      i2:=if(tv1.PRIKAZ.DEND>datee,day(datee),day(tv1.PRIKAZ.DEND));
+      ww_nrec:=coTxoGetExtAttr('PRIKAZ','Вид командировки',tv1.PRIKAZ.NREC)
+      
+      if ww_nrec=0
+      { ww_koddays:='К'
+      }
+      else
+      { if tv1.getfirst uo_100 where (( ww_nrec == uo_100.nrec ))=0 
+        { ww_koddays:=tv1.uo_100.Num
+        }
+        else
+        { ww_koddays:='К'
+        }
+      }
+      mylogwrite('Нашли коммандировку '+datetostr(tv1.PRIKAZ.DSTART,'DD/MM/YYYY ')
+         +string(ww_nrec)+'/'+ww_koddays+'/'+string(i1)+'/'+string(i2))
+      for(i3:=i1;i3<=i2;inc(i3))
+      { dm_days_k[i3]:=ww_koddays;
+      }
+    }
+  
+  } //tv1._loop fullcache spprikaz
+  //end соберем дни командировок
+  // фильтр
+  
+  
+  
+  for (i1:=1;i1<=cntd;inc(i1)) flObjStroyOk3[i1]:=false;
+  For (i1:=1;i1<=cntd;inc(i1))
+  {
+    Case flRazb of
+    1: {
+      If ( i1=DayBack )
+      { Perehod:=Perehodback;
+        If Perehod>Perehodlast
+        { Perehodlast:=Perehod; }
+      }
+//  Разбиение перходов по массивам!!
+      Tv1.DatePerehod:=Date(i1, rep_month, rep_year);
+      If ( tv1.getfirst persons=tsOk and tv1.getfirst appper where ((persons.nrec==appper.person and DatePerehod==appper.APPOINTDATE))=tsOk )
+      {
+        If (tv1.appper.Dateend>tv1.appper.appointdate
+          and tv1.appper.Dateend<Date(cntd, rep_month,rep_year))
+        { DayBack:=Day(tv1.appper.Dateend)+1;
+          If (i1=1)
+          { Perehodback:=Perehod+1 }
+          Else
+          { Perehodback:=Perehod };
+        }
+        If (i1<>1)
+        { // ловим пвторный прием
+          var kl_prev_:boolean;
+          kl_prev_:=false;
+          if   tv1.persons.appdate<tv1.appper.appointdate kl_prev_:=true
+          else 
+          { if tv1.getfirst appper where ((persons.nrec==appper.person and DatePerehod>>appper.APPOINTDATE))=tsOk
+            { kl_prev_:=true;
+            }
+            if tv1.getfirst appper where ((persons.nrec==appper.person and DatePerehod==appper.APPOINTDATE))=tsOk {}
+          }
+          // ловим пвторный прием
+          if kl_prev_
+          { 
+            Perehod:=Perehodlast+1;
+            Perehodlast:=Perehod;
+          }
+          If (tv1.getfirst catalogs where ((appper.post==catalogs.nrec))=tsOk )
+            DolPer[Perehod+1]:=tv1.catalogs.name
+          Else
+            DolPer[Perehod+1]:=Dolg;
+          OkladPer[Perehod+1]:= 'долж.оклад: '+string(tv1.appper.taxrate)+' руб.';
+          RazrjadPer[Perehod+1]:= if(tv1.appper.category <> 0 , string(tv1.appper.category)+' разряда','');
+          if tv1.getlast apphist=0
+          { OkladPer[Perehod+1]:= 'долж.оклад: '+string(tv1.apphist.taxrate)+' руб.';
+            RazrjadPer[Perehod+1]:= if(tv1.apphist.category <> 0 , string(tv1.apphist.category)+' разряда','');
+          
+          
+          }
+          if  kl_videyat
+          { if tv1.getfirst staffstruct=0
+              if tv1.getfirst klfilter=0
+              { wVidDeyat[Perehod+1]:=GetVidDeyat(3)  //tv1.klfilter
+               
+              }
+          }
+          if type_tabel=1 or type_tabel=2
+          { if Group_tbl=1 and (tv1.getfirst KLKATEGO_APP=0)
+              GroupArray[Perehod+1]:=string(tv1.KLKATEGO_APP.KOD,2)+' '+tv1.KLKATEGO_APP.NAIKAT ;
+            if Group_tbl>1 and (tv1.getfirst KLKATEGO_APP=0)  
+            { If (tv1.getfirst perexod where ((lstab.tabn==perexod.tabn and appper.APPOINTDATE==perexod.DATIZM ))=tsOk )
+              { GroupArray[Perehod+1]:=FormGroupName(2,string(tv1.KLKATEGO_APP.KOD,2)+' '+tv1.KLKATEGO_APP.NAIKAT)
+              }
+              else
+              { GroupArray[Perehod+1]:=FormGroupName(1,string(tv1.KLKATEGO_APP.KOD,2)+' '+tv1.KLKATEGO_APP.NAIKAT)
+              }
+            }
+            if tv1.getfirst perexod where (( lstab.tabn==perexod.tabn and appper.APPOINTDATE==perexod.DATIZM ))=0
+              Change[Perehod+1]:=tv1.perexod.nrec; 
+          } 
+        } // if i1<>1
+      } // if
+    }  // If flRazb
+    2:
+    {
+      If ( i1=DayBack )
+      { Perehod:=Perehodback;
+        If Perehod>Perehodlast
+        { Perehodlast:=Perehod; }
+      }
+//  Разбиение перходов по массивам!!
+      Tv1.DatePerehod:=Date(i1, rep_month, rep_year);
+//      If (tv1.getfirst perexod where ((lstab.tabn==perexod.tabn and DatePerehod==perexod.DATIZM ))=tsOk )
+      If (tv1.getfirst perexod where ((lstab.CLSCHET==perexod.CLSCH and DatePerehod==perexod.DATIZM ))=tsOk )
+      { mylogwrite('Найден переход '+datetostr(tv1.perexod.datizm,'DD/MM/YYYY') )
+        If (tv1.perexod.Datok>=tv1.perexod.datizm
+          and tv1.perexod.Datok<Date(cntd, rep_month,rep_year))
+        { DayBack:=Day(tv1.perexod.Datok)+1;
+          If (i1=1)
+          { Perehodback:=Perehod+1 }
+          Else
+          { Perehodback:=Perehod };
+        }
+        If (i1<>1)
+        { 
+//          if (tv1.persons.appdate<tv1.perexod.datizm)
+//          { 
+            Perehod:=Perehodlast+1;
+            Perehodlast:=Perehod;
+//          }
+          
+          Change[Perehod+1]:=tv1.perexod.nrec; 
+          If (tv1.getfirst catalogs where ((perexod.cappoint==catalogs.nrec))=tsOk )
+            DolPer[Perehod+1]:=tv1.catalogs.name
+          Else
+            DolPer[Perehod+1]:=Dolg;
+          OkladPer[Perehod+1]:= 'долж.оклад: '+string(tv1.perexod.tarif)+' руб.';
+          RazrjadPer[Perehod+1]:= if(tv1.perexod.razr <> 0 , string(tv1.perexod.razr)+' разряда','');
+          wVidDeyat[Perehod+1]:=GetVidDeyat(2 )//tv1.perexod.tbld[1],tv1.perexod.ckaud[1],0)
+          MyLogWrite('Должность '+DolPer[Perehod+1]+', оклад='+string(OkladPer[i3+1])+','+string(RazrjadPer[i3+1]))
+          if type_tabel=1 or type_tabel=2
+          { if Group_tbl=1 and (tv1.getfirst KLKATEGO_PER=0)
+              GroupArray[Perehod+1]:=string(tv1.KLKATEGO_PER.KOD,2)+' '+tv1.KLKATEGO_PER.NAIKAT ;
+            if Group_tbl>1 and (tv1.getfirst KLKATEGO_PER=0)
+            { GroupArray[Perehod+1]:=FormGroupName(2,string(tv1.KLKATEGO_PER.KOD,2)+' '+tv1.KLKATEGO_PER.NAIKAT)
+            }
+          } 
+        } // if i1<>1
+        else
+        {  wVidDeyat[1]:=GetVidDeyat(2 )//tv1.perexod.tbld[1],tv1.perexod.ckaud[1],0)
+           Change[1]:=tv1.perexod.nrec; 
+        
+        }  
+      } // if
+//      MylogWrite(string(i1)+';'+string(Perehodlast)+';'+string(Perehod)+';'+string(Perehodback));
+    }  // If flRazb
+    End;
+
+    Perehoddays2[i1]:=Perehod;
+    //20110126 - если вдруг был в командировке и не сработало обновление табеля
+    //codeTable[i1+31*Perehod]:=tv1.lstab.DAYS[i1);
+//    codeTable[i1+31*Perehod]:=if(dm_days_k[i1]<>'' and WT_GetHoursInDay(i1,hkWorking,stActual)=0,dm_days_k[i1],tv1.lstab.DAYS[i1]);
+// зачем то тут было обнулено    
+    codeTable[i1+31*Perehod]:='' 
+    //codeTable[i1+31*Perehod]:=if(dm_days_k[i1]<>'' and tv1.lstab.DAYCHF[i1]>0.01 and tv1.lstab.DAYCHF[i1]<100,dm_days_k[i1],tv1.lstab.DAYS[i1]);
+//
+    ChasTable[i1+31*Perehod]:='';
+    mylogwrite('День '+string(i1)+'='+codeTable[i1+31*Perehod]+'/'+string(ChasTable[i1+31*Perehod])
+      +'/'+tv1.lstab.DAYS[i1]+'/'+if(flJavka,'явка','неявка')
+      +'/'+string(tv1.lstab.DAYCHF[i1],20,10)  )
+    flJavka:=false;
+    Tv1._loop variance
+    {
+      If ( tv1.variance.beginning<=i1 and tv1.variance.ending>=i1 )
+         If ( tv1.getfirst UOWRKTABEL = tsOk )
+           if  (IsJavka(tv1.uowrktabel.priz) )
+           { flJavka:=true; 
+            //20091007 - если вдруг РП поставили  в рабочий день
+             if codeTable[i1+31*Perehod]='В'
+             { codeTable[i1+31*Perehod]:=Tv1.UOWRKTABEL.NUM
+             }
+             break; 
+           }
+    }
+    if ( double(codeTable[i1+31*Perehod])>0 )
+    {
+      ChasTable[i1+31*Perehod]:=string(codeTable[i1+31*Perehod]);
+      flJavka:=true;
+    }
+    mylogwrite('День '+string(i1)+'='+codeTable[i1+31*Perehod]+'/'+string(ChasTable[i1+31*Perehod])
+      +'/'+tv1.lstab.DAYS[i1]+'/'+if(flJavka,'явка','неявка')
+      +'/'+string(tv1.lstab.DAYCHF[i1],20,10)  )
+   flObjStroyOK:=false;
+//   If (ObjStr1<>comp(0))
+   If (AnCode>0)
+   { kauFilter:=0
+     flObjStroyOk:=True;;flObjStroyOk3[i1]:=true
+     if true //not flObjStroyOk3[i1]
+     { if (tv1.getlast perexod where 
+       ((lstab.CLSCHET==perexod.clsch 
+         and Date(i1, rep_month, rep_year )>>=perexod.Datizm
+         and Date(i1, rep_month, rep_year )<<=perexod.DatOk (noindex) ))=tsOK) 
+       { kauFilter:=0
+         For (j:=1;j<=6;inc(j)) 
+         { 
+//20081003         if (tv1.perexod.TBLD[j]=AnCode and tv1.perexod.CKAUD[j]=ObjStr1)
+           if not ChkFilterKau(tv1.perexod.TBLD[j],tv1.perexod.CKAUD[j])
+           { flObjStroyOk:=false; flObjStroyOk3[i1]:=false; 
+             break;
+           }
+         }
+         if kauFilter<>AnCode
+         { flObjStroyOk:=false; flObjStroyOk3[i1]:=false;
+         }
+       }
+       else
+//20081031       
+       if (tv1.getlast perexod where 
+       ((lstab.CLSCHET==perexod.clsch 
+         and Date(1, rep_month, rep_year )<<=perexod.Datizm
+         and Date(i1, rep_month, rep_year )>>=perexod.Datizm
+         and Date(0, 0, 0 )==perexod.DatOk (noindex) ))=tsOK) 
+       { kauFilter:=0
+         For (j:=1;j<=6;inc(j)) 
+         { 
+//20081003         if (tv1.perexod.TBLD[j]=AnCode and tv1.perexod.CKAUD[j]=ObjStr1)
+//           if (tv1.perexod.TBLD[j]=AnCode and SearchMarker(Marker,tv1.perexod.CKAUD[j],IndexNoOt))
+//           { flObjStroyOk:=true; flObjStroyOk2[Perehod+1]:=true;flObjStroyOk3[i1]:=true; }
+           if not ChkFilterKau(tv1.perexod.TBLD[j],tv1.perexod.CKAUD[j])
+           { flObjStroyOk:=false; flObjStroyOk3[i1]:=false; 
+             break;
+
+           }
+         }
+         if kauFilter<>AnCode
+         { flObjStroyOk:=false; flObjStroyOk3[i1]:=false;
+         }
+       }
+       else
+       { For (j:=1;j<=6;inc(j)) 
+         { 
+//           if (tv1.lstab.TBLD[j]=AnCode and SearchMarker(Marker,tv1.lstab.CKAUD[j],IndexNoOt))
+//            flObjStroyOk:=true; flObjStroyOk2[Perehod+1]:=true;flObjStroyOk3[i1]:=true; 
+           if not ChkFilterKau(tv1.lstab.TBLD[j],tv1.lstab.CKAUD[j])
+           { flObjStroyOk:=false; flObjStroyOk3[i1]:=false; 
+             break;
+           }
+         }
+         if kauFilter<>AnCode
+         { flObjStroyOk:=false; flObjStroyOk3[i1]:=false;
+         }
+       }   
+     }
+     if flObjStroyOk // если попали под фильтр надо будет печатать
+       flObjStroyOk2[Perehod+1]:=flObjStroyOk;
+  MyLogWrite(string(tv1.lstab.tabn)+','+string(Perehod)+'.'+if(flObjStroyOk2[Perehod+1],'true','false')+','+if(flObjStroyOk3[i1],'true','false'))
+   } //If (ObjStr1<>comp(0))
+   Else
+   { flObjStroyOK:=true;flObjStroyOk2[Perehod+1]:=true;flObjStroyOk3[i1]:=true; } 
+
+   If (not flObjStroyOk)
+   {
+     codeTable[i1+31*Perehod]:='X';
+     ChasTable[i1+31*Perehod]:='';
+   }
+   else
+   { If (double(tv1.lstab.DAYS[i1])>0)
+     { codeTable[i1+31*Perehod]:='Я';
+       ChasTable[i1+31*Perehod]:=tv1.lstab.DAYS[i1];
+     }  
+   }
+   // если есть приказ на отклонение
+   if false //not flJavka
+   {
+     tv1._loop contdoc
+     { tv1._loop SALSCALE
+       { If ( tv1.getfirst UO_90 = tsOk )
+         if  (IsJavka(tv1.uo_90.priz) )
+           { flJavka:=true; }
+       }     
+     }
+   }  
+   // Проверим так
+   if not flJavka
+   {  ww_koddays:=codeTable[i1+31*Perehod]
+      if tv1.getfirst uo_99=0
+       if  (IsJavka(tv1.uo_99.priz) )   
+         { flJavka:=true; }
+   } 
+   if not flJavka and codeTable[i1+31*Perehod]='В'
+   {
+   }
+   If (flObjStroyOK) // По объекту строительства фильтр
+   {
+    if (flJavka)
+    { mylogwrite('Обработка явок ')
+      Flfound:=false;
+//      codeTable[i1+31*Perehod]:=''
+      Tv1._loop variance
+      {
+        If ( tv1.variance.beginning<=i1 and tv1.variance.ending>=i1 )
+        {
+          If ( tv1.getfirst UOWRKTABEL = tsOk )
+          {
+           if  (IsJavka(tv1.uowrktabel.priz) and tv1.uowrktabel.num<>'УК' )
+           { var ww_chasf : string;
+//20080930 - ВС и РП в один день
+//           if (codeTable[i1+31*Perehod]<>'РП' and codeTable[i1+31*Perehod]<>'РО') or tv1.UOWRKTABEL.NUM='РП' or tv1.UOWRKTABEL.NUM='РО'
+//              codeTable[i1+31*Perehod]:=tv1.UOWRKTABEL.NUM;
+//если получится просуммировать  
+             if (codeTable[i1+31*Perehod])='В' then { flfound:=true ; continue ;} // по явкам выходной явно пропускаем
+             if double(trim(codeTable[i1+31*Perehod]))>0 codeTable[i1+31*Perehod]:=''
+             if (double(tv1.lstab.DAYS[i1])>0) 
+             { if (tv1.UOWRKTABEL.NUM='СВ1' or tv1.UOWRKTABEL.NUM='СВ2' or tv1.UOWRKTABEL.NUM='С') and tv1.variance.WORKINGHOURS>0
+               { ww_chasf:=string(tv1.variance.WORKINGHOURS,0,2)
+               }
+               else  
+               { ww_chasf:=tv1.lstab.DAYS[i1]
+                 ChasTable[i1+31*Perehod]:='';
+               }
+             }
+             else
+             { 
+                 ww_chasf:=string(if(tv1.UOWRKTABEL.NUM='Н' and tv1.variance.NIGHTHOURS>0
+                  , tv1.variance.NIGHTHOURS, tv1.variance.WORKINGHOURS),0,2); 
+             }
+             if pos(tv1.UOWRKTABEL.NUM,codeTable[i1+31*Perehod])=0
+             { codeTable[i1+31*Perehod]:=codeTable[i1+31*Perehod]+if(codeTable[i1+31*Perehod]='','',' ')+tv1.UOWRKTABEL.NUM;
+               //ED
+               ChasTable[i1+31*Perehod]:=ChasTable[i1+31*Perehod]+if(ChasTable[i1+31*Perehod]='','',' ')+ww_chasf
+             }
+             MyLogWrite('Явка '+ChasTable[i1+31*Perehod]+'/'+codeTable[i1+31*Perehod])
+//но не очень красиво выходит - строки сезжают
+            flfound:=true;
+            For (i2:=1;i2<=8;inc(i2))
+            {
+              If (SymbJav[i2+8*Perehod]='' )
+              { 
+//20080930      SymbJav[i2+8*Perehod]:=codeTable[i1+31*Perehod];
+                SymbJav[i2+8*Perehod]:=tv1.UOWRKTABEL.NUM;
+                DaysJav[i2+8*Perehod]:=1;
+                ChasJav[i2+8*Perehod]:=double(ww_chasf)
+                if False {
+                If (double(tv1.lstab.DAYS[i1])>0) 
+                { if (SymbJav[i2+8*Perehod]='СВ1' or SymbJav[i2+8*Perehod]='СВ2' or SymbJav[i2+8*Perehod]='С') and tv1.variance.WORKINGHOURS>0
+                  {  ChasJav[i2+8*Perehod]:=tv1.variance.WORKINGHOURS
+                     //ChasTable[i1+31*Perehod]:=tv1.lstab.DAYS[i1]; 
+                  } 
+                  else  
+                  { ChasJav[i2+8*Perehod]:=double(tv1.lstab.DAYS[i1]);
+                    ChasTable[i1+31*Perehod]:=string(ChasJav[i2+8*Perehod]); 
+                  }
+                }
+                Else 
+                { ChasJav[i2+8*Perehod]:=if(SymbJav[i2+8*Perehod]='Н' and tv1.variance.NIGHTHOURS>0, tv1.variance.NIGHTHOURS, tv1.variance.WORKINGHOURS); 
+  MyLogWrite('1;'+codeTable[i1+31*Perehod]+';'+string(double(ChasTable[i1+31*Perehod]))+';'+SymbJav[i2+8*Perehod]);
+                  if SymbJav[i2+8*Perehod]='Н'
+                  {  if double(ChasTable[i1+31*Perehod])<=0 
+                    { ChasTable[i1+31*Perehod]:=string(if(tv1.variance.NIGHTHOURS>0,tv1.variance.NIGHTHOURS,tv1.variance.WORKINGHOURS)); }
+                  }
+                  else
+                  { ChasTable[i1+31*Perehod]:=string(tv1.variance.WORKINGHOURS); }
+  MyLogWrite('2;'+codeTable[i1+31*Perehod]+';'+string(double(ChasTable[i1+31*Perehod]))+';'+SymbJav[i2+8*Perehod]);
+                }
+                }
+                Break; 
+              }
+              Else
+              {
+//20080930      If (SymbJav[i2+8*Perehod]=codeTable[i1+31*Perehod])
+                If (SymbJav[i2+8*Perehod]=tv1.UOWRKTABEL.NUM)
+                { DaysJav[i2+8*Perehod]:= DaysJav[i2+8*Perehod]+1;
+                  ChasJav[i2+8*Perehod]:= ChasJav[i2+8*Perehod]+double(ww_chasf)
+                  if False 
+                  { 
+                  If (double(tv1.lstab.DAYS[i1])>0) 
+                  {
+                    if (SymbJav[i2+8*Perehod]='СВ1' or SymbJav[i2+8*Perehod]='СВ2' or SymbJav[i2+8*Perehod]='С') and tv1.variance.WORKINGHOURS>0
+                    {  ChasJav[i2+8*Perehod]:= ChasJav[i2+8*Perehod]+tv1.variance.WORKINGHOURS
+                       ChasTable[i1+31*Perehod]:=tv1.lstab.DAYS[i1]; 
+                    }
+                    else  
+                    {   ChasJav[i2+8*Perehod]:= ChasJav[i2+8*Perehod]+ double(tv1.lstab.DAYS[i1]);
+                       ChasTable[i1+31*Perehod]:= string(double(tv1.lstab.DAYS[i1]));
+                    }
+                  }
+                  Else
+                  {
+                    ChasJav[i2+8*Perehod]:= ChasJav[i2+8*Perehod]+ if(SymbJav[i2+8*Perehod]='Н' and tv1.variance.NIGHTHOURS>0, tv1.variance.NIGHTHOURS, tv1.variance.WORKINGHOURS); 
+  MyLogWrite('3;'+codeTable[i1+31*Perehod]+';'+string(double(ChasTable[i1+31*Perehod]))+';'+SymbJav[i2+8*Perehod]);
+                    if SymbJav[i2+8*Perehod]='Н'
+                    {  if double(ChasTable[i1+31*Perehod])<=0
+                      { ChasTable[i1+31*Perehod]:=string(if(tv1.variance.NIGHTHOURS>0, tv1.variance.NIGHTHOURS, tv1.variance.WORKINGHOURS)); }
+                    }
+                    else
+                    { ChasTable[i1+31*Perehod]:=string(tv1.variance.WORKINGHOURS); }
+  MyLogWrite('4;'+codeTable[i1+31*Perehod]+';'+string(double(ChasTable[i1+31*Perehod]))+';'+SymbJav[i2+8*Perehod]);
+                  }
+                  }
+                  Break; } //if
+              } //else
+            } // for i2
+!            break;  // Если тут остановить то возьмется код первого отклонения если не остановить то последнего
+           } //if priz
+           Else  // Если в один день была и явка и неявка!!!! ( Такое оказывается бывает!)
+           {
+            codeTable[i1+31*Perehod]:=tv1.UOWRKTABEL.NUM;
+            For (i2:=1;i2<=8;inc(i2))
+            {
+              If (SymbNeJav[i2+8*Perehod]='' )
+              { SymbNeJav[i2+8*Perehod]:=codeTable[i1+31*Perehod];
+                DaysNeJav[i2+8*Perehod]:=1;
+                ChasNeJav[i2+8*Perehod]:=tv1.variance.WORKINGHOURS;
+                Break; }
+              Else
+              {
+                If (SymbNeJav[i2+8*Perehod]=codeTable[i1+31*Perehod])
+                { DaysNeJav[i2+8*Perehod]:= DaysNeJav[i2+8*Perehod]+1;
+                  ChasNeJav[i2+8*Perehod]:= ChasNeJav[i2+8*Perehod]+ tv1.variance.WORKINGHOURS; 
+                  Break; 
+                } //if
+              } //else
+            } // for i2
+           } //else
+          } //if
+        } //if
+      } // Tv1._loop variance
+// Муренина А.В. 20081127
+  if trim(codeTable[i1+31*Perehod])=''
+  {  codeTable[i1+31*Perehod]:=if(dm_days_k[i1]<>'' and tv1.lstab.DAYCHF[i1]>0.01 and tv1.lstab.DAYCHF[i1]<100
+       ,dm_days_k[i1],tv1.lstab.DAYS[i1]);
+  }
+  codeTable[i1+31*Perehod]:=if(pos('РП',codeTable[i1+31*Perehod])>0
+          ,'РП',if(pos('РО',codeTable[i1+31*Perehod])>0,'РО',codeTable[i1+31*Perehod]));
+  ChasTable[i1+31*Perehod]:=replace(ChasTable[i1+31*Perehod],'.00','')    
+//-----------------------
+  mylogwrite('День '+string(i1)+if(flfound,'', ' Без отклонений')+   '='+codeTable[i1+31*Perehod]+'=')
+        
+      If ( not flfound ) 
+      { ww_koddays:=codeTable[i1+31*Perehod]
+        if tv1.getfirst fastfirstrow uo_99<>0 
+        { codeTable[i1+31*Perehod]:='Я'; 
+          ChasTable[i1+31*Perehod]:=tv1.lstab.DAYS[i1]; 
+        }
+        else
+        {   mylogwrite('Неявка='+tv1.UO_99.NUM+'.')
+//          if logfilekl   
+//            logstrtofile('log3.txt',string(i1)+'-1;'+codeTable[i1+31*Perehod]+';'+tv1.lstab.DAYS[i1]+';');
+           if IsJavka(tv1.uo_99.priz) and tv1.lstab.DAYCHF[i1]>0 //tv1.lstab.DAYCHF[i1]>0 and tv1.lstab.DAYCHF[i1]<100
+           { var wwsch: double ;
+             wwsch:=tv1.lstab.DAYCHF[i1]
+             
+             if wwsch>100 then wwsch:=WT_GethoursInDay(i1,hkWorking,stPlanned) ; //wt_gethoursinday(i1,1,0)
+             if trim(tv1.UO_99.NUM)='К' or trim(tv1.UO_99.NUM)='НТ'
+             { wwsch:=0 ; ChasTable[i1+31*Perehod]:=''
+             }
+             else
+             if tv1.UO_99.NUM='СП'   //20100803 - в СП не показывать сверхурочные
+             { ChasTable[i1+31*Perehod]:=string(wwsch,0,1);
+               wwsch:=wwsch-(WT_GethoursInDay(i1,hkOverwork,stActual)+WT_GethoursInDay(i1,hkOverworkRest,stActual)); 
+             }
+             else
+             { ChasTable[i1+31*Perehod]:=string(wwsch,0,1); 
+             }
+             For (i2:=1;i2<=8;inc(i2))
+             {
+                 If (SymbJav[i2+8*Perehod]='' )
+                 { 
+                    SymbJav[i2+8*Perehod]:=tv1.UO_99.NUM;
+                    DaysJav[i2+8*Perehod]:=1;
+                  ChasJav[i2+8*Perehod]:=wwsch; ; 
+                  Break; 
+               }
+               Else
+               {
+                  If (SymbJav[i2+8*Perehod]=tv1.UO_99.NUM)
+                  { DaysJav[i2+8*Perehod]:= DaysJav[i2+8*Perehod]+1;
+                    ChasJav[i2+8*Perehod]:= ChasJav[i2+8*Perehod]+wwsch
+                    Break; 
+                  } //else
+               }   
+             } // for i2
+           }
+        } //if tv1.getfirst fastfirstrow uo_99<>0
+      
+      
+      } //If ( not flfound )
+      //20110126  - исключим часы на командировки
+      If double(tv1.lstab.DAYS[i1])>0 and dm_days_k[i1]=''// and substr(trim(codeTable[i1+31*Perehod]),1,1)<'A'
+      {
+        If i1<=15
+        { PerPolDays[1+Perehod]:=PerPolDays[1+Perehod]+1; PerPolChas[1+Perehod]:=PerPolChas[1+Perehod]+double(ChasTable[i1+31*Perehod]);}
+        Else
+        { VtPolDays[1+Perehod]:=VtPolDays[1+Perehod]+1; VtPolChas[1+Perehod]:=VtPolChas[1+Perehod]+double(ChasTable[i1+31*Perehod]);}
+        AllDays[1+Perehod]:=AllDays[1+Perehod]+1; AllChas[1+Perehod]:=AllChas[1+Perehod]+ double(ChasTable[i1+31*Perehod]);
+      }
+    } //if (flJavka)
+    Else
+    { if trim(codeTable[i1+31*Perehod])=''
+      {  codeTable[i1+31*Perehod]:=if(dm_days_k[i1]<>'' and tv1.lstab.DAYCHF[i1]>0.01 and tv1.lstab.DAYCHF[i1]<100
+                   ,dm_days_k[i1],tv1.lstab.DAYS[i1]);
+      }
+      mylogwrite('Обработка неявки '+codetable[i1+31*Perehod])
+     
+      ChasTable[i1+31*Perehod]:='';
+//20081003
+      if codetable[i1+31*Perehod]='В'  // учтем выходные
+      { For (i2:=1;i2<=8;inc(i2))
+        { If (SymbNeJav[i2+8*Perehod]='' )
+          { SymbNeJav[i2+8*Perehod]:='В';
+            DaysNeJav[i2+8*Perehod]:=1;
+            Break;
+ 
+          }
+          else
+          { If (SymbNeJav[i2+8*Perehod]='В')
+            { DaysNeJav[i2+8*Perehod]:= DaysNEJav[i2+8*Perehod]+1;
+              Break;
+            }  
+          }
+        }
+      } // if codetable[i1+31*Perehod]='В'  учтем выходные
+      If (codetable[i1+31*Perehod]<>'В' and codetable[i1+31*Perehod]<>'-')
+      {
+      Tv2.Rejim2:=WT_GetOperatingMode(i1);
+      If (tv2.getfirst klndr = tsOk )
+      {
+ mylogwrite(string(tabn)+';'+string(i1)+';'+string(codetable[i1+31*Perehod])+';'+string(tv2.klndr.DayChas[i1])
+  +';'+string(WT_GetHoursBwDays(12, 0, 0, 1, i1,i1)) +';'+string(WT_GetHoursBwDays(12, 0, 0, 0, i1,i1)));
+//20071205        If (tv2.klndr.DayChas[i1]>0 or codetable[i1+31*Perehod]<>'НН') // Это выполняется почти всегда
+        If (tv2.klndr.DayChas[i1]>0 
+           or (codetable[i1+31*Perehod]<>'НН' or WT_GetHoursBwDays(12, 0, 0, 1, i1,i1)>0 )
+            ) // Это выполняется почти всегда
+        {
+           For (i2:=1;i2<=8;inc(i2))
+           {
+             If (SymbNeJav[i2+8*Perehod]='' )
+             {
+               SymbNeJav[i2+8*Perehod]:=codeTable[i1+31*Perehod];
+               DaysNeJav[i2+8*Perehod]:=1;
+               If codetable[i1+31*Perehod]='УК' or codetable[i1+31*Perehod]='ДО'
+//20071205               { ChasNeJav[i2+8*Perehod]:= WT_GetHoursBwDays(12, 0, 0, 1, i1,i1); }
+               {  
+                  ChasNeJav[i2+8*Perehod]:=if(WT_GetHoursBwDays(12, 0, 0, 1, i1,i1)>0, WT_GetHoursBwDays(12, 0, 0, 1, i1,i1),WT_GetHoursBwDays(12, 0, 0, 0, i1,i1) ); 
+#IFDEF _DEBUG_
+ mylogwrite('   '+string(ChasNeJav[i2+8*Perehod]) +';'+string(WT_GetHoursBwDays(12, 0, 0, 1, i1,i1)) +';'+string(WT_GetHoursBwDays(12, 0, 0, 0, i1,i1)))
+#ENDIF
+               }
+               else
+               If codetable[i1+31*Perehod]='НН'
+               { ChasNeJav[i2+8*Perehod]:= WT_GetHoursBwDays(12, 0, 0, 1, i1,i1); }
+               else
+               { /*
+                 if tv1.lstabmsk.USED[i1]=1
+                 { ChasNeJav[i2+8*Perehod]:=double(tv1.lstabmsk.WORKINGHOURS[i1]); 
+                 }
+                 else
+                 { ChasNeJav[i2+8*Perehod]:=double(tv2.klndr.DayChas[i1]); 
+                 }
+                 */
+                 ChasNeJav[i2+8*Perehod]:=WT_GetHoursBwDays(12, 0, 0, 1, i1,i1)
+                 
+               }
+//20071204
+               If codetable[i1+31*Perehod]='ОТ' or codetable[i1+31*Perehod]='ОН'
+               { ChasNeJav[i2+8*Perehod]:= DaysNeJav[i2+8*Perehod]*5.71; }
+
+               Break;
+             } //If (SymbNeJav[i2+8*Perehod]='' )
+             Else
+             {
+               If (SymbNeJav[i2+8*Perehod]=codeTable[i1+31*Perehod])
+               {
+                 DaysNeJav[i2+8*Perehod]:= DaysNEJav[i2+8*Perehod]+1;
+                 If codetable[i1+31*Perehod]='УК' or codetable[i1+31*Perehod]='ДО'
+//20071205                 { ChasNeJav[i2+8*Perehod]:= ChasNeJav[i2+8*Perehod]+ WT_GetHoursBwDays(12, 0, 0, 1, i1,i1); }
+                 { ChasNeJav[i2+8*Perehod]:= ChasNeJav[i2+8*Perehod]+ 
+                     if(WT_GetHoursBwDays(12, 0, 0, 1, i1,i1)>0, WT_GetHoursBwDays(12, 0, 0, 1, i1,i1),WT_GetHoursBwDays(12, 0, 0, 0, i1,i1) ); 
+  mylogwrite('    '+string(ChasNeJav[i2+8*Perehod]) +';'+string(WT_GetHoursBwDays(12, 0, 0, 1, i1,i1)) +';'+string(WT_GetHoursBwDays(12, 0, 0, 0, i1,i1)))
+                 }
+                 else
+                   If codetable[i1+31*Perehod]='НН'
+                   { ChasNeJav[i2+8*Perehod]:= ChasNeJav[i2+8*Perehod]+ WT_GetHoursBwDays(12, 0, 0, 1, i1,i1); 
+                   } 
+                   else
+
+//20071204
+                     If codetable[i1+31*Perehod]='ОТ' or codetable[i1+31*Perehod]='ОН'
+                     { ChasNeJav[i2+8*Perehod]:= ChasNeJav[i2+8*Perehod]+ 5.71; }
+                     else
+                     { /*
+                       if tv1.lstabmsk.USED[i1]=1
+                       { ChasNeJav[i2+8*Perehod]:=ChasNeJav[i2+8*Perehod]+double(tv1.lstabmsk.WORKINGHOURS[i1]); 
+                       }
+                       else
+                       { ChasNeJav[i2+8*Perehod]:=ChasNeJav[i2+8*Perehod]+double(tv2.klndr.DayChas[i1]); 
+                       }
+                       */
+                       ChasNeJav[i2+8*Perehod]:=ChasNeJav[i2+8*Perehod]+WT_GetHoursBwDays(12, 0, 0, 1, i1,i1); 
+                    }   
+                 Break;
+               } // if
+             }  // else If (SymbNeJav[i2+8*Perehod]='' )
+           } // for
+        } // if
+      } // if
+      } //if
+    } //else if (flJavka)
+   } // if По объекту строительства!!!!
+    if ( i1>15 and flHalf )
+    { codeTable[i1+31*Perehod]:=''; }
+  } // for
+ flIsRp:=false;
+// For (i3:=0;i3<=Perehod;inc(i3))
+ For (i3:=0;i3<=PerehodLast;inc(i3))
+ {
+  irp:=0;irg:=0;iro:=0;irsv1:=0;irsv2:=0;
+  For (i2:=1;i2<=8;inc(i2))
+  { If (SymbJav[i2+8*i3]='РП') irp:=i2;
+    if (SymbJav[i2+8*i3]='РО') iro:=i2;
+    if (SymbJav[i2+8*i3]='РГ') irg:=i2;
+    if (SymbJav[i2+8*i3]='СВ1') irsv1:=i2;
+    if (SymbJav[i2+8*i3]='СВ2') irsv2:=i2;
+    If (SymbJav[i2+8*i3]='') Break; 
+  }
+  //Ночные
+  If i2<8
+  { 
+    Chasjav[i2+8*i3]:=0;
+    Daysjav[i2+8*i3]:=0;
+    For (i1:=1;i1<=cntd;inc(i1))
+    {
+//Logstrtofile('c:\tablelog.txt','1 '+string(i3)+'/'+string(i1)+'/'+if(flObjStroyOk3[i1],1,0)+'/'+string(Perehoddays2[i1])
+//       +'/'+string(WT_GetHoursBwDays(3, 0, 0, 1, i1,i1))+ +'/'+string(Wt_GetDaysBwDays(8, 1, i1 , i1)) )
+
+      If (flObjStroyOk3[i1] and Perehoddays2[i1]=i3)
+      { 
+        Chasjav[i2+8*i3]:= Chasjav[i2+8*i3]+WT_GetHoursBwDays(3, 0, 0, 1, i1,i1);
+        Daysjav[i2+8*i3]:= Daysjav[i2+8*i3]+Wt_GetDaysBwDays(8, 1, i1 , i1);
+
+      }
+    }
+    If Daysjav[i2+8*i3]>0
+    { SymbJav[i2+8*i3]:='Н';
+// Logstrtofile('c:\tablelog.txt','Н '+string(i3)+'/'+string(i2)+'/'+string(Chasjav[i2+8*i3])+'/'+string(Daysjav[i2+8*i3]) )
+     i2:=i2+1; 
+    }
+
+  }
+  // День работы в праздник
+  If ( i2<8 or irg<>0 )
+  { 
+    if (irg=0) 
+    { irg:=i2;
+      Chasjav[irg+8*i3]:=0;
+      Daysjav[irg+8*i3]:=0;
+    }
+    For (i1:=1;i1<=cntd;inc(i1))
+    {
+      If (flObjStroyOk3[i1] and Perehoddays2[i1]=i3)
+      {
+        Chasjav[irg+8*i3]:= Chasjav[irg+8*i3]+WT_GetHoursBwDays(4, 0, 0, 1, i1,i1);
+        Daysjav[irg+8*i3]:= Daysjav[irg+8*i3]+Wt_GetDaysBwDays(13, 1, i1,i1);
+      }
+    }
+    if (irg=i2)
+    {  If Daysjav[irg+8*i3]>0
+       { SymbJav[irg+8*i3]:='РГ';
+         i2:=i2+1; 
+       }
+    }
+  }
+  // сверхурочные все часов  
+/*  20101222
+  If i2<8
+  { 
+    Chasjav[i2+8*i3]:=0;
+    Daysjav[i2+8*i3]:=0;
+    For (i1:=1;i1<=cntd;inc(i1))
+    {
+      If (flObjStroyOk3[i1] and Perehoddays2[i1]=i3)
+      { Daysjav[i2+8*i3]:= Daysjav[i2+8*i3]+ Wt_GetDaysBwDays(5, 1, i1,i1);
+        Chasjav[i2+8*i3]:= Chasjav[i2+8*i3]+ Round(WT_GetHoursBwDays(6, 0, 0, 1, i1, i1),2);
+        Chasjav[i2+8*i3]:= Chasjav[i2+8*i3]+ Round(WT_GetHoursBwDays(7, 0, 0, 1, i1, i1),2);
+      }
+    }
+    If (Daysjav[i2+8*i3]>0 and Chasjav[i2+8*i3]>0)
+      SymbJav[i2+8*i3]:='С';
+    Else
+    { Daysjav[i2+8*i3]:=0;ChasJav[i2+8*i3]:=0 }
+  }
+*/
+  // сверхурочные до 2 часов  
+  If i2<8
+  { 
+    if (irsv1=0) 
+    { irsv1:=i2;
+    }
+    For (i1:=1;i1<=cntd;inc(i1))
+    {
+      If (flObjStroyOk3[i1] and Perehoddays2[i1]=i3)
+      { Daysjav[irsv1+8*i3]:= Daysjav[irsv1+8*i3]+ Wt_GetDaysBwDays(5, 1, i1,i1);
+        Chasjav[irsv1+8*i3]:= Chasjav[irsv1+8*i3]+ Round(WT_GetHoursBwDays(6, 0, 0, 1, i1, i1),2);
+      }
+    }
+    If (Daysjav[irsv1+8*i3]>0 and Chasjav[irsv1+8*i3]>0)
+    { SymbJav[irsv1+8*i3]:='СВ1';
+      if irsv1=i2  i2:=i2+1; 
+
+    }
+  }
+  // сверхурочные свыше 2 часов  
+  If i2<8
+  { if (irsv2=0) 
+    { irsv2:=i2;
+    }
+    For (i1:=1;i1<=cntd;inc(i1))
+    {
+      If (flObjStroyOk3[i1] and Perehoddays2[i1]=i3)
+      { Daysjav[irsv2+8*i3]:= Daysjav[irsv2+8*i3]+ Wt_GetDaysBwDays(6, 1, i1,i1);
+        Chasjav[irsv2+8*i3]:= Chasjav[irsv2+8*i3]+ Round(WT_GetHoursBwDays(7, 0, 0, 1, i1, i1),2);
+      }
+    }
+    If (Daysjav[irsv2+8*i3]>0 and Chasjav[irsv2+8*i3]>0)
+    {  SymbJav[irsv2+8*i3]:='СВ2';
+       i2:=i2+1; 
+    }   
+  }
+ } //For (i3:=0;i3<=PerehodLast;inc(i3))
+}//If (tv1.getfirst lstab=tsOk)
+I3:=0;
+end.
+!========================================= 
+.Procedure InitDop ;
+begin
+  it_PerPolDays :=0 ;
+  it_PerPolchas :=0 ; 
+  it_VtPolDays  :=0 ;
+  It_VtPolChas  :=0 ;
+  IT_AllDays    :=0 ;
+  IT_AllChas    :=0 ;
+  jav_col:=0   ;
+  nejav_col:=0 ;
+  tv5.delete all tmp_t13 ;
+  tv5.delete all tmp_t13_print ;
+  tv5.delete all tmp_t13_print ;
+  For (i2:=1;i2<=80;inc(i2))
+  { SymbJav_IT[i2]:='';DaysJav_IT[i2]:=0;Chasjav_IT[i2]:=0;SymbneJav_IT[i2]:='';DaysneJav_IT[i2]:=0;Chasnejav_IT[i2]:=0; }
+  if Podr<>'без учета подразделения'
+  { Podr1:=trim(Replace(Podr,'Подразделение N', ''));
+    Podr1:=trim(substr(Podr1,pos(' ',Podr1),100));
+  }
+ end.
+.Function InitRep :boolean ;
+var
+  wpodr_max : comp ;
+  wpodr_up : comp ;
+begin
+  InitRep:=false ;
+  InitServTxo(0)
+  logfilekl:=false;
+  if fileexist('c:\tablelog.txt') deletefile('c:\tablelog.txt')
+  if fileexist('c:\FK_003.txt') deletefile('c:\FK_003.txt')
+//  message(podr) ;
+  InitDop ; // можно вызывать в каждом цикле группировки
+  if Podr<>'без учета подразделения' and (Type_tabel and 3)=0
+  { Podr1:=trim(Replace(Podr,'Подразделение N', ''));
+    Podr1:=trim(substr(Podr1,pos(' ',Podr1),100));
+  }
+  else
+  { tv_mark.delete all tmp_podrmark ;
+    wpodr_max :=0 ;
+    Podr1:='---' 
+    tv_mark._loop formarks
+    { //000000000000056Bh
+      MylogWrite( string(tv_mark.formarks.clschet)+','+string(tv_mark.formarks.field1))
+      if tv_mark.getfirst tmp_podrmark where (( formarks.field1 == tmp_podrmark.nrec )) <>0
+      {  tv_mark.insert into tmp_podrmark set tmp_podrmark.nrec:=formarks.field1 ;
+      }
+    }
+    MylogWrite('=================') 
+    tv_mark._loop fullcache tmp_podrmark
+    { wpodr_up:=tv_mark.tmp_podrmark.nrec ;
+      for(i2:=1 ; i2<=10 ; i2:=i2+1)  set tv_mark.tmp_podrmark.dmrec[i2]:=tv_mark.tmp_podrmark.nrec ;
+      do {
+        if tv_mark.getfirst katpodr where ((wpodr_up == katpodr.nrec )) <>0 then break ;
+        for(i2:=10 ; i2>=2 ;i2:=i2-1)
+        {  tv_mark.tmp_podrmark.dmrec[i2] := tv_mark.tmp_podrmark.dmrec[i2-1]
+           tv_mark.tmp_podrmark.dmname[i2] := tv_mark.tmp_podrmark.dmname[i2-1]
+  
+        }
+        tv_mark.tmp_podrmark.dmname[1]:=tv_mark.katpodr.name ;       
+        tv_mark.tmp_podrmark.dmrec[1]:=tv_mark.katpodr.nrec ;
+        wpodr_up:=tv_mark.katpodr.cpodr ;
+        if wpodr_up=0
+        { break
+        }
+      } while true ;
+      MylogWrite(tv_mark.tmp_podrmark.dmname[1]+'/'+tv_mark.tmp_podrmark.dmname[2]
+              +'/'+tv_mark.tmp_podrmark.dmname[3]+'/'+tv_mark.tmp_podrmark.dmname[4]
+              +'/'+tv_mark.tmp_podrmark.dmname[5]+'/'+tv_mark.tmp_podrmark.dmname[6]
+              +'/'+tv_mark.tmp_podrmark.dmname[7]+'/'+tv_mark.tmp_podrmark.dmname[8]
+             )
+      MylogWrite(string(tv_mark.tmp_podrmark.dmrec[1])+'/'+string(tv_mark.tmp_podrmark.dmrec[2])
+              +'/'+string(tv_mark.tmp_podrmark.dmrec[3])+'/'+string(tv_mark.tmp_podrmark.dmrec[4])
+              +'/'+string(tv_mark.tmp_podrmark.dmrec[5])+'/'+string(tv_mark.tmp_podrmark.dmrec[6])
+              +'/'+string(tv_mark.tmp_podrmark.dmrec[7])+'/'+string(tv_mark.tmp_podrmark.dmrec[8])
+              +'/'+string(tv_mark.tmp_podrmark.dmrec[9])+'/'+string(tv_mark.tmp_podrmark.dmrec[10])
+             )
+      tv_mark.update current tmp_podrmark ;
+
+    }
+    wpodr_max:=0
+    mode_gr:=1;
+    for(i2:=10 ; i2>=1 ;i2:=i2-1)
+    { if tv_mark.getfirst tmp_podrmark=0
+      { wpodr_up:=tv_mark.tmp_podrmark.dmrec[i2]
+        MylogWrite(string(i2)+'/'+string(wpodr_up)) 
+        if (tv_mark.getfirst tmp_podrmark where ( wpodr_up <> tmp_podrmark.dmrec[i2] ) )<>0
+        { wpodr_max:=wpodr_up ;
+          break 
+        }
+      } // if tv_mark.getfirst tmp_podrmark=0
+    } // for(i2:=10 ; i2>=2 ;i2:=i2-1)    
+    if wpodr_max<>0
+    { podr1:='??? '+string(wpodr_max) ;
+      if tv_mark.getfirst katpodr where ((wpodr_max == katpodr.nrec )) =0  
+      { podr1:=tv_mark.katpodr.kod+' '+tv_mark.katpodr.name ;
+      } 
+
+    }  
+  } // else
+  Pred1:=Pred;
+  dolRuk1:=#mycDolKadrBoss ;
+  fioRuk1:=#mycNameKadrBoss ;
+  dolRuk2:=#mycDolOTIZBoss ;
+  fioRuk2:=#mycNameOTIZBoss ;
+  InitWorkingTable;
+  flHalf:=false;cntd:=31;flRazb:=0;ObjStr1:=comp(0);
+  Runinterface('GetParTabel_2',  Type_tabel, //1 
+   Group_tbl , //2
+   fioruk1,  //3
+   rukNrec1, //4
+   dolruk1, //5
+   fioruk2, //6
+   rukNrec2, //7
+   Dolruk2, //8
+   Pred1,   //9
+   PodrNrec1, //10
+   CntD, //11 первые 15 дней
+   flRazb, //12
+   ObjStr1, //13
+   AnCode,  //14
+   mode_gr  //15
+   );
+  //logfilekl:=true; 
+  MylogWrite('PodrNrec1='+string(PodrNrec1)+',flRazb='+string(flRazb)+',CntD='+string(CntD)+',mode_gr='+string(mode_gr))
+  if not ReadMyDsk(logfilekl,'FT02_logfilekl',false) logfilekl:=false;
+  if not ReadMyDsk(ie_analitik,'FT02_ie_analitik',false) ie_analitik:=0
+  sort_fio:=0;
+  if  Type_tabel=2
+  { iFZ_21_BalansTabel.SetLogFile(if(logfilekl,logfilenm,''))
+    iFZ_21_BalansTabel.Report_Init(101)
+    //vtobot.rereadrecord(vtobot.tntobot)
+     MylogWrite('Report_Init');
+   //     if (CntD and 32)>0 sort_fio:=true;
+  }
+  if not ReadMyDsk(sort_fio,'PrintT13_SortFlag',false) sort_fio:=0
+   // не выводить работников
+  if (CntD and 2)>0 kl_persons:=false else kl_persons:=true;
+  if (CntD and 4)>0 kl_videyat:=false else kl_videyat:=true;
+  if (CntD and 8)>0 kl_a_itog:=true; else kl_a_itog:=false;
+  if (CntD and 16)>0 kl_a_obst:=true; else kl_a_obst:=false;
+  if (CntD and 1)>0 
+  {  flHalf:=true;
+     CntD:=15;
+  }
+  dateb:=StrToDate(PeriodBeginning,'DD/MM/YYYY')
+  dateb:= Date(1, Month(dateb), Year(dateb) )
+  datee:=date(if(cntd=15,15,last_day(dateb)),month(dateb),year(dateb))
+  for(i2:=0;i2<=4;i2:=i2+1)
+  { MarkerKauName[i2] := iGetKau.GetMarkerName(GetCodeGrKau(i2) );
+    Marker[i2] := InitMarker(MarkerKauName[i2],8,100,10);
+    if GetMarkerCount(Marker[i2])>0 and ((AnCode shr i2) and 1)>0
+    { message('Установлен фильтр по аналитике '+string(GetMarkerCount(Marker[i2]))+'/'+MarkerKauName[i2] ) ; 
+    }
+  }  
+  rep_month:=Month(StrToDate(PeriodBeginning,'DD/MM/YYYY'))
+  rep_year :=Year (StrToDate(PeriodBeginning,'DD/MM/YYYY'))
+  // запоним на всякий случай временную таблицу с аналитикой
+  if not kl_videyat
+  { tv1.delete all tmp_staffkau;
+    tv1.insert  tmp_staffkau
+    select
+      staffstruct.nrec, klfilter.ckaud[1],klfilter.tbld[1],spkau.name
+     from staffstruct,klfilter,spkau
+   where ((
+       staffstruct.CPODR /== klfilter.nrec
+     and klfilter.ckaud[1] == spkau.nrec 
+
+    )) and (staffstruct.DCLOSE=date(0,0,0) or staffstruct.DCLOSE>=dateb) ; 
+  } //if not kl_videyat;   
+  InitRep:=true ;
+  mylogwrite('InitREp finish')
+  Logfilekl:=True;
+  if tv1.getfirst cat_dolg_main<>0 { message('Не нашли главную запись для должностей') }
+ end.
+!========================================= 
+.Procedure DoneRep ;
+begin
+    DoneMarker(marker[0],markerkauname[0]) 
+    DoneMarker(marker[1],markerkauname[1]) 
+    DoneMarker(marker[2],markerkauname[2]) 
+    DoneMarker(marker[3],markerkauname[3]) 
+    DoneMarker(marker[4],markerkauname[4]) 
+    DoneServTxo;
+ end.

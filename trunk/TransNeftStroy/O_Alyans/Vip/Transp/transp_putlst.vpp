@@ -1,0 +1,936 @@
+// =============================
+// выборка данных по путевым
+// =============================
+#declare transp_get_fld
+ Insert My_WorkTable
+ Select
+//20080410    Putlst.Nrec               , //Nrec Пл
+    0 ,// pa
+    '' , // sortname
+    PutGSM.TIPINFO   , // 0 путевой
+    Putlst.Nrec      , //Nrec Пл
+    PutLst.NPL       ,
+    PutGSM.TipGsm    , //0 - 1 бак,1 - 2 и так далее
+    PutGSM.NPP       , // порядковый номер
+    PutGsm.Nrec      , //nrec записи gsm
+//end 20080410
+    Putlst.Exitdn             , //Выезд День
+    Putlst.ExitCh             , //Выезд время
+    Putlst.Returndn           , //Возврат День
+    Putlst.Probegv            , // 0, 1, 2
+    Putlst.Probegall          , //Пробег
+    Putlst.Timeengine         , //Часы Простоя С Включенным Двигателем Normgsm.Dop1
+    Putlst.Timeheat           , //Часы Автономного Оборудования Normgsm.Unload
+    Transp.Nomer,//Putlst.Nomer  Гос.Номер Ам
+    Putlst.Timespec           , //Мото-Часы
+    Putlst.Gruztn             , //Перевезено Тонн
+    Putlst.Gruztnkm           , //Тоннокилометры
+    PuTlst.Timemove           , //Время В Наряде
+    PuTlst.Timestop           , //Время В Наряде
+    Putlst.Volume0            , //Внутригаражный Простой
+    Putlst.Dppokaz6           , //Автомобиле Дни В Работе
+    Putlst.Dppokaz7           , //Автомобиле Дни В Ремонте
+    Transp.nrec               , //Nrec ТС
+    Transp.CMARKA             , //Nrec Марка Ам
+    Transp.Marka              , //Марка Ам
+    KatOs.InNum               , //Инв. номер
+    TipTex.Nrec               , //Nrec TipTex
+    Tiptex.Name               , //Тип Тс
+    Katpodr.Nrec              , //Nrec Подразделения
+    Katpodr.Name              , //Наименование Подразделения
+    Katorg.Name               , //Азс
+    Toplivo.Nrec              , //Toplivo.Nrec
+    Toplivo.Name              , //Наименование Топлива
+    Toplivo.CKATMC            , //Nrec ЦМ
+    Substr(Vidgsm.Kodvid,1,2) , //Код вида ГСМ
+    VidGsm.name               , //наименование вида гсм 
+    Putgsm.Ow                 , //Остаток В Баке
+    PuTgsm.Owv                , //Остаток В Баке При Возвращении
+    Putgsm.Vidt               , //Выдано Топлива
+//20100623   Putgsm.Normt              , //Нормативный Расход
+    if(PutGsm.DpPokaz9 <> 0,0, Putgsm.Normt)              , //Нормативный Расход
+    Putgsm.Faktt              , //Фактически Израсходовано
+    Putgsm.Sdant              , //Сдано
+    if(Putgsm.Zaprdn<PUTLST.EXITDN,PUTLST.EXITDN,if(Putgsm.Zaprdn>PUTLST.RETURNDN,PUTLST.RETURNDN,Putgsm.Zaprdn))             , //День Заправки
+//    if(Putgsm.Zaprch<PUTLST.EXITCH and Putgsm.Zaprdn<=PUTLST.EXITDN,PUTLST.EXITCH,Putgsm.Zaprch)             , //Время Заправки
+    Putgsm.Zaprch             , //Время Заправки
+    if(PutGsm.CORG=0 or PutGsm.corg=wc_myorg,PUTGSM.DpPokaz6,0)           , //nrec подразделения ООО"Балтнефтепровод"
+//20080402    Save_Drv.Fio              , //Фио основного водителя
+    kndriver.name ,  //Фио основного водителя
+    0                         , //PutLst.PROBEGV = 0 если внутри SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+    0                         , //PutLst.PROBEGV = 0 если вне SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+    0                         , //PutLst.PROBEGV = 1
+    0                         , //PutLst.PROBEGV = 2
+    0                         , //Часы простоя с включенным двигателем
+    0                         , //Часы автономного оборудования
+    0                           //Часы автономного оборудования
+//топливо по бакам    
+    ,0 //Putgsm_Ow1: Double
+    ,0 //Putgsm_Ow2: Double
+    ,0 //Putgsm_Ow3: Double
+    ,0 //PutGsm_Owv1: Double
+    ,0 //PutGsm_Owv2: Double
+    ,0 //PutGsm_Owv3: Double
+    ,0 //Putgsm_vidt1: Double
+    ,0 //Putgsm_normt1: Double
+    ,0 //Putgsm_faktt1: Double
+    ,0 //PutGsm_sdant1: Double
+    ,0 //Putgsm_vidt2: Double
+    ,0 //Putgsm_normt2: Double
+    ,0 //Putgsm_faktt2: Double
+    ,0 //PutGsm_sdant2: Double
+    ,0 //Putgsm_vidt2: Double
+    ,0 //Putgsm_normt2: Double
+    ,0 //Putgsm_faktt2: Double
+    ,0 //PutGsm_sdant2: Double
+    ,0 //Putgsm_OwPr :word  // признак что бак обнаружен
+    ,PUTLST.PROBEGGR
+    ,0 //Timespec_kol : double   // число случаев работы по моточасам
+    ,0 //Timeheat_kol : double   // число случаев работы автономного оборудования
+    ,PUTLST.SPEEDEXI//:double //спидометр пробег на начало
+    ,PUTLST.SPEEDRET//:double //спидометр пробег на возвращение
+    ,PUTLST.NPVIRVAL//:double // счетчик на начало
+    ,PUTLST.FKVIRVAL//:double// счетчик на конец
+   ,'' //AZS_NM :string[20]
+   ,0//AZS1 :double;
+   ,0//AZS2 :double;
+   ,0//AZS3 :double;
+   ,0//AZS4 :double;
+   , Toplivo.CVidgsm            //Vidgsm
+// блокировка чтобы не учитывались записи с заправкой   
+//   ,if(PutGsm.DpPokaz9 <> 0,0,PutGsm.CGSMALG) //ссылка на алгоритм GSMALG GSMALG.STRALG
+   ,PutGsm.CGSMALG //ссылка на алгоритм GSMALG GSMALG.STRALG
+#end
+#declare transp_get_cond
+         PutLst.nrec == Putgsm.Cputlst and
+//end ed
+                0  == Putgsm.Tipinfo(noindex)    And //Путевые Листы
+//         Putgsm.Cputlst  /== Putlst.Nrec       And //Связь Сведений О Гсм С Пл
+         Putgsm.Corg      == Katorg.Nrec       And //Азс
+         Putgsm.Ctoplivo /== Toplivo.Nrec      And //Связь Сведений О Гсм С Tопливом
+         Putlst.Cpol     /== Katpodr.Nrec      And //
+         Putlst.Ctransp  /== Transp.Nrec       And //Связка Пл С Транспортом
+         Transp.Ctiptex  /== Tiptex.Nrec       And
+         Toplivo.Cvidgsm /== Vidgsm.Nrec       And
+         Transp.CKATOS    == KatOs.nrec        And
+//20080402         Putlst.Nrec     /== Save_drv.Cputlst      //Связка С Пл С Закрепленными Водителями
+         Putlst.cPaketPl == kndriver.nrec 
+
+#end
+
+//======================================
+#declare _My_Toplivo_ADD_
+      if getfirst My_Toplivo where (( My_WorkTable_Group.Putlst_Nomer == My_Toplivo.PUTLST_NOMER
+       and My_WorkTable.TRANSP_MARKA == My_Toplivo.TRANSP_MARKA
+//       and My_WorkTable.Toplivo_Name == My_Toplivo.Toplivo_Name
+       and string(ww_column,3,0)+ww_str1 == My_Toplivo.Toplivo_Name
+       and ww_column == My_Toplivo.Column 
+//       and ww_str1 == My_Toplivo.TOPLIVO_KOD(noindex)
+       )) <>0
+      { Insert into My_Toplivo set 
+          My_Toplivo.PUTLST_NOMER:=My_WorkTable_Group.Putlst_Nomer
+         ,My_Toplivo.TRANSP_MARKA:=My_WorkTable.TRANSP_MARKA
+       //  ,My_Toplivo.Toplivo_Name:=My_WorkTable.Toplivo_Name
+         ,My_Toplivo.Toplivo_Name:=string(ww_column,3,0)+ww_str1 //My_WorkTable.Toplivo_Name
+         ,My_Toplivo.Column:=ww_column
+         ,My_Toplivo.NORMA:=ww_norm
+         ,My_Toplivo.Vid :=ww_vidt
+      //   ,My_Toplivo.TOPLIVO_KOD:=ww_str1
+         ,My_Toplivo.rasx:=ww_rasx
+         
+      }         
+      else
+      { update current My_Toplivo set My_Toplivo.rasx:=My_Toplivo.rasx+ww_rasx, My_Toplivo.Vid:=My_Toplivo.Vid+ww_vidt;
+      }
+      if (ww_vidt<>0 or ww_rasx<>0) and My_Toplivo.Vid>0
+      { update current My_Toplivo set My_Toplivo.NORMA:=round((My_Toplivo.rasx/My_Toplivo.Vid)*if(pos('(КМ)',ww_str2)>0,100,1),2)
+      }
+//(КМ)
+//(КМ)         
+      
+#end
+//======================================
+#declare _My_Toplivo_ADD_PL_
+      if getfirst My_Toplivo_PL where (( My_WorkTable.Putlst_Nrec == My_Toplivo_PL.PUTLST_NREC
+       and string(ww_column,3,0)+ww_str1 == My_Toplivo_PL.Toplivo_Name
+       and ww_column == My_Toplivo_PL.Column 
+       )) <>0
+      { Insert into My_Toplivo_PL set 
+          My_Toplivo_PL.putlst_nrec:=My_WorkTable.putlst_nrec
+         ,My_Toplivo_PL.PUTLST_NOMER:=My_WorkTable_Group.Putlst_Nomer
+         ,My_Toplivo_PL.TRANSP_MARKA:=My_WorkTable.TRANSP_MARKA
+         ,My_Toplivo_PL.Toplivo_Name:=string(ww_column,3,0)+ww_str1 //My_WorkTable.Toplivo_Name
+         ,My_Toplivo_PL.Column:=ww_column
+         ,My_Toplivo_PL.NORMA:=ww_norm
+         ,My_Toplivo_PL.Vid :=ww_vidt
+         ,My_Toplivo_PL.TOPLIVO_KOD:=ww_str2
+         ,My_Toplivo_PL.rasx:=ww_rasx
+         
+      }         
+      else
+      { update current My_Toplivo_PL set My_Toplivo_PL.rasx:=My_Toplivo_PL.rasx+ww_rasx, My_Toplivo_PL.Vid:=My_Toplivo_PL.Vid+ww_vidt;
+      }
+      if (ww_vidt<>0 or ww_rasx<>0) and My_Toplivo_PL.Vid>0
+      { update current My_Toplivo_PL set My_Toplivo_PL.NORMA:=round((My_Toplivo_PL.rasx/My_Toplivo_PL.Vid)*if(pos('(КМ)',ww_str2)>0,100,1),2)
+      }
+      
+#end
+//====================================
+Procedure MyLogExcel(const ww_err:string);
+{ if not log_excel then exit;
+  wexrow:=wexrow+1;wexcol:=1;
+  MyPutExcel(My_WorkTable.Putlst_Nomer,0,0,-1,-1);  //Номер машины	
+  MyPutExcel(My_WorkTable.Transp_Marka,0,0,-1,-1);//Марка	
+  MyPutExcel(My_WorkTable.PutLst_NPL,0,0,-1,-1);//Номер путевого	
+  MyPutExcel(DateToStr(My_WorkTable.Putlst_Exitdn,'`DD/MM/YYYY'),0,0,-1,-1);//Дата обработки	, выезда
+  MyPutExcel(My_WorkTable.Toplivo_Name,0,0,-1,-1);//Топливо	
+  MyPutExcel(string(My_WorkTable.PutGsm_TipGsm+1),0,0,-1,-1);//Бак	
+  MyPutExcel(DateToSTR(My_WorkTable.Putgsm_Zaprdn,'DD/MM/YYYY'),0,0,-1,-1);//Дата заправки	
+  MyPutExcel(TimeToStr(My_WorkTable.Putgsm_Zaprch,'HH:MM'),0,0,-1,-1);//Время заправки	
+  MyPutExcelNumber(My_WorkTable.Putgsm_Faktt,2,0,0,-1,-1);//Расход факт	
+  MyPutExcelNumber(My_WorkTable.Putgsm_Normt,2,0,0,-1,-1);//Расход норма	
+  PushPos(#GSMALG)
+  if getfirst GSMALG where ((
+      My_WorkTable.PutGsm_CGSMALG == GSMALG.NREC
+  ))=0
+  { MyPutExcel(Gsmalg.KODGSMALG+' '+Gsmalg.name,0,0,-1,-1);//Алгоритм	
+  }
+  else
+  { MyPutExcel('',0,0,-1,-1);//Алгоритм	
+  }
+  PopPos(#GSMALG)
+  MyPutExcel(ww_err,0,0,-1,-1);//Ошибка
+
+
+}
+//====================================
+Function My_Toplivo_ADD :boolean;
+var ww_str,ww_str1, ww_str2, ww_str3:string;
+    ww_i :word;
+    ww_norm,ww_norm1,ww_vidt :double;
+    ww_column:word
+    wkl_baz :boolean;
+    ww_rasx, ww_rasx_it :double;
+    wkod_alg:word;
+    ww_stralg:string;
+    wprizn_main :word;
+    ww_norm_rasx:string;
+    ww_norm_rasx1:string;
+    ww_norm_rasx2:string;
+    ww_norm_rasx3:string;
+    ww_pos:integer;
+{ My_Toplivo_ADD:=true;
+  mylogwrite(false,'My_Toplivo_ADD '+string(My_WorkTable.PutGsm_CGSMALG ))
+  if My_WorkTable.PutGsm_CGSMALG=0 then exit;
+  if not Need_Norm_RasShifrovka then exit;
+  if My_WorkTable.PutGsm_normt=0 then exit; // а вдруг забыли поставить заправка-факт
+  ww_norm:=0
+  if getfirst PutLst where (( My_WorkTable.Putlst_Nrec == PutLst.nrec ))=0 {}
+  wprizn_main:=0; 
+
+  wkl_baz:=false;
+  mylogwrite(false,'My_Toplivo_ADD 1 == My_WorkTable.PutLst_NPL ')
+  if not TakeNormPutLst
+  {
+   if getfirst GSMALG where ((  My_WorkTable.PutGsm_CGSMALG == GSMALG.NREC )) =0
+   { 
+    mylogwrite(false,'My_Toplivo_ADD 2')
+//Put_Pr1*Gsm_Main + Put_Pr2*Gsm_MainDp + Put_Pr3*Gsm_SpWrk + Put_PrMoun*Gsm_Var 
+//+ Put_ProbegAll*Gsm_Drv + Put_PrCity*Gsm_Nlp + 
+//Put_ProbegWrk*Gsm_Ins + Put_TimeEngine*Gsm_Wrk + Put_TimeHeat*Gsm_one + Put_TimeRad*Gsm_Sp + Put_TimeSpec*Gsm_Dop  
+    ww_str1:=''
+    ww_rasx_it:=0
+    ww_i:=0;
+    ww_stralg:=upcase(GSMALG.STRALG)
+    // убирем округление
+    ww_stralg:=replace(ww_stralg,'ROUND(',''); 
+    ww_stralg:=replace(ww_stralg,',1)',  '') //(
+    ww_stralg:=replace(ww_stralg,',2)',      '') //
+    // убирем округление
+    do 
+    {  ww_i:=ww_i+1;
+      ww_str:=trim(ExtractDelimitedWord(ww_stralg,ww_i,'+'))
+      ww_column:=999
+      ww_str1:='Прочие'
+      ww_vidt:=0
+      ww_rasx:=0
+      ww_str2:=0;
+      mylogwrite(false,'ALG='+ww_str)
+      if ww_str='' then continue;
+      if pos('GSM_BAZ',ww_str)>0 or pos('GSM_MAIN',ww_str)>0
+      { ww_str:=replace(ww_str,'GSM_BAZ',if(My_WorkTable.Putlst_Exitdn >= DatSummer and
+                                        My_WorkTable.Putlst_Exitdn <= DatWinter,'My_Norma.NORMGSM_LINNRM','My_Norma.NORMGSM_KOFFNGSM3'))
+        ww_norm:=if(My_WorkTable.Putlst_Exitdn >= DatSummer and
+                                        My_WorkTable.Putlst_Exitdn <= DatWinter,My_Norma.NORMGSM_LINNRM,My_Norma.NORMGSM_KOFFNGSM3)
+        ww_norm1:=ww_norm                                
+        ww_str1:='Основная'                                
+        ww_column:=0
+        ww_Rasx:=ww_norm*My_WorkTable.PutLst_ProbegAll/100
+        ww_vidt:=My_WorkTable.PutLst_ProbegAll
+      }
+      ww_str:=upcase(ww_str)
+      if pos('SUMALGCODE',ww_str)>0
+      {  ww_str1:=substr(ww_str,pos('[',ww_str)+1,100)
+         ww_str1:=substr(ww_str1,1,pos(']',ww_str1)-1)
+         wkod_alg:=word(ww_str1)
+         mylogwrite(false,'Код алгоритма '+string(wkod_alg))
+         ww_Rasx:=round(iGsm_CalcNorm.Gsm_Calc_Norm(wkod_alg,My_WorkTable.PutGsm_Nrec),5);
+         ww_str1:=iGsm_CalcNorm.GetNameAlg(wkod_alg)
+         ww_str2:=upcase(iGsm_CalcNorm.GetNameAlg_2(wkod_alg))
+         ww_str3:=upcase(iGsm_CalcNorm.GetPocazatelName(wkod_alg))
+         ww_vidt:=iGsm_CalcNorm.GetPocazatelVal(wkod_alg)
+         //if ww_vidt=0 ww_vidt:=My_WorkTable.PutLst_ProbegAll
+         if ww_vidt<>0
+         { ww_norm:=round((ww_rasx/ww_Vidt)*if(pos('(КМ)',ww_str2)>0,100,1),4)
+         }
+         if ww_str1='Общий пробег' or ww_str3='PUT_PROBEGALL'// ww_str1='В пределах области'
+         { ww_column:=0
+           wprizn_main:=wprizn_main or 1;
+         }
+         else
+         if ww_str1='Спец.оборуд.' or ww_str1='Расход на спец. оборуд. (осн.)'  or ww_str3='PUT_TIMESPEC'
+         { ww_column:=500
+           wprizn_main:=wprizn_main or 2;
+         }
+         else
+         if ww_str1='Прочие'
+         { ww_column:=999
+         }
+         else
+         { ww_column:=if(pos('(КМ)',ww_str2)>0,200,501);
+         }
+         mylogwrite(false,'/Код алгоритма '+string(wkod_alg)+','+ww_str1+', '+ww_str2)
+      }
+             
+      MyLogWrite(false,'Норма '+string(ww_norm,0,2)+', показатель '+string(ww_vidt,0,2)+', '+string(ww_rasx,0,2))
+//      if abs(ww_Rasx)<=0.0001 then continue;
+      if abs(ww_Rasx)<=0.0001 and ww_column>0 then continue;
+      #_My_Toplivo_ADD_                    
+      if tp_calcnorm = 1
+      { 
+        #_My_Toplivo_ADD_PL_                    
+      }  
+     ww_rasx_it:=ww_rasx_it+ww_rasx;
+      wkl_baz:=true;
+    }  while ww_str<>''
+   } //if getfirst GSMALG
+  }
+  else
+  {
+    if getfirst My_Toplivo_PL where ((My_Worktable.putlst_nrec == My_Toplivo_PL.putlst_nrec)) = 0 then exit; // для исключения повторного расчета
+    ww_rasx_it:=0
+    ww_norm_rasx1:=piExtAttr.sgetAttr(coPutLst, My_WorkTable.putlst_nrec, 'Нормативный расход топлива 1')
+    ww_norm_rasx2:=piExtAttr.sgetAttr(coPutLst, My_WorkTable.putlst_nrec, 'Нормативный расход топлива 2')
+    ww_norm_rasx3:=piExtAttr.sgetAttr(coPutLst, My_WorkTable.putlst_nrec, 'Нормативный расход топлива 3')
+    ww_pos:=instr('+',ww_norm_rasx1)
+    if ww_pos = 0 then ww_pos:=length(ww_norm_rasx1)+1
+    wprizn_main:=substr(ww_norm_rasx1,1,ww_pos-1)
+    ww_norm_rasx1:=substr(ww_norm_rasx1,ww_pos+1,length(ww_norm_rasx1))
+    if ww_norm_rasx1 = ''
+    {
+      mylogwrite(false,'==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' в путевом листе нет сведений о нормативном расходе топлива')
+      MyLogExcel('==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' в путевом листе нет сведений о нормативном расходе топлива')
+    }
+    while ww_norm_rasx1 <> ''
+    {
+      ww_pos:=instr('+',ww_norm_rasx1)
+      if ww_pos = 0 then ww_pos:=length(ww_norm_rasx1)+1
+      ww_norm_rasx:=substr(ww_norm_rasx1,1,ww_pos-1)
+      ww_norm_rasx1:=substr(ww_norm_rasx1,ww_pos+1,length(ww_norm_rasx1))
+      
+      ww_column:=substr(ww_norm_rasx,1,instr('#',ww_norm_rasx)-1)
+      ww_str1:=substr(ww_norm_rasx,instr('#',ww_norm_rasx)+1,instr('&',ww_norm_rasx)-instr('#',ww_norm_rasx)-1)
+      ww_str2:=substr(ww_norm_rasx,instr('&',ww_norm_rasx)+1,instr(':',ww_norm_rasx)-instr('&',ww_norm_rasx)-1) 
+      ww_rasx:=double(substr(ww_norm_rasx,instr(':',ww_norm_rasx)+1,instr('/',ww_norm_rasx)-instr(':',ww_norm_rasx)-1))
+      ww_vidt:=double(substr(ww_norm_rasx,instr('/',ww_norm_rasx)+1,instr('=',ww_norm_rasx)-instr('/',ww_norm_rasx)-1))
+      ww_norm:=double(substr(ww_norm_rasx,instr('=',ww_norm_rasx)+1,length(ww_norm_rasx)-1))
+      #_My_Toplivo_ADD_  
+      #_My_Toplivo_ADD_PL_  
+      ww_rasx_it:=ww_rasx_it+ww_rasx
+    }
+    while ww_norm_rasx2 <> ''
+    {
+      ww_pos:=instr('+',ww_norm_rasx2)
+      if ww_pos = 0 then ww_pos:=length(ww_norm_rasx2)+1
+      ww_norm_rasx:=substr(ww_norm_rasx2,1,ww_pos-1)
+      ww_norm_rasx2:=substr(ww_norm_rasx2,ww_pos+1,length(ww_norm_rasx2))
+      
+      ww_column:=substr(ww_norm_rasx,1,instr('#',ww_norm_rasx)-1)
+      ww_str1:=substr(ww_norm_rasx,instr('#',ww_norm_rasx)+1,instr('&',ww_norm_rasx)-instr('#',ww_norm_rasx)-1) 
+      ww_str2:=substr(ww_norm_rasx,instr('&',ww_norm_rasx)+1,instr(':',ww_norm_rasx)-instr('&',ww_norm_rasx)-1) 
+      ww_rasx:=double(substr(ww_norm_rasx,instr(':',ww_norm_rasx)+1,instr('/',ww_norm_rasx)-instr(':',ww_norm_rasx)-1))
+      ww_vidt:=double(substr(ww_norm_rasx,instr('/',ww_norm_rasx)+1,instr('=',ww_norm_rasx)-instr('/',ww_norm_rasx)-1))
+      ww_norm:=double(substr(ww_norm_rasx,instr('=',ww_norm_rasx)+1,length(ww_norm_rasx)-1))
+      #_My_Toplivo_ADD_  
+      #_My_Toplivo_ADD_PL_  
+      ww_rasx_it:=ww_rasx_it+ww_rasx
+    }
+    while ww_norm_rasx3 <> ''
+    {
+      ww_pos:=instr('+',ww_norm_rasx3)
+      if ww_pos = 0 then ww_pos:=length(ww_norm_rasx3)+1
+      ww_norm_rasx:=substr(ww_norm_rasx3,1,ww_pos-1)
+      ww_norm_rasx1:=substr(ww_norm_rasx3,ww_pos+1,length(ww_norm_rasx3))
+      
+      ww_column:=substr(ww_norm_rasx,1,instr('#',ww_norm_rasx)-1)
+      ww_str1:=substr(ww_norm_rasx,instr('#',ww_norm_rasx)+1,instr('&',ww_norm_rasx)-instr('#',ww_norm_rasx)-1) 
+      ww_str2:=substr(ww_norm_rasx,instr('&',ww_norm_rasx)+1,instr(':',ww_norm_rasx)-instr('&',ww_norm_rasx)-1) 
+      ww_rasx:=double(substr(ww_norm_rasx,instr(':',ww_norm_rasx)+1,instr('/',ww_norm_rasx)-instr(':',ww_norm_rasx)-1))
+      ww_vidt:=double(substr(ww_norm_rasx,instr('/',ww_norm_rasx)+1,instr('=',ww_norm_rasx)-instr('/',ww_norm_rasx)-1))
+      ww_norm:=double(substr(ww_norm_rasx,instr('=',ww_norm_rasx)+1,length(ww_norm_rasx)-1))
+      #_My_Toplivo_ADD_  
+      #_My_Toplivo_ADD_PL_  
+      ww_rasx_it:=ww_rasx_it+ww_rasx
+    }
+    wkl_baz:=true;
+  }
+    if abs(ww_rasx_it-My_WorkTable.PutGsm_normt)>0.1 //and (not  wkl_baz)
+    { ww_column:=999
+      mylogwrite(false,'==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' неправильно расчитана норма, разница = '+string(My_WorkTable.PutGsm_normt-ww_rasx_it,0,2))
+      MyLogExcel('==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' неправильно расчитана норма, разница = '+string(My_WorkTable.PutGsm_normt-ww_rasx_it,0,2))
+      ww_str1:='Прочие'
+      ww_vidt:=0 //My_WorkTable.PutLst_ProbegAll;
+      ww_rasx:=My_WorkTable.PutGsm_normt-ww_rasx_it
+      #_My_Toplivo_ADD_                    
+      if not TakeNormPutLst and tp_calcnorm=1
+      {
+        #_My_Toplivo_ADD_PL_                    
+      }
+    }
+    else // найдем общую и отнесем туда
+    { ww_str1:='Общий пробег'
+      ww_column:=0
+      if getfirst My_Toplivo where (( My_WorkTable.Putlst_Nomer == My_Toplivo.PUTLST_NOMER
+       and My_WorkTable.TRANSP_MARKA == My_Toplivo.TRANSP_MARKA
+//       and My_WorkTable.Toplivo_Name == My_Toplivo.Toplivo_Name
+       and string(ww_column,3,0)+ww_str1 == My_Toplivo.Toplivo_Name
+       and ww_column == My_Toplivo.Column  ))=0
+      { update current My_Toplivo set 
+        My_Toplivo.rasx:=round(My_Toplivo.rasx+(My_WorkTable.PutGsm_normt-ww_rasx_it),2) ;
+      }  
+      if not TakeNormPutLst and tp_calcnorm=1
+      {
+        if getfirst My_Toplivo_PL where (( My_WorkTable.Putlst_Nrec == My_Toplivo_PL.PUTLST_NREC
+         and string(ww_column,3,0)+ww_str1 == My_Toplivo_PL.Toplivo_Name
+         and ww_column == My_Toplivo_PL.Column  ))=0
+        { update current My_Toplivo_PL set 
+          My_Toplivo_PL.rasx:=round(My_Toplivo_PL.rasx+(My_WorkTable.PutGsm_normt-ww_rasx_it),2) ;
+        }  
+      }
+    }
+    if (My_WorkTable_Group.PUTLST_SPEEDEXI<>0 or My_WorkTable_Group.PUTLST_SPEEDRET<>0) and (wprizn_main and 1)=0
+    and (My_WorkTable_Group.Putgsm_OwPr and 2+4+8)=0
+    { ww_column:=0
+      ww_norm:=0
+      ww_str1:='Общий пробег'
+      ww_vidt:=0 //My_WorkTable.PutLst_ProbegAll;
+      ww_rasx:=0
+      #_My_Toplivo_ADD_  
+      if not TakeNormPutLst  and tp_calcnorm=1
+      {
+        #_My_Toplivo_ADD_PL_                    
+      }
+    }
+    if (My_WorkTable_Group.PUTLST_NPVIRVAL<>0 or My_WorkTable_Group.PUTLST_FKVIRVAL<>0) and (wprizn_main and 2)=0
+    and (My_WorkTable_Group.Putgsm_OwPr and 2+4+8)=0
+    { ww_column:=500
+      ww_norm:=0
+      ww_str1:='Моточасы, всего'
+      ww_vidt:=My_WorkTable.Putlst_Timespec;
+      ww_rasx:=0
+      #_My_Toplivo_ADD_  
+      if not TakeNormPutLst and tp_calcnorm=1
+      {
+        #_My_Toplivo_ADD_PL_                    
+      }
+    }    
+  if not TakeNormPutLst and tp_calcnorm=1
+  {
+    ww_norm_rasx1:=wprizn_main
+    ww_norm_rasx2:=''
+    ww_norm_rasx3:=''
+    ww_norm_rasx:=''
+   _loop My_Toplivo_PL where (( My_WorkTable.Putlst_Nrec == My_Toplivo_PL.PUTLST_NREC))
+   {
+    ww_norm_rasx:=My_Toplivo_PL.column
+                  +'#'+substr(My_Toplivo_PL.Toplivo_Name,length(string(My_Toplivo_PL.column,3,0))+1, length(My_Toplivo_PL.Toplivo_Name))
+                  +'&'+if(pos('(КМ)',My_Toplivo_PL.Toplivo_Kod)>0,'(КМ)','()')
+                  +':'+string(My_Toplivo_PL.rasx,10,2)
+                  +'/'+string(My_Toplivo_PL.vid,10,2)
+                  +'='+string(My_Toplivo_PL.norma,10,2)
+    if length(ww_norm_rasx1)+length(ww_norm_rasx) > 255
+      if length(ww_norm_rasx2)+length(ww_norm_rasx) > 255
+        if length(ww_norm_rasx3)+length(ww_norm_rasx) > 255
+        {  
+          mylogwrite(false,'==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' ошибка регистрации в путевом листе сведений о нормативном расходе топлива')
+          MyLogExcel('==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' ошибка регистрации в путевом листе сведений о нормативном расходе топлива')
+          ww_norm_rasx1:=''
+          ww_norm_rasx2:=''
+          ww_norm_rasx3:=''
+        }
+        else
+          ww_norm_rasx3:=ww_norm_rasx3+'+'+ww_norm_rasx
+      else  
+        ww_norm_rasx2:=ww_norm_rasx2+'+'+ww_norm_rasx
+    else
+      ww_norm_rasx1:=ww_norm_rasx1+'+'+ww_norm_rasx
+   }
+   if ww_norm_rasx1 = ''
+   {
+     mylogwrite(false,'==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' ошибка расчета для путевого листа сведений о нормативном расходе топлива')
+     MyLogExcel('==!!!!=== по путевому '+My_WorkTable.PutLst_NPL+' ошибка расчета для путевого листа сведений о нормативном расходе топлива')
+   }
+   piExtAttr.sSetAttr(coPutLst, My_WorkTable.putlst_nrec, 'Нормативный расход топлива 1', ww_norm_rasx1)
+   piExtAttr.sSetAttr(coPutLst, My_WorkTable.putlst_nrec, 'Нормативный расход топлива 2', substr(ww_norm_rasx2,2,length(ww_norm_rasx2)))
+   piExtAttr.sSetAttr(coPutLst, My_WorkTable.putlst_nrec, 'Нормативный расход топлива 3', substr(ww_norm_rasx3,2,length(ww_norm_rasx3)))
+  }
+    
+} //Function My_Toplivo_ADD :boolean;
+//======================================
+#undef _My_Toplivo_ADD_
+function GetPutLstData : boolean ;
+var wc_myorg:comp;
+{ 
+  inextvisual('Сбор данных')
+  wc_myorg:=coGetTune('MYORG')
+  Delete All My_Norma;
+  if kl_neednorma GetNorma ;
+  delete all My_Toplivo;
+  delete all My_Toplivo_PL;
+  delete all My_WorkTable ;
+  delete all My_WorkTable ;
+  delete all My_Toplivo;
+  delete all My_WorkTable ;
+  GetPutLstData:=false ; 
+  if (filtr_tp and 1)>0 and (recordsintable(#My_Podrazdelenie)/recordsintable(#katpodr)<0.1)
+  {   
+    #transp_get_fld
+    from MY_PODRAZDELENIE
+    Where ((
+         1 == putlst.STATPL  and
+         My_Podrazdelenie.Katpodr_Nrec == PUTLST.CPOL  and
+         dtb <<= PutLst.Datobr(NOINDEX) and 
+         dte >>= PutLst.Datobr(NOINDEX) and 
+         #transp_get_cond
+        )) 
+      and ((filtr_tp and 4)=0 or putlst.descr=FILTR_descr )
+      and ((filtr_tp and 8)=0  or putlst.desgr=FILTR_desgr )
+  }
+  else
+  {  
+    #transp_get_fld
+    Where ((
+         dtb <<= PutLst.Datobr and
+         dte >>= PutLst.Datobr and
+         #transp_get_cond
+        )) And
+         putlst.STATPL     = 1 //обработанные ПЛ
+      and ((filtr_tp and 4)=0 or putlst.descr=FILTR_descr )
+      and ((filtr_tp and 8)=0  or putlst.desgr=FILTR_desgr )
+      ;
+    }      
+#undef transp_get_fld
+#undef transp_get_cond
+  chet:=0 ;
+  var_Putlst_Nrec:=0
+  var_PutGsm_TipGsm:=0 
+  var wnpp:longint ;
+  wnpp:=0 ;
+  
+  external _loop My_WorkTable ordered by index Index2
+  { chet:=chet+1 ;
+    if (chet mod 10)=0
+    { if not nextvisual then break ;
+    }
+    if (filtr_tp and 1)>0
+    { if getfirst fastfirstrow My_Podrazdelenie where (( My_WorkTable.Katpodr_Nrec ==My_Podrazdelenie.katpodr_nrec ))<>0
+      { delete current My_WorkTable ; 
+        continue ;
+      }  
+    }
+    if (filtr_tp and 2)>0
+    { if getfirst fastfirstrow My_TranspSred where (( My_WorkTable.Transp_nrec ==My_TranspSred.Transp_nrec ))<>0
+      { delete current My_WorkTable ; 
+        continue ;
+      }  
+    }
+    if (filtr_tp and 16)>0
+    { if getfirst fastfirstrow My_tiptexVib where (( My_WorkTable.tiptex_nrec ==My_tiptexVib.tiptex_nrec ))<>0
+      { delete current My_WorkTable ; 
+        continue ;
+      }  
+    }
+#IFDEF Transp_GSM_FLT
+   if (filtr_tp_dop and 1)>0
+   { if getfirst pick where (( 19874 == Pick.wList and  My_WorkTable.Toplivo_nrec == Pick.crec ))<>0 then 
+      { delete current My_WorkTable ; 
+        continue ;
+      }  
+   }
+   if (filtr_tp_dop and 2)>0
+   { if getfirst pick where (( 19877 == pick.wlist and My_WorkTable.toplivo_cvidgsm == pick.crec )) <>0 then 
+     { delete current My_WorkTable ; 
+        continue ;
+     }  
+   }
+#ENDIF    
+  mylogwrite(false,'Путевой='+My_WorkTable.PutLst_NPL)
+
+#IFDEF Transp_GSM_AZS
+      if (My_WorkTable.KatOrg_Name<>'') and (GetFirst My_AZS2 Where ((My_WorkTable.KatOrg_Name == My_Azs2.katOrg_Name))  )=tsOk
+        then
+         {
+          var_AZS:='Талоны'
+          var_AZS_tp:=2;
+         }
+        else
+         {
+            if (My_WorkTable.KatOrg_Name<>'') and (GetFirst My_AZS3 Where ((My_WorkTable.KatOrg_Name == My_AZS3.katOrg_Name))   )=tsOk
+            then
+            { var_AZS:='Карты'
+              var_AZS_tp:=3;
+            }
+            
+            else
+            if (GetFirst My_AZS1 Where ((My_WorkTable.PutGsm_DpPokaz6 == My_AZS1.KatPodr_Nrec)) )=tsOk
+            {  var_AZS := 'Емкость' 
+               var_AZS_tp:=1;
+            }
+            else
+            { var_AZS:='Наличный расчет'
+               var_AZS_tp:=4;
+            }
+         }
+         update current My_WorkTable
+         set
+          My_WorkTable.AZS_NM := var_AZS  //АЗС
+          ,My_WorkTable.AZS1 :=if(var_AZS_tp=1,My_WorkTable.Putgsm_Vidt,0)-My_WorkTable.Putgsm_Sdant
+          ,My_WorkTable.AZS2 :=if(var_AZS_tp=2,My_WorkTable.Putgsm_Vidt,0)
+          ,My_WorkTable.AZS3 :=if(var_AZS_tp=3,My_WorkTable.Putgsm_Vidt,0)
+          ,My_WorkTable.AZS4 :=if(var_AZS_tp=4,My_WorkTable.Putgsm_Vidt,0)
+         ;
+      
+#ENDIF      
+    if var_Putlst_Nrec = My_WorkTable.Putlst_Nrec //and var_PutGsm_TipGsm=My_WorkTable.PutGsm_TipGsm
+    { wnpp:=wnpp+1 ;//20080410
+      update current My_WorkTable
+        set  My_WorkTable.Putlst_Probegall  := 0 //Пробег
+            ,My_WorkTable.Putlst_Timeengine := 0 //Часы Простоя С Включенным Двигателем Normgsm.Dop1
+            ,My_WorkTable.Putlst_Timeheat   := 0 //Часы Автономного Оборудования Normgsm.Unload
+            ,My_WorkTable.Putlst_Timespec   := 0 //Мото-Часы
+            ,My_WorkTable.Putlst_Gruztn     := 0 //Перевезено Тонн
+            ,My_WorkTable.Putlst_Gruztnkm   := 0 //Тоннокилометры
+            ,My_WorkTable.PuTlst_Timemove   := 0 //Время В Наряде
+            ,My_WorkTable.PuTlst_Timestop   := 0 //Время В Наряде
+            ,My_WorkTable.Putlst_Volume0    := 0 //Внутригаражный Простой
+            ,My_WorkTable.Putlst_Dppokaz6   := 0 //Автомобиле Дни В Работе
+            ,My_WorkTable.Putlst_Dppokaz7   := 0 //Автомобиле Дни В Ремонте
+                  //20080410
+            ,My_WorkTable.Putgsm_Zaprch     :=Add_Time(My_WorkTable.Putgsm_Zaprch, Time(0,0,0,wnpp))
+            ,My_WorkTable.PUTLST_PROBEGGR   :=0
+            ,My_WorkTable.PUTLST_SPEEDEXI   :=0
+//                  ,My_WorkTable.PutGsm_NPP:=wnpp 
+             ;
+    } //if var_Putlst_Nrec = My_WorkTable.Putlst_Nrec and var_PutGsm_TipGsm=My_WorkTable.PutGsm_TipGsm
+    else 
+    { var_Putlst_Nrec := My_WorkTable.Putlst_Nrec
+      var_PutGsm_TipGsm:=My_WorkTable.PutGsm_TipGsm
+      wnpp:=0 ;
+
+//20080410              
+    }//else if var_Putlst_Nrec = My_WorkTable.Putlst_Nrec and var_PutGsm_TipGsm=My_WorkTable.PutGsm_TipGsm
+    //поиск нормы по ТС
+    if false //пока не нужно - собираем покруче уже kl_neednorma
+    { if ( GetFirst My_Norma where ((My_WorkTable.Transp_Nrec == My_Norma.NORMGSM_CTRANSP
+           )) 
+           and ( My_Norma.NORMGSM_DATBEG=Date(0,0,0) or My_Norma.NORMGSM_DATBEG<=My_WorkTable.Putlst_Exitdn) 
+           and ( My_Norma.NORMGSM_DATEND=Date(0,0,0) or My_Norma.NORMGSM_DATEND>=My_WorkTable.Putlst_Exitdn) 
+             )= tsOK
+      { update current My_WorkTable
+          set  My_WorkTable.NORMGSM_LINNRM    := If(My_WorkTable.PutLst_PROBEGV = 0 and
+                                                    My_WorkTable.Putlst_Exitdn >= DatSummer and
+                                                    My_WorkTable.Putlst_Exitdn <= DatWinter ,
+                                                    My_Norma.NORMGSM_LINNRM, 0)    , //PutLst.PROBEGV = 0 если внутри SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+               My_WorkTable.NORMGSM_KOFFNGSM3 := If(My_WorkTable.PutLst_PROBEGV = 0 and
+                                                   (My_WorkTable.Putlst_Exitdn < DatSummer or
+                                                    My_WorkTable.Putlst_Exitdn > DatWinter) ,
+                                                    My_Norma.NORMGSM_KOFFNGSM3 , 0) , //PutLst.PROBEGV = 0 если вне SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+               My_WorkTable.NORMGSM_SPWRK     := If(My_WorkTable.PutLst_PROBEGV = 1, My_Norma.NORMGSM_SPWRK , 0) , //PutLst.PROBEGV = 1
+               My_WorkTable.NORMGSM_WRKDRV    := If(My_WorkTable.PutLst_PROBEGV = 2, My_Norma.NORMGSM_WRKDRV, 0) , //PutLst.PROBEGV = 2
+               My_WorkTable.NORMGSM_DOP1      := My_Norma.NORMGSM_DOP1      , //Часы простоя с включенным двигателем
+               My_WorkTable.NORMGSM_UNLOAD    := My_Norma.NORMGSM_UNLOAD    ,  //Часы автономного оборудования
+               My_WorkTable.NORMGSM_SPOBR     := My_Norma.NORMGSM_SPOBR    //Часы спецоборудования
+                     ;
+                     
+      } //if ( GetFirst My_Norma
+      else
+      //поиск нормы по марке ТС
+      if ( GetFirst My_Norma where ((My_WorkTable.Transp_CMARKA == My_Norma.NORMGSM_CMARKA)) 
+        and  ( My_Norma.NORMGSM_DATBEG=Date(0,0,0) or My_Norma.NORMGSM_DATBEG<=My_WorkTable.Putlst_Exitdn) 
+        and  ( My_Norma.NORMGSM_DATEND=Date(0,0,0) or My_Norma.NORMGSM_DATEND>=My_WorkTable.Putlst_Exitdn) 
+      
+              )= tsOK
+      { update current My_WorkTable
+           set  My_WorkTable.NORMGSM_LINNRM    := If(My_WorkTable.PutLst_PROBEGV = 0 and
+                                                     My_WorkTable.Putlst_Exitdn >= DatSummer and
+                                                     My_WorkTable.Putlst_Exitdn <= DatWinter ,
+                                                     My_Norma.NORMGSM_LINNRM, 0)    , //PutLst.PROBEGV = 0 если внутри SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+                My_WorkTable.NORMGSM_KOFFNGSM3 := If(My_WorkTable.PutLst_PROBEGV = 0 and
+                                                    (My_WorkTable.Putlst_Exitdn < DatSummer or
+                                                     My_WorkTable.Putlst_Exitdn > DatWinter) ,
+                                                     My_Norma.NORMGSM_KOFFNGSM3 , 0) , //PutLst.PROBEGV = 0 если вне SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+                My_WorkTable.NORMGSM_SPWRK     := If(My_WorkTable.PutLst_PROBEGV = 1, My_Norma.NORMGSM_SPWRK , 0) , //PutLst.PROBEGV = 1
+                My_WorkTable.NORMGSM_WRKDRV    := If(My_WorkTable.PutLst_PROBEGV = 2, My_Norma.NORMGSM_WRKDRV, 0) , //PutLst.PROBEGV = 2
+                My_WorkTable.NORMGSM_DOP1      := My_Norma.NORMGSM_DOP1      , //Часы простоя с включенным двигателем
+                My_WorkTable.NORMGSM_UNLOAD    := My_Norma.NORMGSM_UNLOAD    ,  //Часы автономного оборудования
+                My_WorkTable.NORMGSM_SPOBR     := My_Norma.NORMGSM_SPOBR    //Часы спецоборудования
+      }//else if ( GetFirst My_Norma
+      else
+      { //message ('НЕТ Действующей НОРМЫ! '+ My_WorkTable.putlst_nomer + ', путевой лист '+My_WorkTable.putlst_npl)
+        mylogwrite(false,'НЕТ НОРМЫ! '+ My_WorkTable.putlst_nomer + ' ' + My_Norma.NORMGSM_CMARKA + ' ' + My_Norma.NORMGSM_CTRANSP+'/'+My_WorkTable.putlst_npl)
+      }
+    } //if kl_neednorma
+
+  } //loop My_WorkTable
+  
+#IFNDEF NotMesGetPutLstData 
+  if RecordsInTable(tnMy_WorkTable) = 0
+  then {
+         Message('!! нет записей удовлетворяющих условиям !!')
+        exit
+   }
+#ENDIF   
+  GetPutLstData:=true
+} //GetPutLstData
+
+//=================================================
+// подгрупировать по транспортным средствам - pa=2, 
+// по путвым листам pa=1
+// по номеру транспортного средства -3
+//================================================
+Function GroupByPutLst(const wpa :word ) :boolean ;
+var wwkey :string ;
+{ GroupByPutLst:=false ;
+  SetVisualHeader('Группируем записи')
+  _Loop My_WorkTable where (( 0 == My_WorkTable.pa )) 
+     ordered by My_WorkTable.pa,My_WorkTable.Putlst_Exitdn,My_WorkTable.Putlst_Exitch,My_WorkTable.Putgsm_Zaprdn,My_WorkTable.Putgsm_Zaprch
+  {  if not nextvisual then exit;
+    //SetVisualHeader(' обрабатываем '+My_WorkTable.Putlst_Nomer)
+    case wpa of
+    // машина + номер путевого
+    1:wwkey:=pad(My_WorkTable.Putlst_Nomer,20)+My_WorkTable.PutLst_NPL  ;
+    // машина
+    2:wwkey:=string(My_WorkTable.transp_nrec) ;
+    // машина
+    3:wwkey:=My_WorkTable.Putlst_Nomer ;
+    // номер путевого
+    4:wwkey:=My_WorkTable.Putlst_NPl ;
+    // тип техники
+    5:wwkey:=My_WorkTable.TipTex_Name ;
+    // вид топлива
+    6:{
+      // My_WorkTable.VidGsm_name
+      //if Getfirst Toplivo where (( My_WorkTable.Toplivo_Name == Toplivo.Name ))=0 {}
+      
+   //20100616   wwkey:=pad(substr(My_WorkTable.VidGsm_Name,1,20),20)+pad(substr(My_WorkTable.Transp_Marka,1,50),50)+My_WorkTable.Putlst_Nomer;
+      if getfirst Toplivo where (( My_WorkTable.Toplivo_Nrec == Toplivo.Nrec ))=0 {}
+      wwkey:=pad(substr(TOPLIVO.KODGSM,1,20),20)+My_WorkTable.Putlst_Nomer;
+    }
+    7: //код топлива + номер + путевой
+    {
+      if getfirst Toplivo where (( My_WorkTable.Toplivo_Nrec == Toplivo.Nrec ))=0 {}
+      wwkey:=pad(substr(TOPLIVO.KODGSM,1,20),20)+My_WorkTable.Putlst_Nomer+' '+DateToStr(My_WorkTable.Putlst_Exitdn,'YYYYMMDD')
+       +TimeToStr(My_WorkTable.PUTLST_EXITCH,'HH:MM:SS==')+My_WorkTable.Putlst_NPL;
+    }
+    end ;
+    if ( GetFirst My_WorkTable_Group
+        where ((  wpa == My_WorkTable_Group.pa and
+                 wwkey == My_WorkTable_Group.Putlst_Nomer
+              ))
+      ) = tsOK
+    Then
+     {
+       Modifier Update Current My_WorkTable_Group
+        set
+         My_WorkTable_Group.Putlst_Probegall  := My_WorkTable_Group.Putlst_Probegall + My_WorkTable.Putlst_Probegall    //Пробег
+         ,My_WorkTable_Group.Putlst_Gruztn  := My_WorkTable_Group.Putlst_Gruztn + My_WorkTable.Putlst_Gruztn    
+         ,My_WorkTable_Group.Putlst_Gruztnkm  := My_WorkTable_Group.Putlst_Gruztnkm + My_WorkTable.Putlst_Gruztnkm    
+         ,My_WorkTable_Group.Putlst_Timeengine := My_WorkTable_Group.Putlst_Timeengine + My_WorkTable.Putlst_Timeengine //Часы Простоя С Включенным Двигателем Normgsm.Dop1
+         ,My_WorkTable_Group.Putlst_Timeheat   := My_WorkTable_Group.Putlst_Timeheat + if(wpa=1,0,My_WorkTable.Putlst_Timeheat)     //Часы Автономного Оборудования Normgsm.Unload
+         ,My_WorkTable_Group.Putlst_Timemove := My_WorkTable_Group.Putlst_Timemove + My_WorkTable.Putlst_Timemove //Часы Простоя С Включенным Двигателем Normgsm.Dop1
+         ,My_WorkTable_Group.Putlst_Timestop := My_WorkTable_Group.Putlst_Timestop + My_WorkTable.Putlst_Timestop     //Часы Автономного Оборудования Normgsm.Unload
+//         My_WorkTable_Group.Putgsm_Owv        := My_WorkTable.Putgsm_Owv                                              //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Owv        := if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Owv,My_WorkTable_Group.Putgsm_Owv) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Owv1       := if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Owv,My_WorkTable_Group.Putgsm_Owv1) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Owv2       := if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Owv,My_WorkTable_Group.Putgsm_Owv2) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Owv3       := if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Owv,My_WorkTable_Group.Putgsm_Owv3) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Ow        := if(My_WorkTable.Putgsm_tipgsm=0 and (My_WorkTable_Group.Putgsm_OwPr and 1)=0,My_WorkTable.Putgsm_Ow,My_WorkTable_Group.Putgsm_Ow) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Ow1       := if(My_WorkTable.Putgsm_tipgsm=1 and (My_WorkTable_Group.Putgsm_OwPr and 2)=0,My_WorkTable.Putgsm_Ow,My_WorkTable_Group.Putgsm_Ow1) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Ow2       := if(My_WorkTable.Putgsm_tipgsm=2 and (My_WorkTable_Group.Putgsm_OwPr and 4)=0,My_WorkTable.Putgsm_Ow,My_WorkTable_Group.Putgsm_Ow2) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_Ow3       := if(My_WorkTable.Putgsm_tipgsm=3 and (My_WorkTable_Group.Putgsm_OwPr and 8)=0,My_WorkTable.Putgsm_Ow,My_WorkTable_Group.Putgsm_Ow3) //остаток в баке возвращаемый
+         ,My_WorkTable_Group.Putgsm_OwPr :=((1 shl My_WorkTable.Putgsm_tipgsm) or My_WorkTable_Group.Putgsm_OwPr)
+         ,My_WorkTable_Group.Putgsm_Normt      := My_WorkTable_Group.Putgsm_Normt + if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Normt,0)    //нормативный расход
+         ,My_WorkTable_Group.Putgsm_Faktt      := My_WorkTable_Group.Putgsm_Faktt + if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Faktt,0)    //Фактически Израсходовано
+         ,My_WorkTable_Group.Putgsm_vidt       := My_WorkTable_Group.Putgsm_vidt + if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_vidt,0)    //  Не было посчитано выдано, не знаю почему (добавил)
+         ,My_WorkTable_Group.Putgsm_Sdant      := My_WorkTable_Group.Putgsm_Sdant + if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Sdant,0)    //  ^^^^Сдано 20080422 - запятую забыл !!
+         ,My_WorkTable_Group.Putgsm_Normt1      := My_WorkTable_Group.Putgsm_Normt1 + if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Normt,0)    //нормативный расход
+         ,My_WorkTable_Group.Putgsm_Faktt1      := My_WorkTable_Group.Putgsm_Faktt1 + if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Faktt,0)    //Фактически Израсходовано
+         ,My_WorkTable_Group.Putgsm_vidt1       := My_WorkTable_Group.Putgsm_vidt1 + if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_vidt,0)    //  Не было посчитано выдано, не знаю почему (добавил)
+         ,My_WorkTable_Group.Putgsm_Sdant1      := My_WorkTable_Group.Putgsm_Sdant1 + if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Sdant,0)    //  ^^^^Сдано 20080422 - запятую забыл !!
+         ,My_WorkTable_Group.Putgsm_Normt2      := My_WorkTable_Group.Putgsm_Normt2 + if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Normt,0)    //нормативный расход
+         ,My_WorkTable_Group.Putgsm_Faktt2      := My_WorkTable_Group.Putgsm_Faktt2 + if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Faktt,0)    //Фактически Израсходовано
+         ,My_WorkTable_Group.Putgsm_vidt2       := My_WorkTable_Group.Putgsm_vidt2 + if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_vidt,0)    //  Не было посчитано выдано, не знаю почему (добавил)
+         ,My_WorkTable_Group.Putgsm_Sdant2      := My_WorkTable_Group.Putgsm_Sdant2 + if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Sdant,0)    //  ^^^^Сдано 20080422 - запятую забыл !!
+         ,My_WorkTable_Group.Putgsm_Normt3      := My_WorkTable_Group.Putgsm_Normt3 + if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Normt,0)    //нормативный расход
+         ,My_WorkTable_Group.Putgsm_Faktt3      := My_WorkTable_Group.Putgsm_Faktt3 + if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Faktt,0)    //Фактически Израсходовано
+         ,My_WorkTable_Group.Putgsm_vidt3       := My_WorkTable_Group.Putgsm_vidt3 + if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_vidt,0)    //  Не было посчитано выдано, не знаю почему (добавил)
+         ,My_WorkTable_Group.Putgsm_Sdant3      := My_WorkTable_Group.Putgsm_Sdant3 + if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Sdant,0)    //  ^^^^Сдано 20080422 - запятую забыл !!
+         ,My_WorkTable_Group.PUTLST_PROBEGGR   :=My_WorkTable_Group.PUTLST_PROBEGGR+My_WorkTable.PUTLST_PROBEGGR
+         ,My_WorkTable_Group.Putlst_Timespec   :=My_WorkTable_Group.Putlst_Timespec+ if(wpa=1,0,My_WorkTable.Putlst_Timespec) //часы работы автооборудования
+         ,My_WorkTable_Group.Timespec_kol :=My_WorkTable_Group.Timespec_kol+if(My_WorkTable.Putlst_Timespec>0,1,0)// число случаев работы по моточасам
+         ,My_WorkTable_Group.Timeheat_kol :=My_WorkTable_Group.Timeheat_kol+if(My_WorkTable.Putlst_Timeheat>0,1,0)    // число случаев работы автономного оборудования
+         // здесь запоминаем только на конец,
+         ,My_WorkTable_Group.PUTLST_SPEEDRET:=My_WorkTable.PUTLST_SPEEDRET //спидометр пробег на возвращение
+         ,My_WorkTable_Group.PUTLST_FKVIRVAL:=My_WorkTable.PUTLST_FKVIRVAL// счетчик на конец
+#IFDEF Transp_GSM_AZS
+         ,My_WorkTable_Group.AZS1 :=My_WorkTable_Group.AZS1+My_WorkTable.AZS1
+         ,My_WorkTable_Group.AZS2 :=My_WorkTable_Group.AZS2+My_WorkTable.AZS2
+         ,My_WorkTable_Group.AZS3 :=My_WorkTable_Group.AZS3+My_WorkTable.AZS3
+         ,My_WorkTable_Group.AZS4 :=My_WorkTable_Group.AZS4+My_WorkTable.AZS4
+#ENDIF         
+       ;
+     }
+    Else
+     {
+      Modifier Insert My_WorkTable_Group
+       set
+         My_WorkTable_Group.pa :=wpa 
+        ,My_WorkTable_Group.Putlst_Nomer      := wwkey      
+        ,My_WorkTable_Group.Transp_Nrec       := My_WorkTable.Transp_Nrec      
+        ,My_WorkTable_Group.Transp_cmarka     := My_WorkTable.Transp_cmarka      
+        ,My_WorkTable_Group.Transp_Marka      := My_WorkTable.Transp_Marka      
+        ,My_WorkTable_Group.putlst_exitdn     := My_WorkTable.PUTLST_eXITdN      
+        ,My_WorkTable_Group.putlst_returndn   := My_WorkTable.putlst_returndn      
+        ,My_WorkTable_Group.putlst_npl        := My_WorkTable.putlst_npl
+        ,My_WorkTable_Group.putlst_nrec       := My_WorkTable.putlst_nrec
+        ,My_WorkTable_Group.Save_Drv_Fio      := My_WorkTable.Save_Drv_fio
+        ,My_WorkTable_Group.KatOs_InNum       := My_WorkTable.Putlst_Nomer
+        ,My_WorkTable_Group.Putlst_Probegall  := My_WorkTable.Putlst_Probegall   //Пробег
+         ,My_WorkTable_Group.Putlst_Gruztn  := My_WorkTable.Putlst_Gruztn    
+         ,My_WorkTable_Group.Putlst_Gruztnkm  := My_WorkTable.Putlst_Gruztnkm    
+        ,My_WorkTable_Group.Putlst_Timeengine := My_WorkTable.Putlst_Timeengine  //Часы Простоя С Включенным Двигателем Normgsm.Dop1
+        ,My_WorkTable_Group.Putlst_Timeheat   := My_WorkTable.Putlst_Timeheat    //Часы Автономного Оборудования Normgsm.Unload
+        ,My_WorkTable_Group.Putlst_Timemove   := My_WorkTable.Putlst_Timemove  //Часы Простоя С Включенным Двигателем Normgsm.Dop1
+        ,My_WorkTable_Group.Putlst_Timestop   := My_WorkTable.Putlst_Timestop    //Часы Автономного Оборудования Normgsm.Unload
+//ed 20080423        My_WorkTable_Group.Putgsm_Ow         := My_WorkTable.Putgsm_Ow          //остаток в баке начальный
+//ed 20080423        My_WorkTable_Group.Putgsm_Owv        := My_WorkTable.Putgsm_Owv         //остаток в баке возвращаемый
+        ,My_WorkTable_Group.Putgsm_Ow         := if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Ow,0)  //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_Ow1        := if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Ow,0)  //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_Ow2        := if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Ow,0)  //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_Ow3        := if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Ow,0)  //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_Owv        := if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Owv,0) //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_Owv1       := if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Owv,0) //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_Owv2       := if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Owv,0) //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_Owv3       := if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Owv,0) //остаток в баке начальный
+        ,My_WorkTable_Group.Putgsm_OwPr :=1 shl My_WorkTable.Putgsm_tipgsm 
+////ed 20080423        
+        ,My_WorkTable_Group.Putgsm_Normt      := if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Normt,0)      //нормативный расход
+        ,My_WorkTable_Group.Putgsm_Faktt      := if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Faktt,0)      //Фактически Израсходовано
+        ,My_WorkTable_Group.Putgsm_vidt      := if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_vidt,0)      //Выдано
+        ,My_WorkTable_Group.Putgsm_Sdant      := if(My_WorkTable.Putgsm_tipgsm=0,My_WorkTable.Putgsm_Sdant,0)      //Сдано
+        ,My_WorkTable_Group.Putgsm_Normt1      := if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Normt,0)      //нормативный расход
+        ,My_WorkTable_Group.Putgsm_Faktt1      := if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Faktt,0)      //Фактически Израсходовано
+        ,My_WorkTable_Group.Putgsm_vidt1      := if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_vidt,0)      //Выдано
+        ,My_WorkTable_Group.Putgsm_Sdant1      := if(My_WorkTable.Putgsm_tipgsm=1,My_WorkTable.Putgsm_Sdant,0)      //Сдано
+        ,My_WorkTable_Group.Putgsm_Normt2      := if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Normt,0)      //нормативный расход
+        ,My_WorkTable_Group.Putgsm_Faktt2      := if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Faktt,0)      //Фактически Израсходовано
+        ,My_WorkTable_Group.Putgsm_vidt2      := if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_vidt,0)      //Выдано
+        ,My_WorkTable_Group.Putgsm_Sdant2      := if(My_WorkTable.Putgsm_tipgsm=2,My_WorkTable.Putgsm_Sdant,0)      //Сдано
+        ,My_WorkTable_Group.Putgsm_Normt3      := if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Normt,0)      //нормативный расход
+        ,My_WorkTable_Group.Putgsm_Faktt3      := if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Faktt,0)      //Фактически Израсходовано
+        ,My_WorkTable_Group.Putgsm_vidt3      := if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_vidt,0)      //Выдано
+        ,My_WorkTable_Group.Putgsm_Sdant3      := if(My_WorkTable.Putgsm_tipgsm=3,My_WorkTable.Putgsm_Sdant,0)      //Сдано
+        ,My_WorkTable_Group.NORMGSM_LINNRM    := My_WorkTable.NORMGSM_LINNRM    //PutLst.PROBEGV = 0 если внутри SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+        ,My_WorkTable_Group.NORMGSM_KOFFNGSM3 := My_WorkTable.NORMGSM_KOFFNGSM3 //PutLst.PROBEGV = 0 если вне SYSTRAN.BEGSUMMER SYSTRAN.BEGWINTER
+        ,My_WorkTable_Group.NORMGSM_SPWRK     := My_WorkTable.NORMGSM_SPWRK     //PutLst.PROBEGV = 1
+        ,My_WorkTable_Group.NORMGSM_WRKDRV    := My_WorkTable.NORMGSM_WRKDRV    //PutLst.PROBEGV = 2
+        ,My_WorkTable_Group.NORMGSM_DOP1      := My_WorkTable.NORMGSM_DOP1      //Часы простоя с включенным двигателем
+        ,My_WorkTable_Group.NORMGSM_UNLOAD    := My_WorkTable.NORMGSM_UNLOAD    //Часы автономного оборудования
+        ,My_WorkTable_Group.NORMGSM_SPOBR     := My_WorkTable.NORMGSM_SPOBR     //Часы спецоборудования
+        ,My_WorkTable_Group.Toplivo_Name      := My_WorkTable.Toplivo_Name      //ссылка на топливо в 1-м баке
+        ,My_WorkTable_Group.Toplivo_Nrec      := My_WorkTable.Toplivo_Nrec      
+        ,My_WorkTable_Group.Vidgsm_Kodvid     := My_WorkTable.Vidgsm_Kodvid
+        ,My_WorkTable_Group.Vidgsm_name       := My_WorkTable.Vidgsm_name
+        ,My_WorkTable_Group.Toplivo_CKATMC    := My_WorkTable.Toplivo_CKATMC
+        ,My_WorkTable_Group.PUTLST_PROBEGGR   := My_WorkTable.PUTLST_PROBEGGR
+        ,My_WorkTable_Group.Putlst_Timespec   :=My_WorkTable.Putlst_Timespec //часы работы автооборудования
+        ,My_WorkTable_Group.Timespec_kol :=if(My_WorkTable.Putlst_Timespec>0,1,0)// число случаев работы по моточасам
+        ,My_WorkTable_Group.Timeheat_kol :=if(My_WorkTable.Putlst_Timeheat>0,1,0)    // число случаев работы автономного оборудования
+        ,My_WorkTable_Group.Tiptex_name :=My_WorkTable.tiptex_name
+        ,My_WorkTable_Group.katpodr_name :=My_WorkTable.katpodr_name
+        ,My_WorkTable_Group.PUTLST_SPEEDEXI:=My_WorkTable.PUTLST_SPEEDEXI //спидометр пробег на начало
+        ,My_WorkTable_Group.PUTLST_SPEEDRET:=My_WorkTable.PUTLST_SPEEDRET //спидометр пробег на возвращение
+        ,My_WorkTable_Group.PUTLST_NPVIRVAL:=My_WorkTable.PUTLST_NPVIRVAL // счетчик на начало
+        ,My_WorkTable_Group.PUTLST_FKVIRVAL:=My_WorkTable.PUTLST_FKVIRVAL// счетчик на конец
+#IFDEF Transp_GSM_AZS
+         ,My_WorkTable_Group.AZS1 :=My_WorkTable.AZS1
+         ,My_WorkTable_Group.AZS2 :=My_WorkTable.AZS2
+         ,My_WorkTable_Group.AZS3 :=My_WorkTable.AZS3
+         ,My_WorkTable_Group.AZS4 :=My_WorkTable.AZS4
+#ENDIF         
+
+        ;
+     }  
+      //добавим нормы 
+      if kl_neednorma
+        My_Toplivo_ADD;
+
+  } //  _Loop My_WorkTable   where (( 0 == My_WorkTable.pa ))
+   //           ordered by My_WorkTable.pa,My_WorkTable.Putgsm_Zaprdn,My_WorkTable.Putgsm_Zaprch
+  GroupByPutLst:=true ;
+} //
+
+function GetZatrData : boolean ;
+{ 
+  inextvisual('Сбор данных')
+  if kl_neednorma GetNorma ;
+  delete all My_transp_Zatr ;
+  GetZatrData:=true ; 
+  Insert My_transp_Zatr
+    select katorg.code,
+           katorg.name,
+           katzak.nrec,
+           putlst.npl,
+           katusl.name,
+           katzak.exitdn,
+           kndriver.name,
+           kndriver.tabn,
+           putlst.probegall,
+           putlst.probeggr,
+           PUTLST.GRUZTNKM,
+           spzakaz.tarif,
+           putlst.timespec,
+           spzakaz.kol,
+           spzakaz.sumusl
+  from katorg,katzak,putlst,spzakaz,katusl,kndriver
+  where ((katzak.cputlst==putlst.nrec and 1==putlst.statpl (noindex) and
+          Dtb<<=putlst.datobr (noindex) and
+          Dte>>=putlst.datobr (noindex) and
+          katzak.cgruzto/==katorg.nrec
+          and katzak.nrec==spzakaz.ckatzak and spzakaz.ckatusl==katusl.nrec and putlst.cpaketpl==kndriver.nrec))  and IsValidall(tnputlst);
+}
+
+function GetCardGSMData : boolean ;
+{ 
+  inextvisual('Сбор данных')
+  if kl_neednorma GetNorma ;
+  delete all My_Card_GSM ;
+  GetCardGSMData:=true ; 
+    Insert My_Card_GSM
+    select autodoc.nrec,autodoc.nom_doc,putlst.npl,putgsm.nrec,putgsm.vidt,toplivo.name,toplivo.kodgsm,putgsm.pricegsm,putgsm.pricetop,katpodr.name,katpodr.kod,katpodr.nrec
+      from autodoc,putlst,putgsm,toplivo,katpodr
+      where ((putgsm.cputlst==putlst.nrec and autodoc.nrec/==putgsm.ccitybeg (noindex) and putgsm.ctoplivo/==toplivo.nrec
+      and Putlst.Cpol == Katpodr.Nrec and  Dtb <<= putgsm.Zaprdn (noindex) and  Dte >>= Putgsm.Zaprdn (noindex)
+     ));
+}
+
