@@ -1,0 +1,148 @@
+//──────────────────────────────────────────────────────────────────────
+Interface PickTblFld 'Выбор таблицы и полей базы данных'
+                  DoAccept, EscClose, Cyan;
+//──────────────────────────────────────────────────────────────────────
+  show at ( , 6, 50 , 25);
+Create View
+var
+  FieldCode : string;
+  lMarker: longint;
+From
+  X$Files(ReadOnly),
+  X$Files snX$Files,
+  X$FIELDS,
+  X$FIELDS snX$FIELDS
+where
+((
+   X$Files.XF$Code == X$FIELDS.Xe$FILECODE
+))
+;
+Parameters
+  FieldCode;
+
+QuickChoice qcFLDname
+ {
+  AcceptField = X$Files.XF$Name   ;
+  ViewField   = X$Files.XF$Name   ;
+  SearchField = X$Files.XF$Name   ;
+  OnOpen  : ProcessCommand (cmInit);
+  OnClose : FieldCode := X$Files.XF$Name ;
+ }
+Panel pan1;
+  Table X$Files;
+Browse  br1 (,,sci1EnEsc);
+show at ( , , , 7);
+Fields
+  { Font = {Color =
+         if(GetFirst snX$FIELDS where ((X$Files.XF$Code == snX$FIELDS.Xe$FILECODE)) =  tsOk
+             and FoundMarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE)), 19, 0)}};
+  X$Files.XF$Code 'Код' : [6], Protect;
+  X$Files.XF$Name 'Идентификатор таблицы' : [21], Protect;
+  X$Files.XF$TITLE 'Название таблицы'  : [54], Protect;
+end;
+HandleEvent
+ cmDefault :
+ {
+   FieldCode := X$Files.XF$Name;
+ }
+end;
+end;
+Panel pan2;
+  Table X$FIELDS;
+Browse  br2 (,,sci1InsPM);
+show at ( , 8, ,);
+Fields
+  { Font = {Color =
+         if(FoundMarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE)), 19, 0)}};
+  if(foundmarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE)),'√', ''):[1], skip;
+  X$FIELDS.Xe$Name  #3'Идентификатор поля' : [20], Protect;
+  X$FIELDS.Xe$TITLE #3'Заголовок поля'     : [20], Protect;
+  if(X$Fields.Xe$DataType=ftString,'String',
+    if(X$Fields.Xe$DataType=ftDouble,'Double',
+      if(X$Fields.Xe$DataType=ftDate,'Date',
+        if(X$Fields.Xe$DataType=ftTime,'Time',
+          if(X$Fields.Xe$DataType=ftChar,'Char',
+            if(X$Fields.Xe$DataType=ftByte,'Byte',
+              if(X$Fields.Xe$DataType=ftWord,'Word',
+                if(X$Fields.Xe$DataType=ftInteger,'Integer',
+                  if(X$Fields.Xe$DataType=ftLongint,'LongInt',
+                    if(X$Fields.Xe$DataType=ftDateTime,'DateTime',
+                      if(X$Fields.Xe$DataType=ftBoolean,'Boolean',
+                        if(X$Fields.Xe$DataType=ftComp,'Comp','<тип>')))))))))))) #3'Тип поля' : [10], Protect;
+end;
+HandleEvent
+cmDefault:
+{
+  FieldCode:= '';
+  _loop X$FIELDS where foundmarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE))
+  {
+    if getFirst snX$Files where ((X$FIELDS.Xe$FILECODE == snX$Files.XF$Code)) = tsOk
+      if FieldCode = ''
+        FieldCode := snX$Files.XF$Name+'.'+X$FIELDS.Xe$Name;
+      else
+        FieldCode := FieldCode +', '+snX$Files.XF$Name+'.'+X$FIELDS.Xe$Name;
+  }
+}
+
+cmMarkUnMark:
+{
+  if (FoundMarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE)))
+  {
+    DeleteMarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE));
+  }
+  else
+  {
+    InsertMarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE));
+  }
+  if (getnext X$FIELDS)=tsOk {};
+    Rereadrecord(#X$FIELDS);
+}
+cmSelectAll:
+{
+  ClearMarker(lMarker);
+  StartNewVisual(vtRotateVisual, vfTimer+vfBreak, ''#3'Выбор ...'#13#3, 1);
+  _try
+  {
+    pushpos(#X$FIELDS);
+    _loop X$FIELDS
+    {
+      InsertMarker(lMarker, String(X$Fields.XE$FILECODE)+String(X$Fields.XE$CODE));
+      NextVisual;
+    }
+  } // try
+  _except
+   on ExUserBreak :
+   {
+     ClearMarker(lMarker);
+   }
+   _finally
+   {
+     poppos(#X$FIELDS);
+
+     ReReadRecord(#X$FIELDS);
+     StopVisual('',0);
+   }
+   Rereadrecord(#X$FIELDS);
+}
+
+cmUnSelectAll:
+{
+  ClearMarker(lMarker);
+  Rereadrecord(#X$FIELDS);
+}
+
+end;
+end;
+HandleEvent
+cmInit:
+{
+ lmarker := initmarker('', 8, 100, 10);
+}
+cmDone:
+{
+  donemarker(lmarker, '');
+}
+
+
+End;
+End.
