@@ -1,0 +1,135 @@
+//********************************************************************************
+//
+// ƒ « ªâ¨ª  8.1 - Žâç¥âë ¯®«ì§®¢ â¥«ï
+// Žâç¥âë ­  DSQL § ¯à®á å
+// €¢â®à ‘âà¥«ìæ®¢ ‘.€. (®â¤¥« ) 2012 £®¤
+//********************************************************************************
+//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+Interface PickModulNames '‚ë¡®à ¬®¤ã«¥©'
+                  DoAccept, EscClose, Cyan;
+//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+  show at ( , 6, 80 , 25);
+Create View
+var
+  ModulCode : string;
+  lMarker: longint;
+  MarkerName : string;
+From
+ ContourComponents
+
+Condition bySelected = foundmarker(lMarker, ContourComponents.Atl_Nrec)
+;
+
+Parameters
+  ModulCode,
+  MarkerName;
+
+Browse  br1 (,,sci1InsPM);
+Table ContourComponents;
+//show at ( , , , 7);
+Fields
+  { Font = {Color =
+         if(FoundMarker(lMarker, ContourComponents.Atl_Nrec), 19, 0)}};
+  if(foundmarker(lMarker, ContourComponents.Atl_Nrec),'û', ''):[1], skip;
+  ContourComponents.Name 'ˆ¤¥­â¨ä¨ª â®à ¬®¤ã«ï' : [21], Protect;
+  ContourComponents.TITLE ' §¢ ­¨¥ ¬®¤ã«ï'  : [54], Protect;
+end;
+HandleEvent
+cmDefault:
+{
+  ModulCode:= '';
+  if GetMarkerCount(lMarker) > 0
+  _loop ContourComponents where foundmarker(lMarker, ContourComponents.Atl_Nrec)
+  {
+    if ModulCode = ''
+      ModulCode := ContourComponents.Name;
+    else
+      ModulCode := ModulCode +' '+ContourComponents.Name;
+  }
+  if GetMarkerCount(lMarker) = 0
+    InsertMarker(lMarker, ContourComponents.Atl_Nrec);
+
+}
+
+cmMarkUnMark:
+{
+  if (FoundMarker(lMarker, ContourComponents.Atl_Nrec))
+  {
+    DeleteMarker(lMarker, ContourComponents.Atl_Nrec);
+  }
+  else
+  {
+    InsertMarker(lMarker, ContourComponents.Atl_Nrec);
+  }
+  if (getnext ContourComponents)=tsOk {};
+
+  SetWindowTitle(wnMainWindow, '‚ë¡®à ¬®¤ã«¥©. ‚ë¡à ­®:'+ GetMarkerCount(lMarker));
+   ReScanPanel(#ContourComponents);
+}
+cmSelectAll:
+{
+  ClearMarker(lMarker);
+  StartNewVisual(vtRotateVisual, vfTimer+vfBreak, ''#3'‚ë¡®àÿ...'#13#3, 1);
+  _try
+  {
+    pushpos(#ContourComponents);
+    _loop ContourComponents
+    {
+      InsertMarker(lMarker, ContourComponents.Atl_Nrec);
+      NextVisual;
+    }
+  } // try
+  _except
+   on ExUserBreak :
+   {
+     ClearMarker(lMarker);
+   }
+   _finally
+   {
+     poppos(#ContourComponents);
+
+     ReReadRecord(#ContourComponents);
+     StopVisual('',0);
+   }
+   SetWindowTitle(wnMainWindow, '‚ë¡®à ¬®¤ã«¥©. ‚ë¡à ­®:'+ GetMarkerCount(lMarker));
+    ReScanPanel(#ContourComponents);
+}
+
+cmUnSelectAll:
+{
+  ClearMarker(lMarker);
+  SetWindowTitle(wnMainWindow, '‚ë¡®à ¬®¤ã«¥©. ‚ë¡à ­®:'+ GetMarkerCount(lMarker));
+  ReScanPanel(#ContourComponents);
+}
+
+cmInit:
+{
+ var CurRecord : comp;
+ lmarker := initmarker(MarkerName, 8, 100, 10);
+ GetMarker(lmarker, 0, CurRecord);
+
+ if GetFirst ContourComponents where ((CurRecord == ContourComponents.Atl_Nrec)) = tsOk {}
+ // message(ContourComponents.Name);
+ SetWindowTitle(wnMainWindow, '‚ë¡®à ¬®¤ã«¥©. ‚ë¡à ­®:'+ GetMarkerCount(lMarker));
+}
+cmDone:
+{
+  donemarker(lmarker, MarkerName);
+}
+cmHotKeys :
+  PutHotCommand(RunMenu('mnuSetModulFilt'));
+cmValue36:
+{
+  if ConditionActive(tcbySelected)
+    PopCondition(tcbySelected)
+  else
+    PushCondition(tcbySelected);
+ReReadRecord;
+}
+
+End;
+End.
+mnuSetModulFilt Menu
+{
+-'“áâ ­®¢¨âì\á­ïâì ä¨«ìâà ¯® ¢ë¡à ­­ë¬', cmValue36, '', , , , sci1Esc;
+}
