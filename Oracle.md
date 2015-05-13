@@ -1,3 +1,9 @@
+# Заблокированне сессии #
+SELECT a.rowid, a.* --89 
+FROM 
+  GAL."SYS#LOCKS" a
+;
+
 # Соответствие типов #
 Word number(5)
 LongInt number(10)
