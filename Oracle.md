@@ -1,5 +1,5 @@
 # Заблокированне сессии #
-SELECT a.rowid, a.* --89 
+SELECT a.rowid, a.*
 FROM 
   GAL."SYS#LOCKS" a
 ;
