@@ -1,0 +1,198 @@
+
+#component "F_SFO"
+
+Alter Interface EDREQSFO;    // требование на выдачу *************************************************************
+
+#include ExtAttr.var         // var piExtAttr: iExtAttr; var oExtAttr: iExtAttr;
+
+var
+  spReqSFO_nrec       : comp    ;
+  sr_ok               : integer ;
+
+Create view
+from
+  AttrNam             , AttrVal
+;
+
+Create view t1
+from
+  AttrNam             , PersSfo
+, AttrVal             , PersSpec
+, SpReqSFO            , MBPout
+, synonym   MBPin MBPin1
+  where ((
+              SpReqSFO_nrec     == PersSfo.cSpReqSFO
+          and PersSfo.cPersSpec == PersSpec.nRec
+          and PersSfo.cDocMBPin == MBPin.nRec
+          and MBPin.cMBPout     == MBPout.nRec
+          and MBPout.cMBPin     == MBPin1.nRec
+
+          and coMBPin           == AttrNam.wTable
+          and ct_ProcentIznosa  == AttrNam.Name
+          and coMBPin           == AttrVal.wTable
+          and MBPin1.nrec       == AttrVal.cRec
+          and AttrNam.Nrec      == AttrVal.cAttrNam
+        ))
+;
+
+HandleEvent
+
+cmValue1: {                                         // формирование документа на ввод в эксплуатацию из требования
+
+   if (inherited::handleEvent (cmValue1) = heAbort )
+    Abort;
+
+   _loop SpReqSFO        where (( ReqSFO.nRec       == SpReqSFO.cReqSFO  )) {
+     if GetFirst PersSfo where (( SpReqSFO.nRec     == PersSfo.cSpReqSFO )) = tsOk {
+      if GetFirst MBPin  where (( PersSfo.cDocMBPin == MBPin.nRec        )) = tsOk {
+
+// Если есть атрибут "Признак счёта на складе", тогда переносим его в атрибут "Признак счёта"
+             if piExtAttr.sGetAttr(coMBPin, MBPin.nRec, ct_PrizSchSklad) <> '' {
+               piExtAttr.coSetAttr(coMBPin, MBPin.nRec, ct_PrizSch
+                                 , piExtAttr.coGetAttr(coMBPin, MBPin.nRec, ct_PrizSchSklad)
+                                 , piExtAttr.sGetAttr( coMBPin, MBPin.nRec, ct_PrizSchSklad)
+                                  );
+             }
+/*
+! Не надо заполнять атрибут в зависимости от срока - ТХО-шка отработает и без него
+               else {
+                 if Months_Between(MBPin.DateEksp,MBPin.DateEnd) > 0 {
+                       if Months_Between(MBPin.DateEksp,MBPin.DateEnd) > 12 {
+                           piExtAttr.coSetAttr(coMBPin, MBPin.nRec, ct_PrizSch, ct_coBalans, ct_stBalans);
+                       } else {
+                           piExtAttr.coSetAttr(coMBPin, MBPin.nRec, ct_PrizSch, ct_coZaBalans, ct_stZaBalans);
+                         }
+                 }
+               }
+*/
+     }
+
+// Высчитаем оставшийся срок носки для б/у спецодежды
+    SPReqSFO_nrec  := spReqSFO.nrec;
+    sr_ok := 0;
+
+    if t1.GetFirst PersSfo  = tsOk
+    if t1.GetFirst PersSpec = tsOk {
+      if t1.PersSpec.srok <> word(65535) {
+        if t1.GetFirst MBPin   = tsOk
+        if t1.GetFirst MBPout  = tsOk
+        if t1.GetFirst MBPin1  = tsOk
+        if t1.GetFirst AttrNam = tsOk
+        if t1.GetFirst AttrVal = tsOk {
+           if Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd) = t1.PersSpec.Srok/t1.PersSpec.Kol {
+             sr_ok := t1.PersSpec.Srok/t1.PersSpec.Kol-round((t1.PersSpec.Srok/t1.PersSpec.Kol*t1.AttrVal.vDouble)/100,0);
+
+             if sr_ok < 1
+               sr_ok := 0;
+
+             t1.MBPin.DateEnd := add_months(t1.MBPin.DateEksp,sr_ok);
+             t1.UpDate current MBPin;
+
+             t1.PersSfo.EndDate := t1.MBPin.DateEnd;
+             t1.PersSfo.Srok    := sr_ok;
+             t1.UpDate current PersSfo;
+            }
+        }
+      }
+     }
+    } // if GetFirst PersSfo where (( SpReqSFO.nRec     == PersSfo.cSpReqSFO )) = tsOk {
+   } // _loop SpReqSFO        where (( ReqSFO.nRec       == SpReqSFO.cReqSFO  )) {
+}
+end;
+
+end.
+
+
+
+#component "F_SFO"
+
+Alter Interface SfoActOfOut;      // возврат из использования *****************************************************
+
+var
+  reqsfo_nrec
+, nrec_spkau
+                : comp;
+  proc_iznos
+, sr_ok
+                : double;
+  name_spkau
+                : string;
+
+Create view t1
+from
+  ReqSFO
+, PersSfo
+, MBPin
+, synonym MBPin MBPin2
+, synonym MBPin MBPin3
+where ((
+             reqsfo_nrec            == ReqSfo.nRec
+         and ReqSfo.nRec            == PersSfo.cMBPmove
+         and PersSfo.cPersCard      == PersCard.nRec
+         and PersCard.cLSchet       == LSchet.nRec
+         and LSchet.tPerson         == Persons.nRec
+
+         and PersSfo.cDopRec        == MBPin.nRec
+         and PersSfo.cCurMBPin      == MBPin2.nRec
+         and PersSfo.cDocMBPin      == MBPin3.nRec
+));
+
+window SFODOCWINDOW
+
+HandleEvent
+
+cmDone: {              // выход из документа на возврат из использования
+
+  if (inherited::handleEvent (cmDone) = heAbort )
+   Abort;
+
+  reqsfo_nrec := ReqSfo.nRec;
+
+  if t1.GetFirst ReqSfo = tsOk {
+   t1._loop PersSfo {
+    if t1.GetFirst MBPin = tsOk {
+
+         if t1.GetFirst PersCard = tsOk
+         if t1.GetFirst LSchet   = tsOk
+         if t1.GetFirst Persons  = tsOk
+          piExtAttr.coSetAttr(coMBPin, t1.MBPin.nRec, ct_PredRabotnik, t1.Persons.nRec, t1.Persons.StrTabN+', '+t1.Persons.Fio);
+
+// Если есть атрибут "Признак счёта", тогда переносим его в атрибут "Признак счёта на складе" - здесь НАОБОРОТ
+         if piExtAttr.sGetAttr(coMBPin, t1.MBPin2.nRec, ct_PrizSch) <> '' {
+           piExtAttr.coSetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSchSklad
+                             , piExtAttr.coGetAttr(coMBPin, t1.MBPin2.nRec, ct_PrizSch)
+                             , piExtAttr.sGetAttr( coMBPin, t1.MBPin2.nRec, ct_PrizSch)
+                              );
+         } else {
+             if ( Months_Between(t1.MBPin2.DateEksp,t1.MBPin2.DateEnd) <= 12 or t1.MBPin2.DateEnd = date(0,0,0) ) {
+                 piExtAttr.coSetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSchSklad, ct_coZaBalans, ct_stZaBalans);
+             } else {
+                 piExtAttr.coSetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSchSklad, ct_coBalans, ct_stBalans);
+               }
+           }
+
+     proc_iznos := 0;
+
+     if piExtAttr.sGetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSchSklad) = ct_stBalans {
+          proc_iznos := t1.MBPin.tPercent;
+     } else {
+         if t1.GetFirst MBPin3 = tsOk {
+           proc_iznos := (Months_Between(t1.MBPin3.DateEksp,t1.MBPin3.DateSpis)*100)
+                         /Months_Between(t1.MBPin3.DateEksp,t1.MBPin3.DateEnd);
+          }
+       }
+
+
+     if piExtAttr.sGetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSchSklad) = ct_stZaBalans {
+       proc_iznos:=                 piExtAttr.doGetAttr(coMBPin, t1.MBPin3.nRec, ct_ProcentIznosa)
+                  + proc_iznos*(100-piExtAttr.doGetAttr(coMBPin, t1.MBPin3.nRec, ct_ProcentIznosa)) / 100;
+     }
+
+     piExtAttr.doSetAttr(coMBPin, t1.MBPin.nRec, ct_ProcentIznosa, proc_iznos);
+    }   // if t1.getfirst mbpin = tsok
+   }    // t1._loop perssfo
+  }     // if t1.getfirst reqsfo = tsok
+}       // cmDone:               // выход из документа на возврат из использования
+end;
+end;
+end.

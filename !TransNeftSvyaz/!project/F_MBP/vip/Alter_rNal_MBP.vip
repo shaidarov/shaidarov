@@ -1,0 +1,133 @@
+
+Alter Interface RNal_MBP;
+
+OverLoad
+  function GetMBPInBuhSchet(var pSchet : tSchet3; var pSubSchet : tSubSch) : boolean;
+end;
+
+create view
+as select * from
+  synonym Oborot Alter_Oborot
+;
+
+function GetMBPInBuhSchet(var pSchet : tSchet3; var pSubSchet : tSubSch) : boolean;
+var bFindOborot : boolean;
+    myState : word;
+    myNRec : comp;
+{
+  GetMBPInBuhSchet := False;
+  pSchet := '';
+  pSubSchet := '';
+
+  bFindOborot := False;
+  myState := MBPIn.InState;
+  myNRec := MBPIn.nRec;
+
+  while (true) do
+  {
+    _LOOP Oborot where (( InOp2SH(myState) == Oborot.TiDk     AND
+                          myNRec           == Oborot.cSoprDoc AND
+                          myPlansNo        == Oborot.cPlansSch ))
+    {
+      bFindOborot := True;
+
+! shaidarov - надо убрать счета, которые закрываются в этом же MBPin
+
+      if ( RecordExists Alter_Oborot where ((     Oborot.TiDk       == Alter_Oborot.TiDk
+                                              and Oborot.cSoprDoc   == Alter_Oborot.cSoprDoc
+                                              and Oborot.cPlansSch  == Alter_Oborot.cPlansSch
+
+                                              and Oborot.SchetO     == Alter_Oborot.SchetK     (noIndex)
+                                              and Oborot.SubOsSch   == Alter_Oborot.SubSchK    (noIndex)
+                                              and Oborot.KauOS[1]   == Alter_Oborot.KauKS[1]   (noIndex)
+                                              and Oborot.KauOS[2]   == Alter_Oborot.KauKS[2]   (noIndex)
+                                              and Oborot.KauOS[3]   == Alter_Oborot.KauKS[3]   (noIndex)
+                                              and Oborot.KauOS[4]   == Alter_Oborot.KauKS[4]   (noIndex)
+                                              and Oborot.KauOS[5]   == Alter_Oborot.KauKS[5]   (noIndex)
+                                              and Oborot.KauOS[6]   == Alter_Oborot.KauKS[6]   (noIndex)
+                                              and Oborot.KodSpO     == Alter_Oborot.KodSpK     (noIndex)
+                                              and Oborot.SumOb      == Alter_Oborot.SumOb      (noIndex)
+                                              and Oborot.Kol        == Alter_Oborot.Kol        (noIndex)
+                                            )) = tsOK )
+          Continue;
+
+
+
+
+
+      if (fltSchet > 0)
+        if (not CheckBuhSchet(Oborot.SchetO, Oborot.SubOsSch))
+          Continue;
+
+      pSchet := #GetDbSch(Oborot.SchetO);
+      pSubSchet := Oborot.SubOsSch;
+      GetMBPInBuhSchet := True;
+      Exit;
+    }
+
+    if (bFindOborot)
+      Exit;
+
+    if (not GetParentIn(myNRec, myState))
+      Break;
+  }
+
+  // Только для накладной МЦ -> Спецоснастка
+  if (myState <> mbpFrMCOp) and (myState <> mbpNaklOp)
+    Exit;
+
+  if (GetFirst MBPInS where (( myNRec == MBPInS.nRec )) <> tsOk)
+    Exit;
+
+  var cDoc : comp;
+  cDoc := if (MBPInS.InState = mbpFrMCOp, MBPInS.cSopr, MBPInS.cKatSopr);
+
+  var pDopSchet : tSchet3;
+  var pDopSubSchet : tSubSch;
+  pDopSchet := '';
+  pDopSubSchet := '';
+
+  _LOOP Oborot where (( Word(602) == Oborot.TiDk     AND
+                        cDoc      == Oborot.cSoprDoc AND
+                        myPlansNo == Oborot.cPlansSch ))
+  {
+    if (Oborot.TblOS[1] = cgKau_KatMC) and (Oborot.KauOs[1] = KatMBP.cMc) or
+       (Oborot.TblOS[2] = cgKau_KatMC) and (Oborot.KauOs[2] = KatMBP.cMc) or
+       (Oborot.TblOS[3] = cgKau_KatMC) and (Oborot.KauOs[3] = KatMBP.cMc) or
+       (Oborot.TblOS[4] = cgKau_KatMC) and (Oborot.KauOs[4] = KatMBP.cMc) or
+       (Oborot.TblOS[5] = cgKau_KatMC) and (Oborot.KauOs[5] = KatMBP.cMc) or
+       (Oborot.TblOS[6] = cgKau_KatMC) and (Oborot.KauOs[6] = KatMBP.cMc)
+    {
+      bFindOborot := True;
+
+      if (fltSchet > 0)
+        if (not CheckBuhSchet(Oborot.SchetO, Oborot.SubOsSch))
+          Continue;
+
+      pSchet := #GetDbSch(Oborot.SchetO);
+      pSubSchet := Oborot.SubOsSch;
+      GetMBPInBuhSchet := True;
+      Exit;
+    }
+    else
+      if (not bFindOborot) and (pDopSchet = '')
+      {
+        if (fltSchet > 0)
+          if (not CheckBuhSchet(Oborot.SchetO, Oborot.SubOsSch))
+            Continue;
+
+        pDopSchet := #GetDbSch(Oborot.SchetO);
+        pDopSubSchet := Oborot.SubOsSch;
+      }
+  }
+
+  if (not bFindOborot) and (pDopSchet <> '')
+  {
+    pSchet := pDopSchet;
+    pSubSchet := pDopSubSchet;
+    GetMBPInBuhSchet := True;
+  }
+}
+
+
+end. // Interface

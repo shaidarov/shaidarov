@@ -1,0 +1,251 @@
+#component "F_MBP"
+
+alter interface InvMBPOpis;
+
+OverLoad
+  Function ReloadRecords: Boolean;
+end;
+
+var
+  bal_i
+, bal
+          : word    ;
+  yes_ok
+          : boolean ;
+
+create view
+as select
+  *
+from
+  attrnam
+, attrval
+where ((
+             word(2001)       == AttrNam.wTable								
+        and  'Признак счета'  == AttrNam.Name								
+        and  word(2001)       == AttrVal.wTable								
+        and  mbpin.nrec       == AttrVal.cRec								
+        and  AttrNam.Nrec     == AttrVal.cAttrNam								
+        and  attrval.vcomp    == spkau.nrec
+      ))
+;
+
+
+
+Function ReloadRecords_FiltrBuhSchet: Boolean;
+{
+  ReloadRecords_FiltrBuhSchet := false ;
+  yes_ok := false ;
+  bal    := 0     ;
+
+  if bal_i = 0 {
+    yes_ok := true;
+  }
+
+
+  if bal_i=1
+   {
+    if mbpin.inekspl=word(0)
+     {
+      if getfirst attrnam = tsok
+       {                        
+      if getfirst attrval = tsok
+       {                        
+      if getfirst spkau = tsok  
+       {                        
+       if spkau.code = '001'    
+        {                       
+          bal:=1                
+        }                       
+        else                    
+           {                    
+            bal:=2;             
+           }                    
+       }                        
+       }                        
+       } 
+
+      if bal=0 or bal=1
+       {          
+        yes_ok:=true;
+       }
+     }
+   }
+
+
+
+  if bal_i=2
+  {
+  if mbpin.inekspl=word(1)
+   {
+  if getfirst attrnam = tsok
+   {
+  if getfirst attrval = tsok
+   {
+  if getfirst spkau = tsok
+   {
+   if spkau.code = '001'
+    {
+      bal:=1
+    }
+    else
+       {
+        bal:=2;
+       }
+   }
+   }
+   }
+
+   if bal=0
+    {
+      if Months_Between(mbpin.DATEEKSP,mbpin.DATEEND) <= 12
+       {
+        bal:=2;
+       }
+       else
+        {
+         bal:=1;
+        }
+    }
+
+    if bal=1
+     {
+       yes_ok:=true;
+     }
+    }
+   }
+
+
+  if bal_i=3
+  {
+  if mbpin.inekspl=word(1)
+   {
+  if getfirst attrnam = tsok
+   {
+  if getfirst attrval = tsok
+   {
+  if getfirst spkau = tsok
+   {
+   if spkau.code = '001'
+    {
+      bal:=1
+    }
+    else
+       {
+        bal:=2;
+       }
+   }
+   }
+   }
+
+   if bal=0
+    {
+      if Months_Between(mbpin.DATEEKSP,mbpin.DATEEND) <= 12
+       {
+        bal:=2;
+       }
+       else
+        {
+         bal:=1;
+        }
+    }
+
+    if bal=2
+     {
+       yes_ok:=true;
+     }
+    }
+    else
+     {
+      if getfirst attrnam = tsok
+       {                        
+      if getfirst attrval = tsok
+       {                        
+      if getfirst spkau = tsok  
+       {                        
+       if spkau.code = '002'    
+        {                       
+          yes_ok:=true;                
+        }     
+       }
+       }
+       }
+     }
+   }
+
+     if yes_ok
+        ReloadRecords_FiltrBuhSchet := true ;
+
+}
+
+
+Function ReloadRecords: Boolean;
+{
+  ReloadRecords := True;
+
+  StartNewVisual(vtNumericVisual, vfTimer + vfBreak + vfConfirm, 'Выгрузка данных для отчета', 1);
+  Delete All I_GrpName;
+  Delete All I_MBPOut;
+  InitGrMCFilter(fltGrp);
+
+  if (GetFirstPick)
+    do
+    {
+      _LOOP MBPIn
+      {
+        if (not NextVisual)
+        {
+          ReloadRecords := False;
+          Break;
+        }
+
+        // Доступные подразделения
+        if (isAvailPodr and (optW > 0))
+          if (MBPIn.cPodr = 0) or (not iUserListPodr.IsAvailablePodr(MBPIn.cPodr, Word(12)))
+            if (optW = 1) // внешний цикл по подразделениям
+              Break;
+            else
+              Continue;
+
+        if (not isInMatched)
+          Continue;
+
+        // Вставить запись в выгрузку данных для отчета
+       if ReloadRecords_FiltrBuhSchet = true                  // shaidarov
+        InsertRepRecord;
+      }
+    }
+    while (GetNextPick);
+
+  StopVisual('', 0);
+}
+
+HandleEvent
+
+ cmInit: {
+
+   RunDialog('Get_par_sfo',bal_i)  ;
+
+   inherited::handleEvent (cmInit) ;
+ }
+
+end;
+
+end.
+
+
+Get_par_sfo dialog
+fields
+  bal_i : word;
+Buttons
+  cmOk,Default,, 'Подтверждение ввода',,scGalDial ;
+
+<< 'Ввод параметров'
+
+  `В ведомость выводить:      `
+  (.) Всю СФО                 `
+  (.) счет 10.08              `
+  (.) счет 10.09              `
+  (.) счет 013                `
+                
+       <. Продолжить .>
+>>

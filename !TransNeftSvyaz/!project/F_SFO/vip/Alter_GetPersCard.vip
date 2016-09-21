@@ -1,0 +1,210 @@
+#component "F_SFO"
+
+Alter Interface GetPersCard;
+
+#include ExtAttr.var         // var piExtAttr: iExtAttr; var oExtAttr: iExtAttr;
+
+OverLoad
+  procedure choosePerson(tcPodr : comp);
+end;
+
+OverloadFormats scPersCard ;
+OverloadFormats brPersSFO  ;
+OverloadFormats brPersCard ;
+
+create view
+as select
+  getSrokStr(shPersSpec.ExplDate, shPersSpec.Srok)
+        (FieldName = srok_norm)
+!  (ShPersSpec.Srok / ShPersSpec.Kol * shPersSFO.CurKol)    // shaidarov не нравится, что срок делится на количество
+!  (shPersSpec.Srok)
+!        (Fieldname = srok_norm)
+
+, (if(shMBPin.tPercent <> 0, shMBPin.tPercent, piExtAttr.doGetAttr(coMBPin, shMbpin.nrec, ct_ProcentIznosa) ))
+        (Fieldname = pr_izn)
+;
+
+Browse brPersCard ('Выбор ЛК учета специальной (форменной) одежды',, sci178InsPM) ; // customSorting
+  Table PersCard;
+Fields
+  {Font = {Color = GetColorCard; }};
+  PersCard.CardNom #3'№ карточки'    ('Номер личной карточки учета специальной (форменной) одежды') : [12], Protect, noAutoSize;
+  TabNum           #3'Таб. №'        ('Табельный номер сотрудника')                                 : [10], Protect, noAutoSize;
+  TabStr           #3'Таб. №'        ('Табельный номер сотрудника')                                 : [10], Protect, noAutoSize;
+  Persons.FIO      #3'Сотрудник'     ('ФИО сотрудника')                                             : [22], Protect;
+  shKatPodr.Name   #3'Подразделение' ('Структурное подразделение, к которому относится сотрудник')  : [15], Protect;
+!  PersCard.attDate #3'Дата атт.'     ('Дата первой аттестации сотрудника для отсчета сроков носки') : [10, 'DD/MM/YYYY'], Protect, noAutoSize;
+  KatMOL.Name      #3'МОЛ'           ('МОЛ')                                                        : [15], Protect;
+  PrsCrdStat       #3'C'             ('Индикатор закрытия Личной Карточки учета СФО сотрудника. "X" - закрыта.') : [1],   Protect, noAutoSize;
+  isPicked         #3'V'             ('Признак выбора личной карточки учета СФО')                   : [1], skip, noAutoSize;
+end;
+
+
+Window EDITPERSCARD
+
+Screen scPersCard ('Личная карточка учета специальной (форменной) одежды',, sci178Esc);
+  Show At (,,, 18);
+  Table PersCard, EventNavigation;
+Fields
+  PersCard.CardNom ('Номер личной карточки учета специальной (форменной) одежды'),
+    {Font = {BackColor = if (Trim(PersCard.CardNom) = '', ColorNeed, 0)}};
+  PrsCrdStatus     ('Статус личной карточки учета специальной (форменной) одежды') : Protect,
+    {Font = {Bold = True; Color = if (isClosedCard(PersCard.Status, False), ColorError, if (statPersBreak = 'Не действует', 0, ColorError))}};
+
+  inUsePrice       ('Стоимость выданных и не списанных, не возвращенных предметов') : [16.2];
+
+  STabN            ('Табельный номер сотрудника',, sci1378Esc) : Protect,
+    {Font = {BackColor = if (not isLSchet(False), ColorNeed, 0)}};
+  CatalogsApp.Name ('Характер назначения') : Protect;
+  Persons.FIO      ('ФИО сотрудника',, sci1378Esc) : Protect,
+    {Font = {BackColor = if (not isLSchet(False), ColorNeed, 0)}};
+  Persons.Sex      ('Пол сотрудника') : Protect;
+  shKatPodr.Name   ('Подразделение, к которому относится сотрудник') : Protect;
+  HiKatPodr.Name   ('Вышестоящее структурное подразделение (если есть)') : Protect;
+  KatMOL.Name      ('Материально ответственное лицо на котором числятся выданные предметы',, sci1378Esc) : Protect;
+  PersPosDate      ('Дата приема сотрудника на работу') : [,'DD/MM/YYYY'], Protect;
+  PersCard.perDate ('Дата последнего перевода из одного подразделения в другое') : [,'DD/MM/YYYY'], Protect;
+  PersCard.disDate ('Дата увольнения сотрудника') : [,'DD/MM/YYYY'], Protect;
+  Catalogs.Name    ('Должность, занимаемая сотрудником') : Protect;
+  PersCard.attDate ('Дата первой аттестации сотрудника для отсчета сроков носки') : [,'DD/MM/YYYY'],
+    {Font = {BackColor = if (Longint(PersCard.attDate) = 0, ColorNeed, 0)}};
+  Catalogs2.Name   ('Звание сотрудника') : Protect;
+  PersCard.chDate  ('Дата последнего изменения норм') : [,'DD/MM/YYYY'];
+
+  shOS             ('Текущая основная норма по спецодежде',, sci1378Esc);
+  shDS             ('Текущая дополнительная норма по спецодежде',, sci1378Esc);
+
+  shOF             ('Текущая основная норма по форменной одежде',, sci1378Esc);
+  shDF             ('Текущая дополнительная норма по форменной одежде',, sci1378Esc);
+
+Buttons
+  cmValue1,,, 'Редактирование размеров одежды для сотрудника', hcSFOIPersSizes, sci1Esc;
+!  cmValue4,,, 'Формирование требований на выдачу для сотрудника', hcSFOINewReqBut, sci1Esc;
+  cmValue5,,, 'Просмотр и обработка требований на выдачу СФО по сотруднику', hcSFOIReqBut, sci1Esc;
+  cmValue2,,, 'Просмотр и редактирование истории норм и их спецификации по работнику', hcSFOINormHist, sci1Esc;
+  cmValue18,,, 'Просмотр и редактирование периодов приостановки по работнику', hcSFO_PriostSrokNoski, sci1Esc;
+<<
+ `Номер личной карточки`.@@@@@@@@@       `Статус`          .@@@@@@@@@@@@@@@@@@   `Стоимость ` .@@@@@@@@@@@@@@@
+ `Табельный номер`      .@@@@@@@@@@@     `Хар-р назначения`.@@@@@@@@@@@@@@@@@@   `предметов`
+ `Сотрудник`            .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  Пол  .@@@@
+ `Подразделение`        .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Вышестоящее`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `МОЛ`                  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ `Дата поступления`     .@@@@@@@@@@@      `Дата перевода`.@@@@@@@@@@@          `Дата увольнения`  .@@@@@@@@@@@
+ `Профессия (должность)`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Дата аттестации`  .@@@@@@@@@@@
+ `Перcональное звание`  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Дата изменения`   .@@@@@@@@@@@
+  Категории (если больше 4-х, тогда надо смотреть через кнопку "Нормы"):
+   `Основная`           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   `Дополнительная 1`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   `Дополнительная 2`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+   `Дополнительная 3`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+       <.    Размеры    .>        <.   Требования   .>     <.      Нормы     .>       <.  Приостановка  .>
+
+>>
+end;
+
+
+
+Browse brPersSFO ('Выдачи специальной (форменной) одежды по карточке',, sciSFO189Esc);
+  Show At(, 19,,);
+  Table shPersSFO;
+Fields
+  {Font = { Italic = (shPersSFO.cExtOper <> 0); Color = GetColorPersSFO; }};
+  IsMaterial         #3'Ф'            ('Признак наличия знаков различия и фурнитуры') : [2],      Protect, noAutoSize;
+  shKatMBP.NNumber   #3'Номенкл №'    ('Номенклатурный номер предметов СФО') : [10],              Protect, noAutoSize;
+  shKatMBP.Name      #3'Наименование' ('Название предметов СФО')             : [19],              Protect;
+  shKatEd.Name       #3'Ед.'          ('Единица измерения')                  : [4],               Protect, noAutoSize;
+  shPersSFO.giveDate #3'Выдано'       ('Дата выдачи предметов')              : [10,'DD/MM/YYYY'], Protect, noAutoSize;
+  shPersSFO.explDate #3'Экспл.'       ('Дата отсчета срока эксплуатации')    : [10,'DD/MM/YYYY'], Protect, noAutoSize;
+  shPersSFO.endDate  #3'Оконч.'       ('Дата окончания срока службы')        : [10,'DD/MM/YYYY'], Protect, noAutoSize;
+  shPersSFO.curKol   #3'Кол'          ('Количество единиц')                  : [3],               Protect, noAutoSize;
+  srok_norm          #3'Срок из нормы'('Срок службы предметов СФО по норме') : [9],               Protect, noAutoSize;
+  shSrok             #3'Срок'         ('Срок службы предметов СФО')          : [9],               Protect, noAutoSize;
+  shSFOSumma         #3'Стоимость'    ('Первоначальная стоимость предметов') : [11.2],            Protect, noAutoSize;
+  pr_izn             #3'Процент износа'    ('Процент износа') : [11.2],            Protect, noAutoSize;
+  SFOStatBr          'С'              ('Состояние предметов : "Н"-носится, "В"-возвращено, "У"-утеряно, "С"-списано') : [1], Protect, noAutoSize;
+  SFOBalans          'Б'              ('"+" - числится на балансе, "-" - списано с баланса') : [1], Protect, noAutoSize,
+    {Font = {BackColor = if ((shPersSFO.cSpReqSFO <> 0) and (SFOBalans = '?'), ColorError, 0);
+             Color = if (isValid( #shMBPIn) and ((shMBPIn.cPodr <> PersCard.cPodr) or (shMBPIn.cMol <> PersCard.cMol)),
+                            ColorMark, 0)}
+    };
+  isByNorm           'Н'              ('"+" - выдано по нормам, "-" - вне норм') : [1], Protect, noAutoSize;
+end;
+
+
+/*
+HandleEvent
+cmValue5: {
+  Message(''#3'Вместо документа "Требования" рекомендуется использовать'#13
+        + ''#3'документ "Ввод в эксплуатацию"'#13
+        + ''#3'с кнопкой "Разнести по Нормам"');
+
+  inherited::handleEvent (cmValue5);
+}
+end;
+*/
+
+end;  // Window EDITPERSCARD
+
+
+procedure choosePerson(tcPodr : comp); {
+
+  inherited :: choosePerson(tcPodr);
+
+  if GetFirst LSchet where (( PersCard.cLSchet == LSchet.nRec )) = tsOk
+   if ( PersCard.CardNom != LSchet.StrTabN ) {
+    PersCard.CardNom := LSchet.StrTabN;
+    PersCard.AttDate := PersPosDate   ;
+!    UpDate current PersCard;                 // это не надо - запись PersCard ещё не сформирована до конца
+   }
+}
+
+HandleEvent
+cmHotKeys: {
+   var MenuStr: string;
+   MenuStr := #AddComp('F_SFO') + 'SFO_CARDLIST_HOTKEYS' +';Separator;' + #AddComp('F_SFO') +'mnuSFO_my';// Стандартная менюшка + мои пункты
+   PutHotCommand(RunDynMenu(MenuStr));
+}
+
+cmValue32: {                //  ***   Копирование внешних аттрибутов   ***
+ StoreMarker(CardMarker, 'ATRV_PersCard_Marker');
+
+ var MarkCount : longint;
+
+ MarkCount := GetMarkerCount(CardMarker);
+
+ if MarkCount = 0 {
+   message ('Необходимо пометить Личные карточки!');
+   Exit;
+ }
+
+   var vnRecPersCard : comp   ;
+   var cCard         : comp   ;
+   var i             : longint;
+
+   vnRecPersCard := PersCard.nRec;
+
+  if Message('Установить внешние атрибуты из ЛК № '+PersCard.CARDNOM+' в помеченные '+MarkCount+' карточки',YesNo) = Yes {
+
+    StartNewVisual(2, vfTimer+vfBreak+vfConfirm,'Копирование внешних аттрибутов',MarkCount);
+
+    for (i := 0; i < MarkCount; i := i + 1) {
+       NextVisual();
+       GetMarker(CardMarker, i, cCard);
+
+       if (cCard <> vnRecPersCard)
+        piExtAttr.CopyAllAttr(coPersCard, vnRecPersCard, cCard);
+    }
+
+    message('Копирование атрибутов завершено');
+    StopVisual('',0);
+  }
+}
+end;
+end.
+
+mnuSFO_my Menu {
+- 'Копировать внешние атрибуты по Личным карточкам'  , cmValue32,,,,, sci1Esc;
+}

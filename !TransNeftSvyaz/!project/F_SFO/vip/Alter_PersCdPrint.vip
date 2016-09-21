@@ -1,0 +1,114 @@
+
+Alter Interface PersCdPrint 'Параметры печати ЛК учета СФО' (, hcSFOLMPrintLK, sci1Esc) EscClose, Gray;
+
+OverLoad
+  procedure PrintOnePositionFR(SpcFrm, SpcVid : word);
+  function  CheckCloseByReason(awStatus, awMismatch, awHandClose : word): boolean;
+  DataStream DtsPersCard;
+end;
+
+create view
+as select * from
+  synonym PersNorm Alter_PersNorm
+, synonym NormSFO  Alter_NormSFO
+where (( PersSpec.cPersNorm      == Alter_PersNorm.nRec
+     and Alter_PersNorm.cNormSFO == Alter_NormSFO.nRec
+));
+
+
+Function CheckCloseByReason(awStatus, awMismatch, awHandClose : word): boolean;
+{
+  CheckCloseByReason := ((w2 = 0) and (awStatus = 0));
+}  
+
+
+procedure PrintOnePositionFR(SpcFrm, SpcVid : word);
+{
+  if (SpcFrm = 0)
+  {
+    ClearBuffer(#SFOPersFR);
+
+    case (SpcVid) of
+    //--------------
+      0:
+      {
+        SFOPersFR.SFOName := GroupSFO.Name;
+        SFOPersFR.SFOKod  := GroupSFO.Kod;
+      }
+    //--------------
+      1:
+      {
+        SFOPersFR.SFOName := GroupSFO.Name;
+        SFOPersFR.SFOKod  := 'и ' + GroupSFO.Kod;
+      }
+    //--------------
+      2:
+      {
+        SFOPersFR.SFOName := 'или ' + GroupSFO.Name;
+        SFOPersFR.SFOKod  := GroupSFO.Kod;
+      }
+    //--------------
+    end;
+
+    SFOPersFR.Norma   := (Trim(GroupSFO.Positions[szIndSZ]) <> ''); // если задан размер СИЗ, то это норма по СИЗ
+    SFOPersFR.IsSOS   := (GroupSFO.indepFl = 1);
+    SFOPersFR.EdName  := KatEd.Name;
+// shaidarov
+    SFOPersFR.NormArt := if(NormGroupSFO.Article != '', NormGroupSFO.Article, Alter_NormSFO.Kod);
+
+    SFOPersFR.Marking := NormGroupSFO.LabelSIZ;
+    SFOPersFR.KolNorm := PersSpec.Kol;
+    SFOPersFR.SrokNorm := getSrokStr(PersSpec.ExplDate, PersSpec.Srok);
+    SFOPersFR.SrokNormStr := PersSpec.Kol + GetYearSrok(getSrokStr(PersSpec.ExplDate, PersSpec.Srok));
+    insert current SFOPersFR;
+  }
+  else
+  {
+    ClearBuffer(#SFOPersSpFR);
+
+    case (SpcVid) of
+    //--------------
+      0:
+      {
+        SFOPersSpFR.SFOName := GroupSFO.Name;
+        SFOPersSpFR.SFOKod  := GroupSFO.Kod;
+      }
+    //--------------
+      1:
+      {
+        SFOPersSpFR.SFOName := GroupSFO.Name;
+        SFOPersSpFR.SFOKod  := 'и ' + GroupSFO.Kod;
+      }
+    //--------------
+      2:
+      {
+        SFOPersSpFR.SFOName := 'или ' + GroupSFO.Name;
+        SFOPersSpFR.SFOKod  := GroupSFO.Kod;
+      }
+    //--------------
+    end;
+
+    SFOPersSpFR.Norma   := (Trim(GroupSFO.Positions[szIndSZ]) <> ''); // если задан размер СИЗ, то это норма по СИЗ
+    SFOPersSpFR.IsSOS   := (GroupSFO.indepFl = 1);
+    SFOPersSpFR.EdName  := KatEd.Name;
+// shaidarov
+    SFOPersSpFR.NormArt := if(NormGroupSFO.Article != '', NormGroupSFO.Article, Alter_NormSFO.Kod);
+
+    SFOPersSpFR.Marking := NormGroupSFO.LabelSIZ;
+    SFOPersSpFR.KolNorm := PersSpec.Kol;
+    SFOPersSpFR.SrokNorm := getSrokStr(PersSpec.ExplDate, PersSpec.Srok);
+    SFOPersSpFR.SrokNormStr := PersSpec.Kol + GetYearSrok(getSrokStr(PersSpec.ExplDate, PersSpec.Srok));
+    insert current SFOPersSpFR;
+  }
+}
+
+ Datastream DtsPersCard
+ (
+  DataSet inherited::PersCardFR
+  (
+   [DatPer]  DateToMyStr(if(PersCard.PerDate=date(0,0,0),iPersInfo.GetPosDate(PersCard.nRec),PersCard.PerDate),'DD/MM/YYYY');
+  );
+ )
+ end; // DataStream DtsPersCard
+
+end.

@@ -1,0 +1,57 @@
+
+Alter Interface Inv_MBP 'Акты инвентаризации' (, hcMBPIInventoryList,) Cyan, EscClose;
+
+OverLoadFormats ScrTypeDoc;
+
+Window wNastrRep 'Настройка отчета' (, hcMBPInvOpPrintParam, sci1Esc) EscClose, Gray;
+
+Panel pnlInvDoc;
+Screen ScrTypeDoc;
+  Show At (, 1,, 2);
+Fields
+  dType ('Выбор формы для печати'):
+         [List 'Ведомость по итогам инвентаризации',   // shaidarov поменял местами "Ведомость..." и "... опись"
+               'Инвентаризационную опись',
+               'Сличительную ведомость'], Protect;
+<<
+
+  `Печатать`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>
+
+end;
+end; // Panel pnlInvDoc;
+
+  HandleEvent // Window wNastrRep
+  cmOk:
+  {
+    if (toc = 1) // Excel
+      if (not pXlRepSetup.CheckParam(0, ID, sXLTFileName))
+      {
+        RunInterface('XlRepSetup', 1, ID, sXLTFileName);
+        ReadMyDsk(sXLTFileName, ID, true);
+      }
+
+    SaveDsk;
+    SetCurCommission;
+
+    case dType of          // shaidarov поменял местами "Ведомость..." и "... опись"
+       0 : dType := 1;
+       1 : dType := 0;
+    end
+
+
+    if (toc = 0)
+      PrintMBPInv;
+    else
+    {
+      if (dType = 0) or (dType = 1)
+        PrintMBPInv3;
+      else
+        PrintMBPInv_xl;
+    }
+  }
+  end; // HandleEvent Window wNastrRep
+
+end; // Window wNastrRep
+
+end. // Interface

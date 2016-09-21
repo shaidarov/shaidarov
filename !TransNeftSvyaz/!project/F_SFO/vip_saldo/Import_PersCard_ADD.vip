@@ -1,0 +1,671 @@
+
+#include PersNrCt.vih
+
+const
+ pos_col_err: word = 30;                    // с этой колонки записываем ошибки позиционирования
+end;
+
+Interface Import_PersCard_ADD 'Добавление норм к Импорт личных карточек Cпецодежды' (,,) , DoAccept;
+  Show at (, , 85, 10);
+
+#include PersNrCt.var // var iPersNorm : PrsNrmCnt;
+
+
+var
+ _path
+
+, OldTabN         , Rost               , Norma1   , Norma6   , Norma11
+, FIOrab          , Odezhda            , Norma2   , Norma7   , Norma12
+, Mol_Kod         , Obuv               , Norma3   , Norma8   , Norma13
+, Podr_Kod        , gUbor              , Norma4   , Norma9   , Norma14
+, Dolzhnost                            , Norma5   , Norma10  , Norma15
+         : string  ;
+  pos_row
+         : word    ;
+create view
+as select * from
+  Persons             , Catalogs
+, lSchet              , PersCard
+, KatMol              , PersNorm
+, KatPodr
+, APPOINTMENTS
+, synonym NormSFO NormSFO1
+, synonym NormSFO NormSFO2
+, synonym NormSFO NormSFO3
+, synonym NormSFO NormSFO4
+, synonym NormSFO NormSFO5
+, synonym NormSFO NormSFO6
+, synonym NormSFO NormSFO7
+, synonym NormSFO NormSFO8
+, synonym NormSFO NormSFO9
+, synonym NormSFO NormSFO10
+, synonym NormSFO NormSFO11
+, synonym NormSFO NormSFO12
+, synonym NormSFO NormSFO13
+, synonym NormSFO NormSFO14
+, synonym NormSFO NormSFO15
+;
+
+
+screen scrParam ('Параметры загрузки личных карточек Спецодежды', , sci13Esc);
+notablenavigation;
+
+ Fields
+           _path ('Excel-шаблон' , , ) : noProtect;
+
+ Buttons
+  cmCheck  ;
+  cmOk     ;
+  cmCancel ;
+<<
+
+  `Файл Excel-шаблона   : ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     <. Проверить файл .>         <. Загрузить .>         <. Отмена .>
+>>
+end;
+
+function FindFiled : boolean; {
+
+    FIOrab     := '';           xlGetCellValue(pos_row,  1, FIOrab    );
+    OldTabN    := '';           xlGetCellValue(pos_row,  2, OldTabN   );   OldTabN   := SubStr(OldTabN,  1, InStr('~', OldTabN) -1);
+    Mol_Kod    := '';           xlGetCellValue(pos_row,  3, Mol_Kod   );   Mol_Kod   := SubStr(Mol_Kod,  1, InStr('~', Mol_Kod) -1);
+    Podr_Kod   := '';           xlGetCellValue(pos_row,  4, Podr_Kod  );   Podr_Kod  := SubStr(Podr_Kod, 1, InStr('~', Podr_Kod)-1);
+!    Dolzhnost  := '';           xlGetCellValue(pos_row,  , Dolzhnost );
+
+    Rost       := '';           xlGetCellValue(pos_row,  5, Rost      );
+    Odezhda    := '';           xlGetCellValue(pos_row,  6, Odezhda   );
+    Obuv       := '';           xlGetCellValue(pos_row,  7, Obuv      );
+    gUbor      := '';           xlGetCellValue(pos_row,  8, gUbor     );
+
+    Norma1     := '';           xlGetCellValue(pos_row, 15, Norma1    );   Norma1  := SubStr(Norma1,  1, InStr('~', Norma1 )-1);
+    Norma2     := '';           xlGetCellValue(pos_row, 16, Norma2    );   Norma2  := SubStr(Norma2,  1, InStr('~', Norma2 )-1);
+    Norma3     := '';           xlGetCellValue(pos_row, 17, Norma3    );   Norma3  := SubStr(Norma3,  1, InStr('~', Norma3 )-1);
+    Norma4     := '';           xlGetCellValue(pos_row, 18, Norma4    );   Norma4  := SubStr(Norma4,  1, InStr('~', Norma4 )-1);
+    Norma5     := '';           xlGetCellValue(pos_row, 19, Norma5    );   Norma5  := SubStr(Norma5,  1, InStr('~', Norma5 )-1);
+    Norma6     := '';           xlGetCellValue(pos_row, 20, Norma6    );   Norma6  := SubStr(Norma6,  1, InStr('~', Norma6 )-1);
+    Norma7     := '';           xlGetCellValue(pos_row, 21, Norma7    );   Norma7  := SubStr(Norma7,  1, InStr('~', Norma7 )-1);
+    Norma8     := '';           xlGetCellValue(pos_row, 22, Norma8    );   Norma8  := SubStr(Norma8,  1, InStr('~', Norma8 )-1);
+    Norma9     := '';           xlGetCellValue(pos_row, 23, Norma9    );   Norma9  := SubStr(Norma9,  1, InStr('~', Norma9 )-1);
+    Norma10    := '';           xlGetCellValue(pos_row, 24, Norma10   );   Norma10 := SubStr(Norma10, 1, InStr('~', Norma10)-1);
+    Norma11    := '';           xlGetCellValue(pos_row, 25, Norma11   );   Norma11 := SubStr(Norma11, 1, InStr('~', Norma11)-1);
+    Norma12    := '';           xlGetCellValue(pos_row, 26, Norma12   );   Norma12 := SubStr(Norma12, 1, InStr('~', Norma12)-1);
+    Norma13    := '';           xlGetCellValue(pos_row, 27, Norma13   );   Norma13 := SubStr(Norma13, 1, InStr('~', Norma13)-1);
+    Norma14    := '';           xlGetCellValue(pos_row, 28, Norma14   );   Norma14 := SubStr(Norma14, 1, InStr('~', Norma14)-1);
+    Norma15    := '';           xlGetCellValue(pos_row, 29, Norma15   );   Norma15 := SubStr(Norma15, 1, InStr('~', Norma15)-1);
+
+
+    FindFiled := true ;
+
+    if ( OldTabN = '') {
+      FindFiled := false ;
+      Exit;
+    }
+
+
+    if GetFirst Persons  where ((   OldTabN   ==        Persons.StrTabN  (noIndex)
+!    if GetFirst Persons  where ((   OldTabN   ==        Persons.PassNmb  (noIndex)
+                         and ( UpCase(FIOrab)  = UpCase(Persons.FIO) )   )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 1, pos_row, pos_col_err + 1);
+    } else {
+         if GetFirst lSchet where (( Persons.nRec == lSchet.tPerson )) <> tsOK {
+          FindFiled := false ;
+          xlSetCellStringValue('ошибка lSchet', pos_row, pos_col_err + 1, pos_row, pos_col_err + 1);
+         }
+/*
+           else {
+             if GetFirst PersCard   where (( lSchet.nRec  == PersCard.clSchet      )) = tsOK {
+              FindFiled := false ;
+              xlSetCellStringValue('ошибка дубль карточки СФО', pos_row, pos_col_err + 1, pos_row, pos_col_err + 1);
+            }
+           }
+*/
+         if GetFirst APPOINTMENTS   where (( persons.APPOINTCUR  == APPOINTMENTS.nRec      )) <> tsOK {
+!          FindFiled := false ;
+          xlSetCellStringValue('ошибка нет назначения', pos_row, pos_col_err + 1, pos_row, pos_col_err + 1);
+         }
+      }
+
+    if GetFirst KatMol   where (( Mol_Kod  == KatMol.Kod      )) <> tsOK {
+!        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 2, pos_row, pos_col_err + 2);
+    }
+
+
+    if GetFirst KatPodr  where (( Podr_Kod == KatPodr.Kod     )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 3, pos_row, pos_col_err + 3);
+    }
+/*
+    if GetFirst Catalogs  where (( Dolzhnost         == Catalogs.Name       (noIndex)
+                              and ( 006400000000008Ah = Catalogs.cParent    // должности
+                                 or 006400000000008Bh = Catalogs.cParent    // профессии
+                                  )
+                                )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 4, pos_row, pos_col_err + 4);
+    }
+*/
+   if Norma1 > '-'                                                                    // код нормы начинается с цифры
+    if GetFirst NormSFO1  where (( Norma1 == NormSFO1.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 5, pos_row, pos_col_err + 5);
+    }
+
+   if Norma2 > '-'
+    if GetFirst NormSFO2  where (( Norma2 == NormSFO2.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 6, pos_row, pos_col_err + 6);
+    }
+
+   if Norma3 > '-'
+    if GetFirst NormSFO3  where (( Norma3 == NormSFO3.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 7, pos_row, pos_col_err + 7);
+    }
+
+   if Norma4 > '-'
+    if GetFirst NormSFO4  where (( Norma4 == NormSFO4.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 8, pos_row, pos_col_err + 8);
+    }
+
+   if Norma5 > '-'
+    if GetFirst NormSFO5  where (( Norma5 == NormSFO5.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 9, pos_row, pos_col_err + 9);
+    }
+
+   if Norma6 > '-'
+    if GetFirst NormSFO6  where (( Norma6== NormSFO6.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 10 , pos_row, pos_col_err + 10);
+    }
+
+   if Norma7 > '-'
+    if GetFirst NormSFO7  where (( Norma7== NormSFO7.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 11 , pos_row, pos_col_err + 11);
+    }
+
+   if Norma8 > '-'
+    if GetFirst NormSFO8  where (( Norma8== NormSFO8.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 12 , pos_row, pos_col_err + 12);
+    }
+
+   if Norma9 > '-'
+    if GetFirst NormSFO9  where (( Norma9== NormSFO9.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 13 , pos_row, pos_col_err + 13);
+    }
+
+   if Norma10 > '-'
+    if GetFirst NormSFO10  where (( Norma10== NormSFO10.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 14 , pos_row, pos_col_err + 14);
+    }
+
+   if Norma11 > '-'
+    if GetFirst NormSFO11  where (( Norma11== NormSFO11.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 15 , pos_row, pos_col_err + 15);
+    }
+   if Norma12 > '-'
+    if GetFirst NormSFO12  where (( Norma12== NormSFO12.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 16 , pos_row, pos_col_err + 16);
+    }
+   if Norma13 > '-'
+    if GetFirst NormSFO13  where (( Norma13== NormSFO13.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 17 , pos_row, pos_col_err + 17);
+    }
+   if Norma14 > '-'
+    if GetFirst NormSFO14  where (( Norma14== NormSFO14.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 18 , pos_row, pos_col_err + 18);
+    }
+   if Norma15 > '-'
+    if GetFirst NormSFO15  where (( Norma15== NormSFO15.Kod )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 19 , pos_row, pos_col_err + 19);
+    }
+}
+
+#declare ErrorField
+    xlSetCellStringValue('Нет таб. номера'    , 1, pos_col_err + 1, 1, pos_col_err + 1);
+    xlSetCellStringValue('Нет МОЛ'            , 1, pos_col_err + 2, 1, pos_col_err + 2);
+    xlSetCellStringValue('Нет подразделения'  , 1, pos_col_err + 3, 1, pos_col_err + 3);
+    xlSetCellStringValue('Нет должности'      , 1, pos_col_err + 4, 1, pos_col_err + 4);
+    xlSetCellStringValue('Нет нормы 1'        , 1, pos_col_err + 5, 1, pos_col_err + 5);
+    xlSetCellStringValue('Нет нормы 2'        , 1, pos_col_err + 6, 1, pos_col_err + 6);
+    xlSetCellStringValue('Нет нормы 3'        , 1, pos_col_err + 7, 1, pos_col_err + 7);
+    xlSetCellStringValue('Нет нормы 4'        , 1, pos_col_err + 8, 1, pos_col_err + 8);
+    xlSetCellStringValue('Нет нормы 5'        , 1, pos_col_err + 9, 1, pos_col_err + 9);
+    xlSetCellStringValue('Нет нормы 6'        , 1, pos_col_err +10, 1, pos_col_err +10);
+    xlSetCellStringValue('Нет нормы 7'        , 1, pos_col_err +11, 1, pos_col_err +11);
+    xlSetCellStringValue('Нет нормы 8'        , 1, pos_col_err +12, 1, pos_col_err +12);
+    xlSetCellStringValue('Нет нормы 9'        , 1, pos_col_err +13, 1, pos_col_err +13);
+    xlSetCellStringValue('Нет нормы10'        , 1, pos_col_err +14, 1, pos_col_err +14);
+    xlSetCellStringValue('Нет нормы11'        , 1, pos_col_err +15, 1, pos_col_err +15);
+    xlSetCellStringValue('Нет нормы12'        , 1, pos_col_err +16, 1, pos_col_err +16);
+    xlSetCellStringValue('Нет нормы13'        , 1, pos_col_err +17, 1, pos_col_err +17);
+    xlSetCellStringValue('Нет нормы14'        , 1, pos_col_err +18, 1, pos_col_err +18);
+    xlSetCellStringValue('Нет нормы15'        , 1, pos_col_err +19, 1, pos_col_err +19);
+#end
+
+
+Procedure Insert_PersCard; {
+
+  if GetFirst PersCard where (( lSchet.nRec == PersCard.clSchet )) = tsOK {
+    PersCard.SIZES[1] := Rost    ;
+    PersCard.SIZES[2] := Odezhda ;
+    PersCard.SIZES[4] := Obuv    ;
+    PersCard.SIZES[5] := gUbor   ;
+    upDate current PersCard      ;
+  } else {
+      ClearBuffer(#PersCard)                ;
+      PersCard.CardNom  := Persons.StrTabN  ;
+      PersCard.clSchet  := lSchet.nRec      ;
+      PersCard.cPodr    := KatPodr.nRec     ;
+      PersCard.cPost    := Catalogs.nRec    ;
+      PersCard.cMol     := KatMol.nRec      ;
+      PersCard.SIZES[1] := Rost             ;
+      PersCard.SIZES[2] := Odezhda          ;
+      PersCard.SIZES[4] := Obuv             ;
+      PersCard.SIZES[5] := gUbor            ;
+      PersCard.STATUS   := 1                ;
+      PersCard.AttDate  := Persons.AppDate  ;
+      PersCard.cPersons := Persons.nRec     ;
+      PersCard.cPost    := APPOINTMENTS.POST;
+      Insert current PersCard               ;
+    }
+}
+
+
+Procedure Insert_PersNorm; {
+  if ( Norma1 > '-'
+        and ( GetFirst PersNorm where (( NormSFO1.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO1.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 0                ;
+    PersNorm.SpecFlag  := 1                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma2 > '-'
+        and ( GetFirst PersNorm where (( NormSFO2.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO2.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 1                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma3 > '-'
+        and ( GetFirst PersNorm where (( NormSFO3.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO3.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 0                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma4 > '-'
+        and ( GetFirst PersNorm where (( NormSFO4.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO4.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma5 > '-'
+        and ( GetFirst PersNorm where (( NormSFO5.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO5.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 0                ;
+    PersNorm.SpecFlag  := 1                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma6 > '-'
+        and ( GetFirst PersNorm where (( NormSFO6.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO6.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 1                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma7 > '-'
+        and ( GetFirst PersNorm where (( NormSFO7.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO7.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 0                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma8 > '-'
+        and ( GetFirst PersNorm where (( NormSFO8.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO8.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma9 > '-'
+        and ( GetFirst PersNorm where (( NormSFO9.nRec  == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO9.nRec    ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 0                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma10 > '-'
+        and ( GetFirst PersNorm where (( NormSFO10.nRec == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO10.nRec   ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma11 > '-'
+        and ( GetFirst PersNorm where (( NormSFO11.nRec == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO11.nRec   ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma12 > '-'
+        and ( GetFirst PersNorm where (( NormSFO12.nRec == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO12.nRec   ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma13 > '-'
+        and ( GetFirst PersNorm where (( NormSFO13.nRec == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO13.nRec   ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma14 > '-'
+        and ( GetFirst PersNorm where (( NormSFO14.nRec == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO14.nRec   ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+  if ( Norma15 > '-'
+        and ( GetFirst PersNorm where (( NormSFO15.nRec == PersNorm.cNormSFO
+                                     and PersCard.nRec  == PersNorm.cPersCard  (noIndex)
+                                      )) != tsOK ) )
+  {
+    ClearBuffer(#PersNorm)                 ;
+    PersNorm.cNormSFO  := NormSFO15.nRec   ;
+    PersNorm.cPersCard := PersCard.nRec    ;
+    PersNorm.FrDate    := PersCard.AttDate ;
+    PersNorm.Status    := 1                ;
+    PersNorm.OsnFlag   := 1                ;
+    PersNorm.SpecFlag  := 0                ;
+    Insert current PersNorm                ;
+  }
+
+
+
+  iPersNorm.ReCalcPersNorms(PersCard.nRec, false);
+
+
+! Перепривяжем к нормам
+
+      _Loop PersSFO where (( PersCard.nRec == PersSFO.cPersCard
+                         and 1             == PersSFO.ZeroKol
+                          )) {
+
+        if ( GetFirst GroupSFO where (( PersSFO.cGroupSFO == GroupSFO.nRec )) != tsOK )
+         Continue;
+
+
+        if GetFirst PersSpec where (( PersSFO.cPersSpec == PersSpec.nRec )) = tsOK {
+         PersSpec.GivKol := PersSpec.GivKol - MBPin.KolDoc ;                 // уберем прошлую привязку
+         upDate current PersSpec;
+        }
+
+
+                  if GetFirst PersSpec where ((  PersCard.nRec   == PersSpec.cPersCard
+                                             and GroupSFO.nRec   == PersSpec.cGroupSFO
+                                             and ZeroDate        == PersSpec.ToDate           // дата окончания
+                                             )) = tsOk {
+                     PersSFO.cPersSpec := PersSpec.nRec;
+                     upDate current PersSFO;
+
+                     PersSpec.GivKol := PersSpec.GivKol + PersSFO.DocKol ;
+                     upDate current PersSpec;
+                  }
+
+                       else {
+                            if GetFirst PersSpec where ((  MBPin.cPers       == PersSpec.cPersCard
+                                                       and 01C2000000000010h == PersSpec.cGroupSFO   // 1001 Спецодежда
+                                                       )) = tsOk {
+                               PersSFO.cPersSpec := PersSpec.nRec;
+                               upDate current PersSFO;
+
+                               PersSpec.GivKol := PersSpec.GivKol + PersSFO.DocKol ;
+                               upDate current PersSpec;
+                            }
+                               else {
+                                      ClearBuffer(#PersNorm)                   ;
+                                      PersNorm.cNormSFO  := 01C200000000025Eh  ; // ЯR (не исп.) Приказ о приёме всей купленой СФО от МУВО как выданной "по норме"
+                                      PersNorm.cPersCard := MBPin.cPers        ;
+                                      PersNorm.FrDate    := date(01, 06, 2015) ;
+                                      PersNorm.Status    := 1                  ;
+                                      PersNorm.OsnFlag   := 1                  ;
+                                      PersNorm.SpecFlag  := 0                  ;
+                                      Insert current PersNorm                  ;
+
+                                      iPersNorm.ReCalcPersNorms(MBPin.cPers, false);
+
+                                            if GetFirst PersSpec where ((  MBPin.cPers       == PersSpec.cPersCard
+                                                                       and 01C2000000000010h == PersSpec.cGroupSFO
+                                                                       )) = tsOk {
+                                               PersSFO.cPersSpec := PersSpec.nRec;
+                                               upDate current PersSFO;
+
+                                               PersSpec.GivKol := PersSpec.GivKol + PersSFO.DocKol ;
+                                               upDate current PersSpec;
+                                            }
+
+
+                               }
+                       }
+
+     }
+
+}
+
+HandleEvent
+
+cmPick: {
+  case CurField of
+    #_path: {
+      set _path := GetFileName('*.xls;*.xlsx','Укажите файл для загрузки личных карточек Спецодежды');
+    }
+  end;
+}
+
+
+cmCancel: {
+   CloseInterface(cmCancel);
+}
+
+cmCheck: {
+    if (_path = '' ) {
+      message('Должен быть указан файл!', Error);
+      Exit;
+    }
+
+    StartNewVisual(vtRotateVisual, vfTimer,'Идёт анализ данных...', 0);
+
+    xlCreateExcelWithTemplate (_path,true);
+    xlSetActiveSheet(1);
+
+    pos_row       := 2;
+
+    #ErrorField;
+
+    Do {
+      iNextVisual('Идёт анализ данных... ' + pos_row);
+
+      FindFiled;
+      pos_row := pos_row + 1;
+    } While (FIOrab <> '')
+
+
+    xlKillExcel;                         // Окончание работы с Excel
+    StopVisual('Проверка закончена. Смотрите исходный файл', 0);
+}
+
+cmOK : {
+    if (_path = '' ) {
+      message('Должны быть указаны все поля на экране!', Error);
+      Exit;
+    }
+
+    StartNewVisual(vtRotateVisual, vfTimer,'Идёт анализ данных...', 0);
+    xlCreateExcelWithTemplate (_path,true);
+    xlSetActiveSheet(1);
+
+    pos_row       := 2;
+
+    #ErrorField;
+
+    Do {
+      iNextVisual('Идёт анализ данных... ' + pos_row);
+
+      if not FindFiled {
+           pos_row := pos_row + 1;
+           Continue;
+      };
+
+      Insert_PersCard;
+
+      Insert_PersNorm;
+
+!      АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???
+!      АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???
+!      АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???АТРИБУТЫ???
+
+
+      pos_row := pos_row + 1;
+
+    } While ( FIOrab <> '' )
+
+    xlKillExcel;                         // Окончание работы с Excel
+    StopVisual('Закачка закончена', 0);
+}
+
+
+end;
+
+
+end. // interface

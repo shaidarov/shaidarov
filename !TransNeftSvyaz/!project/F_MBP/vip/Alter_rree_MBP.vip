@@ -1,0 +1,257 @@
+
+#doc
+Формирование реестра документов выбранного типа по спецоснастке.<br>
+#end
+
+Alter Interface rReeDocMBP;
+
+Create View;
+
+HandleEvent
+! не удаётся сделать inherited - выполнение отчёта прерывается до завершения обработчика
+  cmInit : {
+    Abort; // Не показывать интерфейс
+
+    // Получить параметры формирования отчета
+    ConvFrRepTunes;
+
+    if (not GetVipInterface(f))
+    {
+      Message('Не удалось загрузить интерфейс'#13 +
+              'блока фильтров.', Error);
+      Exit;
+    }
+
+    // Подписанты
+    LoadVipInterface(iFeeSigners);
+    iFeeSigners.InitFeeSigners(cgReport_MBP);
+
+    // Доступные подразделения
+!    isAvailPodr := iUserListPodr.IsDefineByUser(UserID, Word(12));
+! СТН В Реестрах не надо анализировать доступные подразделения
+    isAvailPodr := False;
+
+! СТН и доступ к документам в Реестрах тоже ни к чему
+    // Учесть права доступа пользователя к документам
+/*
+    case (CurVisible) of
+    //------------------
+      cgDocVisible_MySelf:
+        AddBounds(tbbyDescr);
+    //------------------
+      cgDocVisible_GrRead,
+      cgDocVisible_GrAll:
+        AddBounds(tbbyDesGr);
+    //------------------
+    end;
+*/
+    // Если выбрано одно подразделение - наложить по нему ограничение
+    cPod := f.isSingleInPick(Word(11), fltPodT);
+
+    if (cPod <> -1)
+      AddBounds(tbByPod);
+
+    // Если выбрано одно МОЛ - наложить ограничение по МОЛ
+    cMol := f.isSingleInPick(Word(8),  fltMolT);
+
+    if (cMol <> -1)
+      AddBounds(tbByMol);
+
+    // Считывание из DSK значений фильтров по разрезу "Откуда"
+    if (fltPodF = fltPicked)
+      PMark := InitMarker('RReeMBPDocPodr', 8, 100, 10);
+
+    if (fltMolF = fltPicked)
+      MMark := InitMarker('RReeMBPDocMol',  8, 100, 10);
+
+    // Если выводятся строки спецификации или установлен фильтр по номенклатуре, подцепить их
+    if ((wParam = 1) or isNeedCheckSpec)
+    {
+      if (isInDoc)
+      {
+        PushBounds(tbInSpec);
+
+        // Выводить сумму по строке спецификации для переоценки
+        if ((wParam = 1) and (dType = mbpNewPDoc))
+          PushBounds(tbOutForIn);
+
+        if (dType = mbpSortDoc)
+        {
+          PushBounds(tbOutForIn);
+          PushBounds(tbParForOut);
+        }
+      }
+      else
+      {
+        PushBounds(tbOtSpec);
+        PushBounds(tbInForOut);
+
+        // Выводить причину списания для строк спецификации
+        if ((wParam = 1) and (dType = mbpSpisDoc))
+          PushBounds(tbPrSpis);
+      }
+    }
+    else // Если установлен фильтр по причине списания
+      if ((dType = mbpSpisDoc) and (fltPrSpis <> -1))
+      {
+        PushBounds(tbOtSpec);
+        PushBounds(tbInForOut);
+      }
+      else // Если установлен фильтр по сроку службы
+        if ((dType = mbpInExDoc) and (fltSrok > 0))
+          PushBounds(tbInSpec);
+
+    var wasRecs, Stopped : Boolean;
+    Stopped := False;
+    wasRecs := False;
+
+    if (VidRep = 1) // FastReport
+    {
+      Npp := 0;
+      Delete All tblDocList;
+      Delete All tblSpecList;
+    }
+
+    StartNewVisual(vtIndicatorVisual, vfTimer + vfBreak + vfConfirm,
+                   ''#3'Формирование реестра документов', RecordsInTable(#MBPMove));
+
+    _LOOP MBPMove // Цикл по отобранным к выводу документам
+    {
+      if (not NextVisual)
+      {
+        Stopped := True;
+        Break;
+      }
+
+      if (not CheckPodTFlt(Word(11), fltPodT, MBPMove.cPodrT))
+        Continue;
+
+      if (not CheckMolTFlt(Word(8),  fltMolT, MBPMove.cMolT))
+        Continue;
+
+      if (not CheckPodFFlt(Word(11), fltPodF, MBPMove.cPodrF))
+        Continue;
+
+      if (not CheckMolFFlt(Word(8),  fltMolF, MBPMove.cMolF))
+        Continue;
+
+      if (isAvailPodr)
+      {
+        if (dType = mbpPostDoc) or (dType = mbpOverDoc)
+        {
+          if (MBPMove.cPodrT = 0) or (not iUserListPodr.IsAvailablePodr(MBPMove.cPodrT, Word(12)))
+            Continue;
+        }
+        else
+        {
+          if (MBPMove.cPodrF = 0) or (not iUserListPodr.IsAvailablePodr(MBPMove.cPodrF, Word(12)))
+            Continue;
+        }
+      }
+
+      if (isNeedCheckSpec)
+        if (not CheckNomenkl)
+          Continue;
+
+      _Summa := MBPMove.Summa;
+      _SummaIsn := MBPMove.SummaIsn;
+
+      if ((dType = mbpSpisDoc) and (fltPrSpis <> -1))
+        if (not CalcSpPrSpis)
+          Continue;
+
+      if ((dType = mbpInExDoc) and (fltSrok > 0))
+        if (not CalcSpSrok)
+          Continue;
+
+      if (VidRep = 1) // FastReport
+      {
+        PrintMBPDocFR;
+        wasRecs := True;
+      }
+      else            // Текст
+      {
+        if (not wasRecs)
+        {
+          SelectGroup;
+          PrintHeader;
+
+          if (frmRREEMBP.Error) // Отмена в списке линкованных форм
+          {
+            Stopped := True;
+            Break;
+          }
+
+          wasRecs := True;
+        }
+
+        PrintMBPDoc;
+      }
+    }
+
+    if (wasRecs)
+    {
+      if (VidRep = 1) // FastReport
+        PrintFeeSignersFR;
+      else
+      {
+        frmRREEMBP.putEvent(feBreak);
+        PrintFeeSigners;
+      }
+    }
+
+    StopVisual('', 0);
+    FreeVipInterface(f);
+
+    if (fltPodF = fltPicked)
+      DoneMarker(PMark, 'RReeMBPDocPodr');
+
+    if (fltMolF = fltPicked)
+      DoneMarker(MMark, 'RReeMBPDocMol');
+
+    if (VidRep = 1) // FastReport
+    {
+      if (Stopped)
+      {
+        Message('Процесс прерван пользователем!', Warning);
+        Exit;
+      }
+
+      if (not wasRecs)
+      {
+        Message('Не найдено записей для формирования отчета!', Warning);
+        Exit;
+      }
+
+      PushBounds(tbByFReport);
+      RunFReport(dtsRReeMBP, '', false);
+      PopBounds(tbByFReport);
+    }
+    else            // Текст
+    {
+      if (Stopped)
+      {
+        Message('Процесс прерван пользователем!', Warning);
+        frmRREEMBP.AbortForm;
+        Exit;
+      }
+
+      if (not wasRecs)
+      {
+        Message('Не найдено записей для формирования отчета!', Warning);
+        frmRREEMBP.AbortForm;
+        Exit;
+      }
+
+      if (frmRREEMBP.Error)
+      {
+        Message('Ошибка при выводе в форму!', Warning);
+        frmRREEMBP.AbortForm;
+        Exit;
+      }
+
+      frmRREEMBP.ShowFile('Реестр документов спецоснастки (rree_mbp.out)');
+    }
+  }
+end; // HandleEvent Interface
+end. // Interface

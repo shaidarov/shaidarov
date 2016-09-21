@@ -1,0 +1,535 @@
+
+#include ConstAttr.vpp
+
+#include ExtAttr.vih
+#include PersNrCt.vih
+
+const
+ cTypeMcSFO   : comp = 0064000000000009h;     // Тип МЦ 1008
+ cnstGrNal    : comp = 0064000000000001h;     // Группа налогов НДС_18
+ cnstStZatr   : comp = 0;                     // Статья затрат
+ cnstKaElem   : comp = 0;                     // Элемент затрат       Спецодежда
+ cnstPartyREN : comp = 01C200000000002Ah;     // Партия РЭН
+ pos_col_err  : word = 21;                    // с этой колонки записываем ошибки позиционирования
+end;
+
+Interface Korrect_Saldo_SFO_Srok 'Корректировка Срока по Cпецодежде' (,,) , DoAccept;
+  Show at (, , 85, 10);
+
+#include ExtAttr.var          // var piExtAttr: iExtAttr;
+#include PersNrCt.var // var iPersNorm : PrsNrmCnt;
+
+var
+ _path
+, Podr_Kod
+, Podr_Kod_Prev
+, Podr_toSFO
+, Podr_toSFO_Prev
+, Mol_Kod
+, Mol_Kod_Prev
+, Mol_ToSFO
+, Mol_ToSFO_Prev
+, OldTabN
+, FIOrab
+, MC_Kod
+, MC_Name
+, Norm_Kod
+, strSrok
+, EdIzmer
+, tmpBarKod
+, strFilial
+, strDateVvod
+         : string  ;
+  DateVvod
+, DateSaldo
+         : date    ;
+  pos_row
+, ProtParty                   // переменная для функции MakeOptionsByDefines - не удалять её из описания
+, wSchet
+         : word    ;
+  KolVo
+, Stoim
+, NDS_dbf
+, Cena
+, _srok
+, Iznos
+, OstSumma
+         : double  ;
+  cGrDescr
+         : comp    ;
+
+
+create view
+as select *
+from
+  KatMBP
+, MBPin
+, PersSFO
+, GroupSFO
+, Persons
+, KatPodr
+, KatMOL
+, KatMC
+, KatEd
+, GroupMC
+, KatOtpEd
+, SoprHoz
+, PersNorm
+, GrDescr
+! для функций генерации бар-кода
+, synonym KatMC    KatMC2
+where (( cGrDescr == GrDescr.nRec ))
+
+;
+
+
+#include BarKodMC.vpp // Ф-ции работы с баркодами
+
+screen scrParam ('Параметры загрузки сальдо Спецодежды', , sci13Esc);
+notablenavigation;
+
+ Fields
+  DateSaldo ('Дата закачки остатков'   , , ) : noProtect;
+
+ wSchet     ('Загружаемый счёт') : [List '10.08'
+                                       , '10.09'
+                                       , '013'], Protect;
+
+  GrDescr.DesGr ('Филиал'              , , ) : Protect;
+
+      _path ('Excel-шаблон'            , , ) : noProtect;
+
+ Buttons
+  cmCheck  ;
+  cmOk     ;
+  cmCancel ;
+<<
+
+  `Дата закачки остатков : ` .@@@@@@@@@@
+
+  `Загружаемый счёт      : ` .@@@@@@@@@@      `Филиал   : ` .@@@@@@@@@@
+
+  `Файл Excel-шаблона    : ` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+     <. Проверить файл .>         <. Загрузить .>         <. Отмена .>
+>>
+end;
+
+function FindFiled : boolean; {
+
+    Podr_Kod   := '';           xlGetCellValue(pos_row,  1, Podr_Kod  );
+    Mol_Kod    := '';           xlGetCellValue(pos_row,  3, Mol_Kod   );
+    OldTabN    := '';           xlGetCellValue(pos_row,  5, OldTabN   );
+    FIOrab     := '';           xlGetCellValue(pos_row,  6, FIOrab    );
+    MC_Kod     := '';           xlGetCellValue(pos_row,  7, MC_Kod    );
+    MC_Name    := '';           xlGetCellValue(pos_row,  8, MC_Name   );
+    Norm_Kod   := '';           xlGetCellValue(pos_row, 10, Norm_Kod  );
+
+
+
+
+ case wSchet of
+  0    : {
+    strDateVvod:= '';           xlGetCellValue(pos_row, 18, strDateVvod  );    // Год приобритения для анализа нелеквидных складских запасов
+    DateVvod   := date(01, 01, strDateVvod);
+  }
+
+  1, 2 : {
+    strDateVvod:= '';           xlGetCellValue(pos_row, 12, strDateVvod  );
+    DateVvod   := StrToDate(strDateVvod, 'DD/MM/YYYY');
+   if DateVvod = date(0, 0, 0)
+    DateVvod   := StrToDate(strDateVvod, 'DD.MM.YYYY');
+  }
+ end;
+
+
+    strSrok    := '';           xlGetCellValue(pos_row, 13, strSrok   );
+    KolVo      :=  0;           xlGetCellValue(pos_row, 14, KolVo     );
+    Stoim      :=  0;           xlGetCellValue(pos_row, 15, Stoim     );
+    EdIzmer    := '';           xlGetCellValue(pos_row,  9, EdIzmer   );
+!    Cena       :=  0;           Cena := Stoim / KolVo                  ;
+    Iznos      :=  0;           xlGetCellValue(pos_row, 16, Iznos     );
+    OstSumma   :=  0;           xlGetCellValue(pos_row, 17, OstSumma  );
+
+    FindFiled  := true ;
+
+    if ( Podr_Kod = '') {
+      FindFiled := false ;
+      Exit;
+    }
+
+    if GetFirst KatPodr  where (( Podr_Kod == KatPodr.Kod     )) != tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 1, pos_row, pos_col_err + 1);
+    }
+
+    if GetFirst KatMol   where (( Mol_Kod  == KatMol.Kod      )) != tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 2, pos_row, pos_col_err + 2);
+    }
+
+
+    case strSrok of
+      ''          : _srok := 0;
+      'на складе' : _srok := 0;
+      'до износа' : _srok := MaxWord;
+      else _srok := round(double(replace(strSrok, ',', '.')),0);              // могут быть запятые в сроках
+    end;
+
+
+   if ( (_srok != 0 and OldTabN != '') or FIOrab != '' ) {                                                         // в эксплуатации и Дежурная
+
+    if GetFirst Persons  where ((   OldTabN   ==        Persons.PassNmb  (noIndex)
+!    if GetFirst Persons  where ((   OldTabN   ==        Persons.StrTabN  (noIndex)
+                         and ( UpCase(FIOrab)  = UpCase(Persons.FIO) )   )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 3, pos_row, pos_col_err + 3);
+    } else {
+         if GetFirst lSchet where (( Persons.nRec == lSchet.tPerson )) <> tsOK {
+          FindFiled := false ;
+          xlSetCellStringValue('ошибка lSchet', pos_row, pos_col_err + 3, pos_row, pos_col_err + 3);
+         } else {
+               if GetFirst PersCard where (( lSchet.nRec == PersCard.clSchet )) <> tsOK {
+                FindFiled := false ;
+                xlSetCellStringValue('ошибка PersCard', pos_row, pos_col_err + 3, pos_row, pos_col_err + 3);
+               }
+           }
+      }
+   }
+
+    if GetFirst GroupSFO where (( Norm_Kod == GroupSFO.Kod    )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 4, pos_row, pos_col_err + 4);
+    }
+
+    if GetFirst GroupMC where (( Norm_Kod == GroupMC.Kod    )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка GroupMC', pos_row, pos_col_err + 8, pos_row, pos_col_err + 8);
+    }
+
+    if KolVo = 0 {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 5, pos_row, pos_col_err + 5);
+    }
+
+
+
+    if GetFirst KatEd where (( EdIzmer == KatEd.Name    )) <> tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 6, pos_row, pos_col_err + 6);
+    }
+
+    if MC_Name = '' {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 7, pos_row, pos_col_err + 7);
+    }
+
+    if GetFirst KatMC    where (( cTypeMcSFO    == KatMC.cType   (noIndex)
+                              and trim(MC_Name) == KatMC.Name
+                              and trim(MC_Kod)  == KatMC.BarKod
+                               )) != tsOK {
+          if GetFirst KatMC    where (( cTypeMcSFO     == KatMC.cType   (noIndex)
+                                    and trim(MC_Name)  == KatMC.Name
+                                    and trim(MC_Kod)   == KatMC.BarKod2 (noIndex)
+                                     )) != tsOK {
+               if GetFirst KatMC    where (( cTypeMcSFO == KatMC.cType   (noIndex)
+                                         and MC_Name    == KatMC.Name
+                                          )) != tsOK {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка Нет КатМЦ', pos_row, pos_col_err + 7, pos_row, pos_col_err + 7);
+      }
+     }
+    }
+
+!    if (GetFirst KatMBP where (( KatMC.nRec == KatMBP.cMc )) != tsOk) {
+!        FindFiled := false ;
+!        xlSetCellStringValue('ошибка Нет КатМБП', pos_row, pos_col_err + 11, pos_row, pos_col_err + 11);
+!    }
+
+    case wSchet of
+      1 : {   //10.09
+       if DateVvod = date(0, 0, 0) {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 9, pos_row, pos_col_err + 9);
+       }
+      }
+      2 : {   // 013
+       if ( DateVvod = date(0, 0, 0) and _Srok != 0 ) {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 9, pos_row, pos_col_err + 9);
+       }
+      }
+    end;
+
+
+    case wSchet of
+      0 : {
+          if (GetFirst MBPin where ((  1            == MBPin.Status
+                                   and KatPodr.nRec == MBPin.cPodr
+                                   and KatMOL.nRec  == MBPin.cMOL
+                                   and DateVvod     == MBPin.dIn
+                                   and KatMBP.nRec  == MBPin.cMBP         (noIndex)
+                                   and KolVo        == MBPin.KolDoc       (noIndex)
+                                   and OstSumma + Iznos  ==  MBPin.Summa  (noIndex)
+                                   and 0            == MBPin.InEkspl      (noIndex)
+                                   and GrDescr.DesGr + '_' + bCase(wSchet = 0: '10.08', wSchet = 1: '10.09', wSchet = 2: '013')
+                                                         == MBPin.Nom          (noIndex)
+
+                                   )) != tsOK )
+                                 {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 10, pos_row, pos_col_err + 10);
+                                 }
+      }
+      1 : {
+       if (OldTabN = '')  {                               // Дежурная спецодежда
+          if (GetFirst MBPin where ((  1                 == MBPin.Status
+                                   and KatPodr.nRec      == MBPin.cPodr
+                                   and KatMOL.nRec       == MBPin.cMOL
+                                   and DateSaldo         == MBPin.dIn
+!                                   and KatMBP.nRec       == MBPin.cMBP         (noIndex)
+                                   and KolVo             == MBPin.KolDoc       (noIndex)
+                                   and 1                 == MBPin.InEkspl      (noIndex)
+                                   and DateVvod          == MBPin.DateEksp     (noIndex)
+                                   and 0                 == MBPin.cPers        (noIndex)
+                                   and GrDescr.DesGr + '_' + bCase(wSchet = 0: '10.08', wSchet = 1: '10.09', wSchet = 2: '013')
+                                                         == MBPin.Nom          (noIndex)
+
+                                   and MBPin.cMBP       /== KatMBP.nRec
+
+                                   and (
+                                        OstSumma + Iznos - 1  < MBPin.Summa
+                                    and OstSumma + Iznos + 1  > MBPin.Summa
+                                    and trim(KatMBP.Name) = trim(KatMC.Name)
+                                   )
+
+                                   )) != tsOK )
+                                 {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 10, pos_row, pos_col_err + 10);
+                                 }
+
+       } else {
+          if (GetFirst MBPin where ((  1                 == MBPin.Status
+                                   and KatPodr.nRec      == MBPin.cPodr
+                                   and KatMOL.nRec       == MBPin.cMOL
+                                   and DateSaldo         == MBPin.dIn
+!                                   and KatMBP.nRec       == MBPin.cMBP         (noIndex)
+                                   and KolVo             == MBPin.KolDoc       (noIndex)
+                                   and 1                 == MBPin.InEkspl      (noIndex)
+                                   and DateVvod          == MBPin.DateEksp     (noIndex)
+                                   and PersCard.nRec     == MBPin.cPers        (noIndex)
+                                   and GrDescr.DesGr + '_' + bCase(wSchet = 0: '10.08', wSchet = 1: '10.09', wSchet = 2: '013')
+                                                         == MBPin.Nom          (noIndex)
+                                   and MBPin.cMBP       /== KatMBP.nRec
+                                   and (
+                                        OstSumma + Iznos - 1  < MBPin.Summa
+                                    and OstSumma + Iznos + 1  > MBPin.Summa
+                                    and trim(KatMBP.Name) = trim(KatMC.Name)
+                                   )
+                                   )) != tsOK )
+                                 {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 10, pos_row, pos_col_err + 10);
+                                 }
+
+        }
+      }
+
+      2 : {
+
+       if (_Srok = 0) {
+          if (GetFirst MBPin where ((  1                 == MBPin.Status
+                                   and KatPodr.nRec      == MBPin.cPodr
+                                   and KatMOL.nRec       == MBPin.cMOL
+                                   and DateSaldo         == MBPin.dIn
+                                   and KatMBP.nRec       == MBPin.cMBP         (noIndex)
+                                   and KolVo             == MBPin.KolDoc       (noIndex)
+                                   and OstSumma + Iznos  == MBPin.Summa        (noIndex)
+                                   and 0                 == MBPin.InEkspl      (noIndex)
+                                   and date(0, 0, 0)     == MBPin.DateEksp     (noIndex)
+                                   and 0                 == MBPin.cPers        (noIndex)
+                                   )) != tsOK )
+                                 {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 10, pos_row, pos_col_err + 10);
+                                 }
+
+       }  else {
+
+       if (OldTabN = '')  {                               // Дежурная спецодежда
+          if (GetFirst MBPin where ((  1                 == MBPin.Status
+                                   and KatPodr.nRec      == MBPin.cPodr
+                                   and KatMOL.nRec       == MBPin.cMOL
+                                   and DateSaldo         == MBPin.dIn
+                                   and KatMBP.nRec       == MBPin.cMBP         (noIndex)
+                                   and KolVo             == MBPin.KolDoc       (noIndex)
+                                   and OstSumma + Iznos  == MBPin.Summa        (noIndex)
+                                   and 1                 == MBPin.InEkspl      (noIndex)
+                                   and date(0, 0, 0)     == MBPin.DateEksp     (noIndex)
+                                   and 0                 == MBPin.cPers        (noIndex)
+                                   )) != tsOK )
+                                 {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 10, pos_row, pos_col_err + 10);
+                                 }
+
+       } else {
+          if (GetFirst MBPin where ((  1                 == MBPin.Status
+                                   and KatPodr.nRec      == MBPin.cPodr
+                                   and KatMOL.nRec       == MBPin.cMOL
+                                   and DateSaldo         == MBPin.dIn
+                                   and KatMBP.nRec       == MBPin.cMBP         (noIndex)
+                                   and KolVo             == MBPin.KolDoc       (noIndex)
+                                   and OstSumma + Iznos  == MBPin.Summa        (noIndex)
+                                   and 1                 == MBPin.InEkspl      (noIndex)
+                                   and date(0, 0, 0)     == MBPin.DateEksp     (noIndex)
+                                   and PersCard.nRec     == MBPin.cPers        (noIndex)
+                                   )) != tsOK )
+                                 {
+        FindFiled := false ;
+        xlSetCellStringValue('ошибка', pos_row, pos_col_err + 10, pos_row, pos_col_err + 10);
+                                 }
+
+        }
+
+
+       }
+
+      }
+   end;
+}
+
+Procedure upDate_Srok; {
+
+    case wSchet of
+      1 : {
+       if (_Srok > 0 and _Srok != MaxWord)
+        MBPin.DateEnd  := Add_Months(MBPin.DateEksp, _Srok);
+      }
+
+      2 : {                                               // 013
+       if (_Srok > 0) {
+          if (_Srok != MaxWord) {                          // до износа
+           MBPin.DateEnd  := Add_Months(MBPin.DateEksp, _Srok);
+          }
+       }
+      }
+     end;
+     upDate current MBPin;
+
+
+    if (_Srok = 0 or OldTabN = '' or wSchet = 0) Exit;
+
+    if (GetFirst PersSFO where (( MBPin.nRec == PersSFO.cDocMBPIn (noIndex) )) != tsOK) Exit;
+
+        PersSFO.EndDate   := MBPin.DateEnd  ;
+        PersSFO.Srok      := _Srok           ;
+        PersSFO.DopAttr   := _Srok           ;  // Обязательно заполнять! иначе при перемещении срок в новом PersSFO будет браться из нормы
+        upDate current PersSFO;
+
+}
+
+#declare ErrorField
+    xlSetCellStringValue('Нет подразделения'  , 1, pos_col_err + 1, 1, pos_col_err + 1);
+    xlSetCellStringValue('Нет МОЛ'            , 1, pos_col_err + 2, 1, pos_col_err + 2);
+    xlSetCellStringValue('Нет работника'      , 1, pos_col_err + 3, 1, pos_col_err + 3);
+    xlSetCellStringValue('Нет нормы'          , 1, pos_col_err + 4, 1, pos_col_err + 4);
+    xlSetCellStringValue('Нет количества'     , 1, pos_col_err + 5, 1, pos_col_err + 5);
+    xlSetCellStringValue('Нет единица изм.'   , 1, pos_col_err + 6, 1, pos_col_err + 6);
+    xlSetCellStringValue('Нет МЦ'             , 1, pos_col_err + 7, 1, pos_col_err + 7);
+    xlSetCellStringValue('Нет группы МЦ'      , 1, pos_col_err + 8, 1, pos_col_err + 8);
+    xlSetCellStringValue('Нет MBPin'          , 1, pos_col_err +10, 1, pos_col_err +10);
+    xlSetCellStringValue('Нет KatMBP'         , 1, pos_col_err +11, 1, pos_col_err +11);
+#end
+
+
+
+HandleEvent
+
+cmPick: {
+  case CurField of
+    #_path: {
+      set _path := GetFileName('*.xls;*.xlsx','Укажите файл с остатками Спецодежды для загрузки сальдо');
+    }
+
+    #GrDescr.DesGr: {
+      RunInterface('GetGrDescr', '', FALSE, FALSE, cGrDescr);
+    }
+  end;
+}
+
+
+cmCancel: {
+   CloseInterface(cmCancel);
+}
+
+cmCheck: {
+    if (_path = '' ) {
+      message('Должен быть указан файл!', Error);
+      Exit;
+    }
+
+    StartNewVisual(vtRotateVisual, vfTimer,'Идёт анализ данных...', 0);
+
+    xlCreateExcelWithTemplate (_path,true);
+    xlSetActiveSheet(1);
+
+    pos_row       :=  2;
+
+    #ErrorField;
+
+    Do {
+      iNextVisual('Идёт анализ данных... ' + pos_row);
+
+      FindFiled;
+      pos_row := pos_row + 1;
+    } While (Podr_Kod <> '')
+
+
+   xlKillExcel;                         // Окончание работы с Excel
+   StopVisual('Проверка закончена. Смотрите исходный файл', 0);
+}
+
+cmOk: {
+    if (_path = '' or DateSaldo = date(0,0,0) ) {
+      message('Должны быть указаны все поля на экране!', Error);
+      Exit;
+    }
+
+    if (DateSaldo <= dGetTune('FIN.USER.DTECBUH') ) {
+      message('Загрузка остатков в закрытом периоде БухКонтура запрещена!', Error);
+      Exit;
+    }
+
+    StartNewVisual(vtRotateVisual, vfTimer,'Идёт анализ данных...', 0);
+    xlCreateExcelWithTemplate (_path,true);
+    xlSetActiveSheet(1);
+
+    pos_row        :=  2;
+
+    #ErrorField;
+
+    Do {
+      iNextVisual('Идёт анализ данных... ' + pos_row);
+
+      if not FindFiled {
+           pos_row := pos_row + 1;
+           Continue;
+      };
+
+
+     upDate_srok;
+
+     pos_row := pos_row + 1;
+
+
+    } While ( Podr_Kod <> '' )
+
+    xlKillExcel;                         // Окончание работы с Excel
+    StopVisual('Закачка закончена', 0);
+}
+
+end;
+
+end. // interface

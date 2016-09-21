@@ -1,0 +1,393 @@
+//------------------------------------------------------------------------------
+//                                                      (c) корпорация Галактика
+// Галактика 7.12 - Спецоснастка
+// Отчет о наличии спецоснастки по различным разрезам
+//------------------------------------------------------------------------------
+
+#component "F_MBP"
+
+Alter Interface RNal_MBP;
+
+OverLoad
+ Procedure PrintOperXL;
+ Procedure ShowReportXL;
+ Procedure SaveLevelStr(levKod: Word);
+end;
+
+create view
+as select * from
+  synonym lSchet     lSchet_Alt
+, synonym Persons   Persons_Alt
+where ((  PersCard.clSchet      ==   lSchet_Alt.nRec
+      and lSchet_Alt.tPerson    ==  Persons_Alt.nRec
+));
+
+Procedure SaveLevelStr(levKod: Word);
+{
+  Case (levKod) Of
+  //----------------
+    0: // То что требуется при любой группировке
+    {
+
+!    8, 9:
+      if (isValid(#GroupMC))
+      {
+        // Код группы и наименование МЦ
+        S_MBPOut.GrpKod := lTrim(GroupMC.Kod);
+        S_MBPOut.GrpName:= lTrim(GroupMC.Name);
+      }
+
+      if (isValid(#KatMBP)) // Наименование и Номеклатурный номер
+      {
+        S_MBPOut.MBPName := lTrim(KatMBP.Name);
+        S_MBPOut.MBPNum  := lTrim(KatMBP.NNumber);
+        S_MBPOut.MBPInfo := lTrim(KatMBP.DopInfo);
+        S_MBPOut.cMBP2   := MBPIn.cMBP;
+
+         // Различить одинаковые наименования
+        if (MBPNLev <= GrpNLev)
+          S_MBPOut.cMBP := MBPIn.cMBP;
+      }
+
+      if (isValid(#KatEd)) // Единица измерения
+        S_MBPOut.EdName := lTrim(KatEd.Name);
+
+      if (isValid(#KatParty)) // Партия
+      {
+        S_MBPOut.PrtKod  := lTrim(KatParty.Kod);
+        S_MBPOut.PrtName := lTrim(KatParty.Name);
+      }
+
+      if (isValid(#KatPodr)) // Подразделение
+      {
+        S_MBPOut.PodKod  := lTrim(KatPodr.Kod);
+        S_MBPOut.PodName := lTrim(KatPodr.Name);
+        S_MBPOut.cPodr   := KatPodr.nRec;
+        S_MBPOut.cHiPodr := KatPodr.cPodr;
+      }
+
+      if (isValid(#KatMol)) // Мол
+      {
+        S_MBPOut.MolKod  := lTrim(KatMol.Kod);
+        S_MBPOut.MolName := lTrim(KatMol.Name);
+      }
+
+      if (isValid(#PersCard)) // Работник
+      {
+        S_MBPOut.CrdNum := PersCard.CardNom;
+!        S_MBPOut.TabNum := iPersInfo.GetTabNum(PersCard.nRec);
+!        S_MBPOut.FIOName := if (isValid(#Persons), Persons.FIO, '');
+        S_MBPOut.FIOName := if (isValid(#Persons_Alt), Persons_Alt.FIO, '');
+        S_MBPOut.TabNum  := if (Persons_Alt.StrTabN <> '', Persons_Alt.StrTabN, Persons_Alt.TabNmb);
+      }
+
+#ifdef __RNAL_MBP__
+      if (isValid(#NormSFO)) // Норма выдачи СФО
+      {
+        S_MBPOut.NrmKod  := NormSFO.Kod;
+        S_MBPOut.NrmName := NormSFO.Name;
+      }
+
+      if (bClsPeriod) and (myPlansNo <> 0)
+        GetMBPInBuhSchet(S_MBPOut.SchetD, S_MBPOut.SubSchD);
+#end
+
+      S_MBPOut.InInfo   := MBPIn.DopInfo;
+      S_MBPOut.DocNum   := MBPIn.Nom;
+      S_MBPOut.Price    := MBPIn.Price;    // Цена предметов
+      S_MBPOut.dEndExpl := MBPIn.DateEnd; // Дата окончания срока службы
+      S_MBPOut.Srok     := GetMBPInSrok;  // Срок службы
+    }
+  //----------------
+    7:
+      if (isValid(#KatOrg))         // Контрагент
+        S_MBPOut.OrgName := lTrim(KatOrg.Name);
+  //----------------
+  //----------------
+    13:
+      if (isValid(#MBPWrite))
+        S_MBPOut.Metodic := MBPWrite.Name;
+  //----------------
+  End;
+}
+
+
+Procedure PrintOperXL;
+{
+  if (short = 0)
+    Exit;
+
+  // Наименование и номенкл номер
+  if ((pCommand > 0) AND ((nlFlags AND 2) > 0)) // Выводить размеры
+  {
+    var sStr: String[80];
+
+    sStr := iSizes.GetSizes(S_MBPOut.InInfo); // MBPIn.DopInfo
+
+    if (sStr = '')
+      sStr := iSizes.GetSizes(S_MBPOut.MBPInfo); // KatMBP.DopInfo
+
+    if (MBPNLev <= GrpNLev)  // Есть уровень номенклатуры
+      pXL.SetTblStringFldValue('поле4', if (sStr = '', '', 'размер: ' + sStr));
+    else
+      pXL.SetTblStringFldValue('поле4', S_MBPOut.MBPName + ' (' + S_MBPOut.MBPNum + if (sStr = '', '', ', размер: ') + sStr + ')');
+  }
+  else
+    pXL.SetTblStringFldValue('поле4', if (MBPNLev <= GrpNLev, '', S_MBPOut.MBPName + ' ('+ S_MBPOut.MBPNum + ')'));
+
+  pXL.SetTblStringFldValue('дата1', f_DateToStrZ(S_MBPOut.dOper));
+  pXL.SetTblStringFldValue('дата2', f_DateToStrZ(S_MBPOut.dExpl));
+  pXL.SetTblStringFldValue('дата3', f_DateToStrZ(S_MBPOut.dEndExpl));
+
+  pXL.SetTblNumberFldValue('ном12', PrintRound(S_MBPOut.Price));  // Цена
+
+  pXL.SetTblNumberFldValue('ном10', S_MBPOut.Kol);    // Количество
+
+  if (wXLTKind = 2)
+  {
+    pXL.SetTblNumberFldValue('ном11', PrintRound(S_MBPOut.Stoim));
+    pXL.SetTblNumberFldValue('ном7', PrintRound(S_MBPOut.Stoim) - PrintRound(S_MBPOut.Iznos));
+  }
+  else
+    if ((Pos('в пользовании', GetKindStr(pCommand)) > 0) OR (wGetTune('Fin.MBP.OstStoim') = 0))
+      pXL.SetTblNumberFldValue('ном11', PrintRound(S_MBPOut.Stoim))  // Сумма
+    else
+      pXL.SetTblNumberFldValue('ном11', PrintRound(S_MBPOut.Stoim) - PrintRound(S_MBPOut.Iznos));  // Сумма
+
+  pXL.SetTblNumberFldValue('ном8', S_MBPOut.Perc);   // Процент износа
+
+  pXL.SetTblNumberFldValue('ном9', PrintRound(S_MBPOut.Iznos));  // Сумма износа
+
+  dnum9 := dnum9 + S_MBPOut.Iznos;
+  pXL.SetTblStringFldValue('поле1', Trim(S_MBPOut.EdName)); // Единица измерения
+  pXL.SetTblStringFldValue('поле2', Trim(S_MBPOut.InInfo)); // DopInfo
+
+  pXL.SetTblStringFldValue('поле5', Trim(S_MBPOut.PrtKod));  // Код партии
+  pXL.SetTblStringFldValue('поле6', Trim(S_MBPOut.PrtName)); // Наименование партии
+
+#ifndef __RNAL_SFO__
+  if (wXLTKind = 3) // сальдовая ведомость по спецодежде
+  {
+    pXL.SetTblStringFldValue('Группа_Имя', S_MBPOut.MBPName);
+    pXL.SetTblStringFldValue('Группа_Код', S_MBPOut.MBPNum);
+    pXL.SetTblStringFldValue('ГрМЦкод', S_MBPOut.GrpKod);
+    pXL.SetTblStringFldValue('ГрМЦимя', S_MBPOut.GrpName);
+    pXL.SetTblStringFldValue('State', if (Longint(S_MBPOut.dExpl) = 0, 'С', 'Э'));
+    pXL.SetTblStringFldValue('дата2', if (Longint(S_MBPOut.dExpl) = 0, f_DateToStrZ(S_MBPOut.dOper), f_DateToStrZ(S_MBPOut.dExpl)));
+    pXL.SetTblStringFldValue('Srok', if (S_MBPOut.Srok = 0, 'Разовая', if (S_MBPOut.Srok = MaxWord, 'До износа', if (S_MBPOut.Srok > 0, String(S_MBPOut.Srok), ''))));
+    pXL.SetTblStringFldValue('Schet', S_MBPOut.SchetD);
+    pXL.SetTblStringFldValue('SubSchet', S_MBPOut.SubSchD);
+    pXL.SetTblStringFldValue('Podr', S_MBPOut.PodName);
+    pXL.SetTblStringFldValue('PodrKod', S_MBPOut.PodKod);
+
+    if (GetFirst KatPodr where (( S_MBPOut.cHiPodr == KatPodr.nRec )) = tsOk)
+      pXL.SetTblStringFldValue('HighPodr', KatPodr.Name);
+
+    pXL.SetTblStringFldValue('Mol', S_MBPOut.MolName);
+    pXL.SetTblStringFldValue('MolKod', S_MBPOut.MolKod);
+    pXL.SetTblStringFldValue('Person', S_MBPOut.FIOName);
+    pXL.SetTblStringFldValue('PersonTabN', S_MBPOut.TabNum);
+    pXL.SetTblStringFldValue('NormSFO', S_MBPOut.NrmName);
+  }
+
+  var i : word;
+  i := 0;
+
+  _LOOP AttrNam where (( coMBPIn == AttrNam.wTable )) ordered by index AttrNam1
+  {
+    i := i + 1;
+    pXL.SetTblStringFldValue('ExtAttr_Val' + String(i), piExtAttr.sGetAttr(coMBPIn, S_MBPOut.cMBPIn, AttrNam.Name));
+
+    if (i >= 10)
+      Break;
+  }
+#end
+
+  pXL.InsTblRow;
+  pXL.ClearTblBuffer;
+}
+
+
+Procedure ShowReportXL;
+var i : word;
+{
+  if (GetFirst S_MBPOut <> tsOk)
+  {
+    Message('Нет наличия ' + if (pCommand > 0, 'СФО', 'спецоснастки') + ' по выбранным критериям.', okButton + Information);
+    Exit;
+  }
+
+#ifdef __RNAL_SFO__
+  // Группировка фурнитуры по основным предметам одежды
+  if (Lic_ItemExists('Custom') AND (pCommand = 2))
+    if ((wXLTKind = 1) AND (short = 1) AND isValid(#Grouping))
+      if ((Grouping.Levels[GrpNLev]) = 1)
+        if (GetFirst S_MBPFurnOut where (( 0 == S_MBPFurnOut.cHiOper (NoIndex) )) <> tsOk)
+        {
+          Message('Нет наличия предметов основной одежды по выбранным критериям.', okButton + Information);
+          Exit;
+        }
+#end
+
+  var DifLev: Word;
+  Stopped := False;
+  var tStr : String [80];
+
+  StartNewVisual(vtIndicatorVisual, vfTimer + vfBreak + vfConfirm, 'Формирование ведомости наличия', RecordsInTable(#S_MBPOut));
+ //===============================================
+  Set sXLSFileName := pXL.CreateReport(sXLTFileName, True);
+  // Set sXLSFileName := pXL.CreateXLT(sXLTFileName, True);
+
+  pXL.CreateTbls(sXLSFileName);
+
+//----------Таблица rnal_filt ---------
+  pXL.CreateTbl('rnal_filt');
+  pXL.CreateTblFld('Фильтры');
+  pXL.CreateTblFld('Номенклатура_фильтров');
+  PrintFiltersXL;
+  pXL.PublishTbl('rnal_filt');
+
+//----------Таблица rnal ---------
+   pXL.CreateTbl('rnal');
+   pXL.CreateTblFld('ном7');
+   pXL.CreateTblFld('ном8');
+   pXL.CreateTblFld('ном9');
+   pXL.CreateTblFld('ном10');
+   pXL.CreateTblFld('ном11');
+   pXL.CreateTblFld('ном12');
+   pXL.CreateTblFld('дата1');
+   pXL.CreateTblFld('дата2');
+   pXL.CreateTblFld('дата3');
+   pXL.CreateTblFld('поле0');
+   pXL.CreateTblFld('поле1');
+   pXL.CreateTblFld('поле2');
+   pXL.CreateTblFld('поле3');
+   pXL.CreateTblFld('поле4');
+   pXL.CreateTblFld('поле5');
+   pXL.CreateTblFld('поле6');
+   pXL.CreateTblFld('поле8');
+   pXL.CreateTblFld('Группа_Имя');
+   pXL.CreateTblFld('Группа_Код');
+   pXL.CreateTblFld('ГрМЦкод');
+   pXL.CreateTblFld('ГрМЦимя');
+   pXL.CreateTblFld('State');
+   pXL.CreateTblFld('Srok');
+   pXL.CreateTblFld('Schet');
+   pXL.CreateTblFld('SubSchet');
+   pXL.CreateTblFld('Podr');
+   pXL.CreateTblFld('PodrKod');
+   pXL.CreateTblFld('HighPodr');
+   pXL.CreateTblFld('Mol');
+   pXL.CreateTblFld('MolKod');
+   pXL.CreateTblFld('Person');
+   pXL.CreateTblFld('PersonTabN');
+   pXL.CreateTblFld('NormSFO');
+
+   for (i := 1; i <= 10; i++)
+     pXL.CreateTblFld('ExtAttr_Val' + String(i));
+
+//===================================================
+
+#ifdef __RNAL_SFO__
+  var bFurnGroup : boolean;
+  bFurnGroup := False;
+
+  if ((Lic_ItemExists('Custom')) AND (pCommand = 2))
+    if ((wXLTKind = 1) AND (short = 1) AND isValid(#Grouping))
+      if ((Grouping.Levels[GrpNLev]) = 1)
+        bFurnGroup := True;
+
+  if (bFurnGroup)
+  {
+    EnterLevelXL(Word(0));
+
+    if (not Stopped)
+    do
+    {
+      if (S_MBPOut.cHiOper = 0)
+      {
+        DifLev := DiffLevel;
+
+        if (DifLev <= GrpNLev)
+        {
+          OutLevelXL(DifLev);
+          EnterLevelXL(DifLev);
+        }
+        else
+          if (GetFirst S_MBPFurnOut where (( S_MBPOut.cMBPIn == S_MBPFurnOut.cHiOper (NoIndex) )) = tsOk)
+          {
+            tStr := Pad('', 2 * (GrpNLev + 5)) + S_MBPOut.MBPName;
+            pXL.SetTblStringFldValue('поле8', tStr);
+          }
+
+        PrintOperXL;
+        CountAgregsXL;
+
+        _LOOP S_MBPFurnOut where (( S_MBPOut.cMBPIn == S_MBPFurnOut.cHiOper (NoIndex) ))
+        {
+          PrintOperFurnXL;
+          CountAgregsFurnXL;
+        }
+      }
+
+      if (not NextVisual)
+      {
+        Stopped := True;
+        Break;
+      }
+    }
+    while (GetNext S_MBPOut = tsOk);
+  }
+  else
+  {
+#end
+    EnterLevelXL(Word(0));
+
+    if (not Stopped)
+    do
+    {
+      DifLev := DiffLevel;
+
+      if (DifLev <= GrpNLev) //and (DifLev > 0)
+      {
+        OutLevelXL(DifLev);
+        EnterLevelXL(DifLev);
+      }
+
+      PrintOperXL;
+      CountAgregsXL;
+
+      if (not NextVisual)
+      {
+        Stopped := True;
+        Break;
+      }
+    }
+    while (GetNext S_MBPOut = tsOk);
+#ifdef __RNAL_SFO__
+  }
+#end
+
+  if (not Stopped)
+    OutLevelXL(Word(0));
+
+  pXL.ClearTblBuffer;
+  pXL.PublishTbl('rnal');
+
+  PrintHeaderXL;
+  StopVisual('', 0);
+
+  if (Stopped)
+  {
+    if (Stopped)
+      Message('Процесс прерван пользователем.', Warning);
+  }
+  else
+  {
+    pXL.LoadReport(sXLSFileName);
+    pXL.DisConnectExcel;
+  }
+}
+
+
+end. // Interface

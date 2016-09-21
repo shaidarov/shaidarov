@@ -1,0 +1,113 @@
+
+#include PersNrCt.vih
+
+Interface PersSFO_ADD 'Добавка PerSFO к MBPin "до износа" ' (,,) , DoAccept;
+  Show at (, , 85, 10);
+
+#include PersNrCt.var // var iPersNorm : PrsNrmCnt;
+
+create view
+as select *
+from
+  MBPin
+, MBPout
+, PersSFO
+, KatMBP
+, PersNorm
+;
+
+HandleEvent
+
+cmInit: {
+
+   _Loop MBPin where (( date(31, 12, 2015) == MBPin.dIn
+                    and                 1  == MBPin.InEkspl (noIndex)
+                    and                 0  << MBPin.cPers   (noIndex)
+                     )) {
+
+       if GetFirst PersSFO where (( MBPin.nRec == PersSFO.cCurMBPIn ))  = tsOK
+         Continue;
+
+       if GetFirst MBPout  where (( MBPin.nRec == MBPout.cMBPin     ))  = tsOK
+         Continue;
+
+       if GetFirst KatMBP  where (( MBPin.cMBP == KatMBP.nRec       )) != tsOK
+         Continue;
+
+        ClearBuffer(#PersSFO)               ;
+        PersSFO.cKatMBP   := MBPin.cMBP     ;
+        PersSFO.cPersCard := MBPin.cPers    ;
+        PersSFO.cPersSpec := 0              ;
+        PersSFO.cSpReqSFO := 0              ;
+        PersSFO.SpecFlag  := 1              ;
+        PersSFO.OperDate  := MBPin.dIn      ;
+        PersSFO.GiveDate  := MBPin.dIn      ;
+        PersSFO.ExplDate  := MBPin.DateEksp ;
+!        PersSFO.EndDate   := MBPin.DateEnd  ;
+!        PersSFO.Srok      := Srok()           ;
+!        PersSFO.DopAttr   := Srok           ;  // Обязательно заполнять! иначе при перемещении срок в новом PersSFO будет браться из нормы
+        PersSFO.CurKol    := MBPin.KolDoc   ;
+        PersSFO.DocKol    := MBPin.KolDoc   ;
+        PersSFO.ZeroKol   := 1              ;
+        PersSFO.cDocMBPIn := MBPin.nRec     ;
+        PersSFO.cCurMBPIn := MBPin.nRec     ;
+        PersSFO.GiveNom   := MBPin.Nom      ;
+        PersSFO.cGroupSFO := KatMBP.cGroupMC;
+        insert current PersSFO              ;
+
+
+LogStrToFile('\\10.12.36.6\GalSrv9$\EUS_RES\EUS_F\F_SFO\vip_saldo\1.log', PersSFO.nRec);
+
+        if GetFirst PersSpec where ((  MBPin.cPers     == PersSpec.cPersCard
+                                   and GroupSFO.nRec   == PersSpec.cGroupSFO
+                                   and ZeroDate        == PersSpec.ToDate           // дата окончания
+                                   )) = tsOk {
+
+           PersSFO.cPersSpec := PersSpec.nRec;
+           upDate current PersSFO;
+
+           PersSpec.GivKol := PersSpec.GivKol + MBPin.KolDoc ;
+           upDate current PersSpec;
+        } else {
+                  if GetFirst PersSpec where ((  PersCard.nRec     == PersSpec.cPersCard
+                                             and 01C2000000000010h == PersSpec.cGroupSFO
+                                             )) = tsOk {
+                     PersSFO.cPersSpec := PersSpec.nRec;
+                     upDate current PersSFO;
+
+                     PersSpec.GivKol := PersSpec.GivKol + PersSFO.DocKol ;
+                     upDate current PersSpec;
+                  }
+                     else {
+                            ClearBuffer(#PersNorm)                   ;
+                            PersNorm.cNormSFO  := 01C200000000025Eh  ; // ЯR Сальдо - норма для загрузки остатков
+                            PersNorm.cPersCard := PersCard.nRec      ;
+                            PersNorm.FrDate    := date(01, 01, 2000) ;
+                            PersNorm.Status    := 1                  ;
+                            PersNorm.OsnFlag   := 1                  ;
+                            PersNorm.SpecFlag  := 0                  ;
+                            Insert current PersNorm                  ;
+
+                            iPersNorm.ReCalcPersNorms(PersCard.nRec, false);
+
+                                  if GetFirst PersSpec where ((  PersCard.nRec     == PersSpec.cPersCard
+                                                             and 01C2000000000010h == PersSpec.cGroupSFO
+                                                             )) = tsOk {
+                                     PersSFO.cPersSpec := PersSpec.nRec;
+                                     upDate current PersSFO;
+
+                                     PersSpec.GivKol := PersSpec.GivKol + PersSFO.DocKol ;
+                                     upDate current PersSpec;
+                                  }
+
+
+                     }
+               }
+
+   }
+
+}
+
+end;
+
+end. // interface

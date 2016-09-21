@@ -1,0 +1,619 @@
+
+#component "F_MBP"
+
+!#include ArchiveFuncs.vih         // там #AddFieldArchiveToScreenDop
+#include Confirm.vih
+#include GetKau.vih
+
+alter interface MOVE_MBP;         // документ на ввод в эксплуатацию  ******************************************
+
+OverLoad
+ procedure CheckDisable;
+ procedure SaveToDsk;
+ procedure ReadFrDsk;
+end;
+
+OverloadFormats ScreenExpl;
+OverloadFormats scMbpExpl;
+OverloadFormats BrowseOutE;
+OverloadFormats scMoveParams;
+
+#include GetKau.var
+
+var
+  mbpmove_nrec
+, cRukPodr
+                : comp    ;
+  proc_iznos
+, sr_ok
+                : double  ;
+  y
+                : boolean ;
+
+
+Create view
+as select * from
+ synonym Persons Persons_Ruk
+where ((      cRukPodr          == Persons_Ruk.nRec ))
+;
+
+Create view t1
+from
+  AttrNam
+, AttrVal
+, synonym MBPin   MBPin1
+, synonym MBPin   MBPin_Skl
+, synonym MBPout  MBPout_Skl
+, synonym MBPin   MBPin_Skl_Papa
+   where ((
+              MBPmove_nrec      == MBPin.cSopr
+          and word(1)           == MBPin.InEkspl        (noindex)
+          and MBPin.cMBPout     == MBPout.nRec
+          and MBPout.cMBPin     == MBPin1.nRec
+          and coMBPin           == AttrNam.wTable
+          and ct_ProcentIznosa  == AttrNam.Name
+          and coMBPin           == AttrVal.wTable
+          and MBPin1.nRec       == AttrVal.cRec
+          and AttrNam.Nrec      == AttrVal.cAttrNam
+          and MBPin.nRec        == PersSFO.cCurMBPin    (noindex)
+          and PersSFO.cPersSpec == PersSpec.nRec
+
+          and MBPmove_nrec      == MBPin_Skl.cSopr
+          and 0                 == MBPin_Skl.InEkspl    (noindex)
+          and 8                 == MBPin_Skl.Instate    (noindex)
+          and MBPin_Skl.cMBPout == MBPout_Skl.nRec
+          and MBPout_Skl.cMBPin == MBPin_Skl_Papa.nRec
+));
+
+
+procedure CheckDisable;
+{
+  if (MBPMove.cValOld > 0) {
+    EnableCommand(cmValue5);
+    EnableCommand(cmObrab);
+  }
+  else {
+    DisableCommand(cmValue5);
+    DisableCommand(cmObrab);
+  }
+}
+
+#declare AddFieldArchiveToScreenDop
+  BarKodAndStateCaption : skip;
+  BarKodAndState  ('Связь документа с архивом и ее состояние', , sci1378Esc) : protect;
+#end
+
+#declare AddFieldArchiveToScreen2
+.@@@@@@@@@@@@@@@@@@@@@@@@  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#end
+
+
+// Окно настройки печатной формы
+Window wiMoveParams 'Настройка параметров печати' (,, sci1Esc) EscClose, Gray;
+Show at (10, 6, 70, 12);
+
+Screen scMoveParams;
+  NoTableNavigation;
+Fields
+   sFeeSigners ('Подписанты. (F3 - Выбор, Ctrl+F3 - Выбор с параметрами)',, sci13Esc) : PickButton, Protect;
+   Persons_Ruk.FIO ('Руководитель подразделения'                         ,, sci13Esc) : PickButton, Protect;
+   RepFormat   ('Формат отчета') : [List 'Текст', 'FastReport', 'Excel'], Protect;
+   wTypeRep    ('Выбор отчета') : [List 'Акт ввода в эксплуатацию', 'Акт о передачи инвентаря'], Protect;
+Buttons
+ cmOk, Default,, 'Сформировать отчет';
+ cmValue13,,, 'Настройка Excel шаблона';
+ cmCancel,,, 'Отмена';
+<<
+
+ `Подписанты:`   .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Руководитель:` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ `Формат отчета:`.@@@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+  <.~C~формировать.><.Настройка шаблона.><.   Отмена   .>
+>>
+end; // Screen
+
+HandleEvent
+cmInit: {
+  inherited::handleEvent(cmInit);
+
+  ToggleFieldVisible(#Persons_Ruk.FIO, (pTypeDoc = mbpInExDoc) and (RepFormat = 0));
+}
+  cmPick : {
+    inherited::handleEvent(cmPick);
+
+    case CurField of
+      #Persons_Ruk.FIO: {
+         if ( iGetKau.GetCodeKau(cgiPick, cgKau_KatPersons, cRukPodr) > 0 )
+              set cRukPodr := cRukPodr;
+        ;
+      }
+    end;
+  }
+end;
+
+procedure SaveToDsk; {
+  inherited :: SaveToDsk;
+
+          SaveMyDsk(cRukPodr, 'Move_MBP_cRukPodr');
+}
+
+procedure ReadFrDsk; {
+  inherited :: ReadFrDsk;
+
+  if (not ReadMyDsk(cRukPodr, 'Move_MBP_cRukPodr', true))
+    cRukPodr := 0;
+}
+end; // Window wiMoveParams
+
+
+window WorkMoveMBPWindow
+
+// шапка документа "Ввод в эксплуатацию"
+Screen ScreenExpl ('', hcMBPM1OperExpl, sci1378Esc);
+  Show at (,,, 10) Fixed_Y;
+  Table MBPMove;
+  Bevel bButtonObrab {77, 6.5, 99.2, 9.25};
+Fields
+  if (isValid(#ReqSFO), 'Сформирован из требования на выдачу СФО', '')                              : Skip;
+  MBPMove.DesGr  ('Код группы пользователей')                                                       : Protect;
+  MBPMove.Descr  ('Дескриптор пользователя')                                                        : Protect;
+  MBPMove.Nom    ('Номер документа',, sci178Esc),
+    {Font = {BackColor = if (Trim(MBPMove.Nom) = '', ColorNeed, 0)}};
+  MBPMove.dMove  ('Дата оформления документа')                                                      : [,'DD/MM/YYYY'],
+    {Font = {BackColor = if (Longint(MBPMove.dMove) = 0, ColorNeed, 0)}};
+  SumOfDoc       ('Итоговая сумма по документу',, sci178Esc)                                        : [15.2], Protect;
+  NDEShName                                                                                         : skip;
+  ProvDate       ('',, sci178Esc)                                                                   : [,'DD/MM/YYYY'], Protect;
+  ToKatPodr.Name ('Склад или подразделение, куда передаются в эксплуатацию предметы')               : Protect,
+    {Font = {BackColor = if (fillPodr and (MBPMove.cPodrT = 0), ColorNeed, 0)}};
+  ToKatMol.Name  ('МОЛ, на котором будут числиться переданные в эксплуатацию предметы')             : Protect,
+    {Font = {BackColor = if (fillMol and (MBPMove.cMolT = 0), ColorNeed, 0)}};
+  DocPerson.FIO  ('Работник, в пользование которому выдаются предметы')                             : Protect;
+  KatPodr.Name   ('Склад или подразделение, откуда производится передача предметов в эксплуатацию') : Protect;
+  KatMol.Name    ('МОЛ, с которого производится передача предметов в эксплуатацию')                 : Protect;
+  HozOper.Name1  ('Типовая хозяйственная операция для всех операций-спецификаций документа')        : Protect;
+  #AddFieldArchiveToScreenDop
+Buttons
+  cmMakeOrder,,, 'Соответствующие документу операции становятся фактическими';
+  cmValue5   ,,, 'Соответствующие документу операции становятся планируемыми';
+  cmObrab    ,,, 'Привязать спецификацию к действующим Нормам работника'     ;
+<<
+ `Группа`  `Дескр.`  `№ документа`   `Выписан`     `Сумма`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  .@@@@@@@  .@@@@@@@  .@@@@@@@@@@@@@  .@@@@@@@@@@@  .@@@@@@@@@@@@@@ .@@@`Дата ввода` .@@@@@@@@@
+
+  Куда:  `подразделение`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.Ввести в эксплуат..>
+         `МОЛ`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+         `Работник`     .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.   Отмена ввода   .>
+  Откуда:`подразделение`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+         `МОЛ`          .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ <.Разнести по Нормам.>
+ `Операция`             .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#AddFieldArchiveToScreen2
+>>
+end; // Screen ScreenExpl
+
+TabbedSheet bottom Info;
+  Show at (, 21,,);
+// закладка "информация" для документа "Ввод в эксплуатацию"
+Screen  scMbpExpl 'Информация' (, hcMBPVvodEksplExtInf, sci178Esc);
+  Show at (,,, ) Fixed_Y;
+  Table MBPIn;
+Fields
+  Persons.FIO      ('Работник, в пользование которому выдаются предметы',, sci1378Esc)                    : Protect;
+  PersSpec.Srok    ('Срок службы по норме')                                     : [3],   NoProtect;
+  MBPIn.DateEksp   ('Дата ввода предметов в эксплуатацию')                                                : ['DD/MM/YYYY'], Skip;
+  SrokExpl         ('Срок службы введенных в эксплуатацию предметов в месяцах')                           : [3],   NoProtect;
+  MBPIn.DateEnd    ('Дата окончания срока службы предметов')                                              : ['DD/MM/YYYY'];
+  MBPIn.Price      ('Цена предмета')                                                                      : [8.2], Skip;
+  MBPOut.tKol      ('Количество, имевшееся в данном разрезе до передачи в эксплуатацию')                  : [8.3], Skip;
+  WorkEd           ('Используемая единица измерения')                                                     :        Skip;
+  MBPIn.KolDoc     ('Количество предметов, введенное в эксплуатацию')                                     : [8.3], NoProtect,
+     {Font = {BackColor = if (Abs(MBPIn.KolDoc) < 0.000001, ColorNeed, 0)}};
+  OnOutSum         ('Балансовая стоимость предметов, имевшихся в данном разрезе до ввода в эксплуатацию') : [8.2], Skip;
+  InDocSum         ('Балансовая стоимость введенных в эксплуатацию предметов')                            : [8.2], NoProtect;
+  MBPOut.tPercent  ('Процент износа предметов на момент ввода в эксплуатацию')                            : [8.2], Skip;
+  MBPOut.tSummaIsn ('Сумма износа предметов, имевшихся в данном разрезе до ввода в эксплуатацию')         : [8.2], Skip;
+  MBPIn.SummaIsnP  ('Сумма износа предметов, переданных в новый разрез')                                  : [8.2], Skip;
+  MBPIn.PercNach   ('Процент износа, начисленный при вводе в эксплуатацию')                               : [8.2], NoProtect;
+  MBPIn.SummaIsnN  ('Сумма износа, начисленная при вводе в эксплуатацию')                                 : [8.2], NoProtect;
+  NormSFO.Name     ('Наименование нормы выдачи спецодежды')                                               : Protect;
+  NormSFO.Kod      ('Код нормы выдачи спецодежды')                                                        : Protect;
+  GroupSFO.Name    ('Наименование спецификации нормы выдачи спецодежды')                                  : Protect;
+  GroupSFO.Kod     ('Код спецификации нормы выдачи спецодежды')                                           : Protect;
+  <<
+  Операция ввода в эксплуатацию
+ `Работник`           .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ `Срок службы по норме`.@@@@@ мес.
+ `Дата ввода в экспл.`.@@@@@@@@@@@    `Срок службы`.@@@@@ мес. `Дата окончания`.@@@@@@@@@@@
+  На момент ввода цена                .@@@@@@@@@@@@@@@@@@                   `Введено`
+    Количество                        .@@@@@@@@@@@@@@@@@@ .@@@@@@@@     .@@@@@@@@@@@@@@@@@@
+    Стоимость                         .@@@@@@@@@@@@@@@@@@               .@@@@@@@@@@@@@@@@@@
+    Износ             .@@@@@@@ %      .@@@@@@@@@@@@@@@@@@               .@@@@@@@@@@@@@@@@@@
+ `Начислен износ`     .@@@@@@@ %      .@@@@@@@@@@@@@@@@@@
+ `Норма выдачи`       .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@
+ `Спецификация нормы` .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ .@@@@@@@@@@@@@@@@@@
+>>
+End; // screen
+End; // TabbedSheet bottom Info;
+
+// спецификация документа "Ввод в эксплуатацию"
+Browse BrowseOutE (, hcMBPMovePositionExpl, sci178InsPM);
+  Show at (, 11,, 20);
+  Table MBPIn;
+Fields
+  {Font = {Color = if (FoundMarker(SpecMarker, MBPIn.nRec), ColorMark, 0)}};
+  isPicked       #3'V'            ('Признак выбора спецификации')                             : [2],     Skip,    noAutoSize;
+  [isOnNorm] if (isValid(#GroupSFO), '+', '')
+                 #3'Н'            ('Признак привязки нормы')                                  : [2],              noAutoSize;
+  MBPIn.KolDoc   #3'Введено'      ('Количество предметов, вводимое в эксплуатацию')           : [8.1],            noAutoSize,
+    {Font = {BackColor = if (Abs(MBPIn.KolDoc) < 0.000001, ColorNeed, 0)}};
+  SrokExpl       #3'Срок'         ('Срок службы введенных в эксплуатацию предметов в месяцах'): [2]                         ;
+  WorkEd         #3'ЕдИзм'        ('Используемая единица измерения')                          : [5],     Protect, noAutoSize;
+  MBPIn.PercNach #3'Нач.%'        ('Процент износа, начисляемый при вводе в эксплуатацию')    : [5.0],   Protect, noAutoSize;
+  InDocSum       #3'Сумма'        ('Балансовая стоимость введенных в эксплуатацию предметов') : [15.2],           noAutoSize;
+  KatMBP.Name    #3'Наименование' ('Наименование предметов')                                  : [25],    Protect            ;
+  KatMBP.NNumber #3'Номенклат. №' ('Номенклатурный номер предметов', hcMBPFReleterSign)       : [13],    Protect, noAutoSize;
+End; // Browse BrowseOutE
+
+
+
+HandleEvent
+cmMakeOrder: {    // формирование ордеров в документе на ввод в эксплуатацию
+
+ if (inherited::handleEvent (cmMakeOrder) = heAbort )
+  Abort;
+
+/*
+  y := true;
+
+  mbpmove_nrec := mbpmove.nrec;
+
+  t1._loop mbpin {
+    if MBPin.DateEnd = to_date(0,0,0) {
+      y := false;
+      break;
+    }
+  }
+
+  if y = false {
+    if Message('В некоторых позициях не указан срок носки, им будет проставлен срок "До износа", будете вводить в эксплуатацию?', YesNo) = cmYes {
+      y := true;
+    }
+  }
+
+  if y {
+*/
+
+    mbpmove_nrec := MBPmove.nRec;
+
+     t1._loop MBPin {
+// Если есть атрибут "Признак счёта на складе", тогда переносим его в атрибут "Признак счёта"
+             if piExtAttr.sGetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSchSklad) <> '' {
+               piExtAttr.coSetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSch
+                                 , piExtAttr.coGetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSchSklad)
+                                 , piExtAttr.sGetAttr( coMBPin, t1.MBPin.nRec, ct_PrizSchSklad)
+                                  );
+             }
+/*
+! Не надо заполнять атрибут в зависимости от срока - ТХО-шка отработает и без него
+               else {
+                 if Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd) > 0 {
+                       if Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd) > 12 {
+                           piExtAttr.coSetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSch, ct_coBalans, ct_stBalans);
+                       } else {
+                           piExtAttr.coSetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSch, ct_coZaBalans, ct_stZaBalans);
+                         }
+                 }
+               }
+*/
+
+     if piExtAttr.coGetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSch) = ct_coBalans {
+          sr_ok:=0;
+          if t1.GetFirst MBPout   = tsOk
+          if t1.GetFirst MBPin1   = tsOk
+          if t1.GetFirst AttrNam  = tsOk
+          if t1.GetFirst AttrVal  = tsOk {
+          if t1.GetFirst PersSfo  = tsOk {
+          if t1.GetFirst PersSpec = tsOk {
+             if t1.persspec.srok <> word(65535) {
+                if Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd) = t1.PersSpec.Srok/t1.PersSpec.Kol {
+                   sr_ok := t1.PersSpec.Srok/t1.PersSpec.Kol-round((t1.PersSpec.Srok/t1.PersSpec.Kol*t1.AttrVal.vDouble)/100,0);
+                   if sr_ok < 1 {
+                     sr_ok := 0;
+                    }
+
+                   t1.MBPin.DateEnd := add_months(t1.MBPin.DateEksp,sr_ok);
+                   t1.UpDate current MBPin;
+
+                   t1.PersSfo.EndDate := t1.MBPin.DateEnd;
+                   t1.PersSfo.Srok    := sr_ok           ;
+                   t1.UpDate current PersSfo;
+                }
+             }
+          } else {          // if t1.GetFirst PersSpec = tsOk
+            if t1.MBPin.DateEnd <> to_date(0,0,0) {
+                sr_ok := Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd)-round((Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd)*t1.AttrVal.vDouble)/100,0);
+
+                if sr_ok < 1 {
+                 sr_ok := 0;
+                }
+
+                t1.MBPin.DateEnd := add_months(t1.MBPin.DateEksp, sr_ok);
+                t1.UpDate current MBPin;
+
+                t1.PersSfo.EndDate := t1.MBPin.DateEnd;
+                t1.PersSfo.Srok    := sr_ok           ;
+                t1.UpDate current PersSfo;
+             }
+            }
+           } else {         // if t1.GetFirst PersSfo  = tsOk
+                if t1.MBPin.DateEnd <> to_date(0,0,0) {
+                  sr_ok := Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd)-round((Months_Between(t1.MBPin.DateEksp,t1.MBPin.DateEnd)*t1.AttrVal.vDouble)/100,0);
+                  if sr_ok < 1 {
+                    sr_ok := 0;
+                   }
+
+                  t1.MBPin.DateEnd := add_months(t1.MBPin.DateEksp, sr_ok);
+                  t1.UpDate current MBPin;
+                }
+             }
+           }
+         }                  // if piExtAttr.coGetAttr(coMBPin, t1.MBPin.nRec, ct_PrizSch) = ct_coBalans
+
+      }                     // t1._loop mbpin
+!   }                        // if y
+
+
+
+
+!!!! ВОЗВРАТ ИЗ ЭКСПЛУАТАЦИИ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+     t1._loop MBPin_Skl {
+// Если есть атрибут "Признак счёта", тогда переносим его в атрибут "Признак счёта на складе"
+             if piExtAttr.sGetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_PrizSch) <> '' {
+               piExtAttr.coSetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_PrizSchSklad
+                                 , piExtAttr.coGetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_PrizSch)
+                                 , piExtAttr.sGetAttr( coMBPin, t1.MBPin_Skl.nRec, ct_PrizSch)
+                                  );
+             } else {
+                 if Months_Between(t1.MBPin_Skl_Papa.DateEksp,t1.MBPin_Skl_Papa.DateEnd) <= 12 {
+                     piExtAttr.coSetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_PrizSchSklad, ct_coZaBalans, ct_stZaBalans);
+                 } else {
+                     piExtAttr.coSetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_PrizSchSklad, ct_coBalans  , ct_stBalans  );
+                   }
+
+               }
+
+     proc_iznos := 0;
+
+     if piExtAttr.sGetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_PrizSchSklad) = ct_stBalans {
+          proc_iznos := t1.MBPin_Skl.tPercent;
+     } else {
+         if t1.GetFirst MBPin_Skl_Papa = tsOk {
+           proc_iznos := (Months_Between(t1.MBPin_Skl_Papa.DateEksp, t1.MBPin_Skl_Papa.DateSpis)*100)
+                         /Months_Between(t1.MBPin_Skl_Papa.DateEksp, t1.MBPin_Skl_Papa.DateEnd);
+          }
+       }
+
+
+     if piExtAttr.sGetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_PrizSchSklad) = ct_stZaBalans {
+       proc_iznos:=                 piExtAttr.doGetAttr(coMBPin, t1.MBPin_Skl_Papa.nRec, ct_ProcentIznosa)
+                  + proc_iznos*(100-piExtAttr.doGetAttr(coMBPin, t1.MBPin_Skl_Papa.nRec, ct_ProcentIznosa)) / 100;
+     }
+
+     piExtAttr.doSetAttr(coMBPin, t1.MBPin_Skl.nRec, ct_ProcentIznosa, proc_iznos);
+     }                     // t1._loop mbpin_Skl
+
+
+  }                         // cmMakeOrder:
+
+cmObrab : {
+  _try {
+   vMBPDoc.CanStartChObj(DocBuf, DocRc1, DocRc2, CallCtx);
+  }
+  _except else
+  {
+    vConf.ExMessage(ExploreException);
+    Abort;
+!    PutCommand(cmPositionChanged);
+    Exit;
+  }
+
+
+  // Только для ввода в эксплуатацию и
+  // внутреннего перемещения
+  if (MBPMove.Status <> mbpInExDoc) and
+     (MBPMove.Status <> mbpMoveDoc)
+    Exit;
+
+  if (not UpdateTable)
+    Exit;
+
+  StartNewVisual(vtRotateVisual, vfTimer,'Идёт привязка норм...', 0);
+
+  PushPos(#MBPIn);
+ _Loop MBPin {
+
+      if (KatMBP.MBPKind <> 1)    Continue;  // спецоснастка
+      if (MBPIn.ExtMod    > 0)    Continue;  // плановая операция
+      if (MBPIn.InEkspl   = 0)    Continue;  // на складе
+      if (MBPIn.cPers     = 0)    Continue;  // дежурная одежда
+
+      if (MBPIn.InState = mbpMoveOp)         // перемещение без изменения работника
+        if (MBPIn.cPers = MBPInOut.cPers)
+                                  Continue;
+
+      if (not isValid(#PersSFO) ) Continue;  // нет записи в ЛК учета СФО
+      if (PersSFO.cSpReqSFO <> 0) Continue;  // выдан по требованию
+      if (PersSFO.cExtOper  <> 0) Continue;  // фурнитура
+
+      if (GetFirst LoLevSFO where (( PersSFO.nRec == LoLevSFO.cPersSFO )) = tsOk) // были операции после выдачи
+       Continue;
+
+      if (PersSFO.cPersSpec <> 0) Continue;  // уже есть связь с нормой
+
+
+  if GetFirst PersSpecS where (( MBPin.cPers       == PersSpecS.cPersCard
+                             and 1                 == PersSpecS.Status           // действующая
+                             and PersSFO.cGroupSFO == PersSpecS.cGroupSFO        // ЗДЕСЬ вся СОЛЬ
+
+                             and ( iSfoUtils.ShowDemand(PersSpecS.nRec, MBPmove.dMove) > 0 )
+                             )) != tsOk
+                                  Continue;
+
+  // Определим, установлен ли для спецификации признак двойной выдачи
+  isDblGiven := iDblGiven.IsDblGivenByNorm(PersSpecS.nRec, MBPIn.dIn);
+
+  // Найдем требуемое количество и сроки носки
+  var dopSrok,
+      normKol    : word;
+  var kolAvans   : double;
+  var curSpec    : comp;
+
+  curExDate  := date(0,0,0);
+  curEndDate := date(0,0,0);
+  curSrok    := 0;
+  nrmSrok    := 0;
+  dopSrok    := 0;
+  curSpec    := 0;
+  curStepKol := 0;
+  kolAvans   := 0;
+  perPBafter := 0;
+  normKol    := Word(iSfoUtils.GetDemand(PersSpecS.nRec, MBPIn.dIn));
+
+  if (normKol = 0)                Continue;         // у работника нет потребности в спецодежде
+
+  iSfoUtils.SetNextSFOKolDate(PersSpecS.nRec,
+                              MBPIn.dIn,
+                              MBPIn.dIn,
+                              Word(MBPIn.KolDoc),
+                              normKol,
+                              curSpec,
+                              curExDate,
+                              curStepKol,
+                              kolAvans,
+                              perPBafter);
+
+  if (curStepKol <= 0)            Continue;         // Нет предметов, требуемых работнику по выбранной норме
+
+
+  curStepKol := if (Word(MBPIn.KolDoc) < curStepKol, Word(MBPIn.KolDoc), curStepKol);
+  nrmSrok    := GetNormSrok(curStepKol, PersSpecS.Srok);
+
+  if (MBPIn.KolDoc > curStepKol)  Continue;         // Если положенное количество меньше выдаваемого оставим без привязки
+
+  if (PersSpecS.Nacop = 0) and (PersSpecS.Srok > 0) and (PersSpecS.Srok < MaxWord)
+    if (MBPIn.PercDoc > 0) and (MBPIn.PercDoc < 100)
+    {
+      if (wGetTune('Fin.SFO.SetTrebSrokByIzn') = 1)
+        dopSrok := Word(my_Round((1 - MBPIn.PercDoc / 100) * nrmSrok, 1, 0));
+    }
+    else
+    {
+      if (MBPIn.InState = mbpMoveOp) and (MBPIn.DateEnd >= MBPIn.dIn)
+        dopSrok := DiffMonths(MBPIn.DateEnd, MBPIn.dIn);
+    }
+
+  curSrok := if ((dopSrok > 0) and (dopSrok < nrmSrok), dopSrok, nrmSrok);
+  perPBafter := iSfoUtils.GetBreakKol(MBPin.cPers, curExDate, curSrok);
+
+  if (perPBafter = To_Days(MaxDate))
+    curEndDate := MaxDate;
+  else
+    curEndDate := Add_Day(CalcExplEndMax(curExDate, curSrok), perPBafter);
+
+  _try
+  {
+    vConf.ConfClrAll(Response);
+!    vConf.SingleBatchEnter(CallCtx, #ContextDef);
+    vConf.SingleBatchEnter(CallCtx, ccxMBPDoc);
+
+    if (MBPIn.KolDoc <> curStepKol) or (MBPIn.DateEnd <> curEndDate)
+    {
+      InBuf := TMBP_In(MBPIn.Buffer);
+      InBuf.KolDoc  := curStepKol;
+      InBuf.DateEnd := curEndDate;
+
+      vIn.ChkModify(InBuf, CallCtx, Response);
+      vIn.UpdateObj(InBuf, Double(0), Double(0), CallCtx, Response);
+      _noexcept ReReadRecord(#MBPIn);
+      _noexcept ReReadRecord(#PersSFO);
+    }
+
+    PersBuf := TPers_SFO(PersSFO.Buffer);
+    PersBuf.cPersSpec := PersSpecS.nRec;
+    PersBuf.explDate  := curExDate;
+    PersBuf.endDate   := curEndDate;
+    PersBuf.DopAttr   := if (curSrok <> nrmSrok, curSrok, 0);
+    PersBuf.BreakKol  := perPBafter;
+
+    vPers.ChkModify(PersBuf, MBPIn.Price, CallCtx, Response);
+    vPers.UpdateObj(PersBuf, CallCtx, Response);
+
+    _noexcept ReReadRecord(#MBPIn);
+    _noexcept ReReadRecord(#PersSFO);
+
+    // Пересчет износа при вводе в эксплуатацию
+    if (MBPIn.InState = mbpInExOp)
+    {
+      InBuf := TMBP_In(MBPIn.Buffer);
+
+      var IznNach : double;
+      IznNach := vIn.GetPercNach(InBuf, CallCtx);
+
+      if (InBuf.PercNach <> IznNach)
+      {
+        InBuf.PercNach := IznNach;
+        vIn.ChkModify(InBuf, CallCtx, Response);
+        vIn.UpdateObj(InBuf, Double(0), Double(0), CallCtx, Response);
+      }
+    }
+  }
+  #include MBP_ExPan.vpp
+  _finally
+    vTrans.TransCompleted;
+
+  ReReadRecord(#MBPIn);
+  ReReadRecord(#PersSFO);
+  NormInfoVisible;
+
+  }
+  PopPos(#MBPIn);
+
+  StopVisual('', 0);
+
+  message('Разноска по Нормам закончена');
+}
+end;    // HandleEvent
+end;    // window WORKMOVEMBPWINDOW
+
+HandleEvent  // interface
+cmInit: {
+   if (not ReadMyDsk(PickMBPIns, 'PickMBPIns', false))  // Пусть по умолчанию будет БЫСТРЫЙ режим выбора Откуда
+     SaveMyDsk(false, 'PickMBPIns');
+
+   if (inherited::handleEvent (cmInit) = heAbort )
+     Abort;
+}
+
+cmDelOnProtect: {
+   inherited::handleEvent(cmDelOnProtect);
+
+   case CurField of
+     #Persons_Ruk.FIO:
+        set cRukPodr := 0;
+   end;
+}
+
+cmCheckField: {
+   inherited::handleEvent(cmCheckField);
+
+  case (CurField) of
+    #RepFormat: {
+      ToggleFieldVisible(#Persons_Ruk.FIO, (pTypeDoc = mbpInExDoc) and (RepFormat = 0));
+    }
+  end;
+}
+
+end;
+
+end.

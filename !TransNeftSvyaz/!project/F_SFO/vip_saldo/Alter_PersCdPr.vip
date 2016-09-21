@@ -1,0 +1,73 @@
+
+#doc
+Печать личной карточки учета СФО.<br>
+#end
+
+Alter Interface PersCdPrint 'Параметры печати ЛК учета СФО' (, hcSFOLMPrintLK, sci1Esc) EscClose, Gray;
+
+  overload
+    DataStream DtsPersCard;
+  end;
+
+
+create view
+as select * from
+  synonym KatMOL     KatMOL_Alt
+, synonym KatPodr   KatPodr_Alt
+, synonym KatPodr   KatPodr_Alt
+, synonym PersNorm PersNorm_Alt
+, synonym NormSFO   NormSFO_Alt
+, synonym lSchet     lSchet_Alt
+, synonym Persons   Persons_Alt
+where ((  PersCard.cMOL         ==   KatMOL_Alt.nRec
+      and PersCard.cPodr        ==  KatPodr_Alt.nRec
+      and PersCard.nRec         == PersNorm_Alt.cPersCard
+      and 1                     == PersNorm_Alt.Status
+      and PersNorm_Alt.cNormSFO ==  NormSFO_Alt.nRec
+
+      and PersCard.clSchet      ==   lSchet_Alt.nRec
+      and lSchet_Alt.tPerson    ==  Persons_Alt.nRec
+      ))
+
+;
+
+Datastream DtsPersCard (
+
+ Table lSchet_Alt (
+  [FIO_LS]     Persons_Alt.FIO;
+  [STabN_LS]   if (Persons_Alt.StrTabN <> '', Persons_Alt.StrTabN, Persons_Alt.TabNmb);
+ );
+
+
+ DataSet inherited::PersCardFR (
+
+
+!  [PersCard1]  PersCard.Sizes[szHRost];
+!  [PersCard2]  PersCard.Sizes[szWear1];
+!  [PersCard4]  PersCard.Sizes[szObuv1];
+!  [PersCard5]  PersCard.Sizes[szGUbor];
+
+  [MOLkod]   KatMOL_Alt.Kod   ;
+  [MOLname]  KatMOL_Alt.Name  ;
+  [PodrKod]  KatPodr_Alt.Kod  ;
+  [PodrName] KatPodr_Alt.Name ;
+  [SchetZ]   piExtAttr.sGetAttr(coPersCard, PersCard.nRec, 'Счет отнесения затрат')         ;
+  [KodPodrZ] piExtAttr.sGetAttr(coPersCard, PersCard.nRec, 'Подразделение отнесения затрат');
+  [ObStr]    piExtAttr.sGetAttr(coPersCard, PersCard.nRec, 'Объекты строительства')         ;
+  [StZatr]   piExtAttr.sGetAttr(coPersCard, PersCard.nRec, 'Статьи затрат')                 ;
+  [CentrO]   piExtAttr.sGetAttr(coPersCard, PersCard.nRec, 'Центры ответственности')        ;
+  [VPRU]     piExtAttr.sGetAttr(coPersCard, PersCard.nRec, 'Виды продукции, работ, услуг')  ;
+ );
+
+
+ Table PersNorm_Alt (
+  [NormKod]  NormSFO_Alt.Kod ;
+  [NormName] NormSFO_Alt.Name;
+ );
+
+)
+
+end; // DataStream DtsPersCard
+
+
+end. // Interface

@@ -1,0 +1,212 @@
+
+#include EmpElements.vih
+
+#doc
+Интерфейс формирования отчетов "Реестры выданной СФО" и "Ведомость учета выдачи СФО".<br>
+#end
+
+Alter Interface SFO_REGISTRY DoAccept, EscClose, Gray;
+
+ var
+  cPrint_MOL
+, cPrint_Ruk
+               : comp   ;
+
+#include EmpElements.var  // iEmpElements: EmpElement
+
+overLoad
+  Procedure PrintPicksEx(pList: Word; fltVal: Comp);
+  function  RunRep : Boolean;
+end;
+
+OverloadFormats scSFO_VedPar;
+
+
+create view
+as select * from
+  synonym KatMOL  Print_KatMOL
+, synonym Persons Print_Persons
+
+where (( cPrint_MOL  == Print_KatMOL.nRec
+     and cPrint_Ruk  == Print_Persons.nRec
+       ))
+;
+
+
+
+
+Procedure PrintPicksEx(pList: Word; fltVal: Comp);
+{
+  PodrStr := '';
+
+  if (fltVal = -1)
+    Exit;
+
+  var pPodr: comp;
+  var tStr: string;
+
+  if (f.GetFirstPickedNRec(pPodr, pList, fltVal))
+    {
+      if (GetFirst KatPodr where (( pPodr == KatPodr.nRec )) != tsOk)
+        break;
+
+      if (wGetTune('Fin.MBP.HighPodrToRep') = 0) or (not isValid(#HightPodr))
+        tStr := KatPodr.Name;
+      else
+        tStr := HightPodr.Name + '/' + KatPodr.Name;
+
+      PodrStr := tStr + (if (PODFLTSTR = '',  '', ' (' + PODFLTSTR + ')') );
+    }
+}
+
+
+function RunRep : Boolean;
+{
+  Set sXLSFileName := pXL.CreateReport(sXLTFileName, true);
+  // Set sXLSFileName := pXL.CreateXLT(sXLTFileName, true);
+
+  pXL.CreateVar(sXLSFileName);
+  pXL.SetDateVar('DateRep', dTo);
+  pXL.SetStringVar('NumVed', vedNum);
+  pXL.SetStringVar('BarCode', Ean13ToEanGnivcTTF(GetAbstractBarCode));
+  pXL.SetStringVar('OKPO', iOrgInfo.MyOrgOKPO);
+  pXL.SetStringVar('Организация', iOrgInfo.MyOrgNameT);
+  pXL.SetStringVar('Подразделение', PodrStr);
+  pXL.SetStringVar('GrByPodr', String(GrByPodr));
+  pXL.SetStringVar('RepType', if (GetBooleanParameter('FINPARAMS', 'USEVSMNFORMS', 0), 1, 0));
+
+  pXL.SetStringVar('Print_KatMOL'    , String(iEmpElements.LastNameWithInitials(Print_KatMOL.Name, 0)  ));
+  pXL.SetStringVar('Print_DolMOL'    , String(iEmpElements.CurPostName         (Print_KatMOL.cPersons) ));
+  pXL.SetStringVar('Print_Persons'   , String(iEmpElements.LastNameWithInitials(Print_Persons.FIO, 0)  ));
+  pXL.SetStringVar('Print_DolPersons', String(iEmpElements.CurPostName         (Print_Persons.nRec)    ));
+  pXL.PublishVar;
+
+  pXL.CreateTbls(sXLSFileName);
+  pXL.CreateTbl('SFO');
+
+  pXL.CreateTblFld('PorNum');
+  pXL.CreateTblFld('FIO');
+  pXL.CreateTblFld('TabNum');
+  pXL.CreateTblFld('NameSFO');
+  pXL.CreateTblFld('NumNomenklSFO');
+  pXL.CreateTblFld('NameEdIzm');
+  pXL.CreateTblFld('KodEdIzm');
+  pXL.CreateTblFld('Kol');
+  pXL.CreateTblFld('DatePost');
+  pXL.CreateTblFld('SrokSlugb');
+  pXL.CreateTblFld('Price');
+  pXL.CreateTblFld('Stoim');
+  pXL.CreateTblFld('Summa');
+
+  RunRep := True;
+}
+
+
+Screen scSFO_VedPar ('Параметры формирования ведомости учета выдачи СФО', hcSFOIRegVed, sci1Esc);
+Bevel b1 { 1, 4, 63, 11, bsLowered, bsFrame};
+Fields
+  vedNum ('Номер ведомости учета выдачи СФО')               : NoProtect;
+  dFrom  ('Дата начала диапазона для расчета ведомости')    : [,'DD/MM/YYYY'], NoProtect;
+  dTo    ('Дата окончания диапазона для расчета ведомости') : [,'DD/MM/YYYY'], NoProtect,
+    {Font = {BackColor = if (dFrom > dTo, ColorNeed, 0)}};
+
+  filt      ('Используемые при формировании ведомости фильтры'): NoProtect;
+  NomFltStr ('Критерий отбора по номенклатуре',, sciMBP13RepFlt);
+  PodFltStr ('Критерий отбора по подразделениям',, sciMBP13RepFlt);
+  MolFltStr ('Критерий отбора по МОЛ',, sciMBP13RepFlt);
+  GrpFltStr ('Критерий отбора по группам СФО',, sciMBP13RepFlt);
+  NrmFltStr ('Критерий отбора по нормам выдачи СФО',, sciMBP13RepFlt);
+
+  Kind     ('Какой из видов СФО включать в отчет') : NoProtect;
+  GrByPodr ('Группировать спецификации по подразделениям') : NoProtect;
+  VidRep   ('Формат отчета') : [List 'Excel', 'Текст'], Protect;
+
+  Print_KatMOL.Name ('Печать МОЛа'        ,, sci13Esc): Protect;
+  Print_Persons.FIO ('Печать Руководителя',, sci13Esc): Protect;
+Buttons
+  cmOk, Default,, 'Сформировать ведомость с учетом введенных параметров',, scGalDial;
+  cmValue11;
+  cmValue1,,, 'Отменить формирование ведомости',, scGalDial;
+<<
+
+                Ведомость №.@@@@@@@@@@@@@@
+    Формировать за период с.@@@@@@@@@@@ по.@@@@@@@@@@@
+
+    Фильтры                      Наименование выборки
+    [.] по номенклатуре  `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    [.] по подразделениям`.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    [.] по МОЛ           `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    [.] по группам СФО   `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    [.] по нормам        `.@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+   `Включать в ведомость` (.) специальную и форменную`
+                          (.) только специальную     `
+                          (.) только форменную       `
+
+    [.] Группировать спецификации по подразделениям`
+
+   `Формат отчета:`       .@@@@@@@@@@@@@@@
+
+   Данные для подписи отчёта:
+     `МОЛ:`               .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+     `Руководитель:`      .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ <. ~C~формировать .> <.Настройка шаблона.> <.   ~О~тмена    .>
+>>
+end;
+
+
+HandleEvent // Interface
+  cmPick: {
+    inherited::handleEvent (cmPick);
+
+    case (CurField) of
+      #Print_KatMOL.Name:    RunInterface(  'L_MOL::GetMOL' , cPrint_MOL, 0) ;
+      #Print_Persons.FIO:    RunInterface('F_Podot::GetPers', cPrint_Ruk   ) ;
+    end;
+  }
+
+  cmDelOnProtect: {
+    inherited::handleEvent (cmDelOnProtect);
+
+    case (CurField) of
+      #Print_KatMOL.Name: {
+          cPrint_MOL        :=  0 ;
+          Print_KatMOL.Name := '' ;                  // ReReadRecord почему-то не сработал
+          ClearMyDsk('SFO_REGISTRY' + 'cPrint_MOL'); // почищу ДСК, а то поле не удаляется до конца
+      }
+      #Print_Persons.FIO: {
+          cPrint_Ruk        :=  0 ;
+          Print_Persons.FIO := '' ;
+          ClearMyDsk('SFO_REGISTRY' + 'cPrint_Ruk');
+      }
+    end;
+  }
+
+  cmOk: {
+    inherited::handleEvent (cmOk);
+
+    SaveMyDsk(cPrint_MOL, 'SFO_REGISTRY' + 'cPrint_MOL');
+    SaveMyDsk(cPrint_Ruk, 'SFO_REGISTRY' + 'cPrint_Ruk');
+  }
+
+  cmDone: {
+    inherited::handleEvent (cmDone);
+
+    SaveMyDsk(cPrint_MOL, 'SFO_REGISTRY' + 'cPrint_MOL');
+    SaveMyDsk(cPrint_Ruk, 'SFO_REGISTRY' + 'cPrint_Ruk');
+  }
+
+  cmInit: {
+    inherited::handleEvent (cmInit);
+
+    if (not ReadMyDsk(cPrint_MOL,  'SFO_REGISTRY' + 'cPrint_MOL', true))
+       cPrint_MOL := 0;
+
+    if (not ReadMyDsk(cPrint_Ruk,  'SFO_REGISTRY' + 'cPrint_Ruk', true))
+       cPrint_Ruk := 0;
+  }
+
+end;
+
+end. // Interface

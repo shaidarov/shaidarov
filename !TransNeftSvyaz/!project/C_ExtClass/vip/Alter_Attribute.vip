@@ -1,0 +1,277 @@
+
+const
+  cgReport  : word   =     41700 ;
+  stNameRep : string = 'Attr_Fav';
+end
+
+alter interface Attribute;
+
+create view
+ var
+  VidDoc
+               : word   ;
+  dskNoFav
+               : string ;
+  Nrec_Basedoc : comp;
+  piExAttr     : iExtAttr;
+
+
+as select * from
+  UserDeskRep
+, PlPor
+, KatSopr
+, SpSopr
+, BaseDoc
+, BaseDoc BaseDocz
+
+where ((  RecordNumber           == PlPor.nRec
+      and RecordNumber           == KatSopr.nRec
+      and RecordNumber           == SpSopr.nRec
+      and RecordNumber           == BaseDoc.nRec
+      and RecordNumber           == SpStep.nRec
+      ))
+bounds AttrVidDoc =
+          cgReport               == UserDeskRep.nRep
+      and stNameRep              == UserDeskRep.RepName
+      and VidDoc                 == UserDeskRep.ResWord[1]  (noIndex)
+      and AttrNam.nRec          /== UserDeskRep.ResComp[1]  (noIndex)
+;
+
+ToolBar tbAttr_Fav {
+   Attr_filtr = {
+     Command   = cmDopMenu1;
+     Bitmap    = bmpAttr_filtr;
+     Help      = 'Фильтр: все / избранные';
+     Broadcast = TRUE;
+   };
+
+   Attr_insert = {
+     Command   = cmDopMenu2;
+     Bitmap    = bmpAttr_insert;
+     Help      = 'Добавить в Избранные атрибуты';
+     Broadcast = TRUE;
+   };
+
+   Attr_del = {
+     Command   = cmDopMenu3;
+     Bitmap    = bmpAttr_del;
+     Help      = 'Убрать из Избранных атрибутов';
+     Broadcast = TRUE;
+   };
+ };
+
+ToolBar
+  C_ExtAttr::tbAttr_Fav;
+
+HandleEvent
+
+  cmInit: {
+    inherited::handleEvent (cmInit);
+
+    case TableCode of
+       coPlPor : {
+         if (isValid(tnPlPor)   = true) {
+           VidDoc  := PlPor.TiDkGal;
+       }};
+       coKatSopr : {
+         if (isValid(tnKatSopr) = true) {
+           VidDoc  := KatSopr.VidSopr;
+       }};
+       coSpSopr : {
+         if (isValid(tnSpSopr) = true) {
+           VidDoc  := SpSopr.VidSopr;
+       }};
+       coBaseDoc : {
+         if (isValid(tnBaseDoc) = true) {
+           VidDoc  := BaseDoc.VidDoc;
+       }};
+       else  {
+           VidDoc  := TableCode;
+       }
+    end;
+
+    dskNoFav := '';
+
+    if ( (not ReadMyDsk(dskNoFav, 'Attribute_noFav', false)) or dskNoFav = 'false' ) {
+
+       if (RecordExists UserDeskRep where (( cgReport    == UserDeskRep.nRep
+                                         and stNameRep   == UserDeskRep.RepName
+                                         and VidDoc      == UserDeskRep.ResWord[1]  (noIndex)
+                                          )) = tsOk
+          ) {
+         AddBounds(tbAttrVidDoc);
+         SetTitle('Избранные атрибуты');
+         TreeGetFirst(AttribTree);
+         ReReadRecord;
+       }
+
+    }       // if
+  }         // cmInit
+
+cmPick: 
+
+  case CurField of
+  //------------------------------------------------------------------------------
+    #AttrVal.VSTRING:
+      if AttrNam.attrType = cgAttrType_Str
+        {
+          var s: string; s := GetFileName('*.*', 'Выберите имя файла');
+          if (s <> '')
+            {
+              set AttrVal.VSTRING := s;
+              UpdateTable;
+            }
+          CloseWindow(ValueInputWindow);
+          RereadRecord(#AttrVal);
+        }
+  //------------------------------------------------------------------------------
+    #tAV:
+      if CanEditAttribute
+        {
+          if CurTable = #AttrNam
+            {
+              PutCommand(cmPick);
+              ProcessCommand(cmOpenSearch);
+            }
+          else
+           {
+            if (AttrNam.attrType = cgAttrType_Comp) AND (AttrNam.rObject <> 0)
+             {
+              if AttrNam.coTable = word(1102) and AttrNam.wTable = word(1104)
+               {
+                if RunInterface('F_Soprhoz::GetDBase', TRUE, word(2), 101, Nrec_Basedoc, 0, Basedoc.Corg, double(0))<>cmCancel
+                 {
+                  If Getfirst BasedocZ where ((Nrec_Basedoc == BasedocZ.nrec)) = tsok
+                   {
+                    piExAttr.coSetAttr(AttrNam.wTable, SpStep.Nrec, AttrNam.Name , BasedocZ.nrec, 'Основание на закупку № '+ BaseDocZ.nodoc + ' от ' + BaseDocZ.ddoc + ' г.');
+                   }
+                 }
+               }
+               else
+                {
+                 if refAttrTablePick.PickValue(AttrNam.wTable, AttrNam.NRec, RecordNumber)
+                  {
+                  CloseWindow(ValueInputWindow);
+                  RereadRecord(#AttrVal);
+                  }
+                }
+             }
+           }
+        }
+   end;
+   
+  //------------------------------------------------------------------------------
+
+  cmDopMenu1 : {
+    if (BoundActive(tbAttrVidDoc) = true) {
+         SubBounds(tbAttrVidDoc);
+         SetTitle('Все атрибуты');
+         SaveMyDsk('true',  'Attribute_noFav');
+      } else {
+         AddBounds(tbAttrVidDoc);
+         SetTitle('Избранные атрибуты');
+         SaveMyDsk('false', 'Attribute_noFav');
+      }
+
+    TreeGetFirst(AttribTree);
+    ReReadRecord;
+  }
+
+  cmDopMenu2 : {
+    if not boGetTune('ExtAttrTune.Edit_Fav') {
+     message('Вам запрещено редактировать набор Избранных атрибутов'#13
+           + ''#13
+           + 'Настройка: Общие настройки системы \ Внешние атрибуты \ Запрещено редактировать набор Избранных атрибутов');
+     Exit;
+    }
+
+    if (GetFirst UserDeskRep where (( cgReport     == UserDeskRep.nRep
+                                  and stNameRep    == UserDeskRep.RepName
+                                  and VidDoc       == UserDeskRep.ResWord[1]  (noIndex)
+                                  and AttrNam.nRec == UserDeskRep.ResComp[1]  (noIndex)
+                                   )) = tsOk ) {
+       message('Атрибут уже в избранных');
+    } else {
+         ClearBuffer(#UserDeskRep)              ;
+         UserDeskRep.nRep       := cgReport     ;
+         UserDeskRep.RepName    := stNameRep    ;
+         UserDeskRep.ResWord[1] := VidDoc       ;
+         UserDeskRep.ResComp[1] := AttrNam.nRec ;
+         insert current UserDeskRep             ;
+
+         message('Атрибут добавлен в избранные');
+      }
+  }
+
+  cmDopMenu3 : {
+    if not boGetTune('ExtAttrTune.Edit_Fav') {
+     message('Вам запрещено редактировать набор Избранных атрибутов'#13
+           + ''#13
+           + 'Настройка: Общие настройки системы \ Внешние атрибуты \ Запрещено редактировать набор Избранных атрибутов');
+     Exit;
+    }
+
+    delete current UserDeskRep;
+
+    message('Атрибут убран из избранных');
+
+    TreeGetFirst(AttribTree);
+    ReReadRecord;
+  }
+
+
+  cmHotKeys : {
+    var
+     menuID  : LongInt;
+
+      case AttrNam.AttrType of
+        cgAttrType_Str: {
+           DeleteMenuHowDynamics('C_ExtClass::Attribu_Str_HotKeys');
+           menuID := LoadMenu('C_ExtClass::Attribu_Str_HotKeys');
+           AddMenuItem(menuID,'Separator',777);
+           AddMenuItemEx2(menuID, 'Фильтр: все / избранные'      ,'Отобразить все либо только избранные атрибуты'
+                                , hcNoContext, cmDopMenu1,0,'');
+          if (BoundActive(tbAttrVidDoc) = true) {
+           AddMenuItemEx2(menuID, 'Убрать из Избранных атрибутов','Текущий атрибут не будет отображаться среди избранных атрибутов'
+                                , hcNoContext, cmDopMenu3,0,'');
+          } else {
+           AddMenuItemEx2(menuID, 'Добавить в Избранные атрибуты','Текущий атрибут будет дублироваться в отдельной области ниже'
+                                , hcNoContext, cmDopMenu2,0,'');
+          }
+           StoreMenuHowDynamics (menuID, 'C_ExtClass::Attribu_Str_HotKeys');
+           DisposeLoadMenu(menuID);
+           ReinitHeaderMenu;      // обновим главное меню
+
+        inherited::handleEvent(cmHotKeys);
+        }
+        else {
+           DeleteMenuHowDynamics('C_ExtClass::Attribu_HotKeys_Fav');
+           menuID := LoadMenu('C_ExtClass::Attribu_HotKeys_Fav');
+          if (BoundActive(tbAttrVidDoc) = true) {
+           AddMenuItemEx2(menuID, 'Убрать из Избранных атрибутов','Текущий атрибут не будет отображаться среди избранных атрибутов'
+                                , hcNoContext, cmDopMenu3,0,'');
+          } else {
+           AddMenuItemEx2(menuID, 'Добавить в Избранные атрибуты','Текущий атрибут будет дублироваться в отдельной области ниже'
+                                , hcNoContext, cmDopMenu2,0,'');
+          }
+           StoreMenuHowDynamics (menuID, 'C_ExtClass::Attribu_HotKeys_Fav');
+           DisposeLoadMenu(menuID);
+           ReinitHeaderMenu;      // обнов им главное меню
+
+           PutHotCommand(RunMenu('Attribu_HotKeys_Fav'));
+        }
+      end;
+  }
+
+end;
+
+end.
+
+bmpAttr_filtr  BitMap "bmp\Attr_filtr.bmp"
+bmpAttr_insert BitMap "bmp\Attr_insert.bmp"
+bmpAttr_del    BitMap "bmp\Attr_del.bmp"
+
+Attribu_HotKeys_Fav Menu
+{
+- 'Фильтр: все / избранные', cmDopMenu1, 'Отобразить все либо только избранные атрибуты', hcNoContext, , , ;
+}
