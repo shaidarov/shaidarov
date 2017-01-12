@@ -1,3 +1,9 @@
+# Скрипт для прав пользователей #
+
+grant GAL##ADMIN to GAL#ATLANTIS;
+alter user GAL#ATLANTIS default role ALL;
+alter user GAL #SUPERVISOR identified by GAL #SUPERVISOR;
+
 # Если Журнализация включена в Саппорте, но не работает #
 
 Alter trigger GAL.J$1109 enable;
